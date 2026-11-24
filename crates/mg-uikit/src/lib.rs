@@ -1,8 +1,6 @@
-//! The Moonglow suite's look, made for Moonglow Toolset and Moonglow
-//! Viewer (the toolset uses it; the viewer, which pins the toolset's
-//! crates at a release tag, takes it when it moves to a release that has
-//! it, the redesign's M6): the redesign's [color tokens](mod@tokens), [metrics], [theme]
-//! (egui's style made from them, dark and light), [fonts], the drawn
+//! The Moonglow suite's look, shared by Moonglow Toolset and Moonglow
+//! Viewer: color [tokens](mod@tokens), [metrics], [theme]
+//! (egui's style built from them, dark and light), [fonts], the drawn
 //! [icon set](icons), the [form helpers](form) both applications' forms
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
 //! document tabs'](shell), the [Status Bar's](status), the key caps,
@@ -13,15 +11,15 @@
 //! popover), the [popover] hung from a button (or unfolded into the
 //! header), the tool [shelf], and the kit's own [button], drawn disabled
 //! in its own tokens rather than faded; what stands over a 3D view
-//! (the compass and the view's corner buttons, [overlay]); and a
-//! [dialog]'s parts, so far the empty state of a pane with nothing in it;
-//! and the [gallery] cell, its grid and the pictures' size slider.
+//! (the compass and the view's corner buttons, [overlay]); a
+//! [dialog]'s parts (`empty`, `StepState`, `StepList`, `page_bar`, and
+//! `Footer`); and the [gallery] cell, its grid and the pictures' size
+//! slider.
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
-//! style and tab marks (the `dock` module, decision O5 of the proposal's M3): the
-//! editor area is egui_dock's `DockArea`, the docks around it are the
-//! kit's own.
+//! style and tab marks (`dock`): the editor area is egui_dock's `DockArea`,
+//! while the docks around it are the kit's own.
 //!
 //! ```
 //! let ctx = egui::Context::default();

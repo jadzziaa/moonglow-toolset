@@ -24,7 +24,7 @@
 //! already holds, and is at most 65535: the engine and the network carry
 //! the row as a 16-bit number (65536 is read as 0).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -707,6 +707,8 @@ pub fn plan(
     let mut each = Vec::new();
     // Bakes made here: their row, copy and walkmesh.
     let mut made: Vec<Bake> = Vec::new();
+    // Models already queued in `files` during this plan (created or restored).
+    let mut queued_models: HashSet<ResKey> = HashSet::new();
     // Earlier bakes' walkmeshes, read once.
     let mut earlier: BTreeMap<String, Option<Vec<[[f32; 3]; 3]>>> = BTreeMap::new();
     for req in requests {
@@ -736,8 +738,9 @@ pub fn plan(
                     })
                     .clone();
                 if theirs.is_some_and(|t| same_bake(&t, &baked)) {
-                    // (Its model gone from the hak: written again.)
-                    if !rm.contains(&ResKey::new(name_ref(&r.model)?, ResType::MDL)) {
+                    // (Its model gone from the hak: written again once per plan.)
+                    let mdl_key = ResKey::new(name_ref(&r.model)?, ResType::MDL);
+                    if !rm.contains(&mdl_key) && queued_models.insert(mdl_key) {
                         files.push(model_file(&r.model, copy_model(rm, &original, &r.model)?)?);
                     }
                     return Ok(Bake {
@@ -760,7 +763,9 @@ pub fn plan(
                  its faces moved as the game draws the model"
             );
             let pwk = w.moved_text(&model, req.matrix, &banner).into_bytes();
-            files.push(model_file(&model, copy)?);
+            let (mdl_key, mdl_bytes) = model_file(&model, copy)?;
+            queued_models.insert(mdl_key);
+            files.push((mdl_key, mdl_bytes));
             files.push((ResKey::new(name_ref(&model)?, ResType::PWK), pwk));
             let row_label =
                 table.get(copy_of as usize, "Label").unwrap_or(original.as_str()).to_string();

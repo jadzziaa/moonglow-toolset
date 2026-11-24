@@ -2820,11 +2820,6 @@ fn tdod_fountain(name: &str, overrides: &[(&str, Vec<u8>)]) -> Option<TdodFounta
 #[test]
 #[ignore]
 fn tdod_custom_shaders_look() {
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
     let Some(TdodFountain { dir, game, are, git, empty }) =
         tdod_fountain("client_tdod_shaders", &[])
     else {
@@ -2836,6 +2831,11 @@ fn tdod_custom_shaders_look() {
     }
 
     let tileset = mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));

@@ -153,17 +153,16 @@ impl Canvas {
         }
         let (under, over) = lay.layers();
         let dark = self.edge(strength);
-        let shape = |stroke: Stroke| {
-            let stroke = PathStroke::from(stroke);
+        let shape = |points: Vec<Pos2>, stroke: Stroke| {
             Shape::Path(PathShape {
-                points: points.clone(),
+                points,
                 closed,
                 fill: Color32::TRANSPARENT,
-                stroke,
+                stroke: PathStroke::from(stroke),
             })
         };
-        self.add(under, shape(Stroke::new(width + 2.0, dark)));
-        self.add(over, shape(Stroke::new(width, color.gamma_multiply(strength))));
+        self.add(under, shape(points.clone(), Stroke::new(width + 2.0, dark)));
+        self.add(over, shape(points, Stroke::new(width, color.gamma_multiply(strength))));
     }
 
     /// A solid triangle over its dark edge.
@@ -541,21 +540,25 @@ pub(super) fn selection(
     };
     // Slid: a guide line along the axis through the object across the
     // view, and a hollow dot where it began.
+    let arrows =
+        (sliding.is_some() || (tilting && view.drag.is_none())).then(|| view.axis_arrows(shown));
     if let Some(Drag::Slide { axis, pivot: began, .. }) = view.drag {
         let color = colors.axes[axis].0;
         let along = Vec3::AXES[axis] * GUIDE_REACH;
-        for arrow in view.axis_arrows(shown).into_iter().filter(|a| a.axis == axis) {
-            if let Some(points) = segment(arrow.pivot - along, arrow.pivot + along) {
-                let stroke = Stroke::new(1.0, color.gamma_multiply(GUIDE));
-                canvas.add(Layer::Fill, Shape::LineSegment { points, stroke });
+        if let Some(arrows) = &arrows {
+            for arrow in arrows.iter().filter(|a| a.axis == axis) {
+                if let Some(points) = segment(arrow.pivot - along, arrow.pivot + along) {
+                    let stroke = Stroke::new(1.0, color.gamma_multiply(GUIDE));
+                    canvas.add(Layer::Fill, Shape::LineSegment { points, stroke });
+                }
             }
         }
         if let Some(c) = at(began) {
             hollow_dot(canvas, c, 3.5, color);
         }
     }
-    if sliding.is_some() || (tilting && view.drag.is_none()) {
-        for arrow in view.axis_arrows(shown) {
+    if let Some(arrows) = arrows {
+        for arrow in arrows {
             if sliding.is_some_and(|axis| axis != arrow.axis) {
                 continue;
             }
@@ -732,7 +735,7 @@ fn tilt_ring(
 ) {
     let step = std::f32::consts::TAU / RING_DRAWN as f32;
     let Some(eye) = eye else {
-        let points: Vec<Vec3> = (0..RING_DRAWN).map(|k| ring.point(k as f32 * step)).collect();
+        let points: [Vec3; RING_DRAWN] = std::array::from_fn(|k| ring.point(k as f32 * step));
         for (points, closed) in runs(&points, segment) {
             draw(points, closed, true);
         }
@@ -745,13 +748,10 @@ fn tilt_ring(
     let toward = eye - ring.pivot;
     let near = toward.dot(ring.v).atan2(toward.dot(ring.u));
     let quarter = RING_DRAWN / 4;
-    let half = |from: usize| -> Vec<Vec3> {
-        (0..=RING_DRAWN / 2)
-            .map(|k| ring.point(near + (from + k) as f32 * step - quarter as f32 * step))
-            .collect()
-    };
     for (from, front) in [(RING_DRAWN / 2, false), (0, true)] {
-        let points = half(from);
+        let points: [Vec3; RING_DRAWN / 2 + 1] = std::array::from_fn(|k| {
+            ring.point(near + (from + k) as f32 * step - quarter as f32 * step)
+        });
         // (A half is open: its runs without the closing piece.)
         for (points, _) in runs_open(&points, segment) {
             draw(points, false, front);

@@ -1,8 +1,8 @@
 //! Plugins run on a module made here: what a command hands back, what a
 //! check finds, and what the sandbox keeps a plugin from.
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, VecDeque};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -12,10 +12,12 @@ use mg_gff::{Gff, Struct, Value};
 use mg_module::Module;
 use mg_module::doctor::Severity;
 use mg_plugin::{
-    Answer, FieldKind, Host, Input, Level, Plugin, PluginError, Question, discover, inspect,
-    run_check, run_command,
+    Answer, FieldKind, Input, Level, Plugin, PluginError, Question, discover, inspect, run_check,
+    run_command,
 };
 use mg_resman::ResKey;
+
+use crate::common::TestHost;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -46,39 +48,6 @@ fn module() -> Module {
     }
     m.set(key("old.nss"), b"void main() { }".to_vec());
     m
-}
-
-/// A host that keeps the log, answers from a list, and may call the job
-/// off after so many looks.
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<(Level, String)>>,
-    answers: RefCell<VecDeque<Option<Answer>>>,
-    asked: RefCell<Vec<Question>>,
-    /// Looks at `cancelled` left before it says yes (`None`: never).
-    cancel_after: Cell<Option<u32>>,
-}
-
-impl Host for TestHost {
-    fn log(&self, level: Level, text: &str) {
-        self.log.borrow_mut().push((level, text.to_string()));
-    }
-
-    fn cancelled(&self) -> bool {
-        match self.cancel_after.get() {
-            None => false,
-            Some(0) => true,
-            Some(n) => {
-                self.cancel_after.set(Some(n - 1));
-                false
-            }
-        }
-    }
-
-    fn ask(&self, question: &Question) -> Option<Answer> {
-        self.asked.borrow_mut().push(question.clone());
-        self.answers.borrow_mut().pop_front().flatten()
-    }
 }
 
 fn run(
@@ -499,7 +468,7 @@ fn a_bad_edit_fails_where_it_is_made() {
     let p = plugin("hostile");
     let outcome = run(&p, "bad-edits", &host).unwrap();
     assert!(outcome.edits.is_empty(), "{:?}", outcome.edits);
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     let said = |what: &str, why: &str| {
         log.iter().any(|l| l.starts_with(&format!("{what}: ")) && l.contains(why))
     };
@@ -600,7 +569,7 @@ fn the_console_runs_what_is_typed() {
     "#;
     let outcome = run_console(code, input(), host.clone()).unwrap();
     assert_eq!(outcome.edits.len(), 1);
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(log, ["{\"captain.utc\", \"guard.utc\"}", "\"FROM_CONSOLE\"", "4"]);
     // A fault says where; no file can be required.
     let e = run_console("local x = nil\nreturn x.y", input(), host.clone()).unwrap_err();
@@ -737,14 +706,20 @@ fn a_struct_s_id_is_read_beside_its_fields() {
 
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
+fn shared_base_tlk(install: &mg_resman::GameInstall) -> std::sync::Arc<mg_tlk::Tlk> {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), std::sync::Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let key = (install.root.clone(), install.language.clone());
+    TLK.get(&key, || std::sync::Arc::new(mg_rules::GameData::open_tlk(install).unwrap()))
+}
+
 #[test]
 fn the_game_s_data_is_read() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = shared_base_tlk(&install);
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let dir = mg_testkit::scratch_dir("plugin-game");
     std::fs::write(
         dir.join("plugin.cfg"),
@@ -784,12 +759,11 @@ fn the_game_s_data_is_read() {
 #[test]
 fn a_layer_s_copy_is_open_and_read() {
     use mg_plugin::{Selected, Selection, run_console};
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = shared_base_tlk(&install);
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let rm = &game.resman;
     // A blueprint of which a lower layer has another copy.
     let (copy, layers) = rm
@@ -819,7 +793,7 @@ fn a_layer_s_copy_is_open_and_read() {
     let selection = Selection { open: Some(open), ..Default::default() };
     let input = Input { selection, ..Input::new(module(), Some(game.clone())) };
     run_console(code, input, host.clone()).unwrap();
-    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    let said: Vec<String> = host.log_texts();
     // (Strings said as written, quoted.)
     let ext = format!("{:?}", copy.restype.extension().unwrap());
     let expected = [ext, format!("{label:?}"), "\"false\"".into(), lower.len().to_string()];
@@ -853,7 +827,7 @@ fn tables_are_made_and_written() {
             mg.twoda.kinds("spells").ImpactScript, mg.twoda.kinds("vfx_persistent").ONENTER
     "#;
     run_console(code, input(), host.clone()).unwrap();
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(
         log,
         [
@@ -891,7 +865,7 @@ fn tables_are_made_and_written() {
             again:get(3).sound_length
     "#;
     run_console(code, input(), host.clone()).unwrap();
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
     // A sound is named by the rule the talk-table editor and `mg tlk`
     // hold one to (`ResRef::new_name`): one they refuse, a plugin can't
@@ -937,7 +911,7 @@ fn tables_know_more_kinds_keep_their_layout_and_have_a_language() {
             same, t:write()
     "#;
     run_console(code, Input::new(module(), Some(game.clone())), host.clone()).unwrap();
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(
         log,
         [
@@ -974,7 +948,7 @@ fn tables_know_more_kinds_keep_their_layout_and_have_a_language() {
         return again.language, again:get(0).text, english.language, ok, bad
     "#;
     run_console(code, Input::new(module(), None), host.clone()).unwrap();
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(log, ["\"pl\"", "\"Łódź\"", "\"fr\"", "false", "false"]);
 }
 
@@ -1010,7 +984,7 @@ table = "places"
             table.concat(said, "; "), #d:faults(t), ok, tostring(err):find("no kind") ~= nil
     "#;
     run_console(code, input(), host.clone()).unwrap();
-    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    let log: Vec<String> = host.log_texts();
     assert_eq!(
         log,
         [
@@ -1088,7 +1062,7 @@ fn a_plugin_reads_what_is_selected_and_open() {
         "area | tavern.are |  | false | true | tavern | nil | TAVERN | tavern",
         "open: nss | old.nss |  | false | true | nil | nil | nil | old",
     ];
-    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    let said: Vec<String> = host.log_texts();
     assert_eq!(said, [format!("{:?}", lines.join("\n"))]);
     let mut ws = Workspace::new(m);
     ws.apply(Command::new("plugin", outcome.edits)).unwrap();
@@ -1102,7 +1076,7 @@ fn a_plugin_reads_what_is_selected_and_open() {
     let code = "return #ctx.selection, ctx.open == nil";
     let host = Rc::new(TestHost::default());
     mg_plugin::run_console(code, Input::new(module(), None), host.clone()).unwrap();
-    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    let said: Vec<String> = host.log_texts();
     assert_eq!(said, ["0", "true"]);
 
     // Tiles (API 0.5): each its place in the tile list, and its column
@@ -1128,7 +1102,7 @@ fn a_plugin_reads_what_is_selected_and_open() {
     let host = Rc::new(TestHost::default());
     let input = Input { selection, ..Input::new(m, None) };
     mg_plugin::run_console(code, input, host.clone()).unwrap();
-    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    let said: Vec<String> = host.log_texts();
     assert_eq!(
         said,
         [

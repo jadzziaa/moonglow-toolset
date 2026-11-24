@@ -69,8 +69,12 @@ pub fn table_heading(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
 /// without, as before the redesign: a quarter larger than the body, the
 /// rule three quarters of the pane, 6 px below.
 pub fn section_heading(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
-    let applied = theme::applied(ui.ctx());
     let heading = table_heading(ui, text);
+    section_heading_rule(ui, heading)
+}
+
+fn section_heading_rule(ui: &mut Ui, heading: egui::Response) -> egui::Response {
+    let applied = theme::applied(ui.ctx());
     if applied.is_some() {
         ui.add_space(metrics::GAP_S - ui.spacing().item_spacing.y);
     }
@@ -359,22 +363,7 @@ pub fn section_heading_with(
             heading
         })
         .inner;
-    if applied.is_some() {
-        ui.add_space(metrics::GAP_S - ui.spacing().item_spacing.y);
-    }
-    let pane = ui.available_width();
-    let share = if applied.is_some() { 1.0 } else { HEADING_RULE };
-    let width = if pane.is_finite() { pane * share } else { heading.rect.width() };
-    let (rule, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
-    let color = match applied {
-        Some(t) => t.tokens().line_soft,
-        None => ui.visuals().widgets.noninteractive.bg_stroke.color,
-    };
-    ui.painter().hline(rule.x_range(), rule.center().y, egui::Stroke::new(1.0, color));
-    let room =
-        if applied.is_some() { metrics::GAP_M - ui.spacing().item_spacing.y } else { HEADING_ROOM };
-    ui.add_space(room);
-    heading
+    section_heading_rule(ui, heading)
 }
 
 #[cfg(test)]

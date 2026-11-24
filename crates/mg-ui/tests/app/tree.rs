@@ -126,7 +126,7 @@ fn resources_open_in_their_editors() {
 fn the_log_by_the_keyboard() {
     // (The pictures are to look at, taken where there is a GPU.)
     let picture = |h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str| {
-        if adapter() {
+        if std::env::var_os("MG_SHOT").is_some() && adapter() {
             mg_testkit::gpu::hold();
             h.render().expect("render").save(dir.join(name)).unwrap();
         }
@@ -328,7 +328,7 @@ fn the_module_tree_by_the_keyboard() {
 /// tree at once.
 #[test]
 fn the_module_tree_s_groups_open_and_close_together() {
-    let Some((mut h, area)) = area_harness("fold-tree") else { return };
+    let Some((mut h, area)) = area_ui_harness("fold-tree") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     h.run_steps(2);
@@ -373,7 +373,7 @@ fn the_module_tree_s_groups_open_and_close_together() {
 /// starts in.
 #[test]
 fn an_area_is_deleted_from_the_module_tree() {
-    let Some((mut h, area)) = area_harness("delete-area") else { return };
+    let Some((mut h, area)) = area_ui_harness("delete-area") else { return };
     let ifo = ResKey::parse("module", ResType::IFO).unwrap();
     let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
     let listed = |h: &mut Harness<'_, Moonglow>| {
@@ -724,7 +724,7 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
 /// names' order, which a letter typed goes by.
 #[test]
 fn the_module_tree_shows_placed_objects_tags_when_asked() {
-    let Some((mut h, area)) = area_harness("tree-tags") else { return };
+    let Some((mut h, area)) = area_ui_harness("tree-tags") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     tall_tree(&mut h);
@@ -1067,7 +1067,7 @@ fn the_module_tree_dims_tags_and_keeps_its_rows_in_the_dock() {
 /// builder's module opened with the tree over the whole window).
 #[test]
 fn the_module_tree_never_takes_the_window() {
-    let Some((mut h, area)) = area_harness("tree-width") else { return };
+    let Some((mut h, area)) = area_ui_harness("tree-width") else { return };
     // Areas by name, and a name far longer than the pane.
     h.state_mut().settings.area_names = true;
     let name = "An Area With A Name That Goes On And On ".repeat(8);
@@ -1141,7 +1141,7 @@ fn delete_on_a_tree_row_asks_first() {
 /// to what is placed in it as well.
 #[test]
 fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
-    let Some((mut h, area)) = area_harness("tree-reveal") else { return };
+    let Some((mut h, area)) = area_ui_harness("tree-reveal") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     // The area opened is the one marked (a double click, View Area).
@@ -1893,7 +1893,7 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
 /// Aurora lists them.
 #[test]
 fn empty_groups_are_hidden_when_asked() {
-    let Some((mut h, _area)) = area_harness("tree-hide-empty") else { return };
+    let Some((mut h, _area)) = area_ui_harness("tree-hide-empty") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     h.get_by_label_contains("Placed Objects in ").click();
@@ -1951,7 +1951,7 @@ fn adjust_location_from_a_placed_object_s_row() {
 /// added to the module (GitHub issue 7).
 #[test]
 fn a_placed_object_is_exported_as_a_blueprint() {
-    let Some((mut h, area)) = area_harness("tree-export-object") else { return };
+    let Some((mut h, area)) = area_ui_harness("tree-export-object") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     tall_tree(&mut h);
@@ -2135,7 +2135,7 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
 /// frame. Now the Filter opens them once, as it is typed, and they close.
 #[test]
 fn the_kinds_the_filter_opens_close_again() {
-    let Some((mut h, _)) = area_harness("tree-filter-kinds") else { return };
+    let Some((mut h, _)) = area_ui_harness("tree-filter-kinds") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     let filter = h
@@ -2176,7 +2176,7 @@ fn the_kinds_the_filter_opens_close_again() {
 /// anew, the Filter opens it out once more.
 #[test]
 fn an_area_the_filter_opens_out_closes_again() {
-    let Some((mut h, _)) = area_harness("tree-filter-area") else { return };
+    let Some((mut h, _)) = area_ui_harness("tree-filter-area") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     let typed = |h: &mut Harness<'_, Moonglow>, text: &str| {
@@ -2220,7 +2220,7 @@ fn an_area_the_filter_opens_out_closes_again() {
 /// and both are back with Undo.
 #[test]
 fn the_filter_follows_what_is_placed_as_it_changes() {
-    let Some((mut h, _)) = area_harness("tree-filter-follows") else { return };
+    let Some((mut h, _)) = area_ui_harness("tree-filter-follows") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     let filter = h
@@ -2813,7 +2813,7 @@ fn tree_rows_with<'t>(h: &'t Harness<'_, Moonglow>, words: &'t str) -> Vec<egui_
 /// saved).
 #[test]
 fn a_read_only_area_s_object_menu_has_no_adjust_location() {
-    let Some((mut h, _area)) = read_only_area_harness("tree-read-only-adjust") else { return };
+    let Some((mut h, _area)) = read_only_area_ui_harness("tree-read-only-adjust") else { return };
     unfold_left_dock(&mut h);
     tall_tree(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {

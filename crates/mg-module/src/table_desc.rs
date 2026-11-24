@@ -40,7 +40,9 @@
 //! brings descriptions of some of the game's own tables
 //! ([`game_description`]), for a copy of one that has none.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use mg_2da::TwoDa;
 
@@ -130,17 +132,30 @@ pub fn path_beside(table: &Path) -> PathBuf {
 /// Whether a table's name (without `.2da`) is one a description's
 /// `tables` names: `*` any run of letters, `?` one, whatever their case.
 pub fn names_table(pattern: &str, name: &str) -> bool {
-    fn fits(p: &[u8], n: &[u8]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some(b'*'), _) => fits(&p[1..], n) || (!n.is_empty() && fits(p, &n[1..])),
-            (Some(b'?'), Some(_)) => fits(&p[1..], &n[1..]),
-            (Some(a), Some(b)) if a.eq_ignore_ascii_case(b) => fits(&p[1..], &n[1..]),
-            _ => false,
+    let p = mg_core::text::strip_suffix_ascii_ci(pattern.trim(), ".2da").as_bytes();
+    let n = name.as_bytes();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let mut star: Option<(usize, usize)> = None;
+    while ni < n.len() {
+        if pi < p.len() && (p[pi] == b'?' || p[pi].eq_ignore_ascii_case(&n[ni])) {
+            pi += 1;
+            ni += 1;
+        } else if pi < p.len() && p[pi] == b'*' {
+            star = Some((pi, ni));
+            pi += 1;
+        } else if let Some((sp, mut sn)) = star {
+            sn += 1;
+            star = Some((sp, sn));
+            pi = sp + 1;
+            ni = sn;
+        } else {
+            return false;
         }
     }
-    let pattern = pattern.trim().trim_end_matches(".2da");
-    fits(pattern.as_bytes(), name.as_bytes())
+    while pi < p.len() && p[pi] == b'*' {
+        pi += 1;
+    }
+    pi == p.len()
 }
 
 /// The names a description file says it describes (its `tables`), read
@@ -236,7 +251,7 @@ pub fn description_in_module(module: &crate::Module, key: &mg_resman::ResKey) ->
 /// description of the builder's is held to it, its lists and flags shown
 /// by name.
 pub fn game_description(name: &str) -> Option<&'static str> {
-    match name.trim_end_matches(".2da").to_ascii_lowercase().as_str() {
+    match mg_core::text::strip_suffix_ascii_ci(name, ".2da").to_ascii_lowercase().as_str() {
         "spells" => Some(include_str!("table_desc/spells.2da.toml")),
         "baseitems" => Some(include_str!("table_desc/baseitems.2da.toml")),
         _ => None,
@@ -405,48 +420,50 @@ pub(crate) fn constants_in(
     source: &[u8],
     prefix: &str,
     text: bool,
-    script: &dyn Fn(&str) -> Option<Vec<u8>>,
+    script: &dyn Fn(&str) -> Option<Arc<[u8]>>,
 ) -> (Vec<Entry>, usize) {
     // The script and those it includes, each once, those included first
     // (as the compiler reads them).
     fn gather(
-        source: Vec<u8>,
-        script: &dyn Fn(&str) -> Option<Vec<u8>>,
-        seen: &mut Vec<String>,
+        source: &[u8],
+        script: &dyn Fn(&str) -> Option<Arc<[u8]>>,
+        seen: &mut HashSet<String>,
         out: &mut Vec<mg_script::outline::Outline>,
     ) {
-        let outline = mg_script::outline::outline(&source);
+        let outline = mg_script::outline::outline(source);
         for include in &outline.includes {
-            let name = include.name.trim_end_matches(".nss").to_ascii_lowercase();
-            if seen.contains(&name) || seen.len() > 64 {
+            let name =
+                mg_core::text::strip_suffix_ascii_ci(&include.name, ".nss").to_ascii_lowercase();
+            if seen.len() > 64 || !seen.insert(name.clone()) {
                 continue;
             }
-            seen.push(name.clone());
             if let Some(included) = script(&name) {
-                gather(included, script, seen, out);
+                gather(&included, script, seen, out);
             }
         }
         out.push(outline);
     }
     let mut outlines = Vec::new();
-    gather(source.to_vec(), script, &mut Vec::new(), &mut outlines);
+    gather(source, script, &mut HashSet::new(), &mut outlines);
     // (Each once: a script that includes itself, or one included twice.)
     let mut globals: Vec<&mg_script::outline::Global> = Vec::new();
+    let mut seen_globals: HashSet<&str> = HashSet::new();
     for g in outlines.iter().flat_map(|o| o.globals.iter()) {
-        if !globals.iter().any(|x| x.name == g.name) {
+        if seen_globals.insert(g.name.as_str()) {
             globals.push(g);
         }
     }
     // (A constant may be made of others of its script, or of one it
     // includes: `A | B`.)
     let given = |g: &&&mg_script::outline::Global| g.is_const || g.value.is_some();
-    let mut known: Vec<(&str, i64)> = Vec::new();
+    let mut known: HashMap<&str, i64> = HashMap::new();
     for g in globals.iter().filter(given) {
         if let Some(v) = g.value.as_deref().and_then(|v| evaluate(v, &known)) {
-            known.push((g.name.as_str(), v));
+            known.insert(g.name.as_str(), v);
         }
     }
     let (mut entries, mut unread) = (Vec::new(), 0);
+    let mut seen_entries: HashSet<&str> = HashSet::new();
     // (Constants, and the globals given a value: the game's own
     // `nwscript` declares its constants so, `int DAMAGE_TYPE_ACID =
     // 16;`.)
@@ -460,11 +477,10 @@ pub(crate) fn constants_in(
             .map(str::to_string);
         let written = written.map(|v| v.trim_matches('"').to_string());
         let plain = written.filter(|v| whole(v).is_some() || v.parse::<f64>().is_ok());
-        let value = quoted
-            .or(plain)
-            .or_else(|| known.iter().find(|(n, _)| *n == g.name).map(|(_, v)| v.to_string()));
+        let value =
+            quoted.or(plain).or_else(|| known.get(g.name.as_str()).map(ToString::to_string));
         match value {
-            Some(value) if !entries.iter().any(|e: &Entry| e.name == g.name) => {
+            Some(value) if seen_entries.insert(g.name.as_str()) => {
                 entries.push(Entry { name: g.name.clone(), value });
             }
             Some(_) => {}
@@ -499,7 +515,7 @@ pub fn whole(text: &str) -> Option<i64> {
 /// reads them. `None` for anything else, and for one nested deeper than
 /// 64 brackets and signs (no constant is; a crafted one of thousands
 /// overflowed the stack).
-fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
+fn evaluate(text: &str, known: &HashMap<&str, i64>) -> Option<i64> {
     const MOST_NESTED: usize = 64;
     #[derive(Clone, Debug, PartialEq)]
     enum Tok {
@@ -521,7 +537,7 @@ fn evaluate(text: &str, known: &[(&str, i64)]) -> Option<i64> {
             return None;
         }
         let word = &rest[..end];
-        let value = whole(word).or_else(|| known.iter().find(|(n, _)| *n == word).map(|k| k.1))?;
+        let value = whole(word).or_else(|| known.get(word).copied())?;
         toks.push(Tok::Num(value));
         rest = rest[end..].trim_start();
     }
@@ -904,7 +920,9 @@ impl Description {
             "strref" => Kind::StrRef,
             "script" => Kind::Script,
             "row" => match text(c, "table") {
-                Some(table) => Kind::Row(table.trim_end_matches(".2da").to_ascii_lowercase()),
+                Some(table) => Kind::Row(
+                    mg_core::text::strip_suffix_ascii_ci(&table, ".2da").to_ascii_lowercase(),
+                ),
                 None => {
                     let message = format!("column {name}: a row of which table? (table = \"…\")");
                     return Err(("kind", message));
@@ -975,14 +993,15 @@ impl Description {
         }
         if let Some(from) = text(c, "constants") {
             let prefix = text(c, "prefix").unwrap_or_default();
-            let from = from.trim_end_matches(".nss");
+            let from = mg_core::text::strip_suffix_ascii_ci(&from, ".nss");
             let Some(source) = script(from) else {
                 return Err((
                     "constants",
                     format!("column {name}: the script {from} was not found"),
                 ));
             };
-            let (found, unread) = constants_in(&source, &prefix, false, script);
+            let (found, unread) =
+                constants_in(&source, &prefix, false, &|n| script(n).map(Arc::from));
             for e in found {
                 if !entries.iter().any(|x| x.name == e.name) {
                     entries.push(e);
@@ -1022,6 +1041,27 @@ impl Description {
         rows_of: &dyn Fn(&str) -> Option<usize>,
         tlk: TalkTables,
     ) -> Vec<CellFault> {
+        self.faults_in(t, 0..t.len(), rows_of, tlk)
+    }
+
+    /// Like [`Self::faults`], checking only the given row indices.
+    pub fn faults_rows(
+        &self,
+        t: &TwoDa,
+        rows: &[usize],
+        rows_of: &dyn Fn(&str) -> Option<usize>,
+        tlk: TalkTables,
+    ) -> Vec<CellFault> {
+        self.faults_in(t, rows.iter().copied().filter(|&r| r < t.len()), rows_of, tlk)
+    }
+
+    fn faults_in(
+        &self,
+        t: &TwoDa,
+        rows: impl Iterator<Item = usize> + Clone,
+        rows_of: &dyn Fn(&str) -> Option<usize>,
+        tlk: TalkTables,
+    ) -> Vec<CellFault> {
         let mut out = Vec::new();
         for (name, column) in &self.columns {
             let Some(at) = t.column(name) else { continue };
@@ -1029,7 +1069,7 @@ impl Description {
                 Kind::Row(table) => rows_of(table),
                 _ => None,
             };
-            for row in 0..t.len() {
+            for row in rows.clone() {
                 let Some(cell) = t.cell(row, at) else { continue };
                 if let Some(message) = cell_fault(&column.kind, cell, length, tlk) {
                     out.push(CellFault { row, column: at, message });
@@ -1042,7 +1082,7 @@ impl Description {
                 continue;
             };
             let kind = self.column(&rule.column).map(|c| &c.kind);
-            for row in 0..t.len() {
+            for row in rows.clone() {
                 let Some(cell) = t.cell(row, when) else { continue };
                 let named = kind.and_then(|k| k.named(cell));
                 let is = same(cell, &rule.is)
@@ -1057,7 +1097,10 @@ impl Description {
         if let Some(table) = &self.rows
             && let Some(length) = rows_of(table)
         {
-            for row in length..t.len() {
+            for row in rows {
+                if row < length {
+                    continue;
+                }
                 // (An empty row past the end is padding.)
                 if let Some(column) = (0..t.columns().len()).find(|c| t.cell(row, *c).is_some()) {
                     let message = format!(
@@ -1199,7 +1242,7 @@ require = "Cures"
         // worked out is left out, and said.)
         assert_eq!(names, ["DAMAGE_ACID", "DAMAGE_COLD", "DAMAGE_BOTH", "DAMAGE_FIRE"]);
         assert_eq!(damage.entries()[2].value, "48");
-        let known = [("A", 0x10), ("B", 3)];
+        let known = HashMap::from([("A", 0x10), ("B", 3)]);
         assert_eq!(evaluate("A | 1 << B", &known), Some(0x18));
         assert_eq!(evaluate("(A + 2) * -B", &known), Some(-54));
         assert_eq!(evaluate("~0 & A", &known), Some(0x10));
@@ -1208,7 +1251,8 @@ require = "Cures"
         // Brackets and signs without end (a crafted script's constant, read
         // on a worker's small stack): no value, and no stack overflow.
         let deep = |open: &str, close: &str, n: usize| {
-            evaluate(&format!("{}1{}", open.repeat(n), close.repeat(n)), &[])
+            let empty = HashMap::new();
+            evaluate(&format!("{}1{}", open.repeat(n), close.repeat(n)), &empty)
         };
         assert_eq!(
             (deep("(", ")", 60), deep("-", "", 60), deep("~", "", 2)),
@@ -1216,7 +1260,12 @@ require = "Cures"
         );
         let small = std::thread::Builder::new().stack_size(256 * 1024);
         let run = small.spawn(move || {
-            [deep("(", ")", 100_000), deep("-", "", 100_000), evaluate(&"(".repeat(100_000), &[])]
+            let empty = HashMap::new();
+            [
+                deep("(", ")", 100_000),
+                deep("-", "", 100_000),
+                evaluate(&"(".repeat(100_000), &empty),
+            ]
         });
         assert_eq!(run.unwrap().join().unwrap(), [None, None, None]);
         assert_eq!(damage.named("0x0030").as_deref(), Some("DAMAGE_ACID | DAMAGE_COLD"));
@@ -1476,5 +1525,28 @@ require = "Cures"
         );
         assert!(Description::read("[columns", &script).is_err());
         assert!(Description::read("columns = 3\nrules = 4\n", &script).unwrap().notes.len() == 2);
+    }
+
+    #[test]
+    fn uppercase_extensions_strip_case_insensitively() {
+        assert!(game_description("SPELLS.2DA").is_some());
+        assert!(names_table("LOOT_*.2DA", "loot_a"));
+        let script = |name: &str| {
+            if name == "INC_FOO" || name == "inc_foo" {
+                Some(b"#include \"INC_BAR.NSS\"\nconst int X = 1;\n".to_vec())
+            } else if name == "inc_bar" {
+                Some(b"const int Y = 2;\n".to_vec())
+            } else {
+                None
+            }
+        };
+        let d = Description::read(
+            "[columns.Kind]\nkind = \"list\"\nconstants = \"INC_FOO.NSS\"\n[columns.Ref]\nkind = \"row\"\ntable = \"CLS_FEAT.2DA\"\n",
+            &script,
+        )
+        .unwrap();
+        assert!(d.notes.is_empty(), "{:?}", d.notes);
+        let ref_kind = d.columns.iter().find(|(n, _)| n == "Ref").map(|(_, c)| &c.kind);
+        assert_eq!(ref_kind, Some(&Kind::Row("cls_feat".into())));
     }
 }

@@ -389,6 +389,8 @@ struct Set {
     frame: wgpu::Buffer,
     casters: wgpu::Buffer,
     params: wgpu::Buffer,
+    /// Bind group on `(frame, casters)`; invalidated when `casters` grows.
+    volume_group: Option<wgpu::BindGroup>,
 }
 
 impl Set {
@@ -413,6 +415,7 @@ impl Set {
                 crate::shadow::DARKEN_UNIFORM_SIZE,
                 wgpu::BufferUsages::UNIFORM,
             ),
+            volume_group: None,
         }
     }
 }
@@ -522,6 +525,8 @@ impl ShadowVolumes {
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
         made: &mut Option<StencilTarget>,
+        mut copy_cache: Option<&mut Option<wgpu::BindGroup>>,
+        mut darken_cache: Option<&mut [Option<wgpu::BindGroup>; 2]>,
     ) {
         let samples = format.1;
         if made.as_ref().is_none_or(|(_, s, n)| *s != size || *n != samples) {
@@ -560,9 +565,23 @@ impl ShadowVolumes {
             let plan = lights.filter(|_| lit);
             let params = crate::shadow::stencil_uniform(shadows, plan, camera, size, fog);
             gpu.queue.write_buffer(&set.params, 0, &params);
-            pipelines.count(gpu, encoder, (stencil, depth), set, &counted, !copied);
+            pipelines.count(
+                gpu,
+                encoder,
+                (stencil, depth),
+                (set, &counted),
+                !copied,
+                copy_cache.as_deref_mut(),
+            );
             copied = true;
-            pipelines.darken(gpu, encoder, (target_view, stencil, depth), set, lit);
+            pipelines.darken(
+                gpu,
+                encoder,
+                (target_view, stencil, depth),
+                set,
+                lit,
+                darken_cache.as_deref_mut().map(|slots| &mut slots[usize::from(lit)]),
+            );
         }
     }
 }
@@ -606,7 +625,9 @@ fn upload(
     };
     gpu.queue.write_buffer(&set.frame, 0, bytemuck::bytes_of(&frame));
     let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
-    crate::renderer::upload(gpu, &mut set.casters, "shadow volume casters", usage, casters, 0);
+    if crate::renderer::upload(gpu, &mut set.casters, "shadow volume casters", usage, casters, 0) {
+        set.volume_group = None;
+    }
 }
 
 impl Pipelines {
@@ -808,27 +829,38 @@ impl Pipelines {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         (stencil, depth): (&wgpu::TextureView, &wgpu::TextureView),
-        set: &Set,
-        counted: &Counted,
+        (set, counted): (&mut Set, &Counted),
         copy: bool,
+        copy_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
-        let copy_group = copy.then(|| {
+        let mut scratch_copy = None;
+        let copy_group = if copy {
+            let slot = match copy_cache {
+                Some(slot) => slot,
+                None => &mut scratch_copy,
+            };
+            Some(slot.get_or_insert_with(|| {
+                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("shadow volume depth"),
+                    layout: &self.copy_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(depth),
+                    }],
+                })
+            }))
+        } else {
+            None
+        };
+        let group = set.volume_group.get_or_insert_with(|| {
             gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("shadow volume depth"),
-                layout: &self.copy_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(depth),
-                }],
+                label: Some("shadow volumes"),
+                layout: &self.volume_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: set.frame.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: set.casters.as_entire_binding() },
+                ],
             })
-        });
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow volumes"),
-            layout: &self.volume_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: set.frame.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: set.casters.as_entire_binding() },
-            ],
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow volumes"),
@@ -846,13 +878,13 @@ impl Pipelines {
             }),
             ..Default::default()
         });
-        if let Some(group) = &copy_group {
+        if let Some(copy_group) = copy_group {
             pass.set_pipeline(&self.copy);
-            pass.set_bind_group(0, group, &[]);
+            pass.set_bind_group(0, &*copy_group, &[]);
             pass.draw(0..3, 0..1);
         }
         pass.set_pipeline(&self.volumes);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_bind_group(0, &*group, &[]);
         for (volume, instances) in &counted.meshes {
             pass.set_vertex_buffer(0, volume.vertices.slice(..));
             pass.set_index_buffer(volume.indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -869,17 +901,25 @@ impl Pipelines {
         (target, stencil, depth): (&wgpu::TextureView, &wgpu::TextureView, &wgpu::TextureView),
         set: &Set,
         lights: bool,
+        darken_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow volume darkening"),
-            layout: &self.darken_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: set.params.as_entire_binding() },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(depth),
-                },
-            ],
+        let mut scratch = None;
+        let slot = match darken_cache {
+            Some(slot) => slot,
+            None => &mut scratch,
+        };
+        let group = slot.get_or_insert_with(|| {
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shadow volume darkening"),
+                layout: &self.darken_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: set.params.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(depth),
+                    },
+                ],
+            })
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow volume darkening"),
@@ -898,7 +938,7 @@ impl Pipelines {
             ..Default::default()
         });
         pass.set_pipeline(&self.darken[usize::from(lights)]);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_bind_group(0, &*group, &[]);
         pass.set_stencil_reference(0);
         pass.draw(0..3, 0..1);
     }

@@ -247,14 +247,7 @@ impl CliHost {
 /// A project's root, from what names it: a module folder, a nasher
 /// project's folder or its `nasher.cfg`.
 pub(crate) fn project_root(path: &Path) -> Result<PathBuf> {
-    let root = match path.file_name() {
-        Some(n) if n == "nasher.cfg" => path.parent().unwrap_or(Path::new(".")),
-        _ => path,
-    };
-    if !root.is_dir() {
-        bail!("{}: not a project's folder", root.display());
-    }
-    Ok(root.to_path_buf())
+    crate::project_root(path)
 }
 
 /// What the user answered about projects' own plugins, as Moonglow keeps
@@ -620,7 +613,7 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
                     };
                     // (And its own tests' files, read, not run.)
                     faults.extend(mg_plugin::test_faults(&p));
-                    (p.manifest.id.clone(), faults)
+                    (p.manifest.id, faults)
                 }
                 Err(e) => (dir.display().to_string(), vec![e.to_string()]),
             };
@@ -890,9 +883,9 @@ pub(crate) struct What<'a> {
 }
 
 /// The settings of a plugin for a run on a module: what the module's
-/// project's files hold, else the defaults (mg keeps none of the user's),
-/// with `given` (`ID=VALUE`) over them; what is wrong with those kept, as
-/// notes.
+/// project's files and the user's saved plugin settings hold, over the
+/// defaults, with `given` (`ID=VALUE`) over them; what is wrong with
+/// those kept, as notes.
 fn settings_for(
     plugin: &Plugin,
     m: &Module,
@@ -1439,6 +1432,20 @@ fn project_plugins(m: &Module, all: bool, named: &[Plugin], out: &mut Output) ->
     run
 }
 
+fn load_plugins_from_dirs(dirs: &[PathBuf]) -> Result<Vec<Plugin>> {
+    let mut plugins = Vec::new();
+    for dir in dirs {
+        let found = plugins_in(dir);
+        if found.is_empty() {
+            bail!("{}: no plugin there (no plugin.cfg)", dir.display());
+        }
+        for plugin in found {
+            plugins.push(plugin.map_err(|e| anyhow!("{e}"))?);
+        }
+    }
+    Ok(plugins)
+}
+
 /// The findings of every check of the plugins chosen, for `mg verify`,
 /// each with its fix if the check gave it one (a check `--skip` names
 /// isn't run). A check that fails is itself a finding, an error.
@@ -1451,16 +1458,7 @@ pub(crate) fn findings(
     declared: &mut Vec<String>,
 ) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
-    let mut plugins = Vec::new();
-    for dir in chosen.dirs {
-        let found = plugins_in(dir);
-        if found.is_empty() {
-            bail!("{}: no plugin there (no plugin.cfg)", dir.display());
-        }
-        for plugin in found {
-            plugins.push(plugin.map_err(|e| anyhow!("{e}"))?);
-        }
-    }
+    let mut plugins = load_plugins_from_dirs(chosen.dirs)?;
     let theirs = project_plugins(m, chosen.project, &plugins, out);
     plugins.extend(theirs);
     // (The checks they declare, by the ids findings carry: what `--fix`
@@ -1516,16 +1514,7 @@ pub(crate) fn save_guard(
     dirs: &[PathBuf],
     out: &mut Output,
 ) -> Result<Option<SaveGuard>> {
-    let mut plugins = Vec::new();
-    for dir in dirs {
-        let found = plugins_in(dir);
-        if found.is_empty() {
-            bail!("{}: no plugin there (no plugin.cfg)", dir.display());
-        }
-        for plugin in found {
-            plugins.push(plugin.map_err(|e| anyhow!("{e}"))?);
-        }
-    }
+    let mut plugins = load_plugins_from_dirs(dirs)?;
     // (A project's plugin not allowed is not said here: `mg verify` says so.)
     let theirs = project_plugins(m, false, &plugins, &mut Output::default());
     plugins.extend(theirs);

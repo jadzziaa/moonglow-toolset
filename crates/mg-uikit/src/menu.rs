@@ -181,23 +181,23 @@ pub fn menu_check<'a>(ui: &mut Ui, checked: &'a mut bool, atoms: impl IntoAtoms<
     let Some(theme) = theme::applied(ui.ctx()) else {
         return ui.checkbox(checked, atoms);
     };
-    let t = theme.tokens();
-    let atoms = atoms.into_atoms();
-    let text = atoms.text().map(String::from).unwrap_or_default();
-    let (mut response, room) = marked_row(ui, atoms);
-    if response.clicked() {
-        *checked = !*checked;
-        response.mark_changed();
-    }
-    let enabled = response.enabled();
-    let on = *checked;
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, on, &text));
-    if let Some(room) = room.filter(|_| ui.is_rect_visible(response.rect)) {
-        let square = Rect::from_center_size(room.center(), Vec2::splat(BOX));
-        let (look, lit) = lit_look(ui, &response, on);
-        controls::paint_check_lit(ui, &t, square, look, lit);
-    }
-    response
+    menu_mark_row(
+        ui,
+        theme.tokens(),
+        WidgetType::Checkbox,
+        atoms.into_atoms(),
+        |r| {
+            if r.clicked() {
+                *checked = !*checked;
+                r.mark_changed();
+            }
+            *checked
+        },
+        |ui, t, room, look, lit| {
+            let square = Rect::from_center_size(room.center(), Vec2::splat(BOX));
+            controls::paint_check_lit(ui, t, square, look, lit);
+        },
+    )
 }
 
 /// A radio as a row of a menu, on where `selected` (as [`menu_check`]: its
@@ -207,16 +207,34 @@ pub fn menu_radio<'a>(ui: &mut Ui, selected: bool, atoms: impl IntoAtoms<'a>) ->
     let Some(theme) = theme::applied(ui.ctx()) else {
         return ui.radio(selected, atoms);
     };
-    let t = theme.tokens();
-    let atoms = atoms.into_atoms();
+    menu_mark_row(
+        ui,
+        theme.tokens(),
+        WidgetType::RadioButton,
+        atoms.into_atoms(),
+        |_| selected,
+        |ui, t, room, look, lit| {
+            controls::paint_radio_lit(ui, t, room.center(), look, lit);
+        },
+    )
+}
+
+fn menu_mark_row<'a>(
+    ui: &mut Ui,
+    t: crate::tokens::Tokens,
+    kind: WidgetType,
+    atoms: egui::Atoms<'a>,
+    state: impl FnOnce(&mut Response) -> bool,
+    paint: impl FnOnce(&Ui, &crate::tokens::Tokens, Rect, Look, bool),
+) -> Response {
     let text = atoms.text().map(String::from).unwrap_or_default();
-    let (response, room) = marked_row(ui, atoms);
+    let (mut response, room) = marked_row(ui, atoms);
+    let on = state(&mut response);
     let enabled = response.enabled();
-    response
-        .widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, &text));
+    response.widget_info(|| WidgetInfo::selected(kind, enabled, on, &text));
     if let Some(room) = room.filter(|_| ui.is_rect_visible(response.rect)) {
-        let (look, lit) = lit_look(ui, &response, selected);
-        controls::paint_radio_lit(ui, &t, room.center(), look, lit);
+        let (look, lit) = lit_look(ui, &response, on);
+        paint(ui, &t, room, look, lit);
     }
     response
 }

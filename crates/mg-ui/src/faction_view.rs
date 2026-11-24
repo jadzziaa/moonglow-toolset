@@ -96,6 +96,7 @@ enum Hovered {
 /// can't be edited.
 #[derive(Debug)]
 struct Seen {
+    identity: u64,
     revision: u64,
     factions: Result<Factions, String>,
     /// Their names, for the Outliner (made once a revision, as the file is
@@ -210,10 +211,16 @@ fn rep_of(f: &Factions, p: u32, t: u32) -> u32 {
 impl Moonglow {
     /// Replaces `repute.fac` (and, after a removal, the objects that were
     /// renumbered) through one command, noted for the editor's Cancel.
-    fn store_factions(&mut self, what: &str, f: &Factions, renumber: Option<(u32, Renumbering)>) {
+    fn store_factions(
+        &mut self,
+        what: &str,
+        f: &Factions,
+        renumber: Option<(u32, Renumbering)>,
+    ) -> bool {
         let mut cancel = std::mem::take(&mut self.faction_view.cancel);
-        self.store_factions_in(what, f, renumber, &mut cancel);
+        let ok = self.store_factions_in(what, f, renumber, &mut cancel);
         self.faction_view.cancel = cancel;
+        ok
     }
 
     fn store_factions_in(
@@ -222,15 +229,15 @@ impl Moonglow {
         f: &Factions,
         renumber: Option<(u32, Renumbering)>,
         cancel: &mut CancelSteps,
-    ) {
-        let Some(ws) = &mut self.ws else { return };
+    ) -> bool {
+        let Some(ws) = &mut self.ws else { return false };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
-            return;
+            return false;
         }
         let mut staged = ws.module.clone();
         if staged.set_gff(key(), &f.to_gff()).is_err() {
-            return;
+            return false;
         }
         let removed = renumber.as_ref().map(|(id, _)| *id);
         let users = match renumber {
@@ -239,28 +246,43 @@ impl Moonglow {
         };
         let edits = ws.edits_to(&staged);
         if edits.is_empty() {
-            return;
+            return false;
         }
-        if cancel.steps.is_empty() {
-            cancel.steps.push((None, ws.module.get(&key()).map(<[u8]>::to_vec)));
-        }
-        for u in &users {
-            let was = ws.module.get(u).map(<[u8]>::to_vec);
-            cancel.renumbered.entry(*u).or_insert(was);
-        }
+        let before_fac = ws.module.get(&key()).map(<[u8]>::to_vec);
+        let before_users: Vec<(ResKey, Option<Vec<u8>>)> =
+            users.iter().map(|u| (*u, ws.module.get(u).map(<[u8]>::to_vec))).collect();
+        let target = (key(), mg_edit::GffPath::root());
+        let prev_changed = self.properties_changed.get(&target).cloned();
         let command = Command::new(what, edits);
         // (For the window's Cancel: the factions file as it is; the
         // objects renumbered are numbered back, `numbered_back`.)
-        let targets = [(key(), mg_edit::GffPath::root())];
+        let targets = [target.clone()];
         let noted = crate::blueprint::but_for(&command, &users);
         crate::blueprint::note_command(self, &Tab::Factions, &targets, &noted);
         if let Err(e) = self.apply(command) {
-            self.log.error(e.to_string());
-            return;
+            match prev_changed {
+                Some(prev) => {
+                    self.properties_changed.insert(target, prev);
+                }
+                None => {
+                    self.properties_changed.remove(&target);
+                }
+            }
+            if !std::mem::take(&mut self.claims.held) {
+                self.log.error(e.to_string());
+            }
+            return false;
         }
-        let Some(ws) = &mut self.ws else { return };
+        if cancel.steps.is_empty() {
+            cancel.steps.push((None, before_fac));
+        }
+        for (u, was) in before_users {
+            cancel.renumbered.entry(u).or_insert(was);
+        }
+        let Some(ws) = &mut self.ws else { return true };
         let _ = ws.flush();
         cancel.steps.push((removed, ws.module.get(&key()).map(<[u8]>::to_vec)));
+        true
     }
 }
 
@@ -274,9 +296,11 @@ impl Moonglow {
 /// without a module.
 fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
     let ws = app.ws.as_mut()?;
-    let revision = ws.revision();
+    let (identity, revision) = (ws.identity(), ws.revision());
     let view = &mut app.faction_view;
-    if let Some(seen) = view.seen.as_ref().filter(|s| s.revision == revision) {
+    if let Some(seen) =
+        view.seen.as_ref().filter(|s| s.identity == identity && s.revision == revision)
+    {
         return Some(seen.clone());
     }
     view.walks += 1;
@@ -299,7 +323,7 @@ fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
         Ok(f) => f.factions.iter().map(|x| x.name.clone()).collect(),
         Err(_) => Arc::from([]),
     };
-    let seen = Arc::new(Seen { revision, factions, names });
+    let seen = Arc::new(Seen { identity, revision, factions, names });
     if let Ok(f) = &seen.factions {
         let n = f.factions.len() as u32;
         let find = |name: &str| f.factions.iter().position(|x| x.name == name).map(|i| i as u32);
@@ -384,15 +408,8 @@ fn header(ui: &mut Ui, advanced: &mut bool, custom: bool) -> Asked {
         });
         mode.set(chosen);
     };
-    let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
     let not_standard = "A standard faction can't be renamed or removed";
-    let out = EditorHeader::new(FACTION_HEADER)
+    let header = EditorHeader::new(FACTION_HEADER)
         .left(Item::custom(MODE, switch_width, switch).more(switch_width, switch).primary())
         .left(Item::separator())
         .left(
@@ -406,21 +423,9 @@ fn header(ui: &mut Ui, advanced: &mut bool, custom: bool) -> Asked {
         .left(Item::button(Icon::Rename, "Change Name…").enabled(custom).tip(match custom {
             true => "Change the selected faction's name (not a standard one)",
             false => not_standard,
-        }))
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        }));
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::blueprint::OK_CANCEL_TIPS);
     *advanced = mode.get();
     Asked {
         add: out.clicked("Add Faction…"),
@@ -564,9 +569,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     // (Noted from the factions as they are now: where a change was stored
     // this frame, the numbers the view set with it are the chosen cell's,
     // and the names it read before it would choose another.)
-    let now = app.ws.as_ref().map(|w| w.revision());
+    let now = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
     match app.faction_view.seen.clone() {
-        Some(s) if Some(s.revision) == now => {
+        Some(s) if Some((s.identity, s.revision)) == now => {
             if let Ok(f) = &s.factions {
                 note_chosen(&mut app.faction_view, f);
             }
@@ -599,21 +604,22 @@ fn remove(app: &mut Moonglow, f: &Factions, id: u32) {
         let mut now = f.clone();
         if let Some(map) = now.remove(id) {
             let what = format!("Remove faction {name}");
-            app.store_factions(&what, &now, Some((id, Box::new(map))));
-            let view = &mut app.faction_view;
-            let last = now.factions.len() as u32 - 1;
-            view.selected = view.selected.min(last);
-            view.target = match view.target {
-                t if t == id => view.selected,
-                t if t > id => t - 1,
-                t => t,
+            if app.store_factions(&what, &now, Some((id, Box::new(map)))) {
+                let view = &mut app.faction_view;
+                let last = now.factions.len() as u32 - 1;
+                view.selected = view.selected.min(last);
+                view.target = match view.target {
+                    t if t == id => view.selected,
+                    t if t > id => t - 1,
+                    t => t,
+                }
+                .min(last);
+                // (Numbered anew by the removal: found by number, not by name.
+                // The removed faction's row goes to the faction that slid into
+                // its number, or the last; its column, where it was the
+                // chosen one, likewise.)
+                view.chosen_names = None;
             }
-            .min(last);
-            // (Numbered anew by the removal: found by number, not by name.
-            // The removed faction's row goes to the faction that slid into
-            // its number, or the last; its column, where it was the
-            // chosen one, likewise.)
-            view.chosen_names = None;
         }
     } else {
         let list: Vec<String> = users.iter().map(ToString::to_string).collect();
@@ -1147,7 +1153,7 @@ fn chart(app: &mut Moonglow, ui: &mut Ui, f: &Factions) -> Option<(String, Facti
                             };
                             let head = ui.add_sized(
                                 [160.0, mg_uikit::metrics::CONTROL_HEIGHT],
-                                egui::Button::new(label.clone()).frame(false).truncate(),
+                                egui::Button::new(label).frame(false).truncate(),
                             );
                             if head.clicked() && !from {
                                 chosen = Some(target);
@@ -1488,9 +1494,18 @@ pub(crate) fn reactions_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&T
                     false => name(f, x).to_string(),
                     true => format!("From {}", name(f, p)),
                 };
+                r.widget_info(|| {
+                    let said = format!("{label}: {}", sentence(f, p, x, rep));
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::SelectableLabel,
+                        true,
+                        selected,
+                        &said,
+                    )
+                });
                 let cy = rect.center().y;
                 let mut job = egui::text::LayoutJob::simple_singleline(
-                    label.clone(),
+                    label,
                     body.clone(),
                     if from { weak } else { text },
                 );
@@ -1526,15 +1541,6 @@ pub(crate) fn reactions_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&T
                     w,
                     weak,
                 );
-                let said = format!("{label}: {}", sentence(f, p, x, rep));
-                r.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        true,
-                        selected,
-                        &said,
-                    )
-                });
                 if focus && i == 0 && range.start == 0 {
                     r.request_focus();
                 }
@@ -1648,5 +1654,54 @@ mod tests {
         // as it was).
         let back = put_back(&[5, 6]);
         assert_eq!([4, 5, 6].map(|id| back(id).unwrap()), [4, 6, 8]);
+    }
+
+    #[test]
+    fn failed_apply_during_remove_keeps_cancel_and_selection_untouched() {
+        let mut module = mg_module::Module::new();
+        let mut factions = Factions::of_module(&module);
+        assert_eq!(factions.add("Five", false, 1), 5);
+        assert_eq!(factions.add("Six", false, 1), 6);
+        module.set_gff(key(), &factions.to_gff()).unwrap();
+
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        let mut creature = mg_gff::Struct::new(4);
+        creature.set("FactionID", mg_gff::Value::Word(6));
+        git.root.set("Creature List", mg_gff::Value::List(vec![creature]));
+        module.set_gff(ResKey::parse("area001", ResType::GIT).unwrap(), &git).unwrap();
+
+        module.project_file.claims.others = mg_module::claims::Others::ReadOnly;
+        module.project_file.user.builder_code = Some("ab".into());
+        module.project_file.claim_table = Some(
+            mg_module::claims::Claims::parse(
+                "claims.2da",
+                "2DA V2.0\n\nArea Builder\n0 area001 zz\n",
+                &mut Vec::new(),
+            )
+            .unwrap(),
+        );
+
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(module));
+        app.faction_view.selected = 6;
+        app.faction_view.target = 6;
+        app.faction_view.chosen_names = Some(("Six".into(), "Six".into()));
+
+        remove(&mut app, &factions, 5);
+
+        assert!(app.faction_view.cancel.steps.is_empty());
+        assert!(app.faction_view.cancel.renumbered.is_empty());
+        assert!(app.properties_changed.is_empty());
+        assert_eq!(app.faction_view.selected, 6);
+        assert_eq!(app.faction_view.target, 6);
+        assert_eq!(app.faction_view.chosen_names, Some(("Six".into(), "Six".into())));
+        assert!(
+            app.log
+                .entries
+                .iter()
+                .any(|(lvl, msg)| *lvl == crate::Level::Error && msg.contains("read-only")),
+            "{:?}",
+            app.log.entries
+        );
     }
 }

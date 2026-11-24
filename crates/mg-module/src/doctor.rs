@@ -95,370 +95,359 @@ pub enum Check {
     BakeUnused,
 }
 
-impl Check {
-    pub const ALL: [Check; 55] = [
-        Check::CustomTlk,
-        Check::ErfSize,
-        Check::SetRead,
-        Check::SetLineEnds,
-        Check::SetCount,
-        Check::SetHole,
-        Check::SetModel,
-        Check::SetDoor,
-        Check::SetGroup,
-        Check::SetTransition,
-        Check::SetData,
-        Check::TileFaces,
-        Check::MdlRead,
-        Check::MdlText,
-        Check::MtrName,
-        Check::MtrTexture,
-        Check::ShaderCompile,
-        Check::ShaderPair,
-        Check::TwoDaRow,
-        Check::TwoDaRead,
-        Check::TwoDaLimit,
-        Check::TwoDaShadow,
-        Check::TwoDaStrRef,
-        Check::TwoDaRef,
-        Check::TwoDaDescribed,
-        Check::TwoDaSpells,
-        Check::ObjectRow,
-        Check::PcFaction,
-        Check::StaticTransform,
-        Check::StaticTint,
-        Check::TintStored,
-        Check::AppearanceRange,
-        Check::AreaVariables,
-        Check::TileReplace,
-        Check::TileSeam,
-        Check::SoundSilent,
-        Check::TransitionHidden,
-        Check::TagUnique,
-        Check::NuiSources,
-        Check::VarType,
-        Check::VarValue,
-        Check::VarObject,
-        Check::VarName,
-        Check::VarRuntime,
-        Check::VarRequires,
-        Check::VarScript,
-        Check::ClaimsMerged,
-        Check::ClaimsTag,
-        Check::TalkRange,
-        Check::PaletteRules,
-        Check::PaletteGroupEmpty,
-        Check::PaletteListMissing,
-        Check::BakeRules,
-        Check::BakeRowPending,
-        Check::BakeUnused,
-    ];
+macro_rules! check_table {
+    ($(($variant:ident, $id:expr, $group:ident, $about:expr),)+) => {
+        impl Check {
+            pub const ALL: [Check; 55] = [$(Check::$variant),+];
 
-    pub fn id(self) -> &'static str {
-        match self {
-            Check::CustomTlk => "custom-tlk",
-            Check::ErfSize => "erf-size",
-            Check::SetRead => "set-read",
-            Check::SetLineEnds => "set-line-ends",
-            Check::SetCount => "set-count",
-            Check::SetHole => "set-hole",
-            Check::SetModel => "set-model",
-            Check::SetDoor => "set-door",
-            Check::SetGroup => "set-group",
-            Check::SetTransition => "set-transition",
-            Check::SetData => "set-data",
-            Check::TileFaces => "tile-faces",
-            Check::MdlRead => "mdl-read",
-            Check::MdlText => "mdl-text",
-            Check::MtrName => "mtr-name",
-            Check::MtrTexture => "mtr-texture",
-            Check::ShaderCompile => "shader-compile",
-            Check::ShaderPair => "shader-pair",
-            Check::TwoDaRow => "2da-row",
-            Check::TwoDaRead => "2da-read",
-            Check::TwoDaLimit => "2da-limit",
-            Check::TwoDaShadow => "2da-shadow",
-            Check::TwoDaStrRef => "2da-strref",
-            Check::TwoDaRef => "2da-ref",
-            Check::TwoDaDescribed => "2da-described",
-            Check::TwoDaSpells => "2da-spells",
-            Check::ObjectRow => "object-row",
-            Check::PcFaction => "pc-faction",
-            Check::StaticTransform => "static-transform",
-            Check::StaticTint => "static-tint",
-            Check::TintStored => "tint-stored",
-            Check::AppearanceRange => "appearance-range",
-            Check::AreaVariables => "area-variables",
-            Check::TileReplace => "tile-replace",
-            Check::TileSeam => "tile-seam",
-            Check::SoundSilent => "sound-silent",
-            Check::TransitionHidden => "transition-hidden",
-            Check::TagUnique => "tag-unique",
-            Check::NuiSources => "nui-sources",
-            Check::VarType => "var-type",
-            Check::VarValue => "var-value",
-            Check::VarObject => "var-object",
-            Check::VarName => "var-name",
-            Check::VarRuntime => "var-runtime",
-            Check::VarRequires => "var-requires",
-            Check::VarScript => "var-script",
-            Check::ClaimsMerged => "claims-merged",
-            Check::ClaimsTag => "claims-tag",
-            Check::TalkRange => "talk-range",
-            Check::PaletteRules => "palette-rules",
-            Check::PaletteGroupEmpty => "palette-group-empty",
-            Check::PaletteListMissing => "palette-list-missing",
-            Check::BakeRules => "bake-rules",
-            Check::BakeRowPending => "bake-row-pending",
-            Check::BakeUnused => "bake-unused",
-        }
-    }
+            pub fn id(self) -> &'static str {
+                match self {
+                    $(Check::$variant => $id,)+
+                }
+            }
 
-    pub fn from_id(id: &str) -> Option<Check> {
-        Check::ALL.into_iter().find(|c| c.id() == id)
-    }
+            pub fn from_id(id: &str) -> Option<Check> {
+                Check::ALL.into_iter().find(|c| c.id() == id)
+            }
 
-    /// What the check holds to be true (a finding says where it is not).
-    pub fn about(self) -> &'static str {
-        match self {
-            Check::CustomTlk => "the module's custom talk table is where the game looks for it",
-            Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
-            Check::SetRead => "a tileset can be read",
-            Check::SetLineEnds => {
-                "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
-                 the game's server never finishes loading a module that uses it, nor with more \
-                 than 256 bytes after its last CRLF, nor with a longer line)"
+            /// What the check holds to be true (a finding says where it is not).
+            pub fn about(self) -> &'static str {
+                match self {
+                    $(Check::$variant => $about,)+
+                }
             }
-            Check::SetCount => "a tileset's tile and group counts match its sections",
-            Check::SetHole => {
-                "every tile, terrain, crosser and rule a tileset counts has its section, and every \
-                 tile a Model= (the game draws a hole as nothing, with no walkmesh)"
-            }
-            Check::SetModel => "each tile's model is in the haks or the game",
-            Check::SetDoor => "a tile's door types are doortypes.2da rows with a model",
-            Check::SetGroup => {
-                "a tileset's groups have a size, a first tile of their own and tiles that exist"
-            }
-            Check::SetTransition => "a tileset with groups has a height transition",
-            Check::SetData => {
-                "a tileset's tiles, terrains, crossers and rules agree with each other"
-            }
-            Check::TileFaces => "a tile model has no more faces than Aurora can paint",
-            Check::MdlRead => "a tile's model can be read",
-            Check::MdlText => {
-                "a model kept as text has nothing the game refuses, misreads or crashes on"
-            }
-            Check::MtrName => "a material's texture names fit a resource name",
-            Check::MtrTexture => "a material's textures are in the load order",
-            Check::ShaderCompile => {
-                "a shader program of the module's content compiles (the game draws one that \
-                 doesn't magenta; Moonglow draws with its own shader instead)"
-            }
-            Check::ShaderPair => {
-                "a material that names a custom shader names both its programs \
-                 (`customshaderVS` and `customshaderFS`: the game takes the two or neither)"
-            }
-            Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
-            Check::TwoDaRead => "a 2DA can be read",
-            Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
-            Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
-            Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
-            Check::TwoDaRef => {
-                "a 2DA's changed rows name rows of other 2DAs that exist and aren't blank, and \
-                 2DAs that are there"
-            }
-            Check::TwoDaDescribed => {
-                "a table of the module's or its haks' that has a description (name.2da.toml) \
-                 holds what it says"
-            }
-            Check::TwoDaSpells => {
-                "a spellcasting class's spells: its SpellTableColumn is a column of spells.2da, \
-                 and the spells its packages prefer are ones it can learn"
-            }
-            Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
-            Check::PcFaction => "no object belongs to the PC faction, the players' alone",
-            Check::StaticTransform => {
-                "a static placeable has no visual transform: the game draws it without one"
-            }
-            Check::StaticTint => {
-                "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
-                 the game draws it as made"
-            }
-            Check::TintStored => {
-                "a material's tint is set in one place: a tdodTint stored in the object's shader \
-                 parameters isn't also given by its tdod_tint variables, which the module's \
-                 script sets over it as the module loads"
-            }
-            Check::AppearanceRange => {
-                "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
-                 (it carries the row as a 16-bit number and draws a placeable of row 65536 as \
-                 row 0's: another model, silently)"
-            }
-            Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
-            Check::TileReplace => {
-                "a tile whose model has a replace_tex texture names a replacetexture.2da row \
-                 (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
-                 or a value past the table)"
-            }
-            Check::TileSeam => {
-                "an area's neighboring tiles agree about the corners and edge they share: its \
-                 terrain and height, and its crosser (a road, a stream), as Aurora's painting \
-                 leaves them"
-            }
-            Check::SoundSilent => {
-                "an area's music and ambient sounds (its MusicDay, MusicNight and MusicBattle \
-                 rows of ambientmusic.2da, its AmbientSndDay and AmbientSndNight rows of \
-                 ambientsound.2da) and the sounds of its placed sound objects and of sound \
-                 blueprints are files the game finds and plays there: music a .bmu holding MP3, \
-                 an ambient sound a .wav holding a WAVE or a .bmu holding MP3, a placed sound a \
-                 .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
-                 V1.0 header"
-            }
-            Check::TransitionHidden => {
-                "an area transition trigger's points run counterclockwise (seen from above), as \
-                 the game needs to show it under the pointer and take a click on it, and they are \
-                 not all more than 1 m off the ground (their ZPosition + PointZ), left at another \
-                 level, where the game may not"
-            }
-            Check::TagUnique => {
-                "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
-                 object only, or on one of each area (unique_in_area)"
-            }
-            Check::NuiSources => {
-                "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
-                 nasher otherwise doesn't pack and Moonglow doesn't read back"
-            }
-            Check::VarType => {
-                "a variable the project describes (variables.toml) is of the type it says: one \
-                 of another type reads as that type's empty value (an Int read as a String is \"\")"
-            }
-            Check::VarValue => {
-                "a described variable's value is one of those it lists, within its range"
-            }
-            Check::VarObject => "a described variable is on the kind of object it says",
-            Check::VarName => {
-                "a variable named as the project's are (variables.toml's undescribed) is \
-                 described, and a described one is named in the case it is described in"
-            }
-            Check::VarRuntime => {
-                "a variable the project describes as the scripts' alone (variables.toml's \
-                 runtime = true: state or a test's hook, set while the server runs) is kept in no \
-                 file of the module"
-            }
-            Check::VarRequires => {
-                "a variable the project says needs others beside it (variables.toml's requires, \
-                 and its [[rules]]: one needed where another has a value) has them on the same \
-                 object"
-            }
-            Check::VarScript => {
-                "a variable kept in a file is of a type the module's scripts read it as (by its \
-                 name written out: GetLocalInt(o, \"tdod_lit\")): one of another type reads as \
-                 that type's empty value"
-            }
-            Check::ClaimsMerged => {
-                "an area the project's claims table says is merged (in the game) is in the module \
-                 under its ResRef, which keeps players' first visits"
-            }
-            Check::ClaimsTag => {
-                "a merged area's Tag is the one the claims table records, which keeps players' \
-                 positions"
-            }
-            Check::TalkRange => {
-                "the custom talk table's lines the project gives typed text (moonglow.toml's \
-                 [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
-                 own that no other shares"
-            }
-            Check::PaletteRules => {
-                "the project's palette groupings (moonglow.toml's [palette.*]) and the lists \
-                 their from files hold read without a fault (a grouping works without what \
-                 isn't understood)"
-            }
-            Check::PaletteGroupEmpty => {
-                "every group of a palette grouping has a blueprint in it, in the standard or the \
-                 custom palettes it is offered in (by its words, its ResRef patterns or its list)"
-            }
-            Check::PaletteListMissing => {
-                "a blueprint a palette grouping's from file lists is in the module, its haks or \
-                 the game, of a type the group is offered in"
-            }
-            Check::BakeRules => {
-                "the project's [bake] (moonglow.toml) and its rows file read without a fault, \
-                 its rows end by 65535 (the last the game carries), and they are rows the game's \
-                 placeables.2da doesn't hold already (a bake never takes one)"
-            }
-            Check::BakeRowPending => {
-                "each row of the bake's rows file is in the placeables.2da the module's haks give \
-                 the game, with its baked model: until the project's build adds it, the game has \
-                 no such row (Moonglow draws it as the build will make it)"
-            }
-            Check::BakeUnused => {
-                "every row of the bake's rows file, and every baked model in its hak, is used by \
-                 a placeable of this module (placed or a blueprint); another module or a hak's \
-                 blueprint may still use one, so none is taken out unasked"
+
+            /// The group it is reported in.
+            pub fn group(self) -> Group {
+                match self {
+                    $(Check::$variant => Group::$group,)+
+                }
             }
         }
-    }
+    };
+}
 
-    /// The group it is reported in.
-    pub fn group(self) -> Group {
-        match self {
-            Check::SetRead
-            | Check::SetLineEnds
-            | Check::SetHole
-            | Check::SetCount
-            | Check::SetModel
-            | Check::SetDoor
-            | Check::SetGroup
-            | Check::SetTransition
-            | Check::SetData
-            | Check::TileFaces
-            | Check::MdlRead => Group::Tilesets,
-            Check::MdlText
-            | Check::MtrName
-            | Check::MtrTexture
-            | Check::ShaderCompile
-            | Check::ShaderPair => Group::Models,
-            Check::TwoDaRow
-            | Check::TwoDaRead
-            | Check::TwoDaLimit
-            | Check::TwoDaShadow
-            | Check::TwoDaStrRef
-            | Check::TwoDaRef
-            | Check::TwoDaDescribed
-            | Check::TwoDaSpells => Group::Tables,
-            Check::ObjectRow
-            | Check::PcFaction
-            | Check::StaticTransform
-            | Check::StaticTint
-            | Check::TintStored
-            | Check::AppearanceRange
-            | Check::AreaVariables
-            | Check::TileReplace
-            | Check::TileSeam
-            | Check::SoundSilent
-            | Check::TransitionHidden
-            | Check::TagUnique
-            | Check::VarType
-            | Check::VarValue
-            | Check::VarObject
-            | Check::VarName
-            | Check::VarRuntime
-            | Check::VarRequires
-            | Check::VarScript => Group::Objects,
-            Check::CustomTlk
-            | Check::ErfSize
-            | Check::NuiSources
-            | Check::ClaimsMerged
-            | Check::ClaimsTag
-            | Check::TalkRange
-            | Check::PaletteRules
-            | Check::PaletteGroupEmpty
-            | Check::PaletteListMissing
-            | Check::BakeRules
-            | Check::BakeRowPending
-            | Check::BakeUnused => Group::Module,
-        }
-    }
+check_table! {
+    (
+        CustomTlk,
+        "custom-tlk",
+        Module,
+        "the module's custom talk table is where the game looks for it"
+    ),
+    (
+        ErfSize,
+        "erf-size",
+        Module,
+        "an archive's resources start within the 2 GiB the game can read"
+    ),
+    (SetRead, "set-read", Tilesets, "a tileset can be read"),
+    (
+        SetLineEnds,
+        "set-line-ends",
+        Tilesets,
+        "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
+         the game's server never finishes loading a module that uses it, nor with more \
+         than 256 bytes after its last CRLF, nor with a longer line)"
+    ),
+    (
+        SetCount,
+        "set-count",
+        Tilesets,
+        "a tileset's tile and group counts match its sections"
+    ),
+    (
+        SetHole,
+        "set-hole",
+        Tilesets,
+        "every tile, terrain, crosser and rule a tileset counts has its section, and every \
+         tile a Model= (the game draws a hole as nothing, with no walkmesh)"
+    ),
+    (SetModel, "set-model", Tilesets, "each tile's model is in the haks or the game"),
+    (SetDoor, "set-door", Tilesets, "a tile's door types are doortypes.2da rows with a model"),
+    (
+        SetGroup,
+        "set-group",
+        Tilesets,
+        "a tileset's groups have a size, a first tile of their own and tiles that exist"
+    ),
+    (SetTransition, "set-transition", Tilesets, "a tileset with groups has a height transition"),
+    (
+        SetData,
+        "set-data",
+        Tilesets,
+        "a tileset's tiles, terrains, crossers and rules agree with each other"
+    ),
+    (TileFaces, "tile-faces", Tilesets, "a tile model has no more faces than Aurora can paint"),
+    (MdlRead, "mdl-read", Tilesets, "a tile's model can be read"),
+    (
+        MdlText,
+        "mdl-text",
+        Models,
+        "a model kept as text has nothing the game refuses, misreads or crashes on"
+    ),
+    (MtrName, "mtr-name", Models, "a material's texture names fit a resource name"),
+    (MtrTexture, "mtr-texture", Models, "a material's textures are in the load order"),
+    (
+        ShaderCompile,
+        "shader-compile",
+        Models,
+        "a shader program of the module's content compiles (the game draws one that \
+         doesn't magenta; Moonglow draws with its own shader instead)"
+    ),
+    (
+        ShaderPair,
+        "shader-pair",
+        Models,
+        "a material that names a custom shader names both its programs \
+         (`customshaderVS` and `customshaderFS`: the game takes the two or neither)"
+    ),
+    (
+        TwoDaRow,
+        "2da-row",
+        Tables,
+        "a 2DA row has no more cells than the table has columns"
+    ),
+    (TwoDaRead, "2da-read", Tables, "a 2DA can be read"),
+    (TwoDaLimit, "2da-limit", Tables, "a 2DA has no more rows than the game or Aurora takes"),
+    (TwoDaShadow, "2da-shadow", Tables, "a 2DA does not hide a longer copy in another hak"),
+    (
+        TwoDaStrRef,
+        "2da-strref",
+        Tables,
+        "a 2DA's changed rows name talk-table strings that exist"
+    ),
+    (
+        TwoDaRef,
+        "2da-ref",
+        Tables,
+        "a 2DA's changed rows name rows of other 2DAs that exist and aren't blank, and \
+         2DAs that are there"
+    ),
+    (
+        TwoDaDescribed,
+        "2da-described",
+        Tables,
+        "a table of the module's or its haks' that has a description (name.2da.toml) \
+         holds what it says"
+    ),
+    (
+        TwoDaSpells,
+        "2da-spells",
+        Tables,
+        "a spellcasting class's spells: its SpellTableColumn is a column of spells.2da, \
+         and the spells its packages prefer are ones it can learn"
+    ),
+    (
+        ObjectRow,
+        "object-row",
+        Objects,
+        "objects use 2DA rows that exist and have what they need"
+    ),
+    (
+        PcFaction,
+        "pc-faction",
+        Objects,
+        "no object belongs to the PC faction, the players' alone"
+    ),
+    (
+        StaticTransform,
+        "static-transform",
+        Objects,
+        "a static placeable has no visual transform: the game draws it without one"
+    ),
+    (
+        StaticTint,
+        "static-tint",
+        Objects,
+        "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
+         the game draws it as made"
+    ),
+    (
+        TintStored,
+        "tint-stored",
+        Objects,
+        "a material's tint is set in one place: a tdodTint stored in the object's shader \
+         parameters isn't also given by its tdod_tint variables, which the module's \
+         script sets over it as the module loads"
+    ),
+    (
+        AppearanceRange,
+        "appearance-range",
+        Objects,
+        "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
+         (it carries the row as a 16-bit number and draws a placeable of row 65536 as \
+         row 0's: another model, silently)"
+    ),
+    (
+        AreaVariables,
+        "area-variables",
+        Objects,
+        "an area's variables are in its GIT, where the game reads them"
+    ),
+    (
+        TileReplace,
+        "tile-replace",
+        Objects,
+        "a tile whose model has a replace_tex texture names a replacetexture.2da row \
+         (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
+         or a value past the table)"
+    ),
+    (
+        TileSeam,
+        "tile-seam",
+        Objects,
+        "an area's neighboring tiles agree about the corners and edge they share: its \
+         terrain and height, and its crosser (a road, a stream), as Aurora's painting \
+         leaves them"
+    ),
+    (
+        SoundSilent,
+        "sound-silent",
+        Objects,
+        "an area's music and ambient sounds (its MusicDay, MusicNight and MusicBattle \
+         rows of ambientmusic.2da, its AmbientSndDay and AmbientSndNight rows of \
+         ambientsound.2da) and the sounds of its placed sound objects and of sound \
+         blueprints are files the game finds and plays there: music a .bmu holding MP3, \
+         an ambient sound a .wav holding a WAVE or a .bmu holding MP3, a placed sound a \
+         .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
+         V1.0 header"
+    ),
+    (
+        TransitionHidden,
+        "transition-hidden",
+        Objects,
+        "an area transition trigger's points run counterclockwise (seen from above), as \
+         the game needs to show it under the pointer and take a click on it, and they are \
+         not all more than 1 m off the ground (their ZPosition + PointZ), left at another \
+         level, where the game may not"
+    ),
+    (
+        TagUnique,
+        "tag-unique",
+        Objects,
+        "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
+         object only, or on one of each area (unique_in_area)"
+    ),
+    (
+        NuiSources,
+        "nui-sources",
+        Module,
+        "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
+         nasher otherwise doesn't pack and Moonglow doesn't read back"
+    ),
+    (
+        VarType,
+        "var-type",
+        Objects,
+        "a variable the project describes (variables.toml) is of the type it says: one \
+         of another type reads as that type's empty value (an Int read as a String is \"\")"
+    ),
+    (
+        VarValue,
+        "var-value",
+        Objects,
+        "a described variable's value is one of those it lists, within its range"
+    ),
+    (VarObject, "var-object", Objects, "a described variable is on the kind of object it says"),
+    (
+        VarName,
+        "var-name",
+        Objects,
+        "a variable named as the project's are (variables.toml's undescribed) is \
+         described, and a described one is named in the case it is described in"
+    ),
+    (
+        VarRuntime,
+        "var-runtime",
+        Objects,
+        "a variable the project describes as the scripts' alone (variables.toml's \
+         runtime = true: state or a test's hook, set while the server runs) is kept in no \
+         file of the module"
+    ),
+    (
+        VarRequires,
+        "var-requires",
+        Objects,
+        "a variable the project says needs others beside it (variables.toml's requires, \
+         and its [[rules]]: one needed where another has a value) has them on the same \
+         object"
+    ),
+    (
+        VarScript,
+        "var-script",
+        Objects,
+        "a variable kept in a file is of a type the module's scripts read it as (by its \
+         name written out: GetLocalInt(o, \"tdod_lit\")): one of another type reads as \
+         that type's empty value"
+    ),
+    (
+        ClaimsMerged,
+        "claims-merged",
+        Module,
+        "an area the project's claims table says is merged (in the game) is in the module \
+         under its ResRef, which keeps players' first visits"
+    ),
+    (
+        ClaimsTag,
+        "claims-tag",
+        Module,
+        "a merged area's Tag is the one the claims table records, which keeps players' \
+         positions"
+    ),
+    (
+        TalkRange,
+        "talk-range",
+        Module,
+        "the custom talk table's lines the project gives typed text (moonglow.toml's \
+         [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
+         own that no other shares"
+    ),
+    (
+        PaletteRules,
+        "palette-rules",
+        Module,
+        "the project's palette groupings (moonglow.toml's [palette.*]) and the lists \
+         their from files hold read without a fault (a grouping works without what \
+         isn't understood)"
+    ),
+    (
+        PaletteGroupEmpty,
+        "palette-group-empty",
+        Module,
+        "every group of a palette grouping has a blueprint in it, in the standard or the \
+         custom palettes it is offered in (by its words, its ResRef patterns or its list)"
+    ),
+    (
+        PaletteListMissing,
+        "palette-list-missing",
+        Module,
+        "a blueprint a palette grouping's from file lists is in the module, its haks or \
+         the game, of a type the group is offered in"
+    ),
+    (
+        BakeRules,
+        "bake-rules",
+        Module,
+        "the project's [bake] (moonglow.toml) and its rows file read without a fault, \
+         its rows end by 65535 (the last the game carries), and they are rows the game's \
+         placeables.2da doesn't hold already (a bake never takes one)"
+    ),
+    (
+        BakeRowPending,
+        "bake-row-pending",
+        Module,
+        "each row of the bake's rows file is in the placeables.2da the module's haks give \
+         the game, with its baked model: until the project's build adds it, the game has \
+         no such row (Moonglow draws it as the build will make it)"
+    ),
+    (
+        BakeUnused,
+        "bake-unused",
+        Module,
+        "every row of the bake's rows file, and every baked model in its hak, is used by \
+         a placeable of this module (placed or a blueprint); another module or a hak's \
+         blueprint may still use one, so none is taken out unasked"
+    ),
 }
 
 /// What Verify reports, in groups a builder can leave out (a tileset of a
@@ -763,7 +752,7 @@ pub struct Finding {
 
 /// What the doctor needs to know beyond the resources: how many strings the
 /// talk tables have.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TalkTables {
     /// `dialog.tlk`'s count.
     pub base: usize,
@@ -864,6 +853,8 @@ struct Doctor<'a> {
     /// a persistent world's 17,000-row appearance.2da parsed hundreds of
     /// times, ten times the run's whole time).
     tables_read: TablesRead,
+    /// Models this doctor has checked in front of [`Doctor::models_read`].
+    models: HashMap<ResKey, Option<String>>,
     /// Why each model an object names couldn't be read (`None`: it was,
     /// or it is the game's own), read once a run: shared by the doctors
     /// beside this one, which look at the module's objects on other cores.
@@ -892,6 +883,7 @@ impl<'a> Doctor<'a> {
             out: Vec::new(),
             tables: HashMap::new(),
             tables_read: self.tables_read.clone(),
+            models: HashMap::new(),
             models_read: self.models_read.clone(),
         }
     }
@@ -964,8 +956,12 @@ impl<'a> Doctor<'a> {
     /// not again while its archive is as it was.
     fn unreadable(&mut self, name: &str) -> Option<String> {
         let key = ResKey::parse(name, ResType::MDL)?;
+        if let Some(known) = self.models.get(&key) {
+            return known.clone();
+        }
         let known = self.models_read.lock().ok().and_then(|read| read.get(&key).cloned());
         if let Some(known) = known {
+            self.models.insert(key, known.clone());
             return known;
         }
         let why = self.rm.find(&key).and_then(|layer| {
@@ -980,7 +976,7 @@ impl<'a> Doctor<'a> {
             if let Some(Err(e)) = facts.and_then(|f| f.faces.clone()) {
                 return Some(e);
             }
-            let data = self.rm.get(&key).ok()?;
+            let data = l.container.read(&key).ok()?;
             let read = mg_mdl::Model::read(&data).err().map(|e| e.to_string());
             self.learn(layer, key, Facts { read: Some(read.clone()), ..Facts::default() });
             read
@@ -988,6 +984,7 @@ impl<'a> Doctor<'a> {
         if let Ok(mut read) = self.models_read.lock() {
             read.insert(key, why.clone());
         }
+        self.models.insert(key, why.clone());
         why
     }
 
@@ -1048,26 +1045,28 @@ pub fn examine_groups(
         out: Vec::new(),
         tables: HashMap::new(),
         tables_read: TablesRead::default(),
+        models: HashMap::new(),
         models_read: ModelsRead::default(),
     };
-    // (Looked up in parallel: a module with a hundred haks has hundreds of
-    // thousands, each looked for in the layers above its own. A hak left
-    // out, or a resource, isn't examined.)
     let custom = timings.time("the custom resources", || {
         let mut custom: BTreeMap<ResKey, usize> = BTreeMap::new();
+        let mut seen: HashSet<ResKey> = HashSet::new();
         for (i, layer) in layers.iter().enumerate() {
-            if !is_custom(layer) || skip.source(&layer.label) {
+            if layer.label == crate::bake::PENDING_LABEL {
                 continue;
             }
-            let keys: Vec<ResKey> = layer.container.keys().collect();
-            let won: Vec<ResKey> = (keys.into_par_iter())
-                // (The copy the game reads: the pending baked rows' layer
-                // is over the haks, and is not one.)
-                .filter(|key| {
-                    !skip.resource(key) && crate::bake::layer_read(resman, key) == Some(i)
-                })
-                .collect();
-            custom.extend(won.into_iter().map(|key| (key, i)));
+            let keep_layer = is_custom(layer) && !skip.source(&layer.label);
+            for key in layer.container.keys() {
+                if !matches!(
+                    key.restype,
+                    ResType::SET | ResType::TWODA | ResType::MTR | ResType::MDL | ResType::SHD
+                ) {
+                    continue;
+                }
+                if seen.insert(key) && keep_layer && !skip.resource(&key) {
+                    custom.insert(key, i);
+                }
+            }
         }
         custom
     });
@@ -1117,13 +1116,14 @@ pub fn examine_groups(
                 out: Vec::new(),
                 tables: std::mem::take(tables),
                 tables_read: tables_read.clone(),
+                models: HashMap::new(),
                 models_read: ModelsRead::default(),
             };
             let source = &layers[layer].label;
             match key.restype {
-                ResType::SET => tileset(&mut d, source, *key),
+                ResType::SET => tileset(&mut d, source, *key, layer),
                 ResType::TWODA => two_da(&mut d, source, *key, layer),
-                ResType::MTR => material(&mut d, source, *key),
+                ResType::MTR => material(&mut d, source, *key, layer),
                 ResType::MDL => model_text(&mut d, source, *key, layer),
                 _ => {}
             }
@@ -1539,8 +1539,8 @@ fn past_read_limit(d: &mut Doctor, layer: &Layer) {
 
 /// Tilesets: section counts, models, groups, doors (Aurora's "Range Check
 /// Error" and access violations when opening or painting an area).
-fn tileset(d: &mut Doctor, source: &str, key: ResKey) {
-    let Ok(data) = d.rm.get(&key) else { return };
+fn tileset(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
     let data = data.into_owned();
     tileset_data(d, source, key, &data);
 }
@@ -1558,6 +1558,7 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         out: Vec::new(),
         tables: HashMap::new(),
         tables_read: TablesRead::default(),
+        models: HashMap::new(),
         models_read: ModelsRead::default(),
     };
     tileset_data(&mut d, "tileset", key, data);
@@ -1906,7 +1907,7 @@ fn tile_model(d: &mut Doctor, name: &str) {
     let faces = match d.known(layer, &key).and_then(|f| f.faces.clone()) {
         Some(faces) => faces,
         None => {
-            let Ok(data) = d.rm.get(&key) else { return };
+            let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
             let faces = mg_mdl::faces_over(&data, 10_000).map_err(|e| e.to_string());
             d.learn(layer, key, Facts { faces: Some(faces.clone()), ..Facts::default() });
             faces
@@ -1941,7 +1942,7 @@ fn model_text(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     let found = match d.known(layer, &key).and_then(|f| f.text.clone()) {
         Some(found) => found,
         None => {
-            let found = model_text_found(d.rm, &key);
+            let found = model_text_found(d.rm, &key, layer);
             if let Some(found) = &found {
                 d.learn(layer, key, Facts { text: Some(found.clone()), ..Facts::default() });
             }
@@ -1955,14 +1956,15 @@ fn model_text(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
 
 /// [`model_text`]'s findings of a model: `Some(None)` for a compiled one,
 /// `None` for one that can't be read.
-fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
+fn model_text_found(rm: &ResMan, key: &ResKey, layer: usize) -> Option<Option<Vec<Noted>>> {
     const WARNINGS: usize = 5;
     // (Told by its first bytes: the haks' compiled models are gigabytes.)
-    let start = rm.get_start(key, 12).ok()?;
+    let container = &rm.layers()[layer].container;
+    let start = container.read_start(key, 12).ok()?;
     if mg_mdl::is_binary(&start) {
         return Some(None);
     }
-    let data = rm.get(key).ok()?;
+    let data = container.read(key).ok()?;
     let text = String::from_utf8_lossy(&data);
     let mut warnings = 0;
     let mut out = Vec::new();
@@ -1998,8 +2000,8 @@ fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
 /// (`null` names none), which the game draws without (a builder's report:
 /// a hak's 149 materials named textures a build step had renamed, and
 /// Verify said nothing).
-fn material(d: &mut Doctor, source: &str, key: ResKey) {
-    let Ok(data) = d.rm.get(&key) else { return };
+fn material(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
     let mtr = mg_image::mtr::Mtr::parse(&data);
     let held = |t: &str| {
         mg_core::ResRef::cut(t).is_some_and(|r| {
@@ -2639,12 +2641,37 @@ pub fn table_faults(
     tables: Option<&TableOf>,
     tlk: TalkTables,
 ) -> Vec<CellFault> {
+    table_faults_in(name, t, 0..t.len(), kinds, tables, tlk)
+}
+
+/// Like [`table_faults`], checking only the specified `rows` (in-bounds
+/// indices), sorted by row then column.
+pub fn table_faults_rows(
+    name: &str,
+    t: &TwoDa,
+    rows: &[usize],
+    kinds: &[(&'static str, ColumnKind)],
+    tables: Option<&TableOf>,
+    tlk: TalkTables,
+) -> Vec<CellFault> {
+    table_faults_in(name, t, rows.iter().copied().filter(|&r| r < t.len()), kinds, tables, tlk)
+}
+
+fn table_faults_in(
+    name: &str,
+    t: &TwoDa,
+    rows: impl Iterator<Item = usize> + Clone,
+    kinds: &[(&'static str, ColumnKind)],
+    tables: Option<&TableOf>,
+    tlk: TalkTables,
+) -> Vec<CellFault> {
     // (A table is there where it reads.)
     let there = |n: &str| tables.is_some_and(|read| read(n).is_some());
     let others = tables.map(|read| Others { read, there: &there });
-    let mut out: Vec<CellFault> = (cell_faults(name, t, kinds, others.as_ref(), tlk).into_iter())
-        .map(|f| CellFault { row: f.row, column: f.column, message: f.message })
-        .collect();
+    let mut out: Vec<CellFault> = (cell_faults_in_rows(name, t, rows, kinds, others.as_ref(), tlk)
+        .into_iter())
+    .map(|f| CellFault { row: f.row, column: f.column, message: f.message })
+    .collect();
     out.sort_by_key(|f| (f.row, f.column));
     out
 }
@@ -2681,10 +2708,21 @@ fn cell_faults(
     others: Option<&Others>,
     tlk: TalkTables,
 ) -> Vec<KindFault> {
+    cell_faults_in_rows(name, t, 0..t.len(), kinds, others, tlk)
+}
+
+fn cell_faults_in_rows(
+    name: &str,
+    t: &TwoDa,
+    rows: impl Iterator<Item = usize> + Clone,
+    kinds: &[(&'static str, ColumnKind)],
+    others: Option<&Others>,
+    tlk: TalkTables,
+) -> Vec<KindFault> {
     let mut out = Vec::new();
     for (column, kind) in kinds {
         let Some(at) = t.column(column) else { continue };
-        for row in 0..t.len() {
+        for row in rows.clone() {
             let Some(text) = t.cell(row, at) else { continue };
             let mut names = None;
             let message = match kind {
@@ -2803,11 +2841,13 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         );
     }
     let base = below.last().map(|(_, _, t)| t);
+    let base_cols: Option<Vec<Option<usize>>> =
+        base.map(|b| table.columns().iter().map(|c| b.column(c)).collect());
     let changed = |row: usize| -> bool {
-        let Some(base) = base else { return true };
-        let mine: Vec<Option<&str>> = table.columns().iter().map(|c| table.get(row, c)).collect();
-        let theirs: Vec<Option<&str>> = table.columns().iter().map(|c| base.get(row, c)).collect();
-        row >= base.len() || mine != theirs
+        let (Some(b), Some(cols)) = (base, base_cols.as_deref()) else { return true };
+        row >= b.len()
+            || (0..table.columns().len())
+                .any(|c| table.cell(row, c) != cols[c].and_then(|bc| b.cell(row, bc)))
     };
     // What its columns hold: its own, and those it has as a table that a
     // class, a race, a package or an item property names (by that column,
@@ -2826,6 +2866,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         cell_faults(&name, &table, &kinds, Some(&others), tlk)
     };
     // (Of the rows it adds or changes alone.)
+    let mut game_copies: HashMap<String, Option<TwoDa>> = HashMap::new();
     for f in found.into_iter().filter(|f| changed(f.row)) {
         let at = format!("row {}, {}", f.row, f.label);
         match f.kind {
@@ -2838,10 +2879,19 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
                 // own tables too, is the game's: appearance's
                 // FOOTSTEPTYPE 30.)
                 let kept = base.is_some_and(|b| b.get(f.row, f.label) == table.get(f.row, f.label));
-                let the_game_s = |(target, named): (&str, usize)| {
-                    game_copy(rm, target).is_some_and(|g| row_fault(&g, target, named).is_some())
-                };
-                if kept && f.names.is_some_and(the_game_s) {
+                if kept
+                    && let Some((target, named)) = f.names
+                    && {
+                        let g = match game_copies.get(target) {
+                            Some(g) => g.as_ref(),
+                            None => game_copies
+                                .entry(target.to_string())
+                                .or_insert_with(|| game_copy(rm, target))
+                                .as_ref(),
+                        };
+                        g.is_some_and(|g| row_fault(g, target, named).is_some())
+                    }
+                {
                     continue;
                 }
                 d.push(Warning, Check::TwoDaRef, source, key, at, f.message);
@@ -3067,8 +3117,8 @@ fn described_tables(d: &mut Doctor, module: &Module) {
             layer.container.keys().filter(|k| k.restype == ResType::TWODA).collect();
         keys.sort();
         for key in keys {
-            // (The copy the game reads alone, as Verify takes a hak's.)
-            if d.rm.find(&key) != Some(i) || module.contains(&key) {
+            // (The copy the game reads alone, skipping bake's pending layer.)
+            if crate::bake::layer_read(d.rm, &key) != Some(i) || module.contains(&key) {
                 continue;
             }
             let beside = find_for(&hak.with_file_name(key.to_string()));
@@ -3089,17 +3139,14 @@ fn described_tables(d: &mut Doctor, module: &Module) {
             tables.push((layer.label.clone(), key, path, data.into_owned()));
         }
     }
-    // (The folders are walked once for the tables of one.)
-    let mut walked: Option<(std::path::PathBuf, Beside)> = None;
+    // (The folders are walked once for the tables of each directory.)
+    let mut walked: HashMap<std::path::PathBuf, Beside> = HashMap::new();
     for (source, key, path, data) in tables {
         let source = source.as_str();
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let Ok(table) = TwoDa::parse(&data, Codepage::default()) else { continue };
         let root = Beside::root_of(&path.with_extension(""));
-        if walked.as_ref().is_none_or(|(r, _)| *r != root) {
-            walked = Some((root.clone(), Beside::of(&root)));
-        }
-        let files = &walked.as_ref().expect("walked").1;
+        let files = walked.entry(root.clone()).or_insert_with(|| Beside::of(&root));
         let rm = d.rm;
         let from_game = |name: &str, t: ResType| {
             let key = ResKey::parse(name, t)?;
@@ -3274,6 +3321,7 @@ struct OfOne {
 #[derive(Default)]
 struct KeptOnce<'a> {
     tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
+    models: HashMap<ResKey, Option<String>>,
     replaced: HashMap<String, bool>,
     choices: HashMap<String, crate::var_desc::Choices>,
     lookup: Option<crate::var_desc::ModuleLookup<'a>>,
@@ -3354,6 +3402,7 @@ fn resources_once(
             took[Once::ALL.len()] = reading.elapsed();
             let mut w = beside.beside();
             w.tables = std::mem::take(&mut kept.tables);
+            w.models = std::mem::take(&mut kept.models);
             // (Timed where it runs.)
             let mut run = |o: Once, check: &mut dyn FnMut()| {
                 if asked(o, t) {
@@ -3400,6 +3449,7 @@ fn resources_once(
             });
             run(Once::Read, &mut || variables_read(&mut w, module, key, &gff, variables, reads));
             kept.tables = std::mem::take(&mut w.tables);
+            kept.models = std::mem::take(&mut w.models);
             Some(OfOne { key, first, after: w.out, unlisted, tags, learned: w.learned, took })
         })
         .collect();
@@ -4792,6 +4842,7 @@ mod tests {
             out: Vec::new(),
             tables: HashMap::new(),
             tables_read: TablesRead::default(),
+            models: HashMap::new(),
             models_read: ModelsRead::default(),
         };
         let (mut one, mut two) = (d.beside(), d.beside());
@@ -5534,6 +5585,23 @@ endmodelgeom fx\ndonemodel fx\n";
                 ("spawn.2da".into(), "row 1, Chance".into(), "hak:my"),
             ],
             "{f:#?}"
+        );
+
+        // Mounted pending bake rows above HAK_USER must not mask the hak's 2DAs.
+        let mut pending = MemContainer::new();
+        pending.insert(ResKey::parse("loot", ResType::TWODA).unwrap(), table.to_vec());
+        rm.add(
+            crate::bake::PENDING_PRIORITY,
+            crate::bake::PENDING_LABEL,
+            LayerClass::Directory,
+            pending,
+        );
+        let with_pending = examine(&m, &rm, TalkTables::default());
+        assert!(
+            with_pending
+                .iter()
+                .any(|f| f.check == "2da-described" && f.resource.to_string() == "loot.2da"),
+            "{with_pending:#?}"
         );
     }
 

@@ -1671,16 +1671,6 @@ fn a_game_table_is_edited_as_a_copy() {
     assert_eq!(in_file(&h), None, "saved: gone with its tab");
 }
 
-fn double_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
-    h.hover_at(at);
-    h.run_steps(2);
-    for pressed in [true, false, true, false] {
-        press(h, at, pressed, egui::Modifiers::NONE);
-        h.run_steps(1);
-    }
-    h.run_steps(2);
-}
-
 /// A builder's report: the 2DA editor's columns could not be made wider.
 /// The edge at the right of a column's name is dragged to set its width
 /// (kept for the table's name, between runs too), and a double click
@@ -1691,10 +1681,20 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let dir = mg_testkit::scratch_dir("ui-table-widths");
     let file = dir.join("loose.2da");
     std::fs::write(&file, SMALL_TABLE).unwrap();
+    let mut recorded = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(1.0 / 60.0)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+        .build_ui_state(
+            move |ui, app: &mut Moonglow| {
+                if !recorded {
+                    recorded = true;
+                    mg_uikit::header::record_headers(ui.ctx());
+                }
+                app.ui(ui)
+            },
+            app_with(Vec::new()),
+        );
     h.run_steps(2);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
@@ -1718,7 +1718,9 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "not moved");
     // A double click on the edge: as wide as "Cheese", much narrower.
     let edge = h.get_by_label("Width of Label").rect().center();
-    double_click(&mut h, edge);
+    h.hover_at(edge);
+    h.run_steps(2);
+    double_click_now(&mut h, edge);
     let fitted = widths(&h)[0].1[0].1;
     assert!((40..90).contains(&fitted), "fitted to its widest cell: {fitted}");
     assert!(left_of(&h, "Cost") < cost, "{} < {cost}", left_of(&h, "Cost"));
@@ -1804,21 +1806,25 @@ fn a_game_table_read_only_scrolls() {
     // pixels near the pane's right edge, from the rows' top to their
     // bottom, is the bar's track, with its handle at the top.
     let (top, bottom) = (h.get_by_label("Acid_Fog").rect().top(), pane.bottom() - 30.0);
+    let ppp = h.ctx.pixels_per_point();
+    let (top_px, bottom_px) = ((top * ppp) as u32, (bottom * ppp) as u32);
+    let x_right = (pane.right() * ppp) as u32;
+    let handle_h = (10.0 * ppp).round().max(2.0) as u32;
     let image = h.render().expect("render");
     let visuals = h.ctx.global_style().visuals.clone();
     let (track, handle) = (visuals.extreme_bg_color, visuals.widgets.inactive.bg_fill);
-    let is = |x: f32, y: u32, c: egui::Color32| {
-        let p = image.get_pixel(x as u32, y);
+    let is = |px: u32, py: u32, c: egui::Color32| {
+        let p = image.get_pixel(px, py);
         (0..3).all(|i| p[i].abs_diff(c.to_array()[i]) <= 3)
     };
-    let x = (1..=24).map(|dx| pane.right() - dx as f32).find(|&x| {
-        let ys = top as u32..bottom as u32;
-        let handle_at_top = (top as u32 + 1..top as u32 + 10).all(|y| is(x, y, handle));
-        let bar = ys.clone().filter(|&y| is(x, y, track) || is(x, y, handle)).count();
-        let track = ys.clone().filter(|&y| is(x, y, track)).count();
+    let px = (1..=(24.0 * ppp).ceil() as u32).map(|dx| x_right.saturating_sub(dx)).find(|&px| {
+        let ys = top_px..bottom_px;
+        let handle_at_top = (top_px + 1..top_px + handle_h).all(|py| is(px, py, handle));
+        let bar = ys.clone().filter(|&py| is(px, py, track) || is(px, py, handle)).count();
+        let track = ys.clone().filter(|&py| is(px, py, track)).count();
         handle_at_top && bar as f32 > 0.95 * ys.len() as f32 && track > ys.len() / 2
     });
-    let x = x.expect("a scroll bar at the right of the rows, its handle at the top");
+    let x = px.expect("a scroll bar at the right of the rows, its handle at the top") as f32 / ppp;
     // A press low on it brings rows far down into view.
     let bar = egui::pos2(x, pane.bottom() - 40.0);
     h.hover_at(bar);
@@ -2091,7 +2097,9 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     h.event(egui::Event::Text("x".into()));
     h.run_steps(2);
     let fifth = h.get_by_label(&label(5)).rect().center();
-    double_click(&mut h, fifth);
+    h.hover_at(fifth);
+    h.run_steps(2);
+    double_click_now(&mut h, fifth);
     h.run_steps(2);
     assert_eq!(fields(&h), typing, "no cell is typed in");
     assert!(h.query_all_by_label(&label(1)).count() > 0, "not emptied");

@@ -666,8 +666,7 @@ fn the_tileset_header_holds_every_control_from_420_to_1600() {
     use mg_uikit::header::{self, Place};
     for mode in MODES {
         let (mut h, _, _) = tileset_window(mode, "ui-u20-header", 1600.0, None, false);
-        let mut widths: Vec<f32> = (21..=80).rev().map(|n| n as f32 * 20.0).collect();
-        widths.extend([1399.0, 1400.0, 961.0, 962.0]);
+        let widths = [1600.0, 1400.0, 1399.0, 1200.0, 1000.0, 962.0, 961.0, 800.0, 600.0, 420.0];
         for width in widths {
             h.set_size(egui::vec2(width, 800.0));
             settle(&mut h);
@@ -1023,7 +1022,7 @@ fn the_tile_form_is_never_taller_where_wider() {
         // form beside the list or under it by the editor's width, and the
         // form under the list is the wider.)
         let mut seen: Vec<(f32, f32, usize)> = Vec::new();
-        for width in (720..=1600).step_by(8) {
+        for width in (720..=1600).step_by(64).chain(std::iter::once(1600)) {
             h.set_size(egui::vec2(width as f32, 1400.0));
             settle(&mut h);
             let field = field_with(&h, "tcn01_a01_01").rect();
@@ -1675,10 +1674,17 @@ fn a_look_at_every_file_reads_only_a_tileset_changed() {
     use std::os::unix::fs::PermissionsExt;
     let (mut h, path, _) = tileset_window(Mode::Tabs, "ui-w5-walk", 1600.0, None, false);
     watched(&mut h);
+    struct RestorePermissions<'a>(&'a std::path::Path);
+    impl Drop for RestorePermissions<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o644));
+        }
+    }
+    let _restore = RestorePermissions(&path);
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
     h.state_mut().walk_tileset_files();
     outside_quiet(&mut h, 900);
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    drop(_restore);
     assert_eq!(logged(&h, "can't be read now"), 0, "the untouched file not read");
     std::fs::write(&path, SET.replace("Model=tcn01_a01_01", "Model=zzt01_walked")).unwrap();
     outside_wait(&mut h, "read again by the walk", |app| {

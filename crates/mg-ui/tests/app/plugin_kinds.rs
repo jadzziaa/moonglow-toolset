@@ -533,9 +533,11 @@ fn shown_tint(h: &Harness<'_, Moonglow>) -> String {
 fn a_plugin_s_panel_field_follows_the_selection_and_sets_the_tint() {
     let Some((mut h, area)) = tint_panel("plugin-tint-panel") else { return };
     let git = ResKey::new(area, ResType::GIT);
-    let pictures = mg_testkit::scratch_dir("ui-plugin-tint-panel");
-    h.render().expect("render").save(pictures.join("panel.png")).unwrap();
-    eprintln!("the panel: {}", pictures.join("panel.png").display());
+    let pictures =
+        std::env::var_os("MG_SHOT").map(|_| mg_testkit::scratch_dir("ui-plugin-tint-panel"));
+    if let Some(dir) = &pictures {
+        h.render().expect("render").save(dir.join("panel.png")).unwrap();
+    }
     assert_eq!(shown_tint(&h), "#ffffff", "the first chest's own");
     assert!(h.get_all_by_label("#ffffff").next().is_some());
     h.get_by_value("Custom");
@@ -554,7 +556,9 @@ fn a_plugin_s_panel_field_follows_the_selection_and_sets_the_tint() {
     h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
     h.run_steps(3);
     drag_picker(&mut h, well, 0.0, 80.0);
-    h.render().expect("render").save(pictures.join("picking.png")).unwrap();
+    if let Some(dir) = &pictures {
+        h.render().expect("render").save(dir.join("picking.png")).unwrap();
+    }
     let picked = drawn_tint(&h, area).expect("drawn with a tint");
     assert_ne!(picked, white, "the color being picked, drawn");
     assert_eq!(tint_of(&mut h, &git, 0).as_deref(), Some("#ffffff"), "nothing set");
@@ -589,14 +593,16 @@ fn a_plugin_s_panel_field_follows_the_selection_and_sets_the_tint() {
 fn a_plugin_s_panel_choice_has_swatches_and_runs_its_command_when_changed() {
     let Some((mut h, area)) = tint_panel("plugin-tint-choice") else { return };
     let git = ResKey::new(area, ResType::GIT);
-    let pictures = mg_testkit::scratch_dir("ui-plugin-tint-choice");
+    let pictures =
+        std::env::var_os("MG_SHOT").map(|_| mg_testkit::scratch_dir("ui-plugin-tint-choice"));
     h.get_by_value("Custom").click();
     h.run_steps(3);
     for name in ["Crimson", "Forest", "Night blue", "Bone"] {
         h.get_by_label(name);
     }
-    h.render().expect("render").save(pictures.join("choice.png")).unwrap();
-    eprintln!("the named tints: {}", pictures.join("choice.png").display());
+    if let Some(dir) = &pictures {
+        h.render().expect("render").save(dir.join("choice.png")).unwrap();
+    }
     h.get_by_label("Forest").click();
     settle(&mut h);
     h.run_steps(2);
@@ -604,5 +610,7 @@ fn a_plugin_s_panel_choice_has_swatches_and_runs_its_command_when_changed() {
     assert_eq!(undo(&h).as_deref(), Some("Tint #2f6b2a"));
     assert_eq!(shown_tint(&h), "#2f6b2a", "the color field follows");
     h.get_by_value("Forest");
-    h.render().expect("render").save(pictures.join("chosen.png")).unwrap();
+    if let Some(dir) = &pictures {
+        h.render().expect("render").save(dir.join("chosen.png")).unwrap();
+    }
 }

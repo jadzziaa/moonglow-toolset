@@ -15,29 +15,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::gallery::{self, CellState, GalleryCell, GalleryGrid, Picture};
 use mg_uikit::{Icon, Theme};
 
-/// Every shape drawn in a frame, flattened.
-fn shapes(h: &Harness<'_>) -> Vec<Shape> {
-    fn add(shape: &Shape, to: &mut Vec<Shape>) {
-        match shape {
-            Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            s => to.push(s.clone()),
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
-}
-
-/// The words drawn in a frame, with their color.
-fn texts(h: &Harness<'_>) -> Vec<(String, Color32)> {
-    shapes(h)
-        .into_iter()
-        .filter_map(|s| match s {
-            Shape::Text(t) => Some((t.galley.text().to_string(), t.fallback_color)),
-            _ => None,
-        })
-        .collect()
-}
+use crate::common::{colored_texts as texts, shapes};
 
 /// The rim strokes drawn: (width, color).
 fn rims(h: &Harness<'_>) -> Vec<(f32, Color32)> {

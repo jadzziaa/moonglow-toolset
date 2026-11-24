@@ -872,4 +872,51 @@ endmodelgeom m\ndonemodel m\n";
         assert_eq!(names, ["a", "m"]);
         assert_eq!(skin.weights.len(), 3);
     }
+
+    #[test]
+    fn normal_mapped_mirrored_uv_seam_keeps_split_drawn_indices_on_binary_load() {
+        // Two triangles sharing vertices 0 and 1 along the diagonal, with
+        // opposite UV handedness across the diagonal so engine_tangents splits them.
+        let text = "newmodel seam
+setsupermodel seam NULL
+classification tile
+beginmodelgeom seam
+node dummy seam
+  parent NULL
+endnode
+node trimesh quad
+  parent seam
+  renderhint normaltangents
+  verts 4
+    0.0 0.0 0.0
+    1.0 0.0 0.0
+    1.0 1.0 0.0
+    0.0 1.0 0.0
+  tverts 4
+    0.0 0.0 0.0
+    1.0 0.0 0.0
+    1.0 1.0 0.0
+    1.0 0.0 0.0
+  faces 2
+    0 1 2 1 0 1 2 0
+    0 2 3 1 0 2 3 0
+endnode
+endmodelgeom seam
+donemodel seam
+";
+        let mut expected = Model::read(text.as_bytes()).unwrap();
+        let NodeKind::Mesh(expected_mesh) = &mut expected.nodes[1].kind else { panic!() };
+        engine_tangents(expected_mesh);
+        assert!(!expected_mesh.drawn.is_empty(), "expected mirrored seam split");
+        assert!(expected_mesh.tangents.len() > 4);
+
+        let out = compile(text.as_bytes(), &Sources::default()).unwrap();
+        let back = Model::read(&out.binary).unwrap();
+        let read_mesh = back.nodes[1].mesh().unwrap();
+        assert_eq!(read_mesh.drawn, expected_mesh.drawn);
+        let compiled_mesh = expected_mesh;
+        assert_eq!(read_mesh.tangents, compiled_mesh.tangents);
+        assert!(read_mesh.tangents.iter().any(|t| t[3] > 0.0));
+        assert!(read_mesh.tangents.iter().any(|t| t[3] < 0.0));
+    }
 }

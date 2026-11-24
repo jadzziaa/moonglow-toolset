@@ -219,7 +219,7 @@ fn placeable_editor_fills_its_inventory() {
 #[test]
 fn placed_chest_holds_whole_items() {
     use mg_module::instances::{Placement, Placing, instance};
-    let Some((mut h, area)) = area_harness("held") else { return };
+    let Some((mut h, area)) = area_ui_harness("held") else { return };
     let git_key = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
@@ -335,9 +335,11 @@ fn equipping_without_the_feat_asks_to_add_it() {
     let image = egui::accesskit::Role::Image;
     assert!(h.get_all_by_label("Battleaxe").any(|n| n.accesskit_node().role() == image));
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::scratch_dir("ui-inventory-icons").join("inventory.png"));
+    if let Some(dir) = shot_dir("ui-inventory-icons") {
+        mg_testkit::gpu::hold();
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join("inventory.png"));
+        }
     }
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
@@ -629,7 +631,7 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
 fn a_placed_creature_s_items_can_be_dropable_and_pickpocketable() {
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
-    let Some((mut h, area)) = area_harness("held-flags") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-flags") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let bandit = {
         let game = h.state().game.clone().unwrap();
@@ -687,7 +689,7 @@ fn a_placed_creature_s_items_can_be_dropable_and_pickpocketable() {
 fn a_held_item_s_properties_open_from_the_inventory() {
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
-    let Some((mut h, area)) = area_harness("held-item") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-item") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = {
         let game = h.state().game.clone().unwrap();
@@ -822,7 +824,7 @@ fn held_window(h: &Harness<'_, Moonglow>, area: ResRef, tag: &str) -> mg_edit::G
 #[test]
 fn a_held_item_s_properties_follow_the_item() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("held-follow") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-follow") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     let open = |h: &mut Harness<'_, Moonglow>, i: usize| {
@@ -890,7 +892,7 @@ fn a_held_item_s_properties_follow_the_item() {
 /// back as by Cancel, which Undo takes back; off, it is kept.
 #[test]
 fn a_placed_object_s_properties_closed_cancel_when_asked() {
-    let Some((mut h, area)) = area_harness("held-close") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-close") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     let path = chest.item("ItemList", 1);
@@ -932,7 +934,7 @@ fn a_placed_object_s_properties_closed_cancel_when_asked() {
 fn a_placed_store_s_items_open_their_properties_and_follow_them() {
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
-    let Some((mut h, area)) = area_harness("held-store") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-store") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let store = {
         let game = h.state().game.clone().unwrap();
@@ -1011,7 +1013,7 @@ fn a_placed_store_s_items_open_their_properties_and_follow_them() {
 fn a_placed_creature_s_equipment_is_in_sight_in_a_narrow_window() {
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
-    let Some((mut h, area)) = area_harness("equipment-narrow") else { return };
+    let Some((mut h, area)) = area_ui_harness("equipment-narrow") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let bandit = {
         let game = h.state().game.clone().unwrap();
@@ -1203,7 +1205,7 @@ fn as_held_anywhere(item: &mg_gff::Struct) -> mg_gff::Struct {
 /// too.
 #[test]
 fn a_held_item_moved_to_a_slot_and_back_stays_as_it_is() {
-    let Some((mut h, area)) = area_harness("held-equip") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-equip") else { return };
     let held = |game: &mg_rules::GameData| {
         let mut gone = own_item(game, "nw_it_mring022", 1, ("MG_NOWHERE", "Nowhere Probe"));
         gone.set("TemplateResRef", mg_gff::Value::resref(ResRef::from_str("mg_gone").unwrap()));
@@ -1259,7 +1261,7 @@ fn a_held_item_moved_to_a_slot_and_back_stays_as_it_is() {
 /// an item it had equipped follows the item back into the backpack.
 #[test]
 fn a_held_item_s_window_follows_it_when_its_list_is_set_back() {
-    let Some((mut h, area)) = area_harness("held-cancel") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-cancel") else { return };
     let held = |game: &mg_rules::GameData| {
         vec![own_item(game, "nw_it_mneck020", 0, ("MG_OWN", "Moved Probe"))]
     };
@@ -1290,7 +1292,7 @@ fn a_held_item_s_window_follows_it_when_its_list_is_set_back() {
 #[test]
 fn a_held_item_s_window_keeps_what_is_typed_as_it_follows() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("held-typed") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-typed") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     let at = chest.item("ItemList", 1);
@@ -1342,7 +1344,7 @@ fn drag_pos(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2) {
 /// step; its own window follows it from the chest to the creature.
 #[test]
 fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
-    let Some((mut h, area)) = area_harness("held-carried") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-carried") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     // (The chest is the first placeable, the bandit the first creature.)
@@ -1399,7 +1401,7 @@ fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
 #[test]
 fn a_held_item_needing_a_feat_stays_in_the_backpack_on_no() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("held-feat") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-feat") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let held = |game: &mg_rules::GameData| {
         vec![own_item(game, "nw_wswls001", 0, ("MG_SWORD", "Sword Probe"))]
@@ -1451,7 +1453,7 @@ fn a_held_item_needing_a_feat_stays_in_the_backpack_on_no() {
 #[test]
 fn an_item_dropped_on_a_taken_slot_sends_its_item_to_the_backpack() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("taken-slot") else { return };
+    let Some((mut h, area)) = area_ui_harness("taken-slot") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let held = |game: &mg_rules::GameData| {
         vec![own_item(game, "nw_it_mneck020", 0, ("MG_NEW", "New Probe"))]
@@ -1545,7 +1547,7 @@ fn a_creature_s_inventory_shows_the_icons_of_its_gender() {
 #[test]
 fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("secondary-slot") else { return };
+    let Some((mut h, area)) = area_ui_harness("secondary-slot") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let held = |game: &mg_rules::GameData| {
         vec![
@@ -1613,7 +1615,7 @@ fn a_weapon_dropped_on_the_secondary_slot_takes_a_free_primary() {
 /// own item to the backpack), each one step.
 #[test]
 fn items_dragged_between_a_creature_s_slots_and_a_chest() {
-    let Some((mut h, area)) = area_harness("slots-and-chest") else { return };
+    let Some((mut h, area)) = area_ui_harness("slots-and-chest") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     let bandit = bandit_holding(&mut h, area, &|_| Vec::new());
@@ -1685,7 +1687,7 @@ fn items_dragged_between_a_creature_s_slots_and_a_chest() {
 /// the copy stays where it was.
 #[test]
 fn a_placed_object_s_item_is_pasted_as_it_is() {
-    let Some((mut h, area)) = area_harness("pasted-as-it-is") else { return };
+    let Some((mut h, area)) = area_ui_harness("pasted-as-it-is") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let chest = chest_of_three(&mut h, area);
     let bandit = bandit_holding(&mut h, area, &|_| Vec::new());
@@ -1784,7 +1786,7 @@ fn a_store_s_item_is_found_in_the_palette() {
 #[test]
 fn the_missing_feats_question_goes_when_its_item_has_moved() {
     use mg_edit::{Command, Edit};
-    let Some((mut h, area)) = area_harness("held-feat-moved") else { return };
+    let Some((mut h, area)) = area_ui_harness("held-feat-moved") else { return };
     let git = ResKey::new(area, ResType::GIT);
     let held = |game: &mg_rules::GameData| {
         vec![

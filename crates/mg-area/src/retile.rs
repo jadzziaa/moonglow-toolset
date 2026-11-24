@@ -107,8 +107,8 @@ pub struct Retiled {
 }
 
 /// The area (its ARE `are`, GIT `git`) laid in the tileset `new` as its
-/// layout in `old` maps (`mapping`); `lights` gives each new tile's lights
-/// where the old tile had none to keep; `blueprint` reads a door blueprint.
+/// layout in `old` maps (`mapping`), preserving each old tile's lights
+/// when its mapping matches; `blueprint` reads a door blueprint.
 /// `None` when the area's tiles are not the old tileset's, or the new
 /// tileset has no `Default` terrain tile.
 #[allow(clippy::too_many_arguments)]
@@ -290,6 +290,6 @@ pub fn retile(
     );
     let doors_new = new_doors.len();
     edits.extend(new_doors);
-    let groups = crate::reshape::groups_in(old.index, old.set, &before).len();
+    let groups = crate::reshape::groups_in(old.index, &before).len();
     Some(Retiled { edits, corners_missed, crossers_missed, groups, doors_gone, doors_new })
 }

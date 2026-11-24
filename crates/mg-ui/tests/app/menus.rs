@@ -13,7 +13,7 @@ use crate::common::*;
 #[test]
 fn add_grass_to_has_headings_over_its_rows() {
     use mg_area::grass::AreaGrass;
-    let Some((mut h, area)) = area_harness("menus-grass") else { return };
+    let Some((mut h, area)) = area_ui_harness("menus-grass") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
     h.run_steps(5);
     // (The window's page: the palette has a Grass terrain too.)

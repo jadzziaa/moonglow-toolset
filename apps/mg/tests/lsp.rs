@@ -160,6 +160,11 @@ fn the_language_server_answers() {
             .find(|n| n["method"] == "textDocument/publishDiagnostics")
             .expect("diagnostics");
         assert_eq!(diag["params"]["diagnostics"][0]["range"]["start"]["line"], 3, "{diag}");
+    } else {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
     }
     c.request("shutdown", Value::Null);
     c.notify("exit", Value::Null);

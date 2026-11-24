@@ -103,6 +103,25 @@ impl<K: Ord + Clone, V: Clone> Default for Shared<K, V> {
     }
 }
 
+/// Opens a [`mg_resman::ResMan`] for `install`, sharing the immutable base
+/// KEY/BIF archives and install data directories once per `(root, language)`
+/// in the current test binary.
+pub fn shared_resman(
+    install: &mg_resman::GameInstall,
+) -> Result<mg_resman::ResMan, mg_resman::ResError> {
+    static BASE: Shared<(PathBuf, String), Result<Arc<mg_resman::SharedGameBase>, String>> =
+        Shared::new();
+    let key = (install.root.clone(), install.language.clone());
+    match BASE.get(&key, || {
+        mg_resman::SharedGameBase::open(&install.root, &install.language)
+            .map(Arc::new)
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(base) => base.stack(install),
+        Err(_) => mg_resman::ResMan::for_game(install),
+    }
+}
+
 /// The modules that ship with the game (`data/mod/*.mod`, `data/nwm/*.nwm`),
 /// sorted by path.
 pub fn bundled_modules(root: &Path) -> Vec<PathBuf> {

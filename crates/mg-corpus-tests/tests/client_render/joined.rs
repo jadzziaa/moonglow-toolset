@@ -204,6 +204,7 @@ fn joined_dm_creator_palette() {
 #[test]
 #[ignore]
 fn joined_nwsync_download() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let Some(_) = joined::cd_key() else {
         eprintln!("skipped: the sandboxed client has no CD key (MG_CLIENT_CDKEY)");
         return;

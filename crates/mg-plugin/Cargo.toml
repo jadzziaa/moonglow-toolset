@@ -6,6 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+autotests = false
+
+# One test binary (tests/groups/plugins.rs, each test file a module of it)
+# instead of linking seven separate binaries.
+[[test]]
+name = "plugins"
+path = "tests/groups/plugins.rs"
 
 [dependencies]
 mg-2da.workspace = true

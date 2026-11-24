@@ -1102,7 +1102,12 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
     // Its tag, and what a placed object was made from, where it is.
     let facts = |g: &Gff| {
         let at = path.get(&g.root)?;
-        Some((at.string("Tag").map(<[u8]>::to_vec), at.resref("TemplateResRef")))
+        let field = match path.0.first() {
+            Some(mg_edit::Step::Item(list, _)) => mg_rules::ObjectKind::from_list(list)
+                .map_or("TemplateResRef", mg_rules::ObjectKind::resref_field),
+            _ => "TemplateResRef",
+        };
+        Some((at.string("Tag").map(<[u8]>::to_vec), at.resref(field)))
     };
     let read = match s {
         Selected::Resource(_) => None,
@@ -1543,11 +1548,13 @@ fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
 /// `described()`, every description, in the file's order.
 fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     use mg_module::var_desc::{Described, ModuleLookup};
-    fn table(lua: &Lua, sh: &Shared, d: &Described) -> mlua::Result<Table> {
-        let ws = sh.ws.borrow();
-        let module = &ws.module;
-        let lookup = ModuleLookup::new(module, sh.game.as_deref().map(|g| &g.resman));
-        let choices = d.choices(&lookup);
+    fn table(
+        lua: &Lua,
+        module: &mg_module::Module,
+        lookup: &ModuleLookup<'_>,
+        d: &Described,
+    ) -> mlua::Result<Table> {
+        let choices = d.choices(lookup);
         let t = lua.create_table()?;
         t.set("name", d.name.as_str())?;
         t.set("pattern", d.is_pattern())?;
@@ -1580,16 +1587,27 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     api.set(
         "describe",
         lua.create_function(move |lua, name: String| {
-            let d = s.ws.borrow().module.project_file.variables.describe(&name).cloned();
-            d.map(|d| table(lua, &s, &d)).transpose()
+            let ws = s.ws.borrow();
+            let Some(d) = ws.module.project_file.variables.describe(&name) else {
+                return Ok(None);
+            };
+            let lookup = ModuleLookup::new(&ws.module, s.game.as_deref().map(|g| &g.resman));
+            table(lua, &ws.module, &lookup, d).map(Some)
         })?,
     )?;
     let s = sh.clone();
     api.set(
         "described",
         lua.create_function(move |lua, ()| {
-            let all = s.ws.borrow().module.project_file.variables.described.clone();
-            all.iter().map(|d| table(lua, &s, d)).collect::<mlua::Result<Vec<_>>>()
+            let ws = s.ws.borrow();
+            let lookup = ModuleLookup::new(&ws.module, s.game.as_deref().map(|g| &g.resman));
+            ws.module
+                .project_file
+                .variables
+                .described
+                .iter()
+                .map(|d| table(lua, &ws.module, &lookup, d))
+                .collect::<mlua::Result<Vec<_>>>()
         })?,
     )?;
     Ok(api)
@@ -2733,5 +2751,28 @@ mod tests {
         assert!(!sh.out_of_time());
         let left = sh.deadline.get().unwrap() - std::time::Instant::now();
         assert!(left > std::time::Duration::from_millis(100), "{left:?}");
+    }
+
+    #[test]
+    fn placed_store_selection_exposes_store_resref_field() {
+        let area = ResRef::from_str("area001").unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut store = Struct::new(0);
+        store.set("Tag", Value::String(b"SHOP_1".to_vec()));
+        store.set("ResRef", Value::resref(ResRef::from_str("my_shop").unwrap()));
+        git.root.set(mg_rules::ObjectKind::Store.list(), Value::List(vec![store]));
+        let mut module = mg_module::Module::new();
+        module.set_gff(ResKey::new(area, mg_core::ResType::GIT), &git).unwrap();
+        let mut input = Input::new(module, None);
+        input.selection.selected =
+            vec![Selected::Object { area, kind: mg_rules::ObjectKind::Store, index: 0 }];
+        let host: Rc<dyn Host> = Rc::new(Nobody);
+        let sh = shared_in(Source::Nothing, "", input, &host);
+        let lua = start(None, &sh).unwrap();
+        let ctx = context(&lua, &sh, ["", "", ""]).unwrap();
+        let chosen: Table = ctx.get("selection").unwrap();
+        let entry: Table = chosen.get(1).unwrap();
+        assert_eq!(entry.get::<String>("tag").unwrap(), "SHOP_1");
+        assert_eq!(entry.get::<String>("resref").unwrap(), "my_shop");
     }
 }

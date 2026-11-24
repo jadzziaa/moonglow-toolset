@@ -32,7 +32,7 @@ mod item;
 pub(crate) mod picker;
 mod placeable;
 mod replacements;
-mod situated;
+pub(crate) mod situated;
 mod sound;
 pub(crate) mod store;
 pub(crate) mod tint;
@@ -105,6 +105,8 @@ pub(crate) struct HeldText {
     pub drawn: u64,
     /// What it would set if left now (`None`: nothing typed).
     pub command: Option<Command>,
+    /// What it would ask for if left now (`None`: a command or nothing typed).
+    pub action: Option<Action>,
     /// It is a localized string's text: set as text typed is
     /// (`Action::ApplyTyped`).
     pub typed: bool,
@@ -318,14 +320,11 @@ pub(crate) enum Pressed {
     Cancel,
 }
 
-/// OK and Cancel under a window, as Aurora's has: OK closes it (what was
-/// changed is the module's already); Cancel sets back what the window
-/// changed since it was opened, as one step, and closes it
-/// ([`close_window`], once the page is drawn: a field typed in sets its
-/// text as the press takes the keyboard from it, and that is among what
-/// Cancel sets back). The game's blueprint, shown to look at, has Close
-/// alone. Drawn before the window's pages, of whose room it takes the
-/// foot.
+/// OK and Cancel footer strip used by the standalone GFF editor (`gff_view`);
+/// Properties windows use [`ok_cancel_header`] at the top instead. OK closes
+/// the window (changes are already in the module); Cancel reverts everything
+/// changed since opening as one undo step and closes it. Read-only blueprints
+/// show Close alone.
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
     ok_cancel_saying(ui, egui::Id::new(first), viewed, OK_CANCEL_TIPS)
 }
@@ -379,11 +378,9 @@ pub(crate) struct Title<'t> {
     pub sub: &'t str,
 }
 
-/// [`ok_cancel_saying`]'s `in_header` form (the proposal's M4 Part 2,
-/// decision 4): the window's header row (`mg_uikit::header`, 30 px of
-/// `bar`) with its title at the left and OK and Cancel (Close alone where
-/// only looked at) in its end slot, at the right end; the same tips and
-/// the same [`Pressed`]. Drawn first, at the window's top.
+/// Header-bar variant of [`ok_cancel_saying`]: title on the left and OK/Cancel
+/// (or Close when read-only) on the right, with the same tips and [`Pressed`]
+/// result.
 pub(crate) fn ok_cancel_header(
     ui: &mut Ui,
     title: &Title<'_>,
@@ -404,10 +401,8 @@ fn ok_cancel_header_with(
 ) -> (Option<Pressed>, bool) {
     use mg_uikit::KitButton;
     let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
-    let measure = |text: &str| {
-        let galley =
-            ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
-        galley.size().x
+    let shape_plain = |text: &str| {
+        ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER)
     };
     const GAP: f32 = 8.0;
     let mut buttons: Vec<KitButton> = Vec::new();
@@ -425,8 +420,7 @@ fn ok_cancel_header_with(
         }
     }
     let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
-        + gap * (buttons.len() as f32 - 1.0).max(0.0);
+    let end_width = crate::widgets::buttons_end_width(ui, &buttons);
     // The title yields where the row is short (the style guide's
     // ellipsis): the resref first, then the name cut short, the icon kept;
     // its accessible name the whole of it.
@@ -437,18 +431,17 @@ fn ok_cancel_header_with(
         - 2.0)
         .max(0.0);
     let frame = 4.0 + mg_uikit::metrics::ICON + GAP + 4.0;
-    let name_w = measure(title.name);
-    let sub_w = if title.sub.is_empty() { 0.0 } else { GAP + measure(title.sub) };
+    let name_galley = shape_plain(title.name);
+    let name_w = name_galley.size().x;
+    let sub_galley = (!title.sub.is_empty()).then(|| shape_plain(title.sub));
+    let sub_w = sub_galley.as_ref().map_or(0.0, |g| GAP + g.size().x);
     let (shown_sub, name_room) = match frame + name_w + sub_w <= room {
-        true => (title.sub.to_string(), name_w),
-        false => (String::new(), (room - frame).min(name_w).max(0.0)),
+        true => (sub_galley, name_w),
+        false => (None, (room - frame).min(name_w).max(0.0)),
     };
-    let width = frame + name_room + if shown_sub.is_empty() { 0.0 } else { sub_w };
-    let (icon, name, sub) = (title.icon, title.name.to_string(), shown_sub);
-    let whole = match title.sub.is_empty() {
-        true => title.name.to_string(),
-        false => format!("{} {}", title.name, title.sub),
-    };
+    let width = frame + name_room + shown_sub.as_ref().map_or(0.0, |g| GAP + g.size().x);
+    let (icon, name, sub) = (title.icon, title.name.to_string(), title.sub.to_string());
+    let fits_whole = name_w <= name_room;
     let item = mg_uikit::header::Item::custom("Title", width.ceil(), move |ui| {
         ui.spacing_mut().item_spacing.x = GAP;
         ui.add_space(4.0);
@@ -457,15 +450,22 @@ fn ok_cancel_header_with(
             .allocate_exact_size(egui::Vec2::splat(mg_uikit::metrics::ICON), egui::Sense::hover());
         icon.paint(ui.painter(), rect, t.text);
         // (Painted; one accessible label, the whole title, on the icon.)
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole));
-        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
-        let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
-        let galley = ui.painter().layout_job(job);
+        let name_info = name.clone();
+        response.widget_info(move || {
+            let whole =
+                if sub.is_empty() { name_info.clone() } else { format!("{name_info} {sub}") };
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole)
+        });
+        let galley = if fits_whole {
+            name_galley
+        } else {
+            let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
+            ui.painter().layout_job(job)
+        };
         let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
         ui.painter().galley(rect.min, galley, t.text);
-        if !sub.is_empty() {
-            let galley = ui.painter().layout_no_wrap(sub, font, t.text_3);
+        if let Some(galley) = shown_sub {
             let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
             ui.painter().galley(rect.min, galley, t.text_3);
         }
@@ -638,6 +638,11 @@ pub(crate) fn window_drawn_but(
     let pressed = pressed.or(escaped.then_some(Pressed::Cancel));
     let Some((pressed, first)) = pressed.zip(targets.first()) else { return };
     if pressed == Pressed::Cancel {
+        if let Some(held) =
+            app.held_text.take_if(|h| h.window.as_ref().is_some_and(|w| w.tab == *tab))
+        {
+            app.buffers.remove(&held.id);
+        }
         // What the window asked for this frame is set first, then set
         // back.
         let asked = app.actions.len() > pending;
@@ -913,6 +918,10 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, ctx: &egui::Context) {
 /// long table's rows sorted by name, narrowed by what is typed, or told
 /// which to offer, once and not every frame. The list is held, and told
 /// by `Arc::ptr_eq`.
+///
+/// Do not pass `&Arc<GameData>` here: holding an extra `Arc` in egui memory
+/// blocks `crate::exclusive(&mut app.game)`. Use [`kept_for_key`] keyed on
+/// `app.load_order` instead.
 pub(crate) fn kept_for<S, K, T>(
     ctx: &egui::Context,
     id: egui::Id,
@@ -933,6 +942,29 @@ where
     }
     let made = make();
     ctx.data_mut(|d| d.insert_temp(id, (of.clone(), key.clone(), made.clone())));
+    made
+}
+
+/// What `make` makes for `key`, kept in egui's memory under `id` while
+/// `key` stays equal without holding an extra `Arc` reference (safe for
+/// keys derived from `app.load_order` / workspace `(identity, revision)`).
+pub(crate) fn kept_for_key<K, T>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    key: &K,
+    make: impl FnOnce() -> T,
+) -> T
+where
+    K: PartialEq + Clone + Send + Sync + 'static,
+    T: Clone + Send + Sync + 'static,
+{
+    if let Some((was, kept)) = ctx.data(|d| d.get_temp::<(K, T)>(id))
+        && was == *key
+    {
+        return kept;
+    }
+    let made = make();
+    ctx.data_mut(|d| d.insert_temp(id, (key.clone(), made.clone())));
     made
 }
 
@@ -983,6 +1015,11 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
     mg_uikit::tokens(ui.ctx()).info
 }
 
+fn borrowed_label(ui: &mut Ui, from: &str, why: &str, color: egui::Color32) {
+    let text = egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
+    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+}
+
 impl Form<'_> {
     /// A table's rows as a dropdown's choices: each row's name (its StrRef
     /// column `name`), else its `label`. None without the game's data or
@@ -1002,12 +1039,19 @@ impl Form<'_> {
     /// ([`mg_rules::GameData::appearance_choices`]).
     pub(crate) fn appearance_rows(
         &self,
+        ctx: &egui::Context,
         kind: mg_rules::ObjectKind,
-        choices: &[Choice],
+        choices: &std::sync::Arc<Vec<Choice>>,
     ) -> std::sync::Arc<Vec<Choice>> {
         match self.app.game.as_deref() {
-            Some(game) => game.appearance_choices(kind, choices),
-            None => std::sync::Arc::new(choices.to_vec()),
+            Some(game) => kept_for(
+                ctx,
+                egui::Id::new(("appearance-rows", kind)),
+                choices,
+                &self.app.load_order,
+                || game.appearance_choices(kind, choices),
+            ),
+            None => choices.clone(),
         }
     }
 
@@ -1109,14 +1153,23 @@ impl Form<'_> {
 
     /// Where a field set goes: the object's document and path, and the
     /// others'.
-    fn targets(&self) -> impl Iterator<Item = (ResKey, &GffPath)> {
+    pub(super) fn targets(&self) -> impl Iterator<Item = (ResKey, &GffPath)> {
         std::iter::once((self.key, &self.path)).chain(self.also.iter().map(|(k, p)| (*k, p)))
     }
 
     /// Whether the others edited with this one have another value in
     /// field `label` (not looked at past [`MIXED_LIMIT`] of them).
     pub(crate) fn differs(&mut self, label: &str) -> bool {
-        self.differs_by(label, |v| v.cloned())
+        if self.also.is_empty() || self.also.len() > MIXED_LIMIT {
+            return false;
+        }
+        let Some(ws) = self.app.ws.as_mut() else { return false };
+        let mine = self.root.get(label);
+        self.also.iter().any(|(key, path)| {
+            let theirs =
+                ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(label));
+            theirs != mine
+        })
     }
 
     /// Whether the others edited with this one have another value in
@@ -1240,13 +1293,16 @@ impl Form<'_> {
     /// with all they carry, each frame a list page was shown.
     pub(crate) fn list_targets(&mut self) -> Arc<Vec<lists::Target>> {
         let revision = self.app.ws.as_ref().map(mg_edit::Workspace::revision);
-        if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
-            && (*at, *key) == (revision, self.key)
-            && *path == self.path
-            && (Arc::ptr_eq(also, &self.also) || *also == self.also)
-            && kept.first().is_some_and(|t| t.at == self.root)
+        let kept = &mut self.app.palette.kept;
+        if kept.targets_revision != revision {
+            kept.targets_revision = revision;
+            kept.targets.clear();
+        }
+        let map_key = (self.key, self.path.clone(), self.also.clone());
+        if let Some(hit) = kept.targets.get(&map_key)
+            && hit.first().is_some_and(|t| t.at == self.root)
         {
-            return kept.clone();
+            return hit.clone();
         }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
@@ -1257,8 +1313,7 @@ impl Form<'_> {
             }
         }
         let out = Arc::new(out);
-        let read_for = (revision, self.key, self.path.clone(), self.also.clone());
-        self.app.palette.kept.targets = Some((read_for, out.clone()));
+        self.app.palette.kept.targets.insert(map_key, out.clone());
         out
     }
 
@@ -1331,6 +1386,60 @@ impl Form<'_> {
         Command::new(what, edits)
     }
 
+    /// Holds the pending command built by `make` for field `id` while it
+    /// has the keyboard, after it is drawn. Should the field disappear
+    /// before focus leaves it, `Moonglow::held_text` flushes the command.
+    pub(super) fn hold_command(
+        &mut self,
+        ui: &Ui,
+        id: egui::Id,
+        loc: bool,
+        make: impl FnOnce(&mut Self, &str) -> Option<Command>,
+    ) {
+        if !ui.memory(|m| m.has_focus(id)) {
+            if self.app.held_text.as_ref().is_some_and(|held| held.id == id) {
+                self.app.held_text = None;
+            }
+            return;
+        }
+        let buf = self.app.buffers.get(&id).cloned();
+        let command = buf.as_deref().and_then(|b| make(self, b));
+        let drawn = ui.ctx().cumulative_pass_nr();
+        // (Its window says which it is once it is drawn: `window_drawn_but`.)
+        let panel = false;
+        self.app.held_text =
+            Some(HeldText { id, drawn, command, action: None, window: None, typed: loc, panel });
+    }
+
+    /// Holds an action (e.g. blueprint rename) for focused field `id` in
+    /// `Moonglow::held_text` in case the field disappears before losing focus.
+    fn hold_action(&mut self, ui: &Ui, id: egui::Id, make: impl FnOnce(&str) -> Option<Action>) {
+        if !ui.memory(|m| m.has_focus(id)) {
+            if self.app.held_text.as_ref().is_some_and(|held| held.id == id) {
+                self.app.held_text = None;
+            }
+            return;
+        }
+        let action = self.app.buffers.get(&id).and_then(|b| make(b));
+        let drawn = ui.ctx().cumulative_pass_nr();
+        let panel = false;
+        self.app.held_text =
+            Some(HeldText { id, drawn, command: None, action, window: None, typed: false, panel });
+    }
+
+    /// Holds uncommitted typing in a `ResRef` field (`script`, `linked`).
+    fn hold_resref(&mut self, ui: &Ui, what: &str, label: &str, current: ResRef) {
+        let id = self.id(label);
+        let expected = current.to_string();
+        self.hold_command(ui, id, false, |form, buf| {
+            if buf == expected {
+                return None;
+            }
+            let v = ResRef::from_str(buf.trim()).ok()?;
+            (v != current).then(|| form.setting(what, label, Some(Value::resref(v))))
+        });
+    }
+
     /// Holds a text field's typing while it has the keyboard, after the
     /// field is drawn: `shown` is the field's value as it is stored, and
     /// `value` what the text typed would be set as (`loc`: a localized
@@ -1347,22 +1456,11 @@ impl Form<'_> {
         value: impl Fn(String) -> Value,
     ) {
         let id = self.id(label);
-        if !ui.memory(|m| m.has_focus(id)) {
-            if self.app.held_text.as_ref().is_some_and(|held| held.id == id) {
-                self.app.held_text = None;
-            }
-            return;
-        }
-        let stored = shown;
-        let shown = crate::text::to_editor(stored).0;
+        let expected = crate::text::to_editor(shown).0;
         let ends = if loc { crate::text::with_loc_line_ends } else { crate::text::with_line_ends };
-        let typed =
-            (self.app.buffers.get(&id)).filter(|buf| **buf != shown).map(|buf| ends(buf, stored));
-        let command = typed.map(|text| self.setting(what, label, Some(value(text))));
-        let drawn = ui.ctx().cumulative_pass_nr();
-        // (Its window says which it is once it is drawn: `window_drawn_but`.)
-        let panel = false;
-        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc, panel });
+        self.hold_command(ui, id, loc, |form, buf| {
+            (buf != expected).then(|| form.setting(what, label, Some(value(ends(buf, shown)))))
+        });
     }
 
     /// The type the game's files give field `label` of the struct the
@@ -1456,11 +1554,40 @@ impl Form<'_> {
         self.locstring_then(ui, what, label, |_, _| {});
     }
 
+    fn finish_loc_edit(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        current: &mg_core::LocString,
+        shown: &str,
+        typed: Option<String>,
+    ) {
+        if let Some(v) = typed {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        let held = current.clone();
+        self.hold_text(ui, what, label, shown, true, move |text| {
+            Value::LocString(with_edited_text(held.clone(), &text))
+        });
+    }
+
+    fn open_loc_edit_on_click(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        current: &mg_core::LocString,
+    ) {
+        if crate::widgets::languages_button(ui) {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, current));
+        }
+    }
+
     /// A [`locstring`](Self::locstring) and `after` (a creature's Random
     /// Name) after its `…`. In a narrow form the text takes the field's
-    /// whole width, and whose it is ("StrRef 5763") stands on the row
-    /// under it with the buttons (the owner's ruling on U30's #1: a name
-    /// beside its strref in a 280 panel was cut to four letters).
+    /// whole width, and any external source badge ("StrRef 5763") moves onto
+    /// the row under it with the buttons so short panels do not clip names.
     pub(crate) fn locstring_then(
         &mut self,
         ui: &mut Ui,
@@ -1507,13 +1634,7 @@ impl Form<'_> {
                     typed
                 })
                 .inner;
-            if let Some(v) = typed {
-                self.set_typed(
-                    what,
-                    label,
-                    Value::LocString(with_edited_text(current.clone(), &v)),
-                );
-            }
+            self.finish_loc_edit(ui, what, label, &current, &shown, typed);
             if let Some((from, why, w)) = keys {
                 let h = ui.spacing().interact_size.y;
                 let field = egui::Rect::from_min_size(at, egui::vec2(width, h));
@@ -1526,17 +1647,9 @@ impl Form<'_> {
                         .max_rect(rect)
                         .layout(egui::Layout::right_to_left(egui::Align::Center)),
                 );
-                let text =
-                    egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
-                inside.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+                borrowed_label(&mut inside, &from, why, color);
             }
-            let held = current.clone();
-            self.hold_text(ui, what, label, &shown, true, move |text| {
-                Value::LocString(with_edited_text(held.clone(), &text))
-            });
-            if crate::widgets::languages_button(ui) {
-                self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-            }
+            self.open_loc_edit_on_click(ui, what, label, &current);
             after(self, ui);
         });
     }
@@ -1565,28 +1678,12 @@ impl Form<'_> {
                     crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
                 })
                 .inner;
-            if let Some(v) = typed {
-                self.set_typed(
-                    what,
-                    label,
-                    Value::LocString(with_edited_text(current.clone(), &v)),
-                );
-            }
-            let held = current.clone();
-            self.hold_text(ui, what, label, &shown, true, move |text| {
-                Value::LocString(with_edited_text(held.clone(), &text))
-            });
+            self.finish_loc_edit(ui, what, label, &current, &shown, typed);
             ui.horizontal_wrapped(|ui| {
                 if let Some((from, why)) = &borrowed {
-                    let text = egui::RichText::new(from.as_str())
-                        .size(mg_uikit::metrics::SMALL_SIZE)
-                        .color(color);
-                    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                    borrowed_label(ui, from, why, color);
                 }
-                if crate::widgets::languages_button(ui) {
-                    let edit = LocStringEdit::new(self.target(label), what, &current);
-                    self.app.loc_edit = Some(edit);
-                }
+                self.open_loc_edit_on_click(ui, what, label, &current);
                 after(self, ui);
             });
         });
@@ -1624,13 +1721,8 @@ impl Form<'_> {
         let rows = Some(if in_panel_scroll { 3 } else { 6 });
         let id = self.id(label);
         let typed = crate::widgets::loc_text(self.app, ui, id, &current, rows, f32::INFINITY);
-        if let Some(v) = typed {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(current.clone(), &text))
-        });
+        self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
     /// [`locstring_memo`](Self::locstring_memo) as the Journal board's
@@ -1647,10 +1739,7 @@ impl Form<'_> {
         mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
             languages = crate::widgets::languages_button(ui);
             if let Some((from, why)) = &borrowed {
-                let text = egui::RichText::new(from.as_str())
-                    .size(mg_uikit::metrics::SMALL_SIZE)
-                    .color(color);
-                ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                borrowed_label(ui, from, why, color);
             }
         });
         if languages {
@@ -1676,12 +1765,7 @@ impl Form<'_> {
                 )
             })
             .inner;
-        if let Some(v) = typed {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(current.clone(), &text))
-        });
+        self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
     /// [`memo`](Self::memo) reaching down to `bottom` (the room its panel
@@ -1728,16 +1812,8 @@ impl Form<'_> {
         if let Some((from, why)) = &borrowed {
             field.response.on_hover_text(format!("{from}: {why}"));
         }
-        if let Some(v) = field.inner {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
-        let held = current.clone();
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(held.clone(), &text))
-        });
-        if crate::widgets::languages_button(ui) {
-            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-        }
+        self.finish_loc_edit(ui, what, label, &current, &shown, field.inner);
+        self.open_loc_edit_on_click(ui, what, label, &current);
     }
 
     /// Sets several fields in one command.
@@ -2252,6 +2328,7 @@ impl Form<'_> {
             if let Some(v) = picked {
                 self.set(&what, label, Value::resref(v));
             }
+            self.hold_resref(ui, &what, label, current);
             let field = self.id(label);
             if let Some(name) = crate::widgets::edit_script_button(self.app, ui, field, current) {
                 self.app.actions.push(Action::EditScript { name, condition: false });
@@ -2358,6 +2435,7 @@ impl Form<'_> {
             if let Some(v) = picked {
                 self.set(what, label, Value::resref(v));
             }
+            self.hold_resref(ui, what, label, current);
             let key = ResKey::new(current, edit);
             let in_module = self.app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
             let in_game = self.app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
@@ -2401,20 +2479,23 @@ impl Form<'_> {
     /// The Variables page: the list in place ([`crate::widgets::variables_page`]),
     /// read-only for an object of a read-only area.
     pub(crate) fn variables_page(&mut self, ui: &mut Ui) {
-        let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
         self.mark_mixed(ui, "VarTable");
         let locked =
             crate::claims::area_of(&self.key).and_then(|a| crate::claims::read_only(self.app, a));
         let target = self.target("VarTable");
-        crate::widgets::variables_page(self.app, ui, target, &list, locked);
+        let root = std::mem::replace(&mut self.root, Struct::new(0));
+        let list = root.list("VarTable").unwrap_or(&[]);
+        crate::widgets::variables_page(self.app, ui, target, list, locked);
+        self.root = root;
     }
 
     /// The Variables… button (off for an object of a read-only area).
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
-        let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
+        let count = self.root.list("VarTable").map_or(0, <[_]>::len);
         self.mark_mixed(ui, "VarTable");
-        if crate::claims::variables_button(self.app, ui, &self.key, list.len()) {
-            self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
+        if crate::claims::variables_button(self.app, ui, &self.key, count) {
+            let list = self.root.list("VarTable").unwrap_or(&[]);
+            self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), list));
         }
     }
 
@@ -2473,6 +2554,12 @@ impl Form<'_> {
                 Err(e) => self.app.log.error(e.to_string()),
             }
         }
+        let from = self.key;
+        self.hold_action(ui, id, |buf| {
+            let text = buf.trim().to_ascii_lowercase();
+            let new = ResRef::from_str(&text).ok().filter(|n| !n.is_empty() && *n != current)?;
+            Some(Action::RenameBlueprint { from, to: new })
+        });
     }
 }
 
@@ -2615,8 +2702,22 @@ const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
 fn resref_beside_buttons(ui: &Ui) -> f32 {
     let s = ui.spacing();
     let small = egui::TextStyle::Button.resolve(ui.style());
-    let color = ui.visuals().text_color();
-    let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+    let key = (small.size.to_bits(), ui.ctx().pixels_per_point().to_bits());
+    let id = egui::Id::new("bp-edit-btn-w");
+    let edit =
+        ui.data(|d| d.get_temp::<((u32, u32), f32)>(id)).filter(|(k, _)| *k == key).map_or_else(
+            || {
+                let w = ui
+                    .fonts_mut(|f| {
+                        f.layout_no_wrap("Edit".into(), small, egui::Color32::PLACEHOLDER)
+                    })
+                    .size()
+                    .x;
+                ui.data_mut(|d| d.insert_temp(id, (key, w)));
+                w
+            },
+            |(_, w)| w,
+        );
     let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
     let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
     let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
@@ -2892,8 +2993,7 @@ pub(crate) fn edit_many(
     if popped_in {
         app.actions.push(Action::PopInProperties(tab.clone()));
     }
-    // (Every page, of several too: their lists are edited on each,
-    // `docs/lists-together-proposal.md`.)
+    // Multi-selection edits all targets' lists together.
     let pages: Vec<&str> =
         if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     let page_key = (key, path.clone());
@@ -3562,5 +3662,156 @@ mod tests {
         // Another object's is not this one's.
         let other = GffPath::root().item("Placeable List", 3);
         assert_eq!(field_changed(&chest, &other, "Tag"), None);
+    }
+
+    #[test]
+    fn kept_for_key_hits_invalidates_and_adds_no_arc_ref() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("test-kept-for-key");
+        let sentinel = Arc::new(42u32);
+        let key1 = (1u64, "Creature", Some((10u64, 1u64)));
+        let v1 = kept_for_key(&ctx, id, &key1, || {
+            let _borrowed = &sentinel;
+            vec![1, 2, 3]
+        });
+        assert_eq!(v1, vec![1, 2, 3]);
+        assert_eq!(Arc::strong_count(&sentinel), 1);
+        let v2 = kept_for_key(&ctx, id, &key1, || vec![9]);
+        assert_eq!(v2, vec![1, 2, 3]);
+        let key2 = (2u64, "Creature", Some((10u64, 1u64)));
+        let v3 = kept_for_key(&ctx, id, &key2, || vec![4, 5]);
+        assert_eq!(v3, vec![4, 5]);
+        let key3 = (2u64, "Creature", Some((10u64, 2u64)));
+        let v4 = kept_for_key(&ctx, id, &key3, || vec![6]);
+        assert_eq!(v4, vec![6]);
+    }
+
+    #[test]
+    fn held_text_captures_script_conversation_resref_and_visuals_fields() {
+        let key = ResKey::parse("plc_test", ResType::UTP).unwrap();
+        let mut root = Struct::new(u32::MAX);
+        root.set("OnDeath", Value::resref(ResRef::from_str("old_sc").unwrap()));
+        root.set("Conversation", Value::resref(ResRef::from_str("old_dlg").unwrap()));
+        let mut mat_entry = Struct::new(0);
+        mat_entry.set("Material", Value::String(b"mat_a".to_vec()));
+        mat_entry.set("Param", Value::String(b"u_col".to_vec()));
+        mat_entry.set("Type", Value::Byte(1));
+        mat_entry.set("Int", Value::Int(0));
+        let mut mat = Struct::new(7);
+        mat.set("ShaderParams", Value::List(vec![mat_entry]));
+        root.set("Material", Value::Struct(mat));
+        let mut misc = Struct::new(8);
+        misc.set("TextBubbleType", Value::Int(1));
+        misc.set("TextBubbleText", Value::String(b"old".to_vec()));
+        root.set("MiscVisuals", Value::Struct(misc));
+        let mut rep_entry = Struct::new(0);
+        rep_entry.set("OldTexture", Value::resref(ResRef::from_str("old_tex").unwrap()));
+        rep_entry.set("NewTexture", Value::resref(ResRef::from_str("rep_a").unwrap()));
+        let mut tex_rep = Struct::new(9);
+        tex_rep.set("TextureReplaceLi", Value::List(vec![rep_entry]));
+        root.set("TextureReplace", Value::Struct(tex_rep));
+
+        let ctx = egui::Context::default();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let run_case = |app: &mut Moonglow,
+                        root: &Struct,
+                        field_key: &str,
+                        typed: &str,
+                        draw: &dyn Fn(&mut Form<'_>, &mut Ui)| {
+            let id = egui::Id::new(("blueprint", key, GffPath::root(), field_key, "window"));
+            // Warm up layout so egui::Grid finishes its first-frame invisible sizing pass
+            // before focus is requested (matching real interaction).
+            let mut warmup = ctx.run_ui(Default::default(), |ui| {
+                let mut form = Form {
+                    app,
+                    key,
+                    path: GffPath::root(),
+                    also: Default::default(),
+                    root: root.clone(),
+                    together: Together::default(),
+                    own_tab: true,
+                };
+                draw(&mut form, ui);
+            });
+            warmup.textures_delta.clear();
+            app.held_text = None;
+            app.buffers.insert(id, typed.to_string());
+            ctx.memory_mut(|m| m.request_focus(id));
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                let mut form = Form {
+                    app,
+                    key,
+                    path: GffPath::root(),
+                    also: Default::default(),
+                    root: root.clone(),
+                    together: Together::default(),
+                    own_tab: true,
+                };
+                draw(&mut form, ui);
+            });
+            out.textures_delta.clear();
+            app.held_text.take()
+        };
+
+        let held_sc = run_case(&mut app, &root, "OnDeath", "new_sc", &|f, ui| {
+            f.script(ui, "OnDeath", "OnDeath");
+        })
+        .expect("script should populate held_text");
+        assert!(held_sc.command.is_some());
+
+        let held_dlg = run_case(&mut app, &root, "Conversation", "new_dlg", &|f, ui| {
+            f.conversation(ui);
+        })
+        .expect("conversation should populate held_text");
+        assert!(held_dlg.command.is_some());
+
+        let held_rr = run_case(&mut app, &root, "TemplateResRef", "plc_renamed", &|f, ui| {
+            f.blueprint_resref(ui);
+        })
+        .expect("TemplateResRef should populate held_text");
+        assert_eq!(
+            held_rr.action,
+            Some(Action::RenameBlueprint {
+                from: key,
+                to: ResRef::from_str("plc_renamed").unwrap()
+            })
+        );
+
+        let held_sp = run_case(&mut app, &root, "ShaderParams#0#Material", "mat_b", &|f, ui| {
+            visuals::page(f, ui, true);
+        })
+        .expect("ShaderParams should populate held_text");
+        assert!(held_sp.command.is_some());
+
+        let held_tb = run_case(&mut app, &root, "TextBubbleText", "updated", &|f, ui| {
+            visuals::page(f, ui, true);
+        })
+        .expect("TextBubbleText should populate held_text");
+        assert!(held_tb.command.is_some());
+
+        let held_tr =
+            run_case(&mut app, &root, "TextureReplace#old_tex#Some(0)#new", "rep_b", &|f, ui| {
+                replacements::textures(f, ui);
+            })
+            .expect("TextureReplace should populate held_text");
+        assert!(held_tr.command.is_some());
+
+        // Pressed::Cancel clears any pending held_text owned by the canceled window.
+        let tab = Tab::Blueprint(key);
+        app.held_text = Some(HeldText {
+            id: egui::Id::new("c"),
+            drawn: ctx.cumulative_pass_nr(),
+            command: held_sc.command,
+            action: None,
+            typed: false,
+            window: Some(HeldIn {
+                tab: tab.clone(),
+                targets: vec![(key, GffPath::root())],
+                kept: vec![],
+            }),
+            panel: false,
+        });
+        window_drawn_but(&mut app, 0, &tab, &[(key, GffPath::root())], Some(Pressed::Cancel), &[]);
+        assert!(app.held_text.is_none());
     }
 }

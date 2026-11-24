@@ -12,7 +12,25 @@ use mg_render::{
 };
 
 fn gpu() -> Option<Gpu> {
-    mg_testkit::gpu::open(Gpu::headless)
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<(wgpu::Device, wgpu::Queue)>> =
+        std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g.map(|g| (g.device, g.queue))
+    });
+    base.as_ref().map(|(d, q)| Gpu::new(d.clone(), q.clone()))
+}
+
+struct Unfail;
+impl Drop for Unfail {
+    fn drop(&mut self) {
+        mg_render::guard::fail_program(None);
+        mg_render::guard::blank_draws(false);
+    }
 }
 
 /// A 2×2 quad on the ground, facing up, untextured.
@@ -164,12 +182,9 @@ fn framing(model: &GpuModel) -> Camera {
 
 #[test]
 fn game_models_render() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::output_dir("render");
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     for name in [
@@ -208,13 +223,10 @@ fn game_models_render() {
 /// renderer uses the stored values for compiled models.
 #[test]
 fn skin_bind_poses_match_the_stored_ones() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let root = mg_testkit::corpus!();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let (mut skins, mut bones, mut bad) = (0, 0, Vec::new());
-    for resref in rm.list(mg_core::ResType::MDL) {
+    for resref in mg_testkit::sweep(rm.list(mg_core::ResType::MDL), 4) {
         let data = rm.get(&mg_resman::ResKey::new(resref, mg_core::ResType::MDL)).unwrap();
         if !mg_mdl::is_binary(&data) {
             continue;
@@ -260,7 +272,7 @@ fn skin_bind_poses_match_the_stored_ones() {
     for b in bad.iter().take(10) {
         eprintln!("  {b}");
     }
-    assert!(skins > 300);
+    assert!(skins >= mg_testkit::at_least(300, 4), "{skins} skins");
     assert!(bad.len() * 50 < bones, "more than 2% of bind poses differ");
 }
 
@@ -268,12 +280,9 @@ fn skin_bind_poses_match_the_stored_ones() {
 /// placeable opening look different from their rest poses.
 #[test]
 fn animated_models_render() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let load = |n: &str| {
         rm.get_named(n, mg_core::ResType::MDL).ok().and_then(|d| Model::read(&d).ok()).map(Arc::new)
     };
@@ -313,12 +322,9 @@ fn animated_models_render() {
 /// seconds of simulation.
 #[test]
 fn emitters_render() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::scratch_dir("render-particles");
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     // The tile's bolts are 0.2 m strips with a thin line in them, seen from
@@ -356,12 +362,9 @@ fn emitters_render() {
 /// lights a mesh look different from their rest state.
 #[test]
 fn mesh_animations_render() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let load = |n: &str| {
         rm.get_named(n, mg_core::ResType::MDL).ok().and_then(|d| Model::read(&d).ok()).map(Arc::new)
     };
@@ -426,12 +429,9 @@ fn mesh_animations_render() {
 /// their limits, and draw bent.
 #[test]
 fn dangly_meshes_sway() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let model =
         Arc::new(Model::read(&rm.get_named("c_antoine", mg_core::ResType::MDL).unwrap()).unwrap());
     let gm = Arc::new(GpuModel::new(&gpu, model));
@@ -952,7 +952,7 @@ fn environment_maps_reflect() {
     // The base game's cube maps: TXI and six faces.
     if let Some(root) = mg_testkit::nwn_root() {
         let rm =
-            mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+            mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
         use mg_render::Assets;
         for name in ["ttr01__env", "tno01__env"] {
             assert!(rm.txi(name).is_some_and(|t| t.cube()), "{name}");
@@ -960,6 +960,11 @@ fn environment_maps_reflect() {
                 assert!(Assets::texture(&rm, &format!("{name}{i}")).is_some(), "{name}{i}");
             }
         }
+    } else {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
     }
 }
 
@@ -1820,8 +1825,14 @@ fn meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth() {
         assets
     };
     let game = mg_testkit::nwn_root().and_then(|root| {
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+        mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).ok()
     });
+    if game.is_none() {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
+    }
     let wall = colored_quad(&gpu, [0.5, 0.5, 0.5]);
     let camera = Camera {
         eye: Vec3::new(0.0, -8.0, 0.8),
@@ -1912,12 +1923,8 @@ fn meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth() {
 #[test]
 fn the_game_s_pipelines_made_before_are_made_before_the_first_frame() {
     let Some(gpu) = gpu() else { return };
-    let Some(game) = mg_testkit::nwn_root().and_then(|root| {
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
-    }) else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
+    let game = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let mut own = TestAssets::default();
     own.solid("red", [255, 0, 0, 255]);
     let assets = WithGameShaders { own, game: &game };
@@ -3250,12 +3257,9 @@ fn difference(
 /// `target/test-output/render/game_*.png`.
 #[test]
 fn the_game_s_lit_shaders_match_moonglow_s() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::output_dir("render");
     let mut own = TestAssets::default();
     // A checker of two colours with a gradient across it, no alpha.
@@ -3529,13 +3533,13 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         assert!(differ > 5000, "the turned texture: {differ} pixels differ");
     }
     let mut failures = Vec::new();
+    let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    theirs.game_shaders = true;
+    let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     for (name, scene, camera) in &scenes {
-        let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
-        theirs.game_shaders = true;
         let game = theirs.render_image(&gpu, &assets, scene, camera, 320, 320);
         let drawn = theirs.drawn;
         assert_eq!(theirs.game_shader_failures(), &[], "{name}");
-        let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
         let wgsl = ours.render_image(&gpu, &assets, scene, camera, 320, 320);
         let bg = [255, 0, 255, 255];
         let (d, picture) = difference(&game, &wgsl, bg);
@@ -3579,12 +3583,9 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
 /// `fslit`.
 #[test]
 fn a_custom_pair_is_lit_as_its_fragment_program_lights() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::output_dir("render");
     let source = |name: &str| mg_render::Assets::shader(&rm, name).unwrap();
     let mut own = TestAssets::default();
@@ -4058,13 +4059,8 @@ fn logged() -> Vec<String> {
 /// debug log, in the window).
 #[test]
 fn a_game_pipeline_the_backend_refuses_falls_back_to_moonglow_s_own() {
-    struct Unfail;
-    impl Drop for Unfail {
-        fn drop(&mut self) {
-            mg_render::guard::fail_program(None);
-        }
-    }
-    let Some(gpu) = gpu() else { return };
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
     logged();
     let mut assets = clip_space_assets();
     authored_custom_pair(&mut assets);
@@ -4773,10 +4769,10 @@ fn a_glow_on_a_mesh_drawn_by_the_other_shader_covers_it() {
 /// panic, so one that came through would end this test).
 #[test]
 fn a_texture_the_gpu_refuses_is_left_out_and_said() {
-    let Some(gpu) = gpu() else { return };
     // (Alone: what the GPU refused is the process's list, which the next
     // test takes from too.)
     mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
     let wide = gpu.device.limits().max_texture_dimension_2d + 1;
     let assets = || {
         let mut assets = TestAssets::default();
@@ -4842,8 +4838,8 @@ fn a_texture_the_gpu_refuses_is_left_out_and_said() {
 /// on: wgpu's default ends it.
 #[test]
 fn the_application_s_device_notes_what_the_gpu_refuses() {
-    let Some(gpu) = gpu() else { return };
     mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
     mg_render::guard::note_gpu_errors(&gpu.device);
     let _refused = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("c_refused_texture"),
@@ -5179,10 +5175,8 @@ void main ()
         plain.game_shaders = true;
         let behind = plain.render_image(&gpu, &assets, &scene(false), &camera, 64, 64);
         // (The water's pixels: where Moonglow's own draws it.)
-        let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
-        own.game_shaders = true;
-        own.game_water = false;
-        let owned = own.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+        plain.game_water = false;
+        let owned = plain.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
         save(&owned, &dir.join(format!("water_moonglow_{samples}x.png")));
         let pool: Vec<(u32, u32)> = (0..64)
             .flat_map(|y| (0..64).map(move |x| (x, y)))
@@ -5537,8 +5531,14 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
         far: 100.0,
     };
     let game = mg_testkit::nwn_root().and_then(|root| {
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+        mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).ok()
     });
+    if game.is_none() {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
+    }
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
     // (Fast, the shadow map, and High, the stencil volumes, alike.)
     for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
@@ -5789,10 +5789,9 @@ fn a_mesh_left_out_by_fade_geometry_still_casts_its_shadow() {
 /// pictures: `target/test-output/render/late_*.png`.
 #[test]
 fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
+    let root = mg_testkit::corpus!();
     let Some(gpu) = gpu() else { return };
-    let Some(root) = mg_testkit::nwn_root() else { return };
-    let game =
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let game = mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::output_dir("render");
     let mut assets = WithGameShaders { own: TestAssets::default(), game: &game };
     assets.own.solid("mgflat", [200, 200, 200, 255]);
@@ -5841,10 +5840,10 @@ fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
     let (under, beside) = ((32, 32), (32, 6));
     for samples in [1, 4] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         for (shaders, copies) in [(true, true), (true, false), (false, true)] {
+            r.game_shaders = shaders;
             for material in ["mgflow", "mgplain"] {
-                let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
-                r.game_shaders = shaders;
                 let targets =
                     mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples, 64, 64);
                 let s = scene(&ground(material));
@@ -6880,13 +6879,7 @@ fn moonglow_s_own_shaders_are_written_in_glsl_as_opengl_writes_them() {
 #[test]
 fn the_lit_check_draws_a_lit_mesh_both_ways() {
     use std::io::Write;
-    struct Unfail;
-    impl Drop for Unfail {
-        fn drop(&mut self) {
-            mg_render::guard::fail_program(None);
-            mg_render::guard::blank_draws(false);
-        }
-    }
+
     // (Programs made to fail, draws blanked: no other test renders.)
     mg_testkit::gpu::alone();
     let Some(gpu) = Gpu::headless() else { return };
@@ -7508,8 +7501,9 @@ fn ripple_measured(gpu: &Gpu, side: u32, txi: &str) -> (f32, f32, f32) {
     let (_, still) = shot("still", 0.0);
     let wrap = |d: f32| (d + side as f32 / 2.0).rem_euclid(side as f32) - side as f32 / 2.0;
     let mut pushes: Vec<Vec<[f32; 2]>> = Vec::new();
-    for k in 0..100 {
-        let (img, sampled) = shot("card", k as f32 * 0.2);
+    let dt = 0.4_f32;
+    for k in 0..50 {
+        let (img, sampled) = shot("card", k as f32 * dt);
         if k == 0 {
             save(
                 &img,
@@ -7543,7 +7537,7 @@ fn ripple_measured(gpu: &Gpu, side: u32, txi: &str) -> (f32, f32, f32) {
         .map(|w| {
             let moved: f32 =
                 w[0].iter().zip(&w[1]).map(|(a, b)| (b[0] - a[0]).hypot(b[1] - a[1])).sum();
-            moved / w[0].len() as f32 / 0.2
+            moved / w[0].len() as f32 / dt
         })
         .sum::<f32>()
         / (pushes.len() - 1) as f32;
@@ -7581,4 +7575,110 @@ fn a_texture_ripples_as_far_and_as_fast_as_the_client_s() {
         assert!(near(p95, 1.25 * amplitude, 0.2), "95th {p95} for {amplitude}");
         assert!(near(rate, change, 0.2), "{rate} a second, the client's {change}");
     }
+}
+
+/// Custom fragment shaders referencing `m_bones` (alone or alongside the
+/// vertex stage) bind group 3 with matching dynamic offsets without panicking.
+#[test]
+fn fragment_bones_uniform_binds_matching_dynamic_offsets() {
+    let Some(gpu) = gpu() else { return };
+    let vs_plain = "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\n\
+        attribute vec4 vPos;\nattribute vec2 vTcIn;\nvarying vec2 vUv;\nvoid main ()\n{\n    \
+        vUv = vTcIn;\n    gl_Position = m_proj * (m_mv * vPos);\n}\n";
+    let vs_bones = "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\n\
+        uniform mat4 m_bones[4];\nuniform int iSkinmesh;\n\
+        attribute vec4 vPos;\nattribute vec2 vTcIn;\nattribute vec4 vIndex;\nattribute vec4 vWeight;\n\
+        varying vec2 vUv;\nvoid main ()\n{\n    vUv = vTcIn;\n    vec4 p = vPos;\n    \
+        if (iSkinmesh != 0) { p = m_bones[int(vIndex.x)] * p * vWeight.x + p * (1.0 - vWeight.x); }\n    \
+        gl_Position = m_proj * (m_mv * p);\n}\n";
+    let fs_bones = "#define SHADER_TYPE 2\nuniform mat4 m_bones[4];\nuniform sampler2D texUnit0;\n\
+        varying vec2 vUv;\nvoid main ()\n{\n    float k = abs(m_bones[0][0][0]) * 0.0;\n    \
+        gl_FragColor = vec4(texture2D(texUnit0, vUv).rgb + k, 1.0);\n}\n";
+
+    let mut assets = TestAssets::default();
+    assets.shaders.insert("vs_plain_b".into(), vs_plain.into());
+    assets.shaders.insert("vs_both_b".into(), vs_bones.into());
+    assets.shaders.insert("fs_bones".into(), fs_bones.into());
+    assets.opaque("fs_only_b", [0, 220, 0]);
+    assets.opaque("vs_fs_b", [0, 0, 220]);
+    assets.materials.insert(
+        "fs_only_b".into(),
+        mg_image::mtr::Mtr::parse(b"customshadervs vs_plain_b\ncustomshaderfs fs_bones\n"),
+    );
+    assets.materials.insert(
+        "vs_fs_b".into(),
+        mg_image::mtr::Mtr::parse(b"customshadervs vs_both_b\ncustomshaderfs fs_bones\n"),
+    );
+
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+
+    // 1. FS alone uses m_bones on an unskinned mesh (0 offsets previously panicked).
+    let mut pm = quad();
+    if let NodeKind::Mesh(m) = &mut pm.nodes[1].kind {
+        m.textures[0] = Some("fs_only_b".into());
+    }
+    let plain = Arc::new(GpuModel::new(&gpu, Arc::new(pm)));
+    let s1 = Scene {
+        instances: vec![Instance::new(plain, Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::ONE, ..Default::default() },
+        ..Default::default()
+    };
+    let i1 = r.render_image(&gpu, &assets, &s1, &camera, 32, 32);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert!(i1.pixel(16, 16)[1] > 150, "{:?}", i1.pixel(16, 16));
+
+    // 2. Both VS and FS use m_bones on a skinned mesh (1 offset instead of 2 previously panicked).
+    let mut sm = skinned_quad(0.0);
+    if let NodeKind::Mesh(m) = &mut sm.nodes[2].kind {
+        m.textures[0] = Some("vs_fs_b".into());
+    }
+    let skin = Arc::new(GpuModel::new(&gpu, Arc::new(sm)));
+    let pose = Arc::new(vec![Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY]);
+    let s2 = Scene {
+        instances: vec![Instance { pose: Some(pose), ..Instance::new(skin, Mat4::IDENTITY) }],
+        area: AreaLight { ambient: Vec3::ONE, ..Default::default() },
+        ..Default::default()
+    };
+    let i2 = r.render_image(&gpu, &assets, &s2, &camera, 32, 32);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert!(i2.pixel(16, 16)[2] > 150, "{:?}", i2.pixel(16, 16));
+}
+
+/// A skinned mesh whose bone carries it from outside a point light's range
+/// into the light's radius receives illumination at its posed position.
+#[test]
+fn skinned_mesh_queries_point_lights_at_its_posed_position() {
+    let Some(gpu) = gpu() else { return };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(skinned_quad(20.0))));
+    let pose =
+        Arc::new(vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::X * -20.0), Mat4::IDENTITY]);
+    let scene = Scene {
+        instances: vec![Instance { pose: Some(pose), ..Instance::new(model, Mat4::IDENTITY) }],
+        lights: vec![mg_render::PointLight::new(
+            Vec3::new(0.0, 0.0, 2.0),
+            Vec3::ONE,
+            8.0,
+            false,
+            4,
+        )],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, 32, 32);
+    assert!(img.pixel(16, 16)[0] > 40, "expected posed mesh to be lit: {:?}", img.pixel(16, 16));
 }

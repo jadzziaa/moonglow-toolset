@@ -272,33 +272,73 @@ pub(crate) fn a_tab_may_show(app: &Moonglow, source: &Source) -> bool {
 
 /// What a model's view was read for: the load order
 /// ([`Moonglow::load_order`]: a file of the module's folder read again, a
-/// hak or the override changed) and the module's own bytes of the model
-/// (held, and told by `Arc::ptr_eq`: an Import, an Undo of one).
-type ModelRead = (u64, Option<Arc<[u8]>>);
+/// hak or the override changed), the module's own bytes of the model (held,
+/// and told by `Arc::ptr_eq`: an Import, an Undo of one), and the revision of
+/// any open hak editor it comes from.
+type ModelRead = (u64, Option<Arc<[u8]>>, Option<u64>);
+
+fn same_arc_bytes(a: &Option<Arc<[u8]>>, b: &Option<Arc<[u8]>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
 
 fn model_read(app: &Moonglow, source: &Source) -> ModelRead {
     let own = source.key().zip(app.ws.as_ref()).and_then(|(k, ws)| ws.module.shared(&k).cloned());
-    (app.load_order, own)
+    let hak_rev = match source {
+        Source::Hak { hak, .. } => app.haks.iter().find(|d| d.id == *hak).map(|d| d.revision()),
+        _ => None,
+    };
+    (app.load_order, own, hak_rev)
 }
 
 fn same_read(a: &ModelRead, b: &ModelRead) -> bool {
-    a.0 == b.0
-        && match (&a.1, &b.1) {
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            (a, b) => a.is_none() && b.is_none(),
-        }
+    a.0 == b.0 && a.2 == b.2 && same_arc_bytes(&a.1, &b.1)
+}
+
+fn preview_models_own(app: &Moonglow, preview: &Preview) -> Vec<(String, Option<Arc<[u8]>>)> {
+    let shared_mdl = |name: &str| {
+        let key = ResKey::parse(name, ResType::MDL)?;
+        app.ws.as_ref()?.module.shared(&key).cloned()
+    };
+    let mut out = Vec::with_capacity(1 + preview.parts.len());
+    out.push((preview.base.model.clone(), shared_mdl(&preview.base.model)));
+    for part in &preview.parts {
+        out.push((part.model.clone(), shared_mdl(&part.model)));
+    }
+    out
+}
+
+fn same_composed_own(a: &[(String, Option<Arc<[u8]>>)], b: &[(String, Option<Arc<[u8]>>)]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|((na, ba), (nb, bb))| na == nb && same_arc_bytes(ba, bb))
 }
 
 impl ModelView {
     /// Lets go of its picture's targets (drawn anew into new ones).
     pub(crate) fn let_go_of_targets(&mut self, vp: &mut Viewport3d) {
         vp.let_go_of_targets(&mut self.targets);
+        self.drawn = None;
     }
 
     /// Whether its picture's targets are held.
     pub fn holds_targets(&self) -> bool {
         self.targets.is_some()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ModelDrawn {
+    size: (u32, u32),
+    orbit: Orbit,
+    content_gen: u64,
+    animation: Option<String>,
+    model_lights: bool,
+    shadows: bool,
+    shaders: bool,
+    textures_read: u64,
+    paused_anim_time: Option<u32>,
 }
 
 /// An open model's view.
@@ -322,6 +362,7 @@ pub struct ModelView {
     /// The pass it was last shown in ([`show`]: once a pass).
     shown_in: Option<u64>,
     last_frame: Option<f64>,
+    last_sim_time: Option<f32>,
     particles: Option<Particles>,
     /// The particles of the parts that have emitters (an effect worn as
     /// a tail or wings, a held torch), by their number
@@ -342,6 +383,20 @@ pub struct ModelView {
     female: bool,
     /// What a model's view was read for.
     read: ModelRead,
+    /// The module's own `.mdl` bytes for `preview`'s base and parts when composed.
+    composed_own: Vec<(String, Option<Arc<[u8]>>)>,
+    /// Bumped whenever the loaded/composed model changes or errors.
+    content_gen: u64,
+    /// Cached animations and dropdown labels for the current model and supermodels.
+    #[allow(clippy::type_complexity)]
+    anims_cache: Option<(Arc<Vec<(String, Arc<Model>, f32)>>, Arc<Vec<Option<String>>>)>,
+    /// Key and timestamps (`(view.time, wall_now)`) of the last rendered picture.
+    drawn: Option<(ModelDrawn, f32, f64)>,
+    last_live: bool,
+    last_dangly_moving: bool,
+    last_timed: usize,
+    last_game_pending: usize,
+    last_textures_pending: usize,
     /// The box around what it shows at rest, as it is stood: where the
     /// ground that takes its shadow lies ([`ground`]); made when first
     /// drawn with the Shadow switch on.
@@ -363,6 +418,8 @@ pub struct ModelView {
     /// times a second place showed the picture drawn in the first (the
     /// owner's ruling 19, "one shared preview"): for the tests.
     renders: u64,
+    /// Actual GPU renders executed (cache misses only).
+    pub gpu_renders: u64,
     followed: u64,
 }
 
@@ -925,9 +982,10 @@ impl ModelView {
         // others, exported again from Blender into the module's folder or
         // the override. It never looked at them again.)
         let read = model_read(app, source);
+        let load_changed = read.0 != self.read.0 || read.2 != self.read.2;
         let unchanged = match model {
             true => same_read(&read, &self.read),
-            false => revision == self.revision && female == self.female,
+            false => revision == self.revision && female == self.female && !load_changed,
         };
         if unchanged {
             return;
@@ -944,13 +1002,21 @@ impl ModelView {
             Err(e) => {
                 self.model = Err(e);
                 (self.composed, self.preview) = (None, None);
+                self.composed_own.clear();
                 (self.particles, self.dangly) = (None, None);
                 self.part_particles.clear();
+                self.last_sim_time = None;
+                self.content_gen = self.content_gen.wrapping_add(1);
+                self.anims_cache = None;
+                self.drawn = None;
                 return;
             }
         };
+        let own_models = if model { Vec::new() } else { preview_models_own(app, &preview) };
+        let same_models = same_composed_own(&own_models, &self.composed_own);
+        let same_preview = self.preview.as_ref() == Some(&preview);
         // (A model's preview is its name, the same whatever its bytes.)
-        if !model && self.preview.as_ref() == Some(&preview) {
+        if !model && !load_changed && same_models && same_preview {
             return;
         }
         let composed = compose(app, source, &preview);
@@ -963,7 +1029,12 @@ impl ModelView {
         self.composed = composed;
         self.rest_box = None;
         self.preview = Some(preview);
+        self.composed_own = own_models;
         self.supermodels = RefCell::new(HashMap::new());
+        self.content_gen = self.content_gen.wrapping_add(1);
+        self.anims_cache = None;
+        self.drawn = None;
+        self.last_sim_time = None;
         (self.particles, self.dangly) = (None, None);
         self.part_particles.clear();
         self.chunk_models.clear();
@@ -972,7 +1043,7 @@ impl ModelView {
         // the sides of a tall Preview. Moved by hand, it stays; a model's
         // file read again keeps its camera, and a picture of another shape
         // is framed by its points as they are now, not by the fit kept.)
-        if self.framed && !model {
+        if self.framed && !model && !same_preview {
             self.frame();
         }
         if model {
@@ -982,6 +1053,11 @@ impl ModelView {
 
     fn open(app: &Moonglow, source: &Source) -> ModelView {
         let preview = preview_of(app, source);
+        let composed_own = if source.is_model() {
+            Vec::new()
+        } else {
+            preview.as_ref().ok().map(|p| preview_models_own(app, p)).unwrap_or_default()
+        };
         let composed = preview.clone().and_then(|p| compose(app, source, &p));
         let model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
         let animation = composed
@@ -1016,8 +1092,10 @@ impl ModelView {
             targets: None,
             shown_in: None,
             renders: 0,
+            gpu_renders: 0,
             followed: 0,
             last_frame: None,
+            last_sim_time: None,
             particles: None,
             part_particles: HashMap::new(),
             dangly: None,
@@ -1027,6 +1105,15 @@ impl ModelView {
             revision: app.ws.as_ref().map(Workspace::revision),
             female: app.settings.armor_on_woman,
             read: model_read(app, source),
+            composed_own,
+            content_gen: 1,
+            anims_cache: None,
+            drawn: None,
+            last_live: false,
+            last_dangly_moving: false,
+            last_timed: 0,
+            last_game_pending: 0,
+            last_textures_pending: 0,
             rest_box: None,
             aspect: 1.0,
             framed: false,
@@ -1078,6 +1165,7 @@ impl ModelView {
         self.orbit.distance = fit.distance(self.aspect);
         self.fit = Some(fit);
         self.framed = true;
+        self.drawn = None;
     }
 
     /// Framed anew for a picture of another shape, by what the last
@@ -1085,7 +1173,8 @@ impl ModelView {
     fn refit(&mut self) {
         match &self.fit {
             Some(fit) => {
-                (self.orbit.target, self.orbit.distance) = (fit.target, fit.distance(self.aspect))
+                (self.orbit.target, self.orbit.distance) = (fit.target, fit.distance(self.aspect));
+                self.drawn = None;
             }
             None => self.frame(),
         }
@@ -1358,6 +1447,11 @@ impl ModelView {
         self.renders
     }
 
+    /// How many GPU renders executed (cache misses only).
+    pub fn gpu_renders(&self) -> u64 {
+        self.gpu_renders
+    }
+
     /// How many times a second place in a pass showed its picture.
     pub fn followed(&self) -> u64 {
         self.followed
@@ -1455,11 +1549,23 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         }
     };
 
-    // Animations: the model's own, then its supermodels'.
-    let own = own_resources(app, &source);
-    let anims = anim::animations_scaled(&model.model, &|n| {
-        load_super(app, own.as_deref(), &view.supermodels, n)
-    });
+    // Animations: the model's own, then its supermodels' (cached per content_gen).
+    let (anims, options) = match &view.anims_cache {
+        Some((anims, options)) => (anims.clone(), options.clone()),
+        None => {
+            let own = own_resources(app, &source);
+            let anims = Arc::new(anim::animations_scaled(&model.model, &|n| {
+                load_super(app, own.as_deref(), &view.supermodels, n)
+            }));
+            let options: Arc<Vec<Option<String>>> = Arc::new(
+                std::iter::once(None)
+                    .chain(anims.iter().map(|(name, ..)| Some(name.clone())))
+                    .collect(),
+            );
+            view.anims_cache = Some((anims.clone(), options.clone()));
+            (anims, options)
+        }
+    };
     if shown.info {
         let line = egui::RichText::new(info_line(&model, view.composed.as_ref())).weak();
         ui.add(egui::Label::new(line).truncate());
@@ -1470,9 +1576,6 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
     let (pop_out, export) = {
         use crate::icons::editor as icon;
         use mg_uikit::header::{EditorHeader, Item, Joined};
-        let options: Vec<Option<String>> = std::iter::once(None)
-            .chain(anims.iter().map(|(name, ..)| Some(name.clone())))
-            .collect();
         let animation = RefCell::new(view.animation.clone());
         let combo = |ui: &mut egui::Ui, label: bool| {
             ui.spacing_mut().item_spacing.x = 6.0;
@@ -1505,9 +1608,12 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         };
         let full = (label + 6.0 + ANIMATION_BOX).ceil();
         // (What the blueprint names and the load order lacks.)
-        let missing = view.composed.as_ref().map(|c| c.missing.clone()).unwrap_or_default();
-        let words = format!("{} missing", missing.len());
-        let list = missing.join("\n");
+        let missing = view.composed.as_ref().map(|c| c.missing.as_slice()).unwrap_or(&[]);
+        let (words, list) = if missing.is_empty() {
+            (String::new(), String::new())
+        } else {
+            (format!("{} missing", missing.len()), missing.join("\n"))
+        };
         let (words, list) = (&words, &list);
         let note = move |ui: &mut egui::Ui| {
             ui.colored_label(ui.visuals().warn_fg_color, words.as_str())
@@ -1547,7 +1653,8 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         // the game reads, not the copy's layer's. Its Save As… is there.)
         let copy = matches!(source, Source::Copy { .. } | Source::Hak { .. });
         // (Not of a hak's own model, which no tab shows.)
-        let pop = shown.pop_out && own.is_none();
+        let pop = shown.pop_out
+            && (!matches!(source, Source::Hak { .. }) || own_resources(app, &source).is_none());
         // Where the row is short, what the view looks like goes into More
         // first, Export Files… then the switches, and the animation and how
         // it plays stay on the row (the coordinator's ruling at U11's
@@ -1596,6 +1703,8 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         view.animation = animation.into_inner();
         if view.animation != was {
             view.time = 0.0;
+            view.drawn = None;
+            view.last_sim_time = Some(0.0);
         }
         if out.clicked(play_name) {
             view.playing = !view.playing;
@@ -1616,6 +1725,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         export_files(app, &source);
     }
 
+    let shaders = app.game_shaders();
     let Some(vp) = app.viewport.as_mut() else {
         ui.label("No GPU.");
         app.model_views.insert(key, view);
@@ -1646,161 +1756,219 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
     };
     view.time += dt;
     view.last_frame = Some(now);
-    // (At the scale the chain of supermodels plays it at.)
-    let playing: Option<(&mg_mdl::Animation, f32)> = view.animation.as_ref().and_then(|name| {
-        let (_, owner, scale) = anims.iter().find(|(n, ..)| n == name)?;
-        Some((owner.animation(name)?, *scale))
-    });
-    let pose = playing.map(|(a, s)| Arc::new(anim::pose_scaled(&model.model, a, view.time, s)));
-    let playing = playing.map(|(a, _)| a);
-    let lights = if view.model_lights {
-        let p = pose.as_deref().unwrap_or(&model.rest);
-        anim::lights(&model.model, playing, view.time, p, Mat4::IDENTITY, &|_| None)
-    } else {
-        Vec::new()
+    let has_anim =
+        view.animation.as_ref().is_some_and(|name| anims.iter().any(|(n, ..)| n == name));
+    let moving = view.playing
+        && (has_anim || view.last_live || view.last_dangly_moving || view.last_timed > 0);
+    let pending = view.last_game_pending > 0 || view.last_textures_pending > 0;
+    let from = ModelDrawn {
+        size: (w, h),
+        orbit: view.orbit,
+        content_gen: view.content_gen,
+        animation: view.animation.clone(),
+        model_lights: view.model_lights,
+        shadows: app.settings.model_shadows(),
+        shaders,
+        textures_read: vp.renderer.textures_read(),
+        paused_anim_time: (has_anim && !view.playing).then_some(view.time.to_bits()),
     };
-    // Particles run whenever the view plays. (Where the base is drawn:
-    // stood up, an item made lying.)
-    let camera = view.camera();
-    let base_at = if view.composed.is_some() { view.stand } else { Mat4::IDENTITY };
-    let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
-    let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
-    particles.update(&model.model, playing, view.time, dt, current_pose, base_at);
-    let mut batches =
-        particles.batches(&model.model, playing, view.time, current_pose, base_at, camera.view());
-    // Animated alpha, self-illumination and vertices; dangly meshes.
-    // (Guarded, as building the model is: custom content's animated meshes
-    // hold surprises, and the model is then shown at rest.)
-    let mut state = playing
-        .and_then(|a| {
-            let name = &model.model.name;
-            mg_render::guard::guarded(name, || anim::mesh_state(&model, a, view.time))
-        })
-        .unwrap_or_else(|| MeshState::new(&model));
-    let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
-    dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
-    dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
-    // Chunk emitters' models.
-    let mut chunks = particles.chunks(&model.model, playing, view.time, current_pose, base_at);
-    let mut live = particles.live();
-    // The parts' emitters (an effect worn as a tail or wings, a held
-    // torch's flame), each its own simulation, where the part hangs as
-    // drawn below. (The base's are the viewer's own above.)
-    if let Some(c) = &view.composed {
-        let name = &model.model.name;
-        let asked = view.animation.as_deref();
-        let emitting = mg_render::guard::guarded(name, || c.emitting(asked, view.time));
-        for e in emitting.unwrap_or_default().into_iter().filter(|e| e.source > 0) {
-            let (m, keys, pose) = (e.model, e.animation, &e.pose);
-            let (at, t) = (view.stand * e.transform, e.held_at.unwrap_or(view.time));
-            let sim = view.part_particles.entry(e.source).or_insert_with(|| Particles::new(m));
-            sim.update(m, keys, t, dt, pose, at);
-            batches.extend(sim.batches(m, keys, t, pose, at, camera.view()));
-            chunks.extend(sim.chunks(m, keys, t, pose, at));
-            live |= sim.live();
-        }
-    }
-    let mut chunk_instances = Vec::new();
-    for c in chunks {
-        let gm = view
-            .chunk_models
-            .entry(c.model.clone())
-            .or_insert_with(|| {
-                let rm = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
-                let m = rm
-                    .and_then(|rm| rm.get_named(&c.model, ResType::MDL).ok())
-                    .and_then(|d| Model::read(&d).ok())?;
-                // (One that breaks what builds it is left out.)
-                let name = c.model.clone();
-                let gpu = &vp.gpu;
-                mg_render::guard::guarded(&name, || Arc::new(GpuModel::new(gpu, Arc::new(m))))
-            })
-            .clone();
-        if let Some(gm) = gm {
-            chunk_instances.push(Instance::new(gm, c.transform));
-        }
-    }
-    // Keep drawing while something moves (an animation, live particles or
-    // dangly meshes), a step at a time as the area view's animations step,
-    // not a frame every frame (144 a second here).
-    // (Behind another program's window, the picture kept as it is.)
-    if (pose.is_some() || live || dangly.moving())
-        && view.playing
-        && crate::area_view::animates_now(ui, app.settings.animate_unfocused, true, false)
-    {
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
-    }
-
-    // (Where the ground under it is, with the Shadow switch on.)
-    let shadow = app.settings.model_shadows().then(|| view.rest_box()).flatten();
-    // Render into our own texture, shown as an image.
-    vp.size_targets(&mut view.targets, w, h);
-    let (targets, id) = view.targets.as_ref().expect("made above");
-    // The base (with the viewer's animated meshes and dangly state), then
-    // what hangs from it.
-    let mut instances = match &view.composed {
-        Some(c) => c.instances(view.animation.as_deref(), view.time, view.stand),
-        None => vec![Instance::new(model.clone(), Mat4::IDENTITY)],
-    };
-    if let Some(base) = instances.first_mut() {
-        base.pose = pose;
-        base.state = Some(Arc::new(state));
-    }
-    instances.extend(chunk_instances);
-    let mut lights = lights;
-    if let Some(c) = &view.composed {
-        // (The base's light nodes are the viewer's own above, as Lights
-        // has them; its parts' as they stand, with them.)
-        lights.extend(c.row_lights(Mat4::IDENTITY));
-        if view.model_lights {
-            lights.extend(c.part_point_lights(view.stand));
-        }
-    }
-    // (The ground that takes its shadow, with the Shadow switch on.)
-    if let Some(rest) = shadow {
-        let model = vp
-            .ground
-            .get_or_insert_with(|| Arc::new(GpuModel::new(&vp.gpu, Arc::new(ground_model()))));
-        instances.push(ground(model.clone(), rest));
-    }
-    let scene = Scene {
-        instances,
-        lights,
-        particles: batches,
-        area: AreaLight::default(),
-        background: BACKGROUND,
-        // (Laid as the area view lays the sun's, with no fog: the game's
-        // shadow plane's fade up the screen as far as it goes.)
-        shadows: shadow.map(|_| mg_render::SunShadows {
-            opacity: GROUND_SHADOW_OPACITY,
-            fade_limit: 10_000.0,
-        }),
-        // (The game's shaders' clock: wind sways while the view plays.)
-        time: view.time,
-        ..Default::default()
-    };
-    let resman = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
-    let assets: &dyn mg_render::Assets = match resman {
-        Some(rm) => rm,
-        None => &mg_render::NoAssets,
-    };
-    // (Drawn again and again: the game's programs are made while it goes
-    // on, Moonglow's own shader drawing until they are.)
-    vp.renderer.game_background = true;
-    // (Its ground's shadow is a shadow map's, whatever quality the area
-    // view last drew its own with: the stencil volumes cast no skin's.)
-    vp.renderer.shadow_volumes = false;
-    vp.renderer.render_targets(&vp.gpu, assets, &scene, &camera, targets);
-    vp.renderer.game_background = false;
-    // A program of the game's that reads the clock moves what it draws:
-    // drawn again as the area view's animations step, while the view plays;
-    // and, while its pipelines are made, until they are.
     let focused = crate::area_view::animates_now(ui, app.settings.animate_unfocused, true, false);
-    if (vp.renderer.drawn.timed > 0 && view.playing && focused)
-        || vp.renderer.drawn.game_pending > 0
-    {
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
+    let anim_since = view.drawn.as_ref().map(|(_, at, _)| view.time - at);
+    let wall_since = view.drawn.as_ref().map(|(_, _, at)| now - at);
+    let kept = view.targets.as_ref().is_some_and(|(t, _)| t.size == (w, h))
+        && view.drawn.as_ref().is_some_and(|(was, _, _)| *was == from)
+        && (!moving || anim_since.is_some_and(|s| (0.0..CLOCK_STEP).contains(&s)))
+        && (!pending || wall_since.is_some_and(|s| (0.0..f64::from(CLOCK_STEP)).contains(&s)));
+    if kept {
+        if (moving && focused) || pending {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
+        }
+    } else {
+        let render_dt = view
+            .last_sim_time
+            .filter(|&last| view.time >= last)
+            .map_or(dt, |last| (view.time - last).clamp(0.0, 0.25));
+        let own = match &source {
+            Source::Hak { hak, .. } => {
+                app.haks.iter().find(|d| d.id == *hak).and_then(|d| d.resources.clone())
+            }
+            _ => None,
+        };
+        // (At the scale the chain of supermodels plays it at.)
+        let playing: Option<(&mg_mdl::Animation, f32)> = view.animation.as_ref().and_then(|name| {
+            let (_, owner, scale) = anims.iter().find(|(n, ..)| n == name)?;
+            Some((owner.animation(name)?, *scale))
+        });
+        let pose = playing.map(|(a, s)| Arc::new(anim::pose_scaled(&model.model, a, view.time, s)));
+        let playing = playing.map(|(a, _)| a);
+        let lights = if view.model_lights {
+            let p = pose.as_deref().unwrap_or(&model.rest);
+            anim::lights(&model.model, playing, view.time, p, Mat4::IDENTITY, &|_| None)
+        } else {
+            Vec::new()
+        };
+        // Particles run whenever the view plays. (Where the base is drawn:
+        // stood up, an item made lying.)
+        let camera = view.camera();
+        let base_at = if view.composed.is_some() { view.stand } else { Mat4::IDENTITY };
+        let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
+        let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
+        particles.update(&model.model, playing, view.time, render_dt, current_pose, base_at);
+        let mut batches = particles.batches(
+            &model.model,
+            playing,
+            view.time,
+            current_pose,
+            base_at,
+            camera.view(),
+        );
+        // Animated alpha, self-illumination and vertices; dangly meshes.
+        // (Guarded, as building the model is: custom content's animated meshes
+        // hold surprises, and the model is then shown at rest.)
+        let mut state = playing
+            .and_then(|a| {
+                let name = &model.model.name;
+                mg_render::guard::guarded(name, || anim::mesh_state(&model, a, view.time))
+            })
+            .unwrap_or_else(|| MeshState::new(&model));
+        let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
+        dangly.update(render_dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
+        dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
+        // Chunk emitters' models.
+        let mut chunks = particles.chunks(&model.model, playing, view.time, current_pose, base_at);
+        let mut live = particles.live();
+        // The parts' emitters (an effect worn as a tail or wings, a held
+        // torch's flame), each its own simulation, where the part hangs as
+        // drawn below. (The base's are the viewer's own above.)
+        if let Some(c) = &view.composed {
+            let name = &model.model.name;
+            let asked = view.animation.as_deref();
+            let emitting = mg_render::guard::guarded(name, || c.emitting(asked, view.time));
+            for e in emitting.unwrap_or_default().into_iter().filter(|e| e.source > 0) {
+                let (m, keys, pose) = (e.model, e.animation, &e.pose);
+                let (at, t) = (view.stand * e.transform, e.held_at.unwrap_or(view.time));
+                let sim = view.part_particles.entry(e.source).or_insert_with(|| Particles::new(m));
+                sim.update(m, keys, t, render_dt, pose, at);
+                batches.extend(sim.batches(m, keys, t, pose, at, camera.view()));
+                chunks.extend(sim.chunks(m, keys, t, pose, at));
+                live |= sim.live();
+            }
+        }
+        let mut chunk_instances = Vec::new();
+        for c in chunks {
+            let gm = view
+                .chunk_models
+                .entry(c.model.clone())
+                .or_insert_with(|| {
+                    let rm = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
+                    let m = rm
+                        .and_then(|rm| rm.get_named(&c.model, ResType::MDL).ok())
+                        .and_then(|d| Model::read(&d).ok())?;
+                    // (One that breaks what builds it is left out.)
+                    let name = c.model.clone();
+                    let gpu = &vp.gpu;
+                    mg_render::guard::guarded(&name, || Arc::new(GpuModel::new(gpu, Arc::new(m))))
+                })
+                .clone();
+            if let Some(gm) = gm {
+                chunk_instances.push(Instance::new(gm, c.transform));
+            }
+        }
+        let dangly_moving = dangly.moving();
+        let has_emitters =
+            !particles.is_empty() || view.part_particles.values().any(|p| !p.is_empty());
+        // Keep drawing while something moves (an animation, live particles or
+        // dangly meshes), a step at a time as the area view's animations step,
+        // not a frame every frame (144 a second here).
+        // (Behind another program's window, the picture kept as it is.)
+        if (pose.is_some() || live || dangly_moving) && view.playing && focused {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
+        }
+
+        // (Where the ground under it is, with the Shadow switch on.)
+        let shadow = app.settings.model_shadows().then(|| view.rest_box()).flatten();
+        // Render into our own texture, shown as an image.
+        vp.size_targets(&mut view.targets, w, h);
+        let (targets, _) = view.targets.as_ref().expect("made above");
+        // The base (with the viewer's animated meshes and dangly state), then
+        // what hangs from it.
+        let mut instances = match &view.composed {
+            Some(c) => c.instances(view.animation.as_deref(), view.time, view.stand),
+            None => vec![Instance::new(model.clone(), Mat4::IDENTITY)],
+        };
+        if let Some(base) = instances.first_mut() {
+            base.pose = pose;
+            base.state = Some(Arc::new(state));
+        }
+        instances.extend(chunk_instances);
+        let mut lights = lights;
+        if let Some(c) = &view.composed {
+            // (The base's light nodes are the viewer's own above, as Lights
+            // has them; its parts' as they stand, with them.)
+            lights.extend(c.row_lights(Mat4::IDENTITY));
+            if view.model_lights {
+                lights.extend(c.part_point_lights(view.stand));
+            }
+        }
+        // (The ground that takes its shadow, with the Shadow switch on.)
+        if let Some(rest) = shadow {
+            let model = vp
+                .ground
+                .get_or_insert_with(|| Arc::new(GpuModel::new(&vp.gpu, Arc::new(ground_model()))));
+            instances.push(ground(model.clone(), rest));
+        }
+        let scene = Scene {
+            instances,
+            lights,
+            particles: batches,
+            area: AreaLight::default(),
+            background: BACKGROUND,
+            // (Laid as the area view lays the sun's, with no fog: the game's
+            // shadow plane's fade up the screen as far as it goes.)
+            shadows: shadow.map(|_| mg_render::SunShadows {
+                opacity: GROUND_SHADOW_OPACITY,
+                fade_limit: 10_000.0,
+            }),
+            // (The game's shaders' clock: wind sways while the view plays.)
+            time: view.time,
+            ..Default::default()
+        };
+        let resman = own.as_deref().or_else(|| app.game.as_deref().map(|g| &g.resman));
+        let assets: &dyn mg_render::Assets = match resman {
+            Some(rm) => rm,
+            None => &mg_render::NoAssets,
+        };
+        // (Drawn again and again: the game's programs are made while it goes
+        // on, Moonglow's own shader drawing until they are.)
+        vp.renderer.game_background = true;
+        // (Its ground's shadow is a shadow map's, whatever quality the area
+        // view last drew its own with: the stencil volumes cast no skin's.)
+        vp.renderer.shadow_volumes = false;
+        vp.renderer.render_targets(&vp.gpu, assets, &scene, &camera, targets);
+        vp.renderer.game_background = false;
+        // A program of the game's that reads the clock moves what it draws:
+        // drawn again as the area view's animations step, while the view plays;
+        // and, while its pipelines are made, until they are.
+        if (vp.renderer.drawn.timed > 0 && view.playing && focused)
+            || vp.renderer.drawn.game_pending > 0
+            || vp.renderer.drawn.textures_pending > 0
+        {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
+        }
+        view.last_live = live || (render_dt == 0.0 && has_emitters);
+        view.last_dangly_moving = dangly_moving;
+        view.last_timed = vp.renderer.drawn.timed;
+        view.last_game_pending = vp.renderer.drawn.game_pending;
+        view.last_textures_pending = vp.renderer.drawn.textures_pending;
+        view.last_sim_time = Some(view.time);
+        view.drawn = Some((
+            ModelDrawn { textures_read: vp.renderer.textures_read(), ..from },
+            view.time,
+            now,
+        ));
+        view.gpu_renders += 1;
     }
+    let (_, id) = view.targets.as_ref().expect("made above");
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),
@@ -1927,6 +2095,8 @@ pub struct Thumbnails {
     /// What every picture is drawn into, before it is resolved into a
     /// texture of its own.
     targets: Option<Targets>,
+    /// Reusable destination texture when a thumbnail returns `Waiting` or empty.
+    scratch: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// How many pictures have been drawn.
     pub drawn: u64,
     /// How many pictures out of sight are kept, if not [`THUMBNAILS_KEPT`].
@@ -2111,10 +2281,12 @@ impl Thumbnails {
         }
         self.wanted.clear();
         self.items.clear();
+        self.creatures.clear();
         self.flushed = None;
         self.let_go();
         self.ready.clear();
         self.module_models = None;
+        self.scratch = None;
     }
 
     /// How many pictures are kept.
@@ -2908,21 +3080,24 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
         .thumbnails
         .targets
         .get_or_insert_with(|| Targets::new(&vp.gpu, format, SAMPLES, size, size));
-    let picture = vp.gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("thumbnail"),
-        size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        // (Read back by a test: the pictures the same whatever the model
-        // viewer's switches.)
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
+    let (picture, view) = app.thumbnails.scratch.take().unwrap_or_else(|| {
+        let picture = vp.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("thumbnail"),
+            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            // (Read back by a test: the pictures the same whatever the model
+            // viewer's switches.)
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = picture.create_view(&Default::default());
+        (picture, view)
     });
-    let view = picture.create_view(&Default::default());
     let (target, resolve) = match &targets.msaa_view {
         Some(multisampled) => (multisampled, Some(&view)),
         None => (&view, None),
@@ -2963,6 +3138,7 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
     vp.renderer.game_background = false;
     let drawn = &vp.renderer.drawn;
     if apart && (drawn.textures_pending > 0 || drawn.game_pending > 0) {
+        app.thumbnails.scratch = Some((picture, view));
         return Err(Waiting);
     }
     // (Nothing of it drawn: its meshes wholly see-through, as an invisible
@@ -2970,6 +3146,7 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
     // out), and no particles. No picture, as one that failed: the kind's
     // icon and "No picture" in a gallery, not an empty tile; U30's #12.)
     if drawn.meshes == 0 && drawn.game == 0 && scene.particles.is_empty() {
+        app.thumbnails.scratch = Some((picture, view));
         return Ok(None);
     }
     let id = vp.render_state.renderer.write().register_native_texture(

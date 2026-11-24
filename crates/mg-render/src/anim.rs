@@ -67,8 +67,56 @@ impl Local {
     }
 }
 
+/// Samples `c` at `t` (clamped to its keys) into `out` and returns the column count.
+/// Callers needing more than 4 columns should use [`sample`].
+pub fn sample_into(c: &Controller, t: f32, out: &mut [f32; 4]) -> usize {
+    let n = c.times.len();
+    let cols = c.columns.min(4);
+    if n == 0 || cols == 0 {
+        return 0;
+    }
+    let i = c.times.partition_point(|&k| k <= t);
+    if i == 0 {
+        let row = c.row(0);
+        let len = row.len().min(cols);
+        out[..len].copy_from_slice(&row[..len]);
+        return len;
+    }
+    if i >= n {
+        let row = c.row(n - 1);
+        let len = row.len().min(cols);
+        out[..len].copy_from_slice(&row[..len]);
+        return len;
+    }
+    let (t0, t1) = (c.times[i - 1], c.times[i]);
+    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+    let (a, b) = (c.row(i - 1), c.row(i));
+    if c.name == "orientation" && a.len() == 4 && b.len() == 4 {
+        let qa = Quat::from_slice(a).normalize();
+        let qb = Quat::from_slice(b).normalize();
+        *out = qa.slerp(qb, f).to_array();
+        return 4;
+    }
+    let len = a.len().min(b.len()).min(cols);
+    for k in 0..len {
+        out[k] = a[k] + (b[k] - a[k]) * f;
+    }
+    len
+}
+
+/// Samples a scalar controller (`columns >= 1`) at `t` without heap allocation.
+pub fn sample_one(c: &Controller, t: f32) -> Option<f32> {
+    let mut out = [0.0; 4];
+    (sample_into(c, t, &mut out) >= 1).then_some(out[0])
+}
+
 /// A controller's value at `t` (clamped to its keys).
 pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
+    if c.columns <= 4 {
+        let mut out = [0.0; 4];
+        let len = sample_into(c, t, &mut out);
+        return out[..len].to_vec();
+    }
     let n = c.times.len();
     if n == 0 || c.columns == 0 {
         return Vec::new();
@@ -83,11 +131,6 @@ pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
     let (t0, t1) = (c.times[i - 1], c.times[i]);
     let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
     let (a, b) = (c.row(i - 1), c.row(i));
-    if c.name == "orientation" && a.len() == 4 && b.len() == 4 {
-        let qa = Quat::from_slice(a).normalize();
-        let qb = Quat::from_slice(b).normalize();
-        return qa.slerp(qb, f).to_array().to_vec();
-    }
     a.iter().zip(b).map(|(x, y)| x + (y - x) * f).collect()
 }
 
@@ -254,11 +297,12 @@ impl<'a> Playing<'a> {
             .map(|(i, n)| {
                 let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
                 if let Some(nodes) = self.of(i) {
+                    let mut v = [0.0; 4];
                     for (c, t, by) in controllers(nodes) {
-                        let v = sample(c, t);
-                        match (c.name.as_str(), v.len()) {
+                        let len = sample_into(c, t, &mut v);
+                        match (c.name.as_str(), len) {
                             ("position", 3) => pos = [v[0] * by, v[1] * by, v[2] * by],
-                            ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
+                            ("orientation", 4) => orient = v,
                             ("scale", 1) => scale = v[0],
                             _ => {}
                         }
@@ -475,12 +519,28 @@ impl Playing<'_> {
     }
 
     fn lamp(&self, i: usize, n: &mg_mdl::Node, l: &mg_mdl::Light, pose: &[Mat4]) -> Lamp {
-        let keyed = |name: &str| -> Option<Vec<f32>> {
-            let nodes = self.of(i)?;
-            let (c, t, _) = controllers(nodes).filter(|(c, ..)| c.name == name).last()?;
-            Some(sample(c, t))
+        let nodes = self.of(i);
+        let value = |name: &str, buf: &mut [f32; 4]| -> usize {
+            if let Some(nodes) = nodes
+                && let Some((c, t, _)) = controllers(nodes).filter(|(c, ..)| c.name == name).last()
+            {
+                return sample_into(c, t, buf);
+            }
+            if let Some(v) = n.value(name) {
+                let len = v.len().min(4);
+                buf[..len].copy_from_slice(&v[..len]);
+                return len;
+            }
+            0
         };
-        let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
+        let mut color_buf = [0.0; 4];
+        let color_len = value("color", &mut color_buf);
+        let mut radius_buf = [0.0; 4];
+        let radius_len = value("radius", &mut radius_buf);
+        let mut mult_buf = [0.0; 4];
+        let mult_len = value("multiplier", &mut mult_buf);
+        let mut lift_buf = [0.0; 4];
+        let lift_len = value("verticaldisplacement", &mut lift_buf);
         let lower = n.name.to_ascii_lowercase();
         let main = if lower.ends_with("ml1") {
             Some(0)
@@ -492,16 +552,17 @@ impl Playing<'_> {
         Lamp {
             at: node_position(pose, i),
             main,
-            color: match value("color").as_deref() {
-                Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
-                _ => Vec3::ONE,
+            color: if color_len >= 3 {
+                Vec3::new(color_buf[0], color_buf[1], color_buf[2])
+            } else {
+                Vec3::ONE
             },
-            radius: value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
-            multiplier: value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0),
+            radius: if radius_len >= 1 { radius_buf[0] } else { 5.0 },
+            multiplier: if mult_len >= 1 { mult_buf[0] } else { 1.0 },
             ambient_only: l.ambient_only,
             priority: l.priority.clamp(1, 5),
             shadow: l.shadow,
-            lift: value("verticaldisplacement").and_then(|v| v.first().copied()).unwrap_or(0.0),
+            lift: if lift_len >= 1 { lift_buf[0] } else { 0.0 },
         }
     }
 
@@ -513,26 +574,65 @@ impl Playing<'_> {
             let Some(nodes) = self.of(mesh.node) else { continue };
             let out = &mut state.meshes[i];
             for (c, t, _) in controllers(nodes) {
-                let v = sample(c, t);
-                match (c.name.as_str(), v.as_slice()) {
-                    ("alpha", [a, ..]) => out.alpha = Some(*a),
-                    ("selfillumcolor", [r, g, b, ..]) => {
-                        out.selfillum = Some(Vec3::new(*r, *g, *b))
+                match c.name.as_str() {
+                    "alpha" => {
+                        if let Some(a) = sample_one(c, t) {
+                            out.alpha = Some(a);
+                        }
+                    }
+                    "selfillumcolor" => {
+                        let mut v = [0.0; 4];
+                        if sample_into(c, t, &mut v) >= 3 {
+                            out.selfillum = Some(Vec3::new(v[0], v[1], v[2]));
+                        }
                     }
                     _ => {}
                 }
             }
             let sets = nodes.iter().rev().find_map(|(n, t, _)| Some((n.anim_mesh.as_ref()?, *t)));
             if let (Some((sets, t)), Some(data)) = (sets, model.mesh_data(i)) {
-                out.vertices = animated_vertices(data, sets, t);
+                let cache = mesh.anim_cache.get_or_init(|| AnimMeshCache::new(data));
+                out.vertices = animated_vertices(data, sets, t, cache);
             }
         }
         state
     }
 }
 
+/// Cached rest upload and normal smoothing equivalence classes for a [`GpuMesh`]
+/// so animated vertex updates avoid rebuilding topology each frame.
+#[derive(Debug)]
+pub struct AnimMeshCache {
+    uploaded: crate::model::Uploaded,
+    classes: Vec<usize>,
+    class_count: usize,
+}
+
+impl AnimMeshCache {
+    fn new(m: &Mesh) -> Self {
+        let uploaded = crate::model::uploaded(m);
+        let mut class: HashMap<([u32; 3], [u32; 3]), usize> = HashMap::new();
+        let classes: Vec<usize> = uploaded
+            .originals
+            .iter()
+            .map(|&o| {
+                let p = m.vertices.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
+                let n = m.normals.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
+                let next = class.len();
+                *class.entry((p, n)).or_insert(next)
+            })
+            .collect();
+        AnimMeshCache { uploaded, classes, class_count: class.len() }
+    }
+}
+
 /// An animated mesh's vertices at `t`.
-fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex>> {
+fn animated_vertices(
+    m: &Mesh,
+    sets: &AnimMeshSets,
+    t: f32,
+    cache: &AnimMeshCache,
+) -> Option<Vec<Vertex>> {
     if sets.vertex_sets.is_empty() && sets.uv_sets.is_empty() {
         return None;
     }
@@ -545,25 +645,26 @@ fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex
     };
     // (A vertex on a mirrored seam is uploaded twice: the copy moves with
     // its original.)
-    let crate::model::Uploaded { vertices: mut out, originals, triangles } =
-        crate::model::uploaded(m);
+    let originals = &cache.uploaded.originals;
+    let triangles = &cache.uploaded.triangles;
+    let mut out = cache.uploaded.vertices.clone();
     if !sets.vertex_sets.is_empty() {
         let (a, b, f) = at(sets.vertex_sets.len());
         let (a, b) = (&sets.vertex_sets[a], &sets.vertex_sets[b]);
-        for (v, &o) in out.iter_mut().zip(&originals) {
+        for (v, &o) in out.iter_mut().zip(originals) {
             let Some(&s) = m.source.get(o as usize) else { continue };
             let s = s as usize;
             if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
                 v.pos = Vec3::from(*p).lerp(Vec3::from(*q), f).to_array();
             }
         }
-        smooth_normals(m, &originals, &triangles, &mut out);
+        smooth_normals(triangles, &cache.classes, cache.class_count, &mut out);
     }
     if !sets.uv_sets.is_empty() {
         let (a, b, f) = at(sets.uv_sets.len());
         let (a, b) = (&sets.uv_sets[a], &sets.uv_sets[b]);
         let source = if m.source_uv.len() == m.vertices.len() { &m.source_uv } else { &m.source };
-        for (v, &o) in out.iter_mut().zip(&originals) {
+        for (v, &o) in out.iter_mut().zip(originals) {
             let Some(&s) = source.get(o as usize) else { continue };
             let s = s as usize;
             if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
@@ -575,21 +676,16 @@ fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex
 }
 
 /// Normals from the faces around each vertex (`triangles`, of the vertices
-/// as uploaded; `originals`: the mesh's vertex each is). Vertices that had
-/// the same position and normal at rest (split only by UV seams) share
-/// one, so hard edges stay hard.
-fn smooth_normals(m: &Mesh, originals: &[u32], triangles: &[[u32; 3]], out: &mut [Vertex]) {
-    let mut class: HashMap<([u32; 3], [u32; 3]), usize> = HashMap::new();
-    let classes: Vec<usize> = originals
-        .iter()
-        .map(|&o| {
-            let p = m.vertices.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
-            let n = m.normals.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
-            let next = class.len();
-            *class.entry((p, n)).or_insert(next)
-        })
-        .collect();
-    let mut sum = vec![Vec3::ZERO; class.len()];
+/// as uploaded; `classes`: precomputed rest position/normal equivalence
+/// class per vertex). Vertices that had the same position and normal at
+/// rest (split only by UV seams) share one, so hard edges stay hard.
+fn smooth_normals(
+    triangles: &[[u32; 3]],
+    classes: &[usize],
+    class_count: usize,
+    out: &mut [Vertex],
+) {
+    let mut sum = vec![Vec3::ZERO; class_count];
     for t in triangles {
         let [a, b, c] = t.map(|v| v as usize);
         if a.max(b).max(c) >= out.len() {
@@ -601,7 +697,7 @@ fn smooth_normals(m: &Mesh, originals: &[u32], triangles: &[[u32; 3]], out: &mut
             sum[classes[v]] += n;
         }
     }
-    for (v, &k) in out.iter_mut().zip(&classes) {
+    for (v, &k) in out.iter_mut().zip(classes) {
         if let Some(n) = sum[k].try_normalize() {
             v.normal = n.to_array();
         }
@@ -981,7 +1077,8 @@ mod tests {
             vertex_sets: vec![rest, moved.clone()],
             uv_sets: vec![card.uvs[0].clone(), card.uvs[0].iter().map(|u| [u[0], 2.0]).collect()],
         };
-        let out = animated_vertices(&card, &sets, 1.0).expect("animated");
+        let cache = AnimMeshCache::new(&card);
+        let out = animated_vertices(&card, &sets, 1.0, &cache).expect("animated");
         assert_eq!(out.len(), 8, "the middle's two copied");
         for (at, o) in (0..6).chain([1, 4]).enumerate() {
             assert_eq!(out[at].pos, moved[o], "vertex {at}, of {o}");
@@ -991,7 +1088,7 @@ mod tests {
         }
         assert_eq!((out[6].normal, out[7].normal), (out[1].normal, out[4].normal));
         // Halfway, a copy is where its original is.
-        let half = animated_vertices(&card, &sets, 0.5).expect("animated");
+        let half = animated_vertices(&card, &sets, 0.5, &cache).expect("animated");
         assert_eq!((half[6].pos, half[7].pos), (half[1].pos, half[4].pos));
         assert_eq!(half[1].pos, [0.3, 0.3, 0.5]);
     }

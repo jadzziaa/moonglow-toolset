@@ -15,6 +15,8 @@ use mg_uikit::overlay::{
 use mg_uikit::popover::Popover;
 use mg_uikit::{Icon, Theme, TokensExt as _};
 
+use crate::common::rect_fills;
+
 /// A popover given a least width is that wide (never under 220), and its
 /// title's note stands at the title's right end, 10 in, in `text-3` at
 /// the small size, where a popover without either keeps its 220.
@@ -112,18 +114,4 @@ fn a_view_button_is_named_and_drawn_in_the_tokens() {
         let off = h.get_by_label("Go to Start Location");
         assert!(off.accesskit_node().is_disabled(), "{theme:?}");
     }
-}
-
-/// The fills of the rectangles drawn exactly at `r` in the last frame.
-fn rect_fills(h: &Harness<'_>, r: egui::Rect) -> Vec<egui::Color32> {
-    let mut out = Vec::new();
-    for clipped in h.output().shapes.iter() {
-        if let egui::Shape::Rect(s) = &clipped.shape
-            && (s.rect.min - r.min).length() < 0.6
-            && (s.rect.max - r.max).length() < 0.6
-        {
-            out.push(s.fill);
-        }
-    }
-    out
 }

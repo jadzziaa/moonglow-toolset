@@ -12,21 +12,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::tree::{self, TreeGroup, TreeRow};
 use mg_uikit::{Icon, Theme};
 
-/// The words drawn in a frame, where.
-fn texts(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
-    fn add(shape: &egui::Shape, to: &mut Vec<(String, egui::Rect)>) {
-        match shape {
-            egui::Shape::Text(t) => {
-                to.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())))
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
-}
+use crate::common::{fills, texts};
 
 /// A group's row: named "Areas (113)" as a collapsing header, said open,
 /// its rows shown; a click closes it (said closed, its rows gone) and
@@ -138,20 +124,6 @@ fn a_tree_row_is_selectable_or_quiet() {
     let drawn = texts(&h);
     let name = drawn.iter().find(|(t, _)| t == "Module Properties").unwrap().1;
     assert_eq!(name.left() - 8.0, tree::name_offset(true), "the harness's margin, then 42");
-}
-
-/// The rects filled in a frame.
-fn fills(h: &Harness<'_>) -> Vec<(egui::Rect, egui::Color32)> {
-    fn add(shape: &egui::Shape, to: &mut Vec<(egui::Rect, egui::Color32)>) {
-        match shape {
-            egui::Shape::Rect(r) => to.push((r.rect, r.fill)),
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
 }
 
 /// A row as a module tree's resource rows are drawn: indented under its

@@ -233,9 +233,8 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
-            // (The canvas and the header whole: its Components, Properties
-            // and Bindings at its right and its Layers at its left are
-            // added where it opens in a window, M4's U18,
+            // (Room for the canvas and header: Components, Properties,
+            // Bindings, and Layers docks are added when opening a window in
             // `Moonglow::open_window`.)
             Tab::Nui(_) => (760.0, 792.0),
             // (Its source group alone in a window, dragged out of its
@@ -245,14 +244,13 @@ impl Tab {
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
-            // (The Talk board's list, its header whole beside it: M4's U17.)
+            // (The Talk board's list, its header whole beside it.)
             Tab::TalkTable => (980.0, 700.0),
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal => (780.0, 632.0),
             Tab::Gff(_) => (780.0, 600.0),
             // (Room for the page list's 150 points and a page's margins
-            // beside the form as wide as the 760 before it gave: the hak
-            // list's commands on one row; M4's U9.)
+            // beside the form: keeps the hak list's commands on one row.)
             Tab::ModuleProperties | Tab::AreaProperties(_) | Tab::AreasProperties(_) => {
                 (930.0, 612.0)
             }
@@ -279,20 +277,7 @@ impl Tab {
     /// style: [`FORMS_TALLER`] for a window that is mostly a form,
     /// [`ROWS_TALLER`] for one that is mostly rows.
     pub(crate) fn taller(&self) -> f32 {
-        match self {
-            Tab::ModuleProperties
-            | Tab::AreaProperties(_)
-            | Tab::AreasProperties(_)
-            | Tab::Options
-            | Tab::Blueprint(_)
-            | Tab::Blueprints(_)
-            | Tab::Instance { .. }
-            | Tab::Instances { .. }
-            | Tab::Factions
-            | Tab::AdvancedSearch
-            | Tab::PluginPanel { .. } => FORMS_TALLER,
-            _ => ROWS_TALLER,
-        }
+        Self::taller_of_kind(self.kind()).unwrap_or(ROWS_TALLER)
     }
 
     /// [`Tab::taller`] of the tabs whose [`Tab::kind`] is `kind`, as a
@@ -300,11 +285,10 @@ impl Tab {
     /// kind that never has a window of its own (an area, the Welcome
     /// page) or one this version does not know.
     pub(crate) fn taller_of_kind(kind: &str) -> Option<f32> {
-        const FORMS: [&str; 10] = [
+        const FORMS: [&str; 9] = [
             "module-properties",
             "area-properties",
             "options",
-            "tile-properties",
             "blueprint",
             "blueprints",
             "instance",
@@ -517,7 +501,18 @@ impl Viewer<'_> {
 
     /// What a tab shows.
     fn body(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        crate::trace::changed(&format!("drawn {tab:?}"), || format!("in {:?}", ui.max_rect()));
+        if crate::trace::on() {
+            let r = ui.max_rect();
+            let rect_bits =
+                [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()];
+            crate::trace::changed_for(
+                "tab",
+                tab,
+                &rect_bits,
+                || format!("drawn {tab:?}"),
+                || format!("in {:?}", ui.max_rect()),
+            );
+        }
         // (The dock's windows have no margin: `Moonglow::ui`. What a tab
         // shows has the usual one.)
         ui.spacing_mut().window_margin = ui.ctx().global_style().spacing.window_margin;
@@ -877,7 +872,7 @@ impl TabViewer for Viewer<'_> {
         // object, blueprint or area, or several edited together; another
         // editor's resource), run on it.
         let edited = crate::plugins::tab_selection(tab);
-        let commands = self.app.plugin_menu_commands();
+        let commands = self.app.plugin_menu_commands_cached();
         if !edited.is_empty() && !commands.is_empty() {
             crate::plugins::menu_on(ui, &commands, &edited, &mut self.app.actions);
         }
@@ -1093,7 +1088,7 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         }
         Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()),
         Tab::Blueprints(keys) => {
-            let ext = keys[0].restype.extension().unwrap_or_default();
+            let ext = keys.first().and_then(|k| k.restype.extension()).unwrap_or_default();
             format!("{} blueprints (.{ext})", keys.len())
         }
         Tab::Manual => "User Manual".into(),
@@ -1135,6 +1130,9 @@ pub(crate) struct Look {
 pub(crate) struct LookCache {
     titles: HashMap<TitleKey, mg_uikit::dock::DocTabTitle>,
     resources: HashMap<ResKey, Watched>,
+    /// `(ws (identity, revision), hash of open tabs)` when `resources` / saved
+    /// copies were last pruned against `open`.
+    open_sig: Option<(Option<(u64, u64)>, u64)>,
     /// How many times a document was compared with its saved copy (for
     /// tests: `Moonglow::dot_comparisons`).
     pub(crate) comparisons: u64,
@@ -1488,11 +1486,17 @@ fn paint_window_bar_button(
 /// ([`mg_uikit::dock::doc_tab_cap`], not under its least), and laid out
 /// again only where what they are laid out from changed ([`LookCache`]).
 pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
+    use std::hash::{Hash as _, Hasher as _};
     let font = egui::TextStyle::Button.resolve(&ctx.global_style());
     let made = (ctx.pixels_per_point().to_bits(), crate::script_layout::fonts_made(ctx));
+    let mut tabs_h = std::collections::hash_map::DefaultHasher::new();
     let panes: Vec<(bool, f32, Vec<Tab>)> = (app.dock.iter_leaves())
-        .map(|(p, l)| (p.surface.is_main(), l.rect.width(), l.tabs.clone()))
+        .map(|(p, l)| {
+            l.tabs.hash(&mut tabs_h);
+            (p.surface.is_main(), l.rect.width(), l.tabs.clone())
+        })
         .collect();
+    let open_sig = (app.ws.as_ref().map(|w| (w.identity(), w.revision())), tabs_h.finish());
     let mut cache = std::mem::take(&mut app.look_cache);
     let mut titles = HashMap::new();
     let mut looks = HashMap::new();
@@ -1559,12 +1563,15 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
     // (Only the titles laid out this frame are kept, and the resources of
     // the tabs open.)
     cache.titles = titles;
-    let open: std::collections::HashSet<ResKey> =
-        looks.keys().flat_map(|t| resources_of(app, t)).collect();
-    cache.resources.retain(|k, _| open.contains(k));
-    // (And the saved copies read to compare them.)
-    if let Some(ws) = &app.ws {
-        ws.forget_saved_copies(|k| open.contains(k));
+    if cache.open_sig != Some(open_sig) {
+        let open: std::collections::HashSet<ResKey> =
+            looks.keys().flat_map(|t| resources_of(app, t)).collect();
+        cache.resources.retain(|k, _| open.contains(k));
+        // (And the saved copies read to compare them.)
+        if let Some(ws) = &app.ws {
+            ws.forget_saved_copies(|k| open.contains(k));
+        }
+        cache.open_sig = Some(open_sig);
     }
     app.look_cache = cache;
     app.doc_tabs = looks;
@@ -1632,7 +1639,7 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
         .and_then(|ws| ws.doc(&git).ok())
         .and_then(|g| path.get(&g.root))
         .and_then(|s| s.string("Tag"))
-        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .map(crate::text::decode)
         .unwrap_or_default();
     format!("{tag} ({area})")
 }

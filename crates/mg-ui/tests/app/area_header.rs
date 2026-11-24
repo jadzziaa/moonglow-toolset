@@ -143,22 +143,25 @@ const IN_POPOVERS: [&str; 22] = [
 /// beside it, in both modes (the area is docked in both); and the
 /// controls of its popovers are found in what holds them at the widths
 /// where the header changes its form, and the widest.
+const HEADER_BREAKPOINTS: &[usize] = &[
+    420, 489, 490, 549, 550, 660, 795, 796, 961, 962, 989, 990, 1160, 1294, 1295, 1499, 1500, 1600,
+    1850, 2200, 2600, 3000,
+];
+
 #[test]
 fn the_area_header_holds_every_control_from_420_to_1600() {
     for mode in MODES {
-        let Some((mut h, _)) = area_harness(&mode.dir("header-holds")) else { return };
+        let Some((mut h, _)) = area_ui_harness(&mode.dir("header-holds")) else { return };
         h.state_mut().settings.open_editors = mode.settings().open_editors;
-        // (And on to 3000, every 40, where Lighting, Overlays and Audio
+        // (And on to 3000, where Lighting, Overlays and Audio
         // unfold into the row and fold back: their parts each checked.)
-        let widths = (420..=1600).step_by(20).chain([989, 990, 1294, 1295]);
-        let widths = widths.chain((1640..=3000).step_by(40));
-        for width in widths {
+        for &width in HEADER_BREAKPOINTS {
             h.set_size(egui::vec2(width as f32, 800.0));
             settle(&mut h);
             let names = held_names(&h);
             let names: Vec<&str> = names.iter().map(String::as_str).collect();
             header_holds(&mut h, AREA_HEADER, &names);
-            if [420, 980, 1300, 3000].contains(&width) {
+            if [420, 990, 1295, 3000].contains(&width) {
                 for name in IN_POPOVERS {
                     area_tool(&mut h, name);
                     close_area_popover(&mut h);
@@ -208,15 +211,12 @@ fn paint_s_options_are_held_at_every_width_in_each_mode() {
         ("Erase", PaintSettings { erase: true, ..Default::default() }, &["Snap", "Turn"]),
     ];
     for mode in MODES {
-        let Some((mut h, _)) = area_harness(&mode.dir("header-paint")) else { return };
+        let Some((mut h, _)) = area_ui_harness(&mode.dir("header-paint")) else { return };
         h.state_mut().settings.open_editors = mode.settings().open_editors;
         h.state_mut().paint = true;
         for (name, settings, rows) in &modes {
             h.state_mut().settings.paint = *settings;
-            // (And on to 3000, every 40, where the right group unfolds.)
-            let widths =
-                (420..=1600).step_by(20).chain([989, 990]).chain((1640..=3000).step_by(40));
-            for width in widths {
+            for &width in HEADER_BREAKPOINTS {
                 h.set_size(egui::vec2(width as f32, 800.0));
                 settle(&mut h);
                 // (A segmented control come onto the row this frame has
@@ -261,14 +261,12 @@ const TILES_COMMANDS: [&str; 9] = [
 #[test]
 fn select_tiles_commands_are_held_at_every_width() {
     for mode in MODES {
-        let Some((mut h, area)) = area_harness(&mode.dir("header-tiles")) else { return };
+        let Some((mut h, area)) = area_ui_harness(&mode.dir("header-tiles")) else { return };
         h.state_mut().settings.open_editors = mode.settings().open_editors;
         area_click(&mut h, "Select Tiles");
         for selected in [vec![(1, 1), (2, 1)], Vec::new()] {
             h.state_mut().area_views.get_mut(&area).unwrap().tile_selection = selected.clone();
-            let widths =
-                (420..=1600).step_by(20).chain([989, 990]).chain((1640..=3000).step_by(40));
-            for width in widths {
+            for &width in HEADER_BREAKPOINTS {
                 h.set_size(egui::vec2(width as f32, 800.0));
                 settle(&mut h);
                 h.run_steps(1);
@@ -300,7 +298,7 @@ fn select_tiles_commands_are_held_at_every_width() {
 #[test]
 fn the_header_holds_its_controls_in_a_floating_area() {
     use mg_ui::settings::PaintSettings;
-    let Some((mut h, area)) = area_harness("header-floating") else { return };
+    let Some((mut h, area)) = area_ui_harness("header-floating") else { return };
     h.set_size(egui::vec2(1700.0, 900.0));
     settle(&mut h);
     let tab = mg_ui::Tab::Area(area);
@@ -314,7 +312,7 @@ fn the_header_holds_its_controls_in_a_floating_area() {
         if let Some(p) = paint {
             h.state_mut().settings.paint = p;
         }
-        for width in (420..=1600).step_by(40) {
+        for &width in &[420, 489, 490, 549, 550, 760, 989, 990, 1294, 1295, 1600] {
             let size = egui::vec2(width as f32, 700.0);
             if moved {
                 let dock = &mut h.state_mut().dock;
@@ -344,7 +342,7 @@ fn the_header_holds_its_controls_in_a_floating_area() {
 /// two, so that the row has room for them).
 #[test]
 fn the_area_header_yields_at_990_550_and_490() {
-    let Some((mut h, _)) = area_harness("header-yields") else { return };
+    let Some((mut h, _)) = area_ui_harness("header-yields") else { return };
     row_at(&mut h, 990.0);
     assert_eq!(place(&h, "Show All or None"), Some(Place::Row), "990: {:?}", places(&h));
     assert!(place(&h, "Show Creatures").is_some(), "990: the toggles on the row");
@@ -453,7 +451,7 @@ fn the_overlays_switch_hides_its_five_and_gives_them_back() {
 /// icon toggles.
 #[test]
 fn the_wide_row_unfolds_the_popovers_with_their_words() {
-    let Some((mut h, _)) = area_harness("header-wide") else { return };
+    let Some((mut h, _)) = area_ui_harness("header-wide") else { return };
     h.set_size(egui::vec2(3000.0, 800.0));
     settle(&mut h);
     for name in ["Lighting", "Overlays", "Audio"] {

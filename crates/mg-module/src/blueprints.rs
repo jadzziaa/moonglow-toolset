@@ -27,9 +27,13 @@ pub fn resref(name: &str, taken: impl Fn(&ResRef) -> bool) -> ResRef {
     resref_named(name, &Naming::default(), taken)
 }
 
-/// [`resref`] by a project's naming: the builder's code in the team's
-/// pattern around the name (`ab_wizardsword`), the name cut to fit.
-pub fn resref_named(name: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool) -> ResRef {
+/// Non-panicking [`resref_named`]; returns `None` when the naming pattern
+/// cannot form a valid ResRef or all numbered slots `1..10_000` are taken.
+pub fn try_resref_named(
+    name: &str,
+    naming: &Naming,
+    taken: impl Fn(&ResRef) -> bool,
+) -> Option<ResRef> {
     let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_');
     let compact: String = if plain {
         name.chars().filter(|c| *c != ' ').map(|c| c.to_ascii_lowercase()).collect()
@@ -37,21 +41,36 @@ pub fn resref_named(name: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool
         String::new()
     };
     let compact = naming.strip(&compact).to_string();
-    let make = |s: &str, n: &str| naming.resref(s, n).expect("letters and digits");
     if !compact.is_empty() {
         // A trailing number stays whole.
         let digits = compact.len() - compact.trim_end_matches(|c: char| c.is_ascii_digit()).len();
         let (stem, number) = compact.split_at(compact.len() - digits.min(compact.len()));
-        let candidate = make(stem, number);
-        if !taken(&candidate) {
-            return candidate;
+        if let Some(candidate) = naming.resref(stem, number)
+            && !taken(&candidate)
+        {
+            return Some(candidate);
         }
     }
     let stem = if compact.is_empty() { "blueprint".to_string() } else { compact };
     let in_use = |s: &str| ResRef::from_str(s).is_ok_and(|r| taken(&r));
-    naming
-        .numbered(stem.trim_end_matches(|c: char| c.is_ascii_digit()), 1, &in_use)
-        .expect("a free resref")
+    naming.numbered(stem.trim_end_matches(|c: char| c.is_ascii_digit()), 1, &in_use)
+}
+
+/// [`resref`] by a project's naming: the builder's code in the team's
+/// pattern around the name (`ab_wizardsword`), the name cut to fit.
+pub fn resref_named(name: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool) -> ResRef {
+    if let Some(r) = try_resref_named(name, naming, &taken) {
+        return r;
+    }
+    let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_');
+    let compact: String = if plain {
+        name.chars().filter(|c| *c != ' ').map(|c| c.to_ascii_lowercase()).collect()
+    } else {
+        String::new()
+    };
+    let fallback_stem = naming.strip(&compact);
+    let stem = if fallback_stem.is_empty() { "blueprint" } else { fallback_stem };
+    naming.resref(stem, "").unwrap_or_else(|| ResRef::from_str("blueprint").expect("valid"))
 }
 
 /// The name the blueprint wizards suggest for a blueprint in `category`:
@@ -578,6 +597,22 @@ mod tests {
         assert_eq!(tag("Containers & Switches 001"), "ContainersSwitches001");
         assert_eq!(tag("1. Average 001"), "1Average001");
         assert_eq!(default_name("Civilization", 1), "Civilization 001");
+    }
+
+    #[test]
+    fn saturated_or_oversized_naming_never_panics_in_resref_named() {
+        let full = Naming::default();
+        assert_eq!(try_resref_named("Sword", &full, |_| true), None);
+        assert_eq!(resref_named("Sword", &full, |_| true), r("sword"));
+
+        let oversized = Naming::new(&"x".repeat(16), "{code}_{name}");
+        let taken = |res: &ResRef| res.as_str() == Some("xxxxxxxxxxxxxxxx");
+        assert_eq!(try_resref_named("Sword", &oversized, taken), None);
+        assert_eq!(resref_named("Sword", &oversized, taken), r("xxxxxxxxxxxxxxxx"));
+
+        let bad_chars = Naming::new("a\0b", "{code}_{name}");
+        assert_eq!(try_resref_named("Sword", &bad_chars, |_| false), None);
+        assert_eq!(resref_named("Sword", &bad_chars, |_| false), r("blueprint"));
     }
 }
 

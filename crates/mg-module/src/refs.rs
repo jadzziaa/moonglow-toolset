@@ -59,21 +59,29 @@ impl RefKind {
         }
     }
 
-    /// The resource names that satisfy the reference: portraits name a
-    /// family (`po_x` stands for `po_xh`, `po_xm`, ...), so their medium
-    /// size is what must exist.
-    pub fn candidates(self, target: ResRef) -> Vec<ResKey> {
+    pub fn each_candidate(self, target: ResRef, mut f: impl FnMut(ResKey)) {
         let name = match self {
             RefKind::Portrait => {
                 let s = format!("{}m", target.to_string_lossy());
                 match ResRef::from_str(&s) {
                     Ok(r) => r,
-                    Err(_) => return Vec::new(),
+                    Err(_) => return,
                 }
             }
             _ => target,
         };
-        self.types().iter().map(|&t| ResKey::new(name, t)).collect()
+        for &t in self.types() {
+            f(ResKey::new(name, t));
+        }
+    }
+
+    /// The resource names that satisfy the reference: portraits name a
+    /// family (`po_x` stands for `po_xh`, `po_xm`, ...), so their medium
+    /// size is what must exist.
+    pub fn candidates(self, target: ResRef) -> Vec<ResKey> {
+        let mut out = Vec::with_capacity(self.types().len());
+        self.each_candidate(target, |k| out.push(k));
+        out
     }
 }
 
@@ -143,6 +151,10 @@ pub struct Reference {
 }
 
 impl Reference {
+    pub fn each_candidate(&self, f: impl FnMut(ResKey)) {
+        self.kind.each_candidate(self.target, f);
+    }
+
     pub fn candidates(&self) -> Vec<ResKey> {
         self.kind.candidates(self.target)
     }

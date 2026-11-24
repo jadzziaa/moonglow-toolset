@@ -1760,9 +1760,9 @@ mod tests {
         assert_eq!(new, Settings::default());
     }
 
-    /// Tile Properties' window of before its panel (M4's U5): its place
-    /// and size, from an older file's text, read without error and
-    /// dropped, the others kept; run again, nothing more.
+    /// Legacy Tile Properties window placement and size: read from an older
+    /// file without error and dropped, leaving the other entries intact.
+    /// Idempotent when run again.
     #[test]
     fn shell_migrate_drops_tile_properties_window_once() {
         let old = r#"(window_places:[("tile-properties","split right 316"),("script","middle")],window_sizes:[("tile-properties",(560,640)),("dialog",(900,680))])"#;
@@ -1775,11 +1775,9 @@ mod tests {
         assert_eq!(read, once, "run again: nothing more");
     }
 
-    /// The palettes' settings of before the Right Dock (M3 T5): their own
-    /// place and size, and every kind kept in their pane (place
-    /// `palettes`), dropped; other places and sizes, and the palettes
-    /// folded (`hide_palettes`, now the Right Dock folded), kept. Run
-    /// again, nothing more; a file of today's is left as it is.
+    /// Legacy palette places before the Right Dock: drops legacy `"palette"`
+    /// entries and `"palettes"` dock places while keeping other places,
+    /// sizes, and `hide_palettes`. Idempotent when run again.
     #[test]
     fn shell_migrate_drops_the_palettes_places_once() {
         let mut s = Settings {

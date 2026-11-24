@@ -818,13 +818,29 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
         ui.add(egui::Checkbox::new(&mut v.new_feminine, "With a feminine table"))
             .on_hover_text("For languages whose text differs for female characters");
     });
+    let exists_id = egui::Id::new("talk-new-file-exists");
+    let made_exists = made_in.as_ref().is_some_and(|f| {
+        let now = std::time::Instant::now();
+        let ttl = std::time::Duration::from_secs(2);
+        match ui.ctx().data(|d| {
+            d.get_temp::<Option<(std::path::PathBuf, bool, std::time::Instant)>>(exists_id)
+                .flatten()
+        }) {
+            Some((p, ex, at)) if p == *f && now.duration_since(at) < ttl => ex,
+            _ => {
+                let ex = f.exists();
+                ui.ctx().data_mut(|d| d.insert_temp(exists_id, Some((f.clone(), ex, now))));
+                ex
+            }
+        }
+    });
     let problem = if new.is_empty() {
         Some(format!("Name it: {}.", mg_core::NewName::RULE))
     } else if let Err(e) = &valid {
         Some(format!("Not a name: {e}."))
     } else if made_in.is_none() {
         Some("The project's rules discard talk tables: nowhere to make one.".to_string())
-    } else if made_in.as_ref().is_some_and(|f| f.exists()) {
+    } else if made_exists {
         let f = made_shown.as_deref().unwrap_or_default();
         Some(format!("{f} is there already: choose it in Module Properties."))
     } else {
@@ -845,6 +861,9 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
         ui.add(egui::Label::new(egui::RichText::new(said).color(t.text_3)).wrap());
     }
     if create {
+        ui.ctx().data_mut(|d| {
+            d.remove_temp::<Option<(std::path::PathBuf, bool, std::time::Instant)>>(exists_id)
+        });
         let language = app.game.as_deref().map_or(mg_core::Language::ENGLISH, |g| g.language);
         let feminine = app.talk_view.new_feminine;
         let made = match in_project {

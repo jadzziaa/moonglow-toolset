@@ -43,8 +43,8 @@ fn read_copy<'a>(
 #[derive(Debug, Clone)]
 struct Row {
     key: ResKey,
-    layer: String,
-    over: Option<String>,
+    layer: std::sync::Arc<str>,
+    over: Option<std::sync::Arc<str>>,
 }
 
 /// The browser's index and filters.
@@ -55,7 +55,7 @@ pub struct Browser {
     entries: Vec<Row>,
     /// How many resources there are (the copies the game reads).
     resources: usize,
-    types: Vec<ResType>,
+    types: std::sync::Arc<Vec<ResType>>,
     pub restypes: std::collections::BTreeSet<ResType>,
     pub filter: String,
     /// The copies that others override are listed under them (a builder's
@@ -65,6 +65,8 @@ pub struct Browser {
     shown: Vec<usize>,
     /// How many of those are overridden copies.
     shown_copies: usize,
+    /// Whether any matching entry in `shown` is an MDL model.
+    shown_has_mdl: bool,
     query: Option<(std::collections::BTreeSet<ResType>, String, bool)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
@@ -86,6 +88,8 @@ pub struct Browser {
     /// How many views have been made (their grids' ids are counted down
     /// from the highest, apart from the editor's).
     made_views: u32,
+    /// Monotonic counter for LRU eviction of cached 2DA views.
+    table_view_use: u64,
     /// An Export as Files into a folder that has some of the files: asked
     /// about before any is written over.
     pub(crate) exporting: Option<Exporting>,
@@ -115,6 +119,7 @@ pub(crate) struct TableView {
     /// editor's): its grid's keys are that tab's while it is the active
     /// editor (`table_view::grid_has_keys`).
     tab: Option<Tab>,
+    last_used: u64,
 }
 
 /// How many 2DA views are kept: more are made anew.
@@ -134,14 +139,16 @@ impl Browser {
         self.query = None;
         self.entries = match app_resman {
             Some(rm) => {
-                let label = |i: usize| rm.layers()[i].label.clone();
+                let labels: Vec<std::sync::Arc<str>> =
+                    rm.layers().iter().map(|l| std::sync::Arc::from(l.label.as_str())).collect();
                 rm.every_copy()
                     .into_iter()
                     .flat_map(|(key, layers)| {
-                        let top = label(layers[0]);
+                        let top = labels[layers[0]].clone();
+                        let labels = &labels;
                         layers.into_iter().enumerate().map(move |(n, i)| Row {
                             key,
-                            layer: label(i),
+                            layer: labels[i].clone(),
                             over: (n > 0).then(|| top.clone()),
                         })
                     })
@@ -155,13 +162,17 @@ impl Browser {
         // resource of its own, listed and opened as every other.)
         if let Some(g) = game {
             let key = crate::talk_view::dialog_key();
-            self.entries.push(Row { key, layer: game_talk_layer(g.language), over: None });
+            self.entries.push(Row {
+                key,
+                layer: std::sync::Arc::from(game_talk_layer(g.language)),
+                over: None,
+            });
         }
         self.resources = self.entries.iter().filter(|r| r.over.is_none()).count();
         let mut types: Vec<ResType> = self.entries.iter().map(|r| r.key.restype).collect();
         types.sort_by_key(|t| t.extension().unwrap_or_default());
         types.dedup();
-        self.types = types;
+        self.types = std::sync::Arc::new(types);
     }
 
     /// The keys at the row `at` of those listed, the list gone to it.
@@ -179,22 +190,43 @@ impl Browser {
 
     fn filtered(&mut self) -> &[usize] {
         let needle = mg_core::text::Needle::new(&self.filter);
-        let query = (self.restypes.clone(), needle.as_str().to_string(), self.show_copies);
-        if self.query.as_ref() != Some(&query) {
-            self.shown = self
-                .entries
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| {
-                    (query.2 || r.over.is_none())
-                        && (query.0.is_empty() || query.0.contains(&r.key.restype))
-                        && needle.finds(&r.key.resref.to_string())
-                })
-                .map(|(i, _)| i)
-                .collect();
-            self.shown_copies =
-                self.shown.iter().filter(|&&i| self.entries[i].over.is_some()).count();
-            self.query = Some(query);
+        let cache_hit = self.query.as_ref().is_some_and(|(types, q, copies)| {
+            *copies == self.show_copies && q == needle.as_str() && *types == self.restypes
+        });
+        if !cache_hit {
+            let check_name = !needle.is_empty();
+            let mut shown = Vec::new();
+            let mut shown_copies = 0usize;
+            let mut has_mdl = false;
+            for (i, r) in self.entries.iter().enumerate() {
+                if !self.show_copies && r.over.is_some() {
+                    continue;
+                }
+                if !self.restypes.is_empty() && !self.restypes.contains(&r.key.restype) {
+                    continue;
+                }
+                if check_name {
+                    let matches = match r.key.resref.as_str() {
+                        Some(s) => needle.finds(s),
+                        None => needle.finds(&r.key.resref.to_string_lossy()),
+                    };
+                    if !matches {
+                        continue;
+                    }
+                }
+                if r.over.is_some() {
+                    shown_copies += 1;
+                }
+                if r.key.restype == ResType::MDL {
+                    has_mdl = true;
+                }
+                shown.push(i);
+            }
+            self.shown = shown;
+            self.shown_copies = shown_copies;
+            self.shown_has_mdl = has_mdl;
+            self.query =
+                Some((self.restypes.clone(), needle.as_str().to_string(), self.show_copies));
             // (Another list: the keys start at its top.)
             self.cursor = self.cursor.map(|_| 0);
             self.reveal = self.cursor.is_some();
@@ -269,7 +301,7 @@ pub(crate) fn run_tools(app: &mut Moonglow, asked: Asked) {
         // tab's Export writes it.)
         let keys = (browser.shown.iter().map(|&i| &browser.entries[i]))
             .filter(|r| !is_game_talk(r))
-            .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.clone())))
+            .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.to_string())))
             .collect();
         app.actions.push(Action::SaveResources(keys));
     }
@@ -376,6 +408,7 @@ fn middle_cut(text: &str, keep: usize) -> Option<String> {
 /// the rows drawn ([`list_row`]): the name's monospace font, the width of
 /// one of its characters and of its ellipsis, the layer's small font, and
 /// the width of a layer's stub ([`LAYER_STUB`]).
+#[derive(Clone)]
 struct RowFonts {
     mono: egui::FontId,
     small: egui::FontId,
@@ -386,15 +419,25 @@ struct RowFonts {
 
 impl RowFonts {
     fn of(ui: &Ui) -> RowFonts {
-        let mono = egui::FontId::monospace(NAME_SIZE);
         let small = egui::TextStyle::Small.resolve(ui.style());
+        let key = (small.clone(), ui.ctx().pixels_per_point().to_bits());
+        let id = egui::Id::new("browser-row-fonts");
+        if let Some((was, cached)) =
+            ui.ctx().data(|d| d.get_temp::<((egui::FontId, u32), RowFonts)>(id))
+            && was == key
+        {
+            return cached;
+        }
+        let mono = egui::FontId::monospace(NAME_SIZE);
         let width =
             |text: &str, font: &egui::FontId| cut(ui, text, font.clone(), f32::INFINITY).size().x;
         // (Ten, for a width that is the font's advance, not a glyph's.)
         let char_width = width("0000000000", &mono) / 10.0;
         let ellipsis = width("0…", &mono) - width("0", &mono);
         let stub = width(LAYER_STUB, &small);
-        RowFonts { mono, small, char_width, ellipsis, stub }
+        let fonts = RowFonts { mono, small, char_width, ellipsis, stub };
+        ui.ctx().data_mut(|d| d.insert_temp(id, (key, fonts.clone())));
+        fonts
     }
 
     /// `name` laid out in the name's font in `width` at most: whole where
@@ -465,9 +508,9 @@ fn cut_in(
 fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Response {
     let t = mg_uikit::tokens(ui.ctx());
     let name = row.key.to_string();
-    let layer = match &row.over {
-        Some(over) => format!("{}, overridden by {over}", row.layer),
-        None => row.layer.clone(),
+    let layer: std::borrow::Cow<'_, str> = match &row.over {
+        Some(over) => format!("{}, overridden by {over}", row.layer).into(),
+        None => std::borrow::Cow::Borrowed(&row.layer),
     };
     let height = mg_uikit::row_height(ui);
     let (rect, _) =
@@ -493,7 +536,7 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
     // (The layer's part from the gap before its words to the row's end.)
     let layer_left = layer_galley.as_ref().map(|g| end - g.size().x);
     let split = layer_left.map_or(rect.right(), |l| (l - ROW_GAP).max(rect.left() + 1.0));
-    let id = ui.id().with(("browser-row", row.key, &row.layer));
+    let id = ui.id().with(("browser-row", row.key, &*row.layer));
     let named = ui.interact(rect.with_max_x(split), id, egui::Sense::click());
     named.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, marked, &name)
@@ -591,7 +634,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                         )
                         .clicked()
                     {
-                        for &t in &types {
+                        for &t in types.iter() {
                             if keys.shows(t.extension().unwrap_or("?")) {
                                 browser.restypes.insert(t);
                             }
@@ -599,7 +642,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                     }
                 });
                 mg_uikit::menu_separator(ui);
-                for t in types {
+                for &t in types.iter() {
                     let ext = t.extension().unwrap_or("?");
                     let mut on = browser.restypes.contains(&t);
                     if keys.checkbox(ui, &mut on, ext) {
@@ -638,7 +681,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         ui.check_box(&mut browser.show_copies, "Overridden copies").on_hover_text(
             "Also list each resource's copies lower in the load order, which it overrides",
         );
-        if browser.shown.iter().any(|&i| browser.entries[i].key.restype == ResType::MDL) {
+        if browser.shown_has_mdl {
             ui.check_box(&mut browser.models_as_text, "Models as text").on_hover_text(
                 "Export as Files writes compiled models as the text they compile from",
             );
@@ -719,12 +762,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 // A copy another overrides: under it, set in, its own
                 // layer's (opened as that layer has it).
                 let r = list_row(ui, row, at_cursor, &fonts);
-                let copy = over.as_ref().map(|_| layer.clone());
+                let copy_arc = over.as_ref().map(|_| layer);
                 let game_talk = is_game_talk(row);
                 // (The game's dialog.tlk: shown in the Talk Table tab.)
                 let open = || match game_talk {
                     true => Action::ShowGameTalk,
-                    false => Action::OpenTab(tab_of(*k, copy.clone(), in_module(k))),
+                    false => {
+                        Action::OpenTab(tab_of(*k, copy_arc.map(|l| l.to_string()), in_module(k)))
+                    }
                 };
                 if r.clicked() {
                     clicked = Some(at);
@@ -738,12 +783,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                     }
                     // (A copy's as its layer has it: a model, a blueprint.)
                     let previewable = crate::model_view::previewable(k.restype)
-                        && (copy.is_some() || k.restype != ResType::MDL);
+                        && (copy_arc.is_some() || k.restype != ResType::MDL);
                     if previewable
                         && ui.button("Preview").on_hover_text("See it in the 3D viewer").clicked()
                     {
-                        let tab = match &copy {
-                            Some(layer) => Tab::ModelCopy { key: *k, layer: layer.clone() },
+                        let tab = match copy_arc {
+                            Some(layer) => Tab::ModelCopy { key: *k, layer: layer.to_string() },
                             None => Tab::Model(*k),
                         };
                         actions.push(Action::OpenTab(tab));
@@ -751,7 +796,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                     if !game_talk
                         && ui.button("Save As…").on_hover_text("As a file, as it is").clicked()
                     {
-                        actions.push(Action::SaveResource(*k, copy.clone()));
+                        actions.push(Action::SaveResource(*k, copy_arc.map(|l| l.to_string())));
                     }
                     if k.restype == ResType::MDL
                         && ui
@@ -759,7 +804,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                             .on_hover_text("A compiled model as the text it compiles from")
                             .clicked()
                     {
-                        actions.push(Action::SaveModelText(*k, copy.clone()));
+                        actions.push(Action::SaveModelText(*k, copy_arc.map(|l| l.to_string())));
                     }
                 });
             }
@@ -1169,8 +1214,9 @@ impl LongText {
         self.lines.get_or_init(|| {
             let (mut spans, mut widest, mut from) = (Vec::new(), 0, 0);
             for line in self.text.split('\n') {
-                spans.push(from..from + line.len());
-                widest = widest.max(line.chars().count());
+                let trimmed = line.strip_suffix('\r').unwrap_or(line);
+                spans.push(from..from + trimmed.len());
+                widest = widest.max(trimmed.chars().count());
                 from += line.len() + 1;
             }
             (spans, widest)
@@ -2051,6 +2097,18 @@ pub(crate) fn read_only_counts() -> (usize, usize) {
 }
 
 impl Browser {
+    /// Evicts the least-recently-used cached read-only 2DA view when at capacity.
+    fn evict_lru_table_view(&mut self) {
+        if self.table_views.len() < VIEWS_KEPT {
+            return;
+        }
+        if let Some(evict) =
+            self.table_views.iter().min_by_key(|(_, v)| v.last_used).map(|(k, _)| k.clone())
+        {
+            self.table_views.remove(&evict);
+        }
+    }
+
     /// The panel's count (the Resources board's "627 of 113538
     /// resources"), as its list was last filtered: also the Status Bar's
     /// while the panel is in use.
@@ -2132,9 +2190,12 @@ pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) ->
             Err(e) => Plain::Error(e.to_string()),
         }
     } else if is_text(key.restype, data) {
-        // (Its bytes as Latin-1 where they aren't UTF-8.)
-        let latin = || data.iter().map(|&b| b as char).collect();
-        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()).into())
+        let decoded = if key.restype == ResType::NSS {
+            crate::text::decode_script(data)
+        } else {
+            crate::text::decode(data)
+        };
+        Plain::Text(crate::text::to_editor(&decoded).0.into())
     } else if let Some(text) = model_text(key, data, rm) {
         Plain::Text(text.into())
     } else {
@@ -2753,18 +2814,21 @@ pub(crate) fn two_da(
         let had = v.doc.edit.table();
         v.of == of && had.len() == t.len() && had.columns() == t.columns()
     });
+    browser.table_view_use += 1;
+    let used = browser.table_view_use;
     if !kept {
-        if browser.table_views.len() >= VIEWS_KEPT {
-            browser.table_views.clear();
-        }
+        browser.evict_lru_table_view();
         browser.made_views += 1;
         let id = u32::MAX - browser.made_views;
         let doc = TableDoc::read_only(id, key, t.clone());
-        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc, tab: None });
+        browser
+            .table_views
+            .insert(at.clone(), TableView { of, rows_from: None, doc, tab: None, last_used: used });
     }
     let rows_from = browser.rows_from.filter(|_| layered);
     let strrefs = !browser.raw_strrefs;
     let view = browser.table_views.get_mut(&at).expect("made above");
+    view.last_used = used;
     if view.rows_from != rows_from {
         view.rows_from = rows_from;
         view.doc.within = rows_from
@@ -2924,5 +2988,63 @@ mod tests {
         assert!(!std::sync::Arc::ptr_eq(&jobs, &text.colored(&light)), "anew for other colors");
         // (An empty text is one empty line.)
         assert_eq!(LongText::from(String::new()).lines().0.len(), 1);
+    }
+
+    #[test]
+    fn load_order_changed_clears_browser_table_views_and_pictures() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let key = ResKey::parse("classes", ResType::TWODA).unwrap();
+        let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
+            .unwrap();
+        let doc = crate::table_view::TableDoc::read_only(u32::MAX, key, table);
+        app.browser.table_views.insert(
+            (key, None),
+            TableView { of: 0, rows_from: None, doc, tab: None, last_used: 0 },
+        );
+        app.browser.pictures.insert((key, None), 1.0);
+        app.browser.bytes_shown.insert((key, None));
+
+        app.load_order_changed();
+        assert!(app.browser.table_views.is_empty());
+        assert!(app.browser.pictures.is_empty());
+        assert!(!app.browser.bytes_shown.is_empty());
+    }
+
+    #[test]
+    fn long_text_and_plain_decode_codepage_and_strip_carriage_returns() {
+        let lt = LongText::from("ab\r\ncde\r\n".to_string());
+        let (spans, widest) = lt.lines();
+        assert_eq!(widest, &3);
+        assert_eq!(&lt.text[spans[0].clone()], "ab");
+        assert_eq!(&lt.text[spans[1].clone()], "cde");
+
+        let key = ResKey::parse("sample", ResType::TXT).unwrap();
+        let Plain::Text(p) = plain(key, b"\x93hi\x94\r\nnext", None) else {
+            panic!("expected text");
+        };
+        assert_eq!(p.text, "\u{201c}hi\u{201d}\nnext");
+        assert_eq!(p.lines().1, 4);
+    }
+
+    #[test]
+    fn browser_table_view_cache_evicts_only_lru_entry() {
+        let mut browser = Browser::new();
+        let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
+            .unwrap();
+        for i in 0..VIEWS_KEPT {
+            let key = ResKey::parse(&format!("tbl_{i:02}"), ResType::TWODA).unwrap();
+            let doc =
+                crate::table_view::TableDoc::read_only(u32::MAX - i as u32, key, table.clone());
+            browser.table_views.insert(
+                (key, None),
+                TableView { of: 0, rows_from: None, doc, tab: None, last_used: (i + 1) as u64 },
+            );
+        }
+        browser.evict_lru_table_view();
+        assert_eq!(browser.table_views.len(), VIEWS_KEPT - 1);
+        let oldest = ResKey::parse("tbl_00", ResType::TWODA).unwrap();
+        let recent = ResKey::parse("tbl_01", ResType::TWODA).unwrap();
+        assert!(!browser.table_views.contains_key(&(oldest, None)));
+        assert!(browser.table_views.contains_key(&(recent, None)));
     }
 }

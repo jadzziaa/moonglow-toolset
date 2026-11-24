@@ -15,6 +15,11 @@ fn area() -> Option<Harness<'static, Moonglow>> {
     area_harness(&super::scratch("u27-world")).map(|(h, _)| h)
 }
 
+/// A UI-only area open for dialogs that do not inspect the 3D viewport.
+fn ui_area() -> Option<Harness<'static, Moonglow>> {
+    area_ui_harness(&super::scratch("u27-world-ui")).map(|(h, _)| h)
+}
+
 /// The area the window shows.
 fn area_of(h: &Harness<'static, Moonglow>) -> ResRef {
     *h.state().area_views.keys().next().expect("an area open")
@@ -128,13 +133,13 @@ fn open_tidy(h: &mut Harness<'static, Moonglow>) {
 
 pub(crate) fn openers() -> Vec<Opener> {
     vec![
-        Opener::new("area_reshape.rs:resize_window#1", "Resize Area", area, |h| {
+        Opener::new("area_reshape.rs:resize_window#1", "Resize Area", ui_area, |h| {
             edit_item(h, "Resize Area…")
         }),
-        Opener::new("area_reshape.rs:rotate_window#1", "Rotate Area", area, |h| {
+        Opener::new("area_reshape.rs:rotate_window#1", "Rotate Area", ui_area, |h| {
             edit_item(h, "Rotate Area…")
         }),
-        Opener::new("area_reshape.rs:tileset_window#1", "Change Tileset", area, |h| {
+        Opener::new("area_reshape.rs:tileset_window#1", "Change Tileset", ui_area, |h| {
             edit_item(h, "Change Tileset…")
         }),
         Opener::new("area_tools.rs:adjust_window#1", "Adjust Location", area, |h| {
@@ -146,7 +151,7 @@ pub(crate) fn openers() -> Vec<Opener> {
             h.get_by_label("Adjust Location…").click();
             settle(h);
         }),
-        Opener::new("area_view.rs:set_window#1", "Create Set", area, |h| {
+        Opener::new("area_view.rs:set_window#1", "Create Set", ui_area, |h| {
             let area = area_of(h);
             h.state_mut().area_views.get_mut(&area).unwrap().set_name = Some(String::new());
         })
@@ -166,14 +171,6 @@ pub(crate) fn openers() -> Vec<Opener> {
             press(h, at, true, egui::Modifiers::COMMAND);
             press(h, at, false, egui::Modifiers::COMMAND);
             settle(h);
-            eprintln!(
-                "SEL {:?} PROPS {} {:?}",
-                h.state().area_views[&area].tile_selection,
-                h.state().tile_props.is_some(),
-                h.query_all_by_label_contains("light")
-                    .map(|n| n.accesskit_node().label())
-                    .collect::<Vec<_>>()
-            );
             // (The tile menu's Tile Properties shows the panel in whatever room there is.)
             right_click(h, at);
             popup_item(h, "Tile Properties").click();
@@ -206,7 +203,8 @@ pub(crate) fn openers() -> Vec<Opener> {
     ]
 }
 
-const RULES: &str = "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
+pub(crate) const RULES: &str =
+    "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
 
 /// The area's two armoires (`plc_armoire`, model `plc_a01`): at (15, 15)
 /// at Scale 0.5 turned 40 (dynamic), and plain at (27, 15); and at
@@ -265,7 +263,7 @@ pub(crate) fn bake_harness(
 
 /// [`bake_harness`], `more` done in the project's folder (given the area)
 /// before it opens.
-fn bake_harness_with(
+pub(crate) fn bake_harness_with(
     name: &str,
     rules: Option<&str>,
     more: &dyn Fn(&std::path::Path, ResRef),

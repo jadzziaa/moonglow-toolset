@@ -6,7 +6,7 @@
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, ResKey, ResMan};
+use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, StructExt, ifo};
 use serde_json::Value as Json;
 
@@ -35,7 +35,7 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     // The first tile of the city tileset, which the area places.
-    let game = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
     let set = game.get(&ResKey::parse("tcn01", ResType::SET).unwrap()).unwrap();
     let set = mg_set::Tileset::parse(&set, mg_core::Codepage::WINDOWS_1252).unwrap();
     let tile = set.tiles[0].model.to_ascii_lowercase();

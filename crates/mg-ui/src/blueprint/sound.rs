@@ -1,5 +1,6 @@
 //! Sound Properties (`TdlgSoundEdit`): Basic (sounds, volume), Positioning,
-//! Advanced (timing, play style and order, interval, variations), Comments.
+//! Advanced (timing, play style and order, interval, variations),
+//! Variables, Comments.
 
 use egui::Ui;
 use mg_core::{ResRef, ResType};

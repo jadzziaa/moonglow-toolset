@@ -2185,29 +2185,34 @@ fn a_line_s_actions_taken_page_holds_still() {
         h.run_steps(6);
         h.get_by_label_contains("Hello there, traveller").click();
         h.run_steps(3);
-        for w in (6000..=13000).step_by(431) {
-            for ht in (5000..=9500).step_by(377) {
-                let size = egui::vec2(w as f32 / 10.0, ht as f32 / 10.0);
-                h.set_size(size);
-                h.run_steps(10);
-                // Switched to the line from Root: it settles (its repaints
-                // end) and stays where it settled. (Its sections on one
-                // scroll since M4's U14: no page to switch to.)
-                h.get_by_label("Root").click();
-                h.run_steps(3);
-                h.get_by_label_contains("Hello there, traveller").click();
-                let settled = (0..3).any(|_| h.try_run().is_ok());
-                let mut at = Vec::new();
-                for _ in 0..6 {
-                    h.run_steps(1);
-                    let rects: Vec<egui::Rect> = (h.get_all_by_role(egui::accesskit::Role::Button))
-                        .map(|n| n.rect())
-                        .collect();
-                    at.push(rects);
-                }
-                if !settled || at.windows(2).any(|p| p[0] != p[1]) {
-                    moving.push(format!("x{scale} at {size:?}: settled {settled}"));
-                }
+        for (w, ht) in [
+            (600.0, 500.0),
+            (600.0, 950.0),
+            (729.3, 613.1),
+            (858.6, 726.2),
+            (1031.0, 839.3),
+            (1246.5, 950.0),
+            (1300.0, 500.0),
+        ] {
+            let size = egui::vec2(w, ht);
+            h.set_size(size);
+            h.run_steps(10);
+            // Switched to the line from Root: it settles (its repaints
+            // end) and stays where it settled. (Its sections on one
+            // scroll since M4's U14: no page to switch to.)
+            h.get_by_label("Root").click();
+            h.run_steps(3);
+            h.get_by_label_contains("Hello there, traveller").click();
+            let settled = (0..3).any(|_| h.try_run().is_ok());
+            let mut at = Vec::new();
+            for _ in 0..6 {
+                h.run_steps(1);
+                let rects: Vec<egui::Rect> =
+                    (h.get_all_by_role(egui::accesskit::Role::Button)).map(|n| n.rect()).collect();
+                at.push(rects);
+            }
+            if !settled || at.windows(2).any(|p| p[0] != p[1]) {
+                moving.push(format!("x{scale} at {size:?}: settled {settled}"));
             }
         }
     }
@@ -2273,10 +2278,12 @@ fn select_token_and_conversation_test_resize_from_the_corner_dragged() {
     let title = format!("Conversation Test: {key}");
     drag(&mut h, &title, egui::vec2(80.0, 100.0));
     // (A picture to look at, where there is a GPU.)
-    if adapter() {
+    if let Some(dir) = shot_dir("ui-dialog-resize")
+        && adapter()
+    {
         mg_testkit::gpu::hold();
         let img = h.render().expect("render");
-        img.save(mg_testkit::output_dir("ui-dialog-resize").join("conversation-test.png")).unwrap();
+        img.save(dir.join("conversation-test.png")).unwrap();
     }
 }
 

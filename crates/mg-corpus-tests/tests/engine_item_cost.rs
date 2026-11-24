@@ -117,11 +117,12 @@ fn item_costs_match_the_engine() {
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     let mut items = mg_testkit::sweep(items, 8);
-    let extra: Vec<_> = synthetic()
-        .into_iter()
-        .map(|(name, g)| (ResKey::parse(&name, ResType::UTI).unwrap(), g.to_bytes().unwrap()))
+    let synth = synthetic();
+    let extra: Vec<_> = synth
+        .iter()
+        .map(|(name, g)| (ResKey::parse(name, ResType::UTI).unwrap(), g.to_bytes().unwrap()))
         .collect();
-    items.extend(synthetic());
+    items.extend(synth);
     let names: Vec<String> = items.iter().map(|(r, _)| r.clone()).collect();
     let engine = engine_values(&root, &names, &extra);
 

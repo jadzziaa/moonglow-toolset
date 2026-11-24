@@ -231,6 +231,12 @@ impl Moonglow {
         if talk.any(crate::talk_view::TalkView::under_way) {
             return Some("a talk table being looked through, or a line's references found");
         }
+        if self.script_nav.checking() {
+            return Some("a script being checked");
+        }
+        if self.script_tools.reading_symbols() {
+            return Some("a script's symbols being read");
+        }
         None
     }
 

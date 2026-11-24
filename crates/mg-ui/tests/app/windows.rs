@@ -420,7 +420,7 @@ fn panels_fold_away_and_come_back() {
 /// place. Enter on it folds the dock.
 #[test]
 fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
-    let Some((mut h, _)) = area_harness("right-dock-tab-order") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-tab-order") else { return };
     // (1600 wide: no width folds a dock.)
     wide_window(&mut h);
     h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
@@ -631,7 +631,7 @@ fn each_side_dock_folds_by_one_button_on_its_tab_bar() {
 /// tabs, the dock's, are not egui_dock's and cannot be dragged at all.)
 #[test]
 fn the_palette_is_a_panel_not_a_tab() {
-    let Some((mut h, area)) = area_harness("palette-panel") else { return };
+    let Some((mut h, area)) = area_ui_harness("palette-panel") else { return };
     let path = h.state().module_path().expect("saved");
     let kept = mg_testkit::scratch_dir("ui-palette-panel-tabs");
     h.state_mut().open_tabs_dir = Some(kept.clone());
@@ -779,7 +779,7 @@ fn tool_tab_dropped_on_a_side(tool: &Tab) {
 /// The editor area keeps the middle as it was, its panes and their tabs.
 #[test]
 fn the_resource_browser_is_a_panel_not_a_tab() {
-    let Some((mut h, area)) = area_harness("browser-panel") else { return };
+    let Some((mut h, area)) = area_ui_harness("browser-panel") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     settle(&mut h);
@@ -816,7 +816,7 @@ fn the_resource_browser_is_a_panel_not_a_tab() {
 /// as it was.
 #[test]
 fn the_middle_keeps_the_editor_area_whatever_the_left_dock_shows() {
-    let Some((mut h, area)) = area_harness("browser-panel-middle") else { return };
+    let Some((mut h, area)) = area_ui_harness("browser-panel-middle") else { return };
     // (A window wide enough that no width folds a dock: the test reads the
     // docks as the builder left them, M3 T14.)
     wide_window(&mut h);
@@ -862,7 +862,7 @@ fn a_tool_reopens_in_its_split_of_the_middle_as_tabs() {
 }
 
 fn reopens_in_its_split(mode: Mode) {
-    let Some((mut h, area)) = area_harness(&mode.dir("dock-splits")) else { return };
+    let Some((mut h, area)) = area_ui_harness(&mode.dir("dock-splits")) else { return };
     put_in(h.state_mut(), mode);
     let middle = |h: &Harness<'_, Moonglow>| {
         let dock = &h.state().dock;
@@ -1313,7 +1313,7 @@ fn a_window_of_tabs_moves_by_its_tab_bar_alone() {
 /// has both).
 #[test]
 fn editors_open_in_windows_over_the_area() {
-    let Some((mut h, area)) = area_harness("editor-windows") else { return };
+    let Some((mut h, area)) = area_ui_harness("editor-windows") else { return };
     assert_eq!(h.state().settings.open_editors, mg_ui::OpenEditors::Floating);
     h.run_steps(3);
     for tab in [Tab::Factions, Tab::ModuleProperties] {
@@ -1335,14 +1335,16 @@ fn editors_open_in_windows_over_the_area() {
     let toolbar = h.get_by_label_contains("Verify").rect().bottom();
     let top = h.get_all_by_label("Factions").map(|n| n.rect().top()).fold(f32::MAX, f32::min);
     assert!(top > toolbar, "the window starts below the toolbar ({top} vs {toolbar})");
-    let img = h.render().expect("render");
-    let _ = img.save(mg_testkit::scratch_dir("ui-editor-windows").join("windows.png"));
+    if let Some(dir) = shot_dir("ui-editor-windows") {
+        let img = h.render().expect("render");
+        let _ = img.save(dir.join("windows.png"));
+    }
 }
 
 /// A module opens with the area that was opened last in it.
 #[test]
 fn a_module_opens_on_the_area_opened_last_in_it() {
-    let Some((mut h, area)) = area_harness("last-area") else { return };
+    let Some((mut h, area)) = area_ui_harness("last-area") else { return };
     let path = h.state().module_path().expect("saved");
     assert_eq!(h.state().settings.last_area(&path), Some("field"));
     h.state_mut().open_module(&path);
@@ -1607,7 +1609,7 @@ fn a_kept_tab_whose_resource_is_gone_is_passed_over() {
 /// the pane is gone.)
 #[test]
 fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
-    let Some((mut h, area)) = area_harness("open-tabs-palettes") else { return };
+    let Some((mut h, area)) = area_ui_harness("open-tabs-palettes") else { return };
     let path = h.state().module_path().expect("saved");
     let kept = mg_testkit::scratch_dir("ui-open-tabs-palettes");
     h.state_mut().open_tabs_dir = Some(kept.clone());
@@ -2457,7 +2459,7 @@ fn escape_closes_a_models_window() {
 /// panes' room and puts it back.
 #[test]
 fn windows_remember_their_size_and_maximize() {
-    let Some((mut h, area)) = area_harness("window-sizes") else { return };
+    let Some((mut h, area)) = area_ui_harness("window-sizes") else { return };
     let props = Tab::AreaProperties(area);
     // The room the window's pane takes.
     let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
@@ -2550,7 +2552,7 @@ fn windows_remember_their_size_and_maximize() {
 /// window's corner, is the next window's of its kind.
 #[test]
 fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
-    let Some((mut h, area)) = area_harness("window-maximize-keys") else { return };
+    let Some((mut h, area)) = area_ui_harness("window-maximize-keys") else { return };
     let props = Tab::AreaProperties(area);
     let pane = |h: &Harness<'_, Moonglow>| {
         let s = h.state();
@@ -2639,7 +2641,7 @@ fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
 /// on its bar; and a window Moonglow opened (Area Properties) still is.
 #[test]
 fn a_tab_dragged_out_into_its_own_window_is_maximized() {
-    let Some((mut h, area)) = area_harness("window-maximize-dragged-out") else { return };
+    let Some((mut h, area)) = area_ui_harness("window-maximize-dragged-out") else { return };
     let (area_props, module_props) = (Tab::AreaProperties(area), Tab::ModuleProperties);
     let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
         let s = h.state();
@@ -2878,12 +2880,8 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     let dir = mg_testkit::scratch_dir("ui-lower-halves");
     let path = sample_module(&dir);
     let script = ResKey::parse("held", ResType::NSS).unwrap();
-    let talk = ResKey::parse("held", ResType::DLG).unwrap();
     let mut m = Module::open(&path).unwrap();
     m.set(script, b"void main()\n{\n}\n".to_vec());
-    let mut g = mg_module::dialog::new_dialog();
-    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there.");
-    m.set_gff(talk, &g).unwrap();
     m.save().unwrap();
     let (tab, panel, share) =
         (Tab::Script(script), egui::Id::new(("window-bottom", Tab::Script(script))), 1.0 / 3.0);
@@ -2895,10 +2893,8 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
         let mut h = harness(app, 1200.0, 900.0);
         h.run_steps(4);
         // (The script's in a window as tall as the harness has room for.)
-        if matches!(tab, Tab::Script(_)) {
-            own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
-            h.run_steps(4);
-        }
+        own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
+        h.run_steps(4);
         let rect = |h: &Harness<'_, Moonglow>| {
             egui::containers::panel::PanelState::load(&h.ctx, panel)
                 .unwrap_or_else(|| panic!("{tab:?}: no lower half"))

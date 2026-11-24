@@ -92,7 +92,7 @@ fn render(index: &TileIndex, l: &Lattice) -> String {
                 };
                 out += &format!(
                     " {} ",
-                    edge.map_or('-', |c| index.crosser_name(c).chars().next().unwrap())
+                    edge.map_or('-', |c| index.crosser_name(c).chars().next().unwrap_or('?'))
                 );
             }
         }
@@ -108,7 +108,7 @@ fn render(index: &TileIndex, l: &Lattice) -> String {
                 };
                 out += &format!(
                     " {}    ",
-                    edge.map_or('|', |c| index.crosser_name(c).chars().next().unwrap())
+                    edge.map_or('|', |c| index.crosser_name(c).chars().next().unwrap_or('?'))
                 );
             }
             out += "\n";

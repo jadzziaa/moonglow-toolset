@@ -8,6 +8,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::{Icon, Theme, Tokens};
 
+use crate::common::{rects, stroke_colors};
+
 #[test]
 fn an_icon_button_is_named_by_its_tooltip_and_clicks() {
     let clicks = Cell::new(0);
@@ -175,20 +177,6 @@ fn a_row_keeps_its_width_hovered_and_chosen() {
     }
 }
 
-/// The rectangles drawn in a frame, with their fills and borders.
-fn rects(h: &Harness<'_>) -> Vec<egui::epaint::RectShape> {
-    fn add(shape: &egui::Shape, to: &mut Vec<egui::epaint::RectShape>) {
-        match shape {
-            egui::Shape::Rect(r) => to.push(r.clone()),
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
-}
-
 /// The check box: found by its words as a check box, toggled by a click
 /// and by Space, saying whether it is on; on, its box is `accent-fill`;
 /// off, an `inset` well bordered in `text-3`; disabled and on, the
@@ -335,7 +323,6 @@ fn a_segmented_control_is_one_stop_its_arrows_choose_and_it_is_named() {
     let choices = [(Pick::A, "Alpha", ""), (Pick::B, "Beta", ""), (Pick::C, "Gamma", "")];
     for theme in [Some(Theme::Dark), Some(Theme::Light), None] {
         let value = Cell::new(Pick::B);
-        let mut after = false;
         let mut h = Harness::new_ui(|ui| {
             if let Some(theme) = theme {
                 mg_uikit::apply(ui.ctx(), theme);
@@ -344,7 +331,7 @@ fn a_segmented_control_is_one_stop_its_arrows_choose_and_it_is_named() {
             let mut v = value.get();
             mg_uikit::segmented(ui, "Letters", &mut v, &choices);
             value.set(v);
-            after = ui.button("After").has_focus();
+            let _ = ui.button("After");
         });
         h.run();
         let group = h.get_by_role_and_label(egui::accesskit::Role::RadioGroup, "Letters");
@@ -461,31 +448,15 @@ fn a_tooltip_has_its_own_fill() {
         h.run();
         h.get_by_label("Fog").hover();
         // (Tooltips wait for the pointer to rest.)
-        for _ in 0..90 {
-            h.step();
-        }
+        h.step();
+        let now = h.ctx.input(|i| i.time);
+        h.input_mut().time = Some(now + 1.5);
+        h.run_steps(2);
+        h.input_mut().time = None;
         assert!(h.query_by_label("Show the area's fog").is_some(), "the tooltip shows");
         let t = theme.tokens();
         assert!(rects(&h).iter().any(|r| r.fill == t.tooltip_bg), "{theme:?}");
     }
-}
-
-/// The colors of the strokes painted in a frame (an icon's lines).
-fn stroke_colors(h: &Harness<'_>) -> Vec<Color32> {
-    fn add(shape: &egui::Shape, to: &mut Vec<Color32>) {
-        match shape {
-            egui::Shape::Path(p) => {
-                if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
-                    to.push(c);
-                }
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
 }
 
 /// `IconButton` is named by its words however it is labelled (the icon
@@ -701,5 +672,116 @@ fn a_segmented_control_moved_has_this_frame_s_rect() {
         let windows = h.get_by_label("As Windows").rect();
         assert!(group.contains_rect(tabs) && group.contains_rect(windows), "{group:?} at {to:?}");
         assert!((group.left() - to.x).abs() < 1.0, "{group:?} at {to:?}");
+    }
+}
+
+/// Focused text fields recolor only their own frame, leaving unrelated
+/// rects with `on_fill` strokes intact across AccessKit and click focus,
+/// even when the field is empty.
+#[test]
+fn a_focused_field_leaves_unrelated_on_fill_rects_alone() {
+    use std::cell::RefCell;
+
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        if t.on_fill == t.accent {
+            continue;
+        }
+        for initial in ["", "M1Q1FAribeth"] {
+            for by_click in [false, true] {
+                let mut text = String::from(initial);
+                let panel_rect = RefCell::new(egui::Rect::NOTHING);
+                let inset_rect = RefCell::new(egui::Rect::NOTHING);
+                let mut h = Harness::new_ui(|ui| {
+                    mg_uikit::apply(ui.ctx(), theme);
+                    ui.add(mg_uikit::text_field(&mut text));
+                    let (p, _) =
+                        ui.allocate_exact_size(egui::vec2(60.0, 20.0), egui::Sense::hover());
+                    ui.painter().rect(
+                        p,
+                        2.0,
+                        t.panel,
+                        egui::Stroke::new(1.0, t.on_fill),
+                        egui::StrokeKind::Inside,
+                    );
+                    *panel_rect.borrow_mut() = p;
+                    let (i, _) =
+                        ui.allocate_exact_size(egui::vec2(60.0, 20.0), egui::Sense::hover());
+                    ui.painter().rect(
+                        i,
+                        2.0,
+                        t.inset,
+                        egui::Stroke::new(1.0, t.on_fill),
+                        egui::StrokeKind::Inside,
+                    );
+                    *inset_rect.borrow_mut() = i;
+                });
+                h.run();
+                if by_click {
+                    h.get_by_role(egui::accesskit::Role::TextInput).click();
+                } else {
+                    h.get_by_role(egui::accesskit::Role::TextInput).focus();
+                }
+                h.run();
+
+                let same_rect = |a: egui::Rect, b: egui::Rect| {
+                    (a.min - b.min).length() < 0.5 && (a.max - b.max).length() < 0.5
+                };
+                let all_rects = rects(&h);
+                assert!(
+                    all_rects.iter().any(|r| r.stroke.color == t.accent),
+                    "{theme:?} initial={initial:?} by_click={by_click}: field border should be accent"
+                );
+                for (name, target) in
+                    [("panel", *panel_rect.borrow()), ("inset", *inset_rect.borrow())]
+                {
+                    let found = all_rects
+                        .iter()
+                        .find(|r| same_rect(r.rect, target))
+                        .unwrap_or_else(|| panic!("{name} rect missing"));
+                    assert_eq!(
+                        found.stroke.color, t.on_fill,
+                        "{theme:?} initial={initial:?} by_click={by_click}: {name} rect was recolored"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Disabled framed and joined icon-only `IconButton`s inside a disabled
+/// `Ui` are not double-faded: their stroke is `text_off` and fill is `raised`.
+#[test]
+fn a_disabled_framed_icon_button_paints_single_text_off_and_raised_fill() {
+    use mg_uikit::{IconButton, Join, Label};
+
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        for joined in [None, Some(Join::Next)] {
+            let mut h = Harness::new_ui(|ui| {
+                mg_uikit::apply(ui.ctx(), theme);
+                ui.add_enabled_ui(false, |ui| {
+                    let mut btn = IconButton::new(Icon::Save, "Save").label(Label::IconOnly);
+                    btn = match joined {
+                        Some(j) => btn.joined(j),
+                        None => btn.framed(true),
+                    };
+                    let _ = ui.add(btn);
+                });
+            });
+            h.run();
+            let strokes = stroke_colors(&h);
+            assert!(!strokes.is_empty(), "{theme:?} joined={joined:?}: expected icon strokes");
+            assert!(
+                strokes.iter().all(|&c| c == t.text_off),
+                "{theme:?} joined={joined:?}: expected exact text_off {:?}, got {strokes:?}",
+                t.text_off
+            );
+            assert!(
+                rects(&h).iter().any(|r| r.fill == t.raised),
+                "{theme:?} joined={joined:?}: expected disabled framed fill raised {:?}",
+                t.raised
+            );
+        }
     }
 }

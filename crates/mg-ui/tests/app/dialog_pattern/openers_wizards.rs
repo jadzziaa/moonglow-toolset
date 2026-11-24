@@ -86,7 +86,7 @@ fn door_area() -> Option<Harness<'static, Moonglow>> {
         git.root.set("Door List", Value::List(vec![door]));
         m.set_gff(key, &git).unwrap();
     };
-    area_harness_with(&super::scratch("u27-wizards-door"), "ttr01", None, 4, None, &prepare)
+    area_ui_harness_with(&super::scratch("u27-wizards-door"), "ttr01", None, 4, None, &prepare)
         .map(|(h, _)| h)
 }
 

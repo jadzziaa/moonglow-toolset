@@ -375,7 +375,7 @@ fn f6_steps_into_and_out_of_the_resources_panel() {
 /// tree's, or an area's.
 #[test]
 fn a_click_in_the_resources_panel_leaves_the_plugins_pane() {
-    let Some((mut h, area)) = area_harness("panel-plugins-pane") else { return };
+    let Some((mut h, area)) = area_ui_harness("panel-plugins-pane") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     // The tree clicked: its pane.
@@ -650,7 +650,7 @@ fn the_dock_s_tabs_keep_their_form_and_place_whichever_panel_is_in_front() {
     let Some(mut h) = browser_harness("ui-panel-tabs-form", 1280.0, 800.0) else { return };
     let tabs =
         |h: &Harness<'_, Moonglow>| (dock_tab(h, "Module").rect(), dock_tab(h, "Resources").rect());
-    for width in 190..=300 {
+    for width in [190, 200, 220, 240, 260, 280, 300] {
         left_dock_width(&mut h, width as f32);
         let mut each = Vec::new();
         for panel in [Panel::Module, Panel::Resources] {

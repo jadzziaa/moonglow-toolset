@@ -569,6 +569,8 @@ pub fn import_incoming(
     incoming: &Incoming,
     overwrite: impl Fn(&ResKey) -> bool,
 ) -> Result<ImportSummary, ModuleError> {
+    let mut info = module.info()?;
+    let listed: HashSet<ResRef> = module.areas()?.into_iter().collect();
     let mut summary = ImportSummary::default();
     for (k, bytes) in &incoming.resources {
         if module.contains(k) {
@@ -582,8 +584,6 @@ pub fn import_incoming(
         }
         module.set(*k, bytes.clone());
     }
-    let mut info = module.info()?;
-    let listed: HashSet<ResRef> = module.areas()?.into_iter().collect();
     let areas = info.root.items_mut(&ifo::MOD_AREA_LIST);
     for k in summary.added.iter().filter(|k| k.restype == ResType::ARE) {
         if !listed.contains(&k.resref) {
@@ -596,9 +596,11 @@ pub fn import_incoming(
     if !summary.new_areas.is_empty() {
         module.set_info(&info)?;
     }
+    let imported: HashSet<ResKey> =
+        summary.added.iter().chain(&summary.replaced).copied().collect();
     let came: Vec<ResKey> = (summary.added.iter().chain(&summary.replaced))
         .filter(|k| k.restype == ResType::NSS)
-        .filter(|k| !incoming.has(&ResKey::new(k.resref, ResType::NCS)))
+        .filter(|k| !imported.contains(&ResKey::new(k.resref, ResType::NCS)))
         .copied()
         .collect();
     if !came.is_empty() {
@@ -1032,5 +1034,27 @@ mod tests {
         assert!(file_key("a.b.nss").unwrap_err().contains("'.'"));
         assert!(refused_type(ResType::NSS).is_none());
         assert!(refused_type(ResType::HAK).is_some());
+    }
+
+    #[test]
+    fn import_incoming_validates_ifo_before_mutating_and_compiles_nss_when_ncs_skipped() {
+        let mut bare = Module::new();
+        let mut incoming = Incoming::default();
+        let nss = key("foo", ResType::NSS);
+        let ncs = key("foo", ResType::NCS);
+        incoming.resources.push((nss, b"void main() {}".to_vec()));
+        incoming.resources.push((ncs, b"NCS V1.0".to_vec()));
+        assert!(import_incoming(&mut bare, &incoming, |_| true).is_err());
+        assert!(!bare.contains(&nss), "module stayed unmodified without module.ifo");
+
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.set(nss, b"void main() { int a; }".to_vec());
+        m.set(ncs, b"NCS OLD".to_vec());
+        let summary = import_incoming(&mut m, &incoming, |k| k.restype == ResType::NSS).unwrap();
+        assert_eq!(summary.replaced, vec![nss]);
+        assert_eq!(summary.skipped, vec![ncs]);
+        assert_eq!(summary.to_compile, vec![nss]);
+        assert_eq!(m.get(&ncs), Some(&b"NCS OLD"[..]));
     }
 }

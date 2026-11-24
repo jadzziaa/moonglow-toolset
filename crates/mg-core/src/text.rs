@@ -96,9 +96,20 @@ impl Needle {
         self.finds_in(&[folded])
     }
 
+    /// Whether it looks for a single word.
+    pub fn is_single_word(&self) -> bool {
+        self.words.len() == 1
+    }
+
     /// Whether every word is in one of `fields` (each already [`fold`]ed):
     /// a row found by its name, its ResRef and its tag together.
     pub fn finds_in(&self, fields: &[&str]) -> bool {
+        self.words.iter().all(|w| fields.iter().any(|f| self.holds(f, w)))
+    }
+
+    /// Same as [`Self::finds_in`] over owned `String` slices without
+    /// constructing an intermediate `&[&str]` slice.
+    pub fn finds_in_strings(&self, fields: &[String]) -> bool {
         self.words.iter().all(|w| fields.iter().any(|f| self.holds(f, w)))
     }
 
@@ -347,8 +358,11 @@ fn extended_additional(c: char) -> Option<&'static str> {
     if let Some(letter) = n.checked_sub(0x1e96).and_then(|i| alone.get(i as usize)) {
         return Some(letter);
     }
-    let run = RUNS.windows(2).find(|w| w[0].0 <= n && n < w[1].0)?;
-    Some(run[0].1).filter(|l| !l.is_empty())
+    let at = RUNS.partition_point(|&(start, _)| start <= n);
+    if at == 0 || at >= RUNS.len() {
+        return None;
+    }
+    Some(RUNS[at - 1].1).filter(|l| !l.is_empty())
 }
 
 /// The line (from 1) that byte offset `at` of `text` is on: one more than
@@ -380,6 +394,14 @@ pub fn hex_bytes<const N: usize>(digits: &str) -> Option<[u8; N]> {
 /// How many line ends (`\n`) `bytes` holds.
 pub fn line_ends(bytes: &[u8]) -> usize {
     bytes.iter().filter(|&&b| b == b'\n').count()
+}
+
+/// Strips `suffix` from `s` once, matching ASCII case-insensitively.
+pub fn strip_suffix_ascii_ci<'a>(s: &'a str, suffix: &str) -> &'a str {
+    match s.len().checked_sub(suffix.len()) {
+        Some(at) if s.is_char_boundary(at) && s[at..].eq_ignore_ascii_case(suffix) => &s[..at],
+        _ => s,
+    }
 }
 
 #[cfg(test)]
@@ -514,5 +536,14 @@ mod tests {
         assert!(!same_letter('æ', 'a'));
         // A capital whose small letter is two characters: compared whole.
         assert!(!same_letter('İ', 'i'));
+    }
+
+    #[test]
+    fn strip_suffix_ascii_ci_strips_once_and_ignores_case() {
+        assert_eq!(strip_suffix_ascii_ci("INC_FOO.NSS", ".nss"), "INC_FOO");
+        assert_eq!(strip_suffix_ascii_ci("Cls_Feat.2Da", ".2da"), "Cls_Feat");
+        assert_eq!(strip_suffix_ascii_ci("a.nss.nss", ".nss"), "a.nss");
+        assert_eq!(strip_suffix_ascii_ci("a\u{e9}b", "\u{e9}b"), "a");
+        assert_eq!(strip_suffix_ascii_ci("\u{e9}", "xx"), "\u{e9}");
     }
 }

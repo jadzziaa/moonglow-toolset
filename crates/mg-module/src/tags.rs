@@ -179,6 +179,72 @@ impl TagIndex {
     }
 }
 
+/// Read-only tag multiplicity lookup, implemented by both [`TagIndex`]
+/// and [`TagView`].
+pub trait TagCounts {
+    fn count(&self, tag: &[u8]) -> usize;
+    fn count_in(&self, tag: &[u8], area: ResRef) -> usize;
+}
+
+impl TagCounts for TagIndex {
+    fn count(&self, tag: &[u8]) -> usize {
+        TagIndex::count(self, tag)
+    }
+
+    fn count_in(&self, tag: &[u8], area: ResRef) -> usize {
+        TagIndex::count_in(self, tag, area)
+    }
+}
+
+/// Borrowed view of cached untouched areas (`base`) combined with
+/// unsaved open editor documents (`overlay`), avoiding cloning the
+/// whole-module index when querying counts.
+#[derive(Debug, Clone)]
+pub struct TagView<'a> {
+    base: &'a TagIndex,
+    overlay: TagIndex,
+}
+
+impl TagView<'_> {
+    pub fn count(&self, tag: &[u8]) -> usize {
+        self.base.count(tag) + self.overlay.count(tag)
+    }
+
+    pub fn count_in(&self, tag: &[u8], area: ResRef) -> usize {
+        self.base.count_in(tag, area) + self.overlay.count_in(tag, area)
+    }
+
+    /// Materializes a standalone [`TagIndex`] with places ordered identically
+    /// to [`TagIndex::of_module`].
+    pub fn to_index(&self) -> TagIndex {
+        let mut out = self.base.clone();
+        for (tag, places) in &self.overlay.by_tag {
+            use std::collections::hash_map::Entry;
+            match out.by_tag.entry(tag.clone()) {
+                Entry::Vacant(v) => {
+                    v.insert(places.clone());
+                }
+                Entry::Occupied(mut o) => {
+                    let list = o.get_mut();
+                    list.extend_from_slice(places);
+                    list.sort_by_key(|p| (p.area(), *p));
+                }
+            }
+        }
+        out
+    }
+}
+
+impl TagCounts for TagView<'_> {
+    fn count(&self, tag: &[u8]) -> usize {
+        TagView::count(self, tag)
+    }
+
+    fn count_in(&self, tag: &[u8], area: ResRef) -> usize {
+        TagView::count_in(self, tag, area)
+    }
+}
+
 /// The module's tags kept area by area, so that a paste in a persistent
 /// world of hundreds of areas doesn't parse every area not open again:
 /// an area's ARE or GIT is read once for each copy of its bytes the
@@ -188,19 +254,20 @@ impl TagIndex {
 #[derive(Debug, Default)]
 pub struct TagCache {
     parts: HashMap<ResKey, (std::sync::Arc<[u8]>, TagIndex)>,
+    base: Option<TagIndex>,
     /// How many resources were parsed for their tags (for tests).
     pub parsed: usize,
 }
 
 impl TagCache {
-    /// Every area's and placed object's tag in the module as it is now:
-    /// `loaded` gives the documents an editor holds (unsaved edits in
-    /// them), the module's bytes the others'.
-    pub fn index<'a>(
-        &mut self,
+    /// Borrowed view of every area's and placed object's tag in the module
+    /// as it is now: `loaded` gives the documents an editor holds (unsaved
+    /// edits in them), the module's cached bytes the others'.
+    pub fn view<'a, 'b>(
+        &'a mut self,
         m: &Module,
-        loaded: impl Fn(&ResKey) -> Option<&'a Struct>,
-    ) -> TagIndex {
+        loaded: impl Fn(&ResKey) -> Option<&'b Struct>,
+    ) -> TagView<'a> {
         let mut keys: Vec<ResKey> = m
             .keys()
             .filter(|k| matches!(k.restype, ResType::ARE | ResType::GIT))
@@ -208,15 +275,18 @@ impl TagCache {
             .collect();
         keys.sort();
         // (Those gone, or held by an editor now, are let go.)
+        let before_parts = self.parts.len();
         self.parts.retain(|k, _| m.contains(k) && loaded(k).is_none());
-        let mut index = TagIndex::default();
+        let mut dirty = self.parts.len() != before_parts;
+        let mut overlay = TagIndex::default();
+        let add = |key: ResKey, index: &mut TagIndex, root: &Struct| match key.restype {
+            ResType::ARE => index.add_area(key.resref, root),
+            _ => index.add_git(key.resref, root),
+        };
+        let mut base_keys = Vec::new();
         for key in keys {
-            let add = |index: &mut TagIndex, root: &Struct| match key.restype {
-                ResType::ARE => index.add_area(key.resref, root),
-                _ => index.add_git(key.resref, root),
-            };
             if let Some(root) = loaded(&key) {
-                add(&mut index, root);
+                add(key, &mut overlay, root);
                 continue;
             }
             let Some(bytes) = m.shared(&key) else { continue };
@@ -225,13 +295,32 @@ impl TagCache {
                 self.parsed += 1;
                 let mut part = TagIndex::default();
                 if let Ok(g) = mg_gff::Gff::read(bytes) {
-                    add(&mut part, &g.root);
+                    add(key, &mut part, &g.root);
                 }
                 self.parts.insert(key, (bytes.clone(), part));
+                dirty = true;
             }
-            index.absorb(&self.parts[&key].1);
+            base_keys.push(key);
         }
-        index
+        if dirty || self.base.is_none() {
+            let mut base = TagIndex::default();
+            for key in base_keys {
+                base.absorb(&self.parts[&key].1);
+            }
+            self.base = Some(base);
+        }
+        TagView { base: self.base.as_ref().expect("built"), overlay }
+    }
+
+    /// Every area's and placed object's tag in the module as it is now:
+    /// `loaded` gives the documents an editor holds (unsaved edits in
+    /// them), the module's bytes the others'.
+    pub fn index<'a>(
+        &mut self,
+        m: &Module,
+        loaded: impl Fn(&ResKey) -> Option<&'a Struct>,
+    ) -> TagIndex {
+        self.view(m, loaded).to_index()
     }
 }
 
@@ -338,7 +427,7 @@ pub fn weigh<'a>(
 /// project warns of any tag made twice ([`PasteWarning::Any`]), as any
 /// other tag on several objects.
 pub fn clashes(
-    index: &TagIndex,
+    index: &(impl TagCounts + ?Sized),
     made: &[MadeTag],
     rules: &TagRules,
     warning: PasteWarning,
@@ -395,23 +484,42 @@ pub fn retag(tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
         Some((stem, n))
             if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) =>
         {
-            (stem, n.parse::<u32>().map_or(2, |n| n.saturating_add(1)), n.len())
+            match n.parse::<u32>().ok().and_then(|v| v.checked_add(1)) {
+                Some(next) => (stem, next, n.len()),
+                None => (stem, 2, 1),
+            }
         }
         _ => (tag, 2, 1),
     };
-    for n in from.. {
-        let end = format!("_{n:0width$}");
-        let room = MAX_TAG.saturating_sub(end.len());
-        let mut cut = stem.len().min(room);
-        while !stem.is_char_boundary(cut) {
+    let min_stem = stem.chars().next().map_or(0, char::len_utf8);
+    let max_width = MAX_TAG.saturating_sub(1 + min_stem).max(1);
+    let width = width.min(max_width).max(1);
+    let search = |start: u32, w: usize| -> Option<String> {
+        let limit = start.saturating_add(100_000);
+        for n in start..=limit {
+            let end = format!("_{n:0w$}");
+            let room = MAX_TAG.saturating_sub(end.len());
+            if end.len() > MAX_TAG || (!stem.is_empty() && room < min_stem) {
+                break;
+            }
+            let mut cut = stem.len().min(room);
+            while !stem.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let candidate = format!("{}{end}", &stem[..cut]);
+            if !taken(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    };
+    search(from, width).or_else(|| search(2, 1)).unwrap_or_else(|| {
+        let mut cut = tag.len().min(MAX_TAG);
+        while !tag.is_char_boundary(cut) {
             cut -= 1;
         }
-        let candidate = format!("{}{end}", &stem[..cut]);
-        if !taken(&candidate) {
-            return candidate;
-        }
-    }
-    unreachable!("a number is free")
+        tag[..cut].to_string()
+    })
 }
 
 /// Whether a new object's tag (its bytes, as the module has them) in
@@ -419,7 +527,7 @@ pub fn retag(tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
 /// a tag it wants unique in each area (`unique_in_area`: other areas' are
 /// as meant); else in the module.
 pub fn taken_in<'a>(
-    index: &'a TagIndex,
+    index: &'a (impl TagCounts + ?Sized),
     rules: &'a TagRules,
     area: ResRef,
 ) -> impl Fn(&[u8]) -> bool + 'a {
@@ -771,5 +879,20 @@ mod tests {
         let rules = TagRules::default();
         let counted = taken_in(&i, &rules, r("inn"));
         assert_eq!(store_tag("KZ_STORE_{n}", "", &|t| counted(t.as_bytes())), "KZ_STORE_3");
+    }
+
+    #[test]
+    fn retag_handles_u32_max_long_padding_and_saturated_predicates() {
+        assert_eq!(retag("foo_4294967295", &|_| false), "foo_2");
+        let near_max = retag("foo_4294967294", &|t| t == "foo_4294967295");
+        assert_eq!(near_max, "foo_2");
+
+        let long_pad = format!("a_{}1", "0".repeat(30));
+        let next = retag(&long_pad, &|_| false);
+        assert!(next.len() <= MAX_TAG);
+        assert!(next.starts_with("a_"), "stem preserved: {next}");
+
+        let fallback = retag(&"z".repeat(40), &|_| true);
+        assert_eq!(fallback.len(), MAX_TAG);
     }
 }

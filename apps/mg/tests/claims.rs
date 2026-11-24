@@ -106,6 +106,10 @@ fn claims_are_listed_claimed_released_and_merged() {
     // A merged area retagged: Verify fails, naming the table's row (Verify
     // needs the game: skipped without an install, as on CI).
     if mg_testkit::nwn_root().is_none() {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
         eprintln!("verify part skipped: no game install");
         return;
     }
@@ -182,4 +186,44 @@ fn several_areas_are_changed_all_or_none() {
         String::from_utf8_lossy(&out.stdout).trim(),
         "kz_square: claimed by ab\nkz_gate: claimed by ab"
     );
+}
+
+#[test]
+fn claims_preserve_windows_1252_and_accept_bare_nasher_cfg() {
+    let dir = mg_testkit::scratch_dir("mg-claims-cp1252");
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    let mut m = Module::new();
+    let mut ifo = Gff::new(*b"IFO ");
+    ifo.root.set("Mod_Tag", Value::String(b"KREZK".to_vec()));
+    m.set_info(&ifo).unwrap();
+    for (area, tag) in [("kz_square", "KZ_SQUARE"), ("kz_gate", "KZ_GATE")] {
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        m.set_gff(ResKey::new(ResRef::from_str(area).unwrap(), ResType::ARE), &are).unwrap();
+    }
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    std::fs::write(project.join("moonglow.toml"), "[claims]\nfile = \"builders/claims.2da\"\n")
+        .unwrap();
+    let out = crate::mg().arg("builder-code").arg(&project).arg("ab").output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    std::fs::create_dir_all(project.join("builders")).unwrap();
+    let table = project.join("builders/claims.2da");
+    let cp1252 = b"2DA V2.0\n\n    Area        Builder  Status   Date        Tag\n0   other_area  cd       claimed  2026-01-01  CAF\xe9\n";
+    std::fs::write(&table, cp1252).unwrap();
+
+    let out = crate::mg()
+        .current_dir(&project)
+        .args(["claims", "nasher.cfg", "claim", "kz_square", "kz_gate"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let raw = std::fs::read(&table).unwrap();
+    assert!(std::str::from_utf8(&raw).is_err(), "table must remain Windows-1252, not UTF-8");
+    assert!(raw.windows(4).any(|w| w == b"CAF\xe9"), "existing 0xe9 byte lost");
+    let decoded = mg_core::Codepage::WINDOWS_1252.decode(&raw);
+    assert!(decoded.contains("kz_square") && decoded.contains("kz_gate"), "{decoded}");
 }

@@ -137,6 +137,9 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
             continue;
         };
         objects += wa.iter().filter(|l| l.starts_with("MG_OBJ")).count();
+        if wa.iter().filter(|l| l.starts_with("MG_AREA")).count() == 0 {
+            failures.push(format!("{label}: the probe saw no areas"));
+        }
         let near = |x: &str, y: &str| {
             let (Some((ka, pa)), Some((kb, pb))) = (split_object(x), split_object(y)) else {
                 return x == y;

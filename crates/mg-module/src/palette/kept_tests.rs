@@ -625,3 +625,26 @@ fn an_entry_is_taken_out_alone() {
     assert_eq!(listing(&palette), listed);
     assert_eq!(entry(&palette, "hk_text"), entry(&before, "hk_text"));
 }
+
+#[test]
+fn deleting_customized_module_override_reverts_palette_entry_to_hak_blueprint() {
+    let game = game();
+    let base = module();
+    let mut customized = base.clone();
+    customized.set(key("hk_text"), item("hk_text", Err("Custom Sword"), CLAWS));
+    let pal = update_custom_palette(&customized, &base, &game, BlueprintKind::Item)
+        .unwrap()
+        .expect("customizing category and name updates palette");
+    customized.set_gff(BlueprintKind::Item.custom_key(), &pal).unwrap();
+    assert!(listing(&pal)[0].1.contains(&"hk_text".to_string()));
+    assert_eq!(entry(&pal, "hk_text").string("NAME"), Some(&b"Custom Sword"[..]));
+
+    let mut deleted = customized.clone();
+    deleted.remove(&key("hk_text"));
+    let reverted = update_custom_palette(&deleted, &customized, &game, BlueprintKind::Item)
+        .unwrap()
+        .expect("deleting customized override reverts entry to hak blueprint");
+    assert!(!listing(&reverted)[0].1.contains(&"hk_text".to_string()));
+    assert!(listing(&reverted)[1].1.contains(&"hk_text".to_string()));
+    assert_eq!(entry(&reverted, "hk_text").string("NAME"), Some(&b"Hak Sword"[..]));
+}

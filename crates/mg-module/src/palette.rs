@@ -712,6 +712,16 @@ fn elsewhere(game: &GameData, key: &mg_resman::ResKey) -> bool {
     game.resman.layers().iter().any(|l| l.priority != MODULE && l.container.contains(key))
 }
 
+fn elsewhere_gff(game: &GameData, key: &mg_resman::ResKey) -> Option<Gff> {
+    use mg_resman::priority::MODULE;
+    game.resman
+        .layers()
+        .iter()
+        .filter(|l| l.priority != MODULE && l.container.contains(key))
+        .find_map(|l| l.container.read(key).ok())
+        .and_then(|bytes| Gff::read(&bytes).ok())
+}
+
 /// Where a palette's entries are, by ResRef (each one's path from `MAIN`
 /// through the `LIST`s), and its categories, by id (the first, as
 /// [`category_path`] finds it), from one walk.
@@ -936,6 +946,16 @@ fn restructured(
     Ok(fresh)
 }
 
+/// Whether `module` and `before` hold different bytes for `key` (or only one
+/// holds it). Comparing `Arc` pointers avoids byte-slice scans across unchanged
+/// blueprints.
+fn resource_differs(module: &Module, before: &Module, key: &mg_resman::ResKey) -> bool {
+    match (module.shared(key), before.shared(key)) {
+        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
+        (a, b) => a.is_some() != b.is_some(),
+    }
+}
+
 /// The module's custom palette of `kind` brought up to date with what
 /// changed since `before` (the module as it was opened or last saved), as
 /// Aurora keeps it: only the entries of the module's blueprints that were
@@ -970,16 +990,10 @@ pub fn update_custom_palette(
         return rebuild_custom_palette(module, game, kind).map(Some);
     }
     let restype = kind.restype();
-    // (The same bytes, most often shared: compared only where they aren't,
-    // as comparing every blueprint of a large module took milliseconds.)
-    let differs = |k: &mg_resman::ResKey| match (module.shared(k), before.shared(k)) {
-        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
-        (a, b) => a.is_some() != b.is_some(),
-    };
-    let skeleton_changed = differs(&kind.skeleton_key());
+    let skeleton_changed = resource_differs(module, before, &kind.skeleton_key());
     let changed: Vec<mg_resman::ResKey> = (module.keys_of(restype))
         .chain(before.keys_of(restype))
-        .filter(|k| differs(k))
+        .filter(|k| resource_differs(module, before, k))
         .copied()
         .collect();
     updated(module, Some(before), game, kind, changed, skeleton_changed)
@@ -1057,10 +1071,21 @@ fn updated(
         .filter(|k| !module.contains(k) && !elsewhere(game, k))
         .map(|k| k.resref)
         .collect();
-    for key in changed.iter().filter(|k| module.contains(k)) {
-        let Some(Ok(g)) = module.gff(key) else { continue };
+    for key in &changed {
+        let (g, allow_insert) = if module.contains(key) {
+            let Some(Ok(g)) = module.gff(key) else { continue };
+            (g, true)
+        } else if elsewhere(game, key) {
+            let Some(g) = elsewhere_gff(game, key) else { continue };
+            (g, false)
+        } else {
+            continue;
+        };
         let here = places.get_or_insert_with(|| Places::of(main));
         let at = here.entries(key.resref);
+        if at.is_empty() && !allow_insert {
+            continue;
+        }
         let category = category_of(kind, &g.root)
             .and_then(|id| here.categories.get(&id).map(|p| (id, p.clone())));
         let Some((id, category)) = category else {
@@ -1162,12 +1187,14 @@ fn update_palettes(
             continue;
         }
         let mut made = update_custom_palette(module, before, game, kind)?;
-        if kind == BlueprintKind::Creature
-            && let Some(mut g) =
-                made.clone().or_else(|| module.gff(&kind.custom_key()).and_then(Result::ok))
-            && creature_entries_made_right(&mut g, module, game)
-        {
-            made = Some(g);
+        if kind == BlueprintKind::Creature {
+            if let Some(g) = made.as_mut() {
+                creature_entries_made_right(g, module, game);
+            } else if let Some(mut g) = module.gff(&kind.custom_key()).and_then(Result::ok)
+                && creature_entries_made_right(&mut g, module, game)
+            {
+                made = Some(g);
+            }
         }
         if let Some(g) = made {
             let bytes = g.to_bytes().map_err(|e| e.to_string())?;
@@ -1185,17 +1212,13 @@ fn update_palettes(
 /// have something to bring up to date ([`update_custom_palettes`]), for a
 /// command that writes the module to know without reading the game.
 pub fn blueprints_changed(module: &Module, before: &Module) -> bool {
-    let differs = |k: &mg_resman::ResKey| match (module.shared(k), before.shared(k)) {
-        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
-        (a, b) => a.is_some() != b.is_some(),
-    };
     let repute = mg_resman::ResKey::parse("repute", ResType::FAC).expect("valid");
-    differs(&repute)
+    resource_differs(module, before, &repute)
         || BlueprintKind::ALL.iter().any(|kind| {
-            differs(&kind.skeleton_key())
+            resource_differs(module, before, &kind.skeleton_key())
                 || (module.keys_of(kind.restype()))
                     .chain(before.keys_of(kind.restype()))
-                    .any(&differs)
+                    .any(|k| resource_differs(module, before, k))
         })
 }
 
@@ -1228,14 +1251,20 @@ pub fn creature_entries_made_right(palette: &mut Gff, module: &Module, game: &Ga
             None => game.resman.get(&key).ok().and_then(|d| Gff::read(&d).ok()),
         };
         let Some(g) = blueprint else { return false };
-        let wanted = entry_for(BlueprintKind::Creature, resref, &g.root, game, &factions);
+        let cr = Value::Float(g.root.float("ChallengeRating").unwrap_or(0.0));
+        let faction = g
+            .root
+            .integer("FactionID")
+            .and_then(|f| factions.get(usize::try_from(f).ok()?).map(Vec::as_slice))
+            .unwrap_or(&[]);
         let mut any = false;
-        for label in ["CR", "FACTION"] {
-            let value = wanted.get(label).expect("a creature's entry has it");
-            if entry.get(label) != Some(value) {
-                entry.set(label, value.clone());
-                any = true;
-            }
+        if entry.get("CR") != Some(&cr) {
+            entry.set("CR", cr);
+            any = true;
+        }
+        if entry.string("FACTION") != Some(faction) {
+            entry.set("FACTION", Value::String(faction.to_vec()));
+            any = true;
         }
         any
     };

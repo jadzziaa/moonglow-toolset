@@ -33,6 +33,7 @@
 
 use mg_uikit::Controls as _;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::{Color32, Stroke};
 use glam::{Vec2, Vec3};
@@ -93,6 +94,63 @@ pub struct PaintState {
     /// How many times the next dab was worked out (for tests: not every
     /// frame the pointer rests).
     pub worked: u64,
+    /// Bumped whenever `pending` changes.
+    pending_gen: u64,
+    /// Bumped whenever `templates` or `bounds` changes or clears.
+    templates_gen: u64,
+    /// Monotonic stamp allocated whenever `ghosts_cache` is rebuilt.
+    ghost_gen: u64,
+    /// Cached `row_to` result while pointer/settings stay fixed.
+    row_cache: Option<(RowKey, (Vec<Painted>, Vec3))>,
+    /// Cached built ghost `AreaObject`s, counts, and stamp.
+    ghosts_cache: Option<GhostsCache>,
+    /// Cached 64-point ground circle in `overlay`.
+    circle_cache: Option<(CircleKey, Vec<Vec3>)>,
+    /// Cached eraser hit indices in `overlay`.
+    eraser_cache: Option<(EraserKey, Vec<usize>)>,
+}
+
+type GhostsCache = (GhostBuildKey, Arc<[AreaObject]>, usize, usize, u64);
+
+#[derive(Debug, Clone, PartialEq)]
+struct RowKey {
+    to: [u32; 3],
+    row_from: Option<[u32; 3]>,
+    row_end: Option<[u32; 3]>,
+    settings: PaintSettings,
+    keys: Vec<ResKey>,
+    templates_gen: u64,
+    turn: u32,
+    snap_angle: Option<u32>,
+    snap_grid: Option<u32>,
+    seed: u64,
+    area: (Option<u64>, bool),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct GhostBuildKey {
+    pending_gen: u64,
+    templates_gen: u64,
+    painting: bool,
+    row: bool,
+    preview_row: Option<RowKey>,
+    preview_dab: Option<DabKey>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CircleKey {
+    at: [u32; 3],
+    radius_cm: u16,
+    area: (Option<u64>, bool),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EraserKey {
+    at: [u32; 3],
+    radius_cm: u16,
+    keys: Vec<ResKey>,
+    area: Option<u64>,
+    shows: bool,
 }
 
 /// What the next dab under the pointer is worked out from: where, by
@@ -122,10 +180,26 @@ const GHOSTS_MAX: usize = 400;
 impl PaintState {
     /// Drops the stroke going on: nothing of it is laid or taken out.
     pub(crate) fn drop_stroke(&mut self) {
-        self.pending.clear();
+        if !self.pending.is_empty() {
+            self.pending.clear();
+            self.pending_gen = self.pending_gen.wrapping_add(1);
+        }
         self.erasing.clear();
         self.painting = false;
         self.row_from = None;
+    }
+
+    /// Clears cached blueprint objects, bounds, and next-dab previews after
+    /// resources are reloaded.
+    pub(crate) fn clear_caches(&mut self) {
+        self.templates.clear();
+        self.bounds.clear();
+        self.templates_gen = self.templates_gen.wrapping_add(1);
+        self.next = None;
+        self.row_cache = None;
+        self.ghosts_cache = None;
+        self.circle_cache = None;
+        self.eraser_cache = None;
     }
 }
 
@@ -585,16 +659,58 @@ fn object(template: &AreaObject, p: &Painted) -> AreaObject {
     o
 }
 
-/// What the brush shows see-through this frame: the stroke's placeables,
-/// and before a press, the next dab under the pointer.
-pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Vec<AreaObject> {
+fn row_key(app: &Moonglow, view: &AreaView, keys: &[ResKey], to: Vec3) -> RowKey {
+    RowKey {
+        to: to.to_array().map(f32::to_bits),
+        row_from: view.paint.row_from.map(|p| p.to_array().map(f32::to_bits)),
+        row_end: view.paint.row_end.map(|p| p.to_array().map(f32::to_bits)),
+        settings: app.settings.paint,
+        keys: keys.to_vec(),
+        templates_gen: view.paint.templates_gen,
+        turn: view.ghost_turn().to_bits(),
+        snap_angle: view.snap_angle().map(f32::to_bits),
+        snap_grid: view.snap_grid().map(f32::to_bits),
+        seed: view.paint.seed,
+        area: (view.read_at(), view.ground().is_some()),
+    }
+}
+
+fn row_to_cached(
+    app: &Moonglow,
+    view: &mut AreaView,
+    keys: &[ResKey],
+    to: Vec3,
+) -> (Vec<Painted>, Vec3) {
+    let key = row_key(app, view, keys, to);
+    if let Some((was, out)) = &view.paint.row_cache
+        && *was == key
+    {
+        return out.clone();
+    }
+    let out = row_to(app, view, keys, to);
+    view.paint.row_cache = Some((key, out.clone()));
+    out
+}
+
+/// The ghost `AreaObject`s for the current paint stroke/preview, and an opaque stamp
+/// identifying that batch (`0` when empty).
+pub(crate) fn ghosts(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    view: &mut AreaView,
+) -> (Arc<[AreaObject]>, u64) {
     let Some(keys) = active(app) else {
         // (Read anew when it is next on: the blueprints may have changed.)
-        view.paint.templates.clear();
-        view.paint.bounds.clear();
+        if !view.paint.templates.is_empty() || !view.paint.bounds.is_empty() {
+            view.paint.templates.clear();
+            view.paint.bounds.clear();
+            view.paint.templates_gen = view.paint.templates_gen.wrapping_add(1);
+        }
         (view.paint.shown, view.paint.more) = (0, 0);
         view.paint.next = None;
-        return Vec::new();
+        view.paint.row_cache = None;
+        view.paint.ghosts_cache = None;
+        return (Arc::from([]), 0);
     };
     view.read_walkable(app);
     for key in &keys {
@@ -604,25 +720,29 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
                 view.paint.bounds.insert(*key, bounds);
             }
             view.paint.templates.insert(*key, template);
+            view.paint.templates_gen = view.paint.templates_gen.wrapping_add(1);
         }
     }
     if app.settings.paint.erase {
         // (The eraser shows nothing see-through: what it takes out is
         // marked, `overlay`.)
         (view.paint.shown, view.paint.more) = (0, 0);
-        return Vec::new();
+        return (Arc::from([]), 0);
     }
     let at = pointer(ui, view);
     let row = app.settings.paint.by_drag();
     if row && view.paint.painting {
         // The row as far as the pointer now.
         if let Some(at) = at {
-            view.paint.pending = row_to(app, view, &keys, at).0;
+            let laid = row_to_cached(app, view, &keys, at).0;
+            if view.paint.pending != laid {
+                view.paint.pending = laid;
+                view.paint.pending_gen = view.paint.pending_gen.wrapping_add(1);
+            }
         }
     }
-    let mut shown = view.paint.pending.clone();
-    match at.filter(|_| !view.paint.painting) {
-        Some(at) if row => shown.extend(row_to(app, view, &keys, at).0),
+    let (preview_row, preview_dab) = match at.filter(|_| !view.paint.painting) {
+        Some(at) if row => (Some(row_key(app, view, &keys, at)), None),
         Some(at) => {
             // (The same dab while the pointer rests and nothing it is
             // worked out from changes: not worked out every frame.)
@@ -640,25 +760,69 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
             };
             if !view.paint.next.as_ref().is_some_and(|(k, _)| *k == key) {
                 let dab = next_dab(app, view, &keys, at);
-                view.paint.next = Some((key, dab));
+                view.paint.next = Some((key.clone(), dab));
                 view.paint.worked += 1;
             }
-            shown.extend(view.paint.next.iter().flat_map(|(_, dab)| dab.iter().copied()));
+            (None, Some(key))
         }
-        None => {}
+        None => (None, None),
+    };
+    let build_key = GhostBuildKey {
+        pending_gen: view.paint.pending_gen,
+        templates_gen: view.paint.templates_gen,
+        painting: view.paint.painting,
+        row,
+        preview_row,
+        preview_dab,
+    };
+    if let Some((was, objects, total, more, stamp)) = &view.paint.ghosts_cache
+        && *was == build_key
+    {
+        view.paint.shown = *total;
+        view.paint.more = *more;
+        return (objects.clone(), *stamp);
     }
+    let preview: &[Painted] = if view.paint.painting {
+        &[]
+    } else if row {
+        match at {
+            Some(at) => {
+                let _ = row_to_cached(app, view, &keys, at);
+                view.paint.row_cache.as_ref().map_or(&[], |(_, (laid, _))| laid.as_slice())
+            }
+            None => &[],
+        }
+    } else if at.is_some() {
+        view.paint.next.as_ref().map_or(&[], |(_, dab)| dab.as_slice())
+    } else {
+        &[]
+    };
     let templates = &view.paint.templates;
     let known = |p: &&Painted| templates.get(&p.key).is_some_and(|t| t.is_some());
-    let total = shown.iter().filter(known).count();
-    // (The first few hundred drawn: all of them are laid.)
-    let objects: Vec<AreaObject> = shown
-        .iter()
-        .filter_map(|p| templates.get(&p.key)?.as_ref().map(|t| object(t, p)))
-        .take(GHOSTS_MAX)
-        .collect();
+    let total = view.paint.pending.iter().chain(preview).filter(known).count();
+    let objects: Arc<[AreaObject]> = if total == 0 {
+        Arc::from([])
+    } else {
+        view.paint
+            .pending
+            .iter()
+            .chain(preview)
+            .filter_map(|p| templates.get(&p.key)?.as_ref().map(|t| object(t, p)))
+            .take(GHOSTS_MAX)
+            .collect::<Vec<_>>()
+            .into()
+    };
+    let more = total - objects.len();
+    let stamp = if objects.is_empty() {
+        0
+    } else {
+        view.paint.ghost_gen = view.paint.ghost_gen.wrapping_add(1).max(1);
+        view.paint.ghost_gen
+    };
+    view.paint.ghosts_cache = Some((build_key, objects.clone(), total, more, stamp));
     view.paint.shown = total;
-    view.paint.more = total - objects.len();
-    objects
+    view.paint.more = more;
+    (objects, stamp)
 }
 
 /// Shift + wheel over the view sizes the brush's circle: whether the wheel
@@ -712,7 +876,10 @@ pub(crate) fn input(
     response: &egui::Response,
 ) -> bool {
     let Some(keys) = active(app) else {
-        view.paint.pending.clear();
+        if !view.paint.pending.is_empty() {
+            view.paint.pending.clear();
+            view.paint.pending_gen = view.paint.pending_gen.wrapping_add(1);
+        }
         view.paint.erasing.clear();
         view.paint.painting = false;
         view.paint.row_from = None;
@@ -778,8 +945,11 @@ pub(crate) fn input(
         // when let go.
         let mut end = None;
         if let Some(to) = pointer(ui, view) {
-            let (laid, at) = row_to(app, view, &keys, to);
-            view.paint.pending = laid;
+            let (laid, at) = row_to_cached(app, view, &keys, to);
+            if view.paint.pending != laid {
+                view.paint.pending = laid;
+                view.paint.pending_gen = view.paint.pending_gen.wrapping_add(1);
+            }
             end = Some(at);
         }
         if !down {
@@ -800,7 +970,10 @@ pub(crate) fn input(
         });
         if due {
             let laid = next_dab(app, view, &keys, at);
-            view.paint.pending.extend(laid);
+            if !laid.is_empty() {
+                view.paint.pending.extend(laid);
+                view.paint.pending_gen = view.paint.pending_gen.wrapping_add(1);
+            }
             view.paint.seed = fastrand::u64(..);
             view.paint.last = Some((at, now));
         }
@@ -823,6 +996,7 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
     if pending.is_empty() {
         return;
     }
+    view.paint.pending_gen = view.paint.pending_gen.wrapping_add(1);
     let git = view.git();
     let list = ObjectKind::Placeable.list();
     let lock = app.settings.paint.lock;
@@ -865,7 +1039,7 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
 /// The brush's circle, on the ground around the pointer (the eraser's in
 /// red, and what it takes out marked); a row's line, a fill's rectangle,
 /// and the last row's end, which a drag may go on from.
-pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
+pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let Some(keys) = active(app) else { return };
     let painter = ui.painter_at(view.rect);
     let s = &app.settings.paint;
@@ -912,16 +1086,27 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
     let color = if s.erase { ERASER } else { CIRCLE };
     let radius = f32::from(s.radius_cm) / 100.0;
     const POINTS: usize = 64;
-    // On the walkable ground nearest the pointer's level, as a dab finds
-    // it (not up a tower's wall beside it); level where there is none.
-    let ground = ground(view, at);
-    let circle: Vec<Vec3> = (0..POINTS)
-        .map(|k| {
-            let a = k as f32 / POINTS as f32 * std::f32::consts::TAU;
-            at + Vec3::new(a.cos(), a.sin(), 0.0) * radius
-        })
-        .map(|p| p.truncate().extend(ground(p.truncate()).unwrap_or(at.z) + 0.05))
-        .collect();
+    let circle_key = CircleKey {
+        at: at.to_array().map(f32::to_bits),
+        radius_cm: s.radius_cm,
+        area: (view.read_at(), view.ground().is_some()),
+    };
+    if !view.paint.circle_cache.as_ref().is_some_and(|(k, _)| *k == circle_key) {
+        let circle: Vec<Vec3> = {
+            // On the walkable ground nearest the pointer's level, as a dab finds
+            // it (not up a tower's wall beside it); level where there is none.
+            let ground = ground(view, at);
+            (0..POINTS)
+                .map(|k| {
+                    let a = k as f32 / POINTS as f32 * std::f32::consts::TAU;
+                    at + Vec3::new(a.cos(), a.sin(), 0.0) * radius
+                })
+                .map(|p| p.truncate().extend(ground(p.truncate()).unwrap_or(at.z) + 0.05))
+                .collect()
+        };
+        view.paint.circle_cache = Some((circle_key, circle));
+    }
+    let circle = &view.paint.circle_cache.as_ref().expect("just set").1;
     for k in 0..POINTS {
         if let Some(line) = view.screen_segment(circle[k], circle[(k + 1) % POINTS]) {
             painter.line_segment(line, Stroke::new(2.0, color));
@@ -931,12 +1116,22 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
         painter.circle_filled(middle, 2.5, color);
     }
     if s.erase {
+        let eraser_key = EraserKey {
+            at: at.to_array().map(f32::to_bits),
+            radius_cm: s.radius_cm,
+            keys,
+            area: view.read_at(),
+            shows: view.show[ObjectKind::Placeable.index()],
+        };
+        if !view.paint.eraser_cache.as_ref().is_some_and(|(k, _)| *k == eraser_key) {
+            let under = under_eraser(app, view, &eraser_key.keys, at);
+            view.paint.eraser_cache = Some((eraser_key, under));
+        }
+        let under = view.paint.eraser_cache.as_ref().map_or(&[][..], |(_, u)| u.as_slice());
         // What goes: what the stroke passed over, and what the circle is
         // over now.
-        let mut gone = view.paint.erasing.clone();
-        gone.extend(under_eraser(app, view, &keys, at));
         let model = view.model.as_ref();
-        for i in gone {
+        for i in view.paint.erasing.iter().copied().chain(under.iter().copied()) {
             let o = model.and_then(|m| m.object(ObjectKind::Placeable, i));
             if let Some(p) = o.and_then(|o| view.screen_pos(o.position)) {
                 let d = egui::vec2(5.0, 5.0);

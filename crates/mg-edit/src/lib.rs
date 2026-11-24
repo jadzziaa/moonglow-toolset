@@ -552,6 +552,9 @@ impl Workspace {
     /// Runs the edits in order and returns the command that reverses them.
     /// If one fails, the ones already run are reverted.
     fn run(&mut self, cmd: &Command) -> Result<Command, EditError> {
+        let saved_edited = self.edited.clone();
+        let saved_rewrites = self.rewrites.clone();
+        let saved_touching_len = self.touching.len();
         let mut inverses: Vec<Vec<Edit>> = Vec::with_capacity(cmd.edits.len());
         for e in &cmd.edits {
             match self.run_edit(e) {
@@ -560,10 +563,16 @@ impl Workspace {
                     for inv in inverses.into_iter().rev().flatten() {
                         let _ = self.run_edit(&inv);
                     }
-                    // (Nothing changed: nothing touched.)
-                    self.touching.clear();
+                    self.edited = saved_edited;
+                    self.rewrites = saved_rewrites;
+                    self.touching.truncate(saved_touching_len);
                     return Err(err);
                 }
+            }
+        }
+        for e in &cmd.edits {
+            if let Edit::SetResource { key, data: None } = e {
+                self.forget_saved_copies(|k| k != key);
             }
         }
         let edits = inverses.into_iter().rev().flatten().collect();
@@ -579,9 +588,6 @@ impl Workspace {
                 // the undo copy must include them.
                 self.write_back(key)?;
                 self.docs.remove(key);
-                if data.is_none() {
-                    self.forget_saved_copies(|k| k != key);
-                }
                 self.touch(key, &GffPath::root(), "", true);
                 let old = self.module.get(key).map(<[u8]>::to_vec);
                 match data {
@@ -742,10 +748,13 @@ impl Workspace {
     /// The struct at `path` of document `key`, to change: the document
     /// counts as edited ([`Workspace::flush`] writes it back).
     fn struct_at(&mut self, key: &ResKey, path: &GffPath) -> Result<&mut Struct, EditError> {
-        self.edited.insert(*key);
         let doc = self.doc_mut(key)?;
-        path.get_mut(&mut doc.root)
-            .ok_or_else(|| EditError::BadPath { key: *key, path: path.clone() })
+        if path.get(&doc.root).is_none() {
+            return Err(EditError::BadPath { key: *key, path: path.clone() });
+        }
+        self.edited.insert(*key);
+        let doc = self.docs.get_mut(key).expect("just loaded");
+        Ok(path.get_mut(&mut doc.root).expect("path validated"))
     }
 
     /// Writes the documents edited since the last flush back into the
@@ -779,17 +788,45 @@ impl Workspace {
         // tries it again.)
         let bytes =
             gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-        let holds = |data: &[u8]| data == &bytes[..] || Gff::read(data).is_ok_and(|g| g == *gff);
-        if let Some(saved) = self.saved.get(key).filter(|d| holds(d)) {
-            if self.module.get(key) != Some(saved) {
-                let saved = saved.to_vec();
-                self.module.set(*key, saved);
+        let saved = self.saved.shared(key);
+        let matches_saved = match saved {
+            Some(s) if s[..] == bytes[..] => true,
+            Some(_) => self.parsed_saved(key).is_some_and(|parsed| *parsed == *gff),
+            None => false,
+        };
+        if matches_saved {
+            let saved = saved.expect("matched above");
+            let current = self.module.shared(key);
+            if !current.is_some_and(|c| std::sync::Arc::ptr_eq(c, saved) || c[..] == saved[..]) {
+                self.module.set(*key, saved.to_vec());
             }
-        } else if !self.module.get(key).is_some_and(holds) {
-            self.module.set(*key, bytes);
+        } else {
+            match self.module.shared(key) {
+                Some(cur) if cur[..] == bytes[..] => {}
+                Some(cur) if saved.is_some_and(|s| std::sync::Arc::ptr_eq(cur, s)) => {
+                    self.module.set(*key, bytes);
+                }
+                Some(cur) if Gff::read(cur).is_ok_and(|g| g == *gff) => {}
+                _ => {
+                    self.module.set(*key, bytes);
+                }
+            }
         }
         self.edited.remove(key);
         Ok(())
+    }
+
+    fn parsed_saved(&self, key: &ResKey) -> Option<std::sync::Arc<Gff>> {
+        let saved = self.saved.shared(key)?;
+        let Ok(mut read) = self.saved_read.lock() else { return None };
+        match read.get(key) {
+            Some((was, g)) if std::sync::Arc::ptr_eq(was, saved) => Some(g.clone()),
+            _ => {
+                let g = std::sync::Arc::new(Gff::read(saved).ok()?);
+                read.insert(*key, (saved.clone(), g.clone()));
+                Some(g)
+            }
+        }
     }
 
     /// Whether resource `key` differs from the module as opened or last
@@ -810,20 +847,11 @@ impl Workspace {
         if let Some(differs) = self.differs_from_saved_at_once(key) {
             return differs;
         }
-        let (Some(gff), Some(saved)) = (self.docs.get(key), self.saved.shared(key)) else {
+        let Some(gff) = self.docs.get(key) else {
             return true;
         };
-        let Ok(mut read) = self.saved_read.lock() else { return true };
-        let parsed = match read.get(key) {
-            Some((was, g)) if std::sync::Arc::ptr_eq(was, saved) => g.clone(),
-            _ => match Gff::read(saved) {
-                Ok(g) => {
-                    let g = std::sync::Arc::new(g);
-                    read.insert(*key, (saved.clone(), g.clone()));
-                    g
-                }
-                Err(_) => return true,
-            },
+        let Some(parsed) = self.parsed_saved(key) else {
+            return true;
         };
         *parsed != *gff
     }
@@ -1971,5 +1999,57 @@ mod tests {
         ws.undo().unwrap();
         ws.flush().unwrap();
         assert_eq!(ws.module.get(&k), Some(&bytes[..]), "both undone");
+    }
+
+    #[test]
+    fn failed_command_rollback_preserves_rewrites_edited_and_saved_copies() {
+        let dir = mg_testkit::scratch_dir("mg-edit-rollback-saved");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("m.mod");
+        let k1 = key("one", ResType::ARE);
+        let k2 = key("two", ResType::ARE);
+        let k3 = key("three", ResType::ARE);
+        let mut m = Module::new();
+        for k in [k1, k2, k3] {
+            m.set_gff(k, &Gff::new(*b"ARE ")).unwrap();
+        }
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        let mut ws = Workspace::new(Module::open(&path).unwrap());
+        ws.apply(Command::new(
+            "Touch k1",
+            vec![Edit::SetField {
+                key: k1,
+                path: GffPath::root(),
+                label: "Extra".into(),
+                value: Some(Value::Int(2)),
+            }],
+        ))
+        .unwrap();
+        assert!(ws.differs_from_saved(&k1));
+        assert_eq!(ws.saved_copies(), 1);
+        assert_eq!(ws.unflushed(), 1);
+        assert_eq!(ws.rewrites(&k2), 0);
+
+        let err = ws
+            .apply(Command::new(
+                "Partial fail",
+                vec![
+                    Edit::insert_item(k2, GffPath::root(), "VarTable", 0, Struct::new(0)),
+                    Edit::SetResource { key: k3, data: None },
+                    Edit::SetField {
+                        key: k2,
+                        path: GffPath::root().field("Missing"),
+                        label: "X".into(),
+                        value: Some(Value::Int(1)),
+                    },
+                ],
+            ))
+            .unwrap_err();
+        assert!(matches!(err, EditError::BadPath { .. }), "{err:?}");
+        assert_eq!(ws.rewrites(&k2), 0);
+        assert_eq!(ws.rewrites(&k3), 0);
+        assert_eq!(ws.unflushed(), 1);
+        assert_eq!(ws.saved_copies(), 1);
+        assert!(ws.module.contains(&k3));
     }
 }

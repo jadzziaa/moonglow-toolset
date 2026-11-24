@@ -125,45 +125,57 @@ pub(crate) fn scan(files: &[Known], path: &Path, was: Option<Stamp>) -> OutsideF
     if was == Some(now) {
         return found;
     }
+    let known_by_key: HashMap<ResKey, &Known> = files.iter().map(|k| (k.key, k)).collect();
     let read = std::fs::read(path).map_err(|e| e.to_string()).and_then(|data| {
         let erf = Erf::read(&data).map_err(|e| e.to_string())?;
-        let mut now: HashMap<ResKey, Arc<[u8]>> = HashMap::new();
+        let mut seen = std::collections::HashSet::with_capacity(erf.entries.len());
+        let mut changes = Vec::new();
         for e in &erf.entries {
             let key = ResKey::new(e.resref, e.restype);
             // (Listed twice: the first, as the module is read.)
-            if now.contains_key(&key) {
+            if !seen.insert(key) {
                 continue;
             }
             let bytes = erf.data(e).map_err(|e| e.to_string())?;
-            now.insert(key, Arc::from(bytes.as_ref()));
+            match known_by_key.get(&key) {
+                Some(k) if bytes.as_ref() == &k.file[..] => {}
+                Some(k) => changes.push(Outside::plain(
+                    key,
+                    k.path.to_path_buf(),
+                    Some(Arc::from(bytes.as_ref())),
+                    Some(k.file.clone()),
+                    Some(now),
+                )),
+                None => changes.push(Outside::plain(
+                    key,
+                    place(path, &key),
+                    Some(Arc::from(bytes.as_ref())),
+                    None,
+                    Some(now),
+                )),
+            }
         }
-        Ok(now)
+        for k in files {
+            if !seen.contains(&k.key) {
+                changes.push(Outside::plain(
+                    k.key,
+                    k.path.to_path_buf(),
+                    None,
+                    Some(k.file.clone()),
+                    Some(now),
+                ));
+            }
+        }
+        Ok(changes)
     });
-    let mut now_has = match read {
-        Ok(r) => r,
+    match read {
+        Ok(changes) => found.changes = changes,
         Err(e) => {
             found.problems.push(format!("{}: {e}", path.display()));
             return found;
         }
-    };
+    }
     found.archive = Some(now);
-    for k in files {
-        match now_has.remove(&k.key) {
-            Some(bytes) if bytes[..] == k.file[..] => {}
-            resource => found.changes.push(Outside::plain(
-                k.key,
-                k.path.to_path_buf(),
-                resource,
-                Some(k.file.clone()),
-                Some(now),
-            )),
-        }
-    }
-    let mut added: Vec<(ResKey, Arc<[u8]>)> = now_has.into_iter().collect();
-    added.sort_by_key(|(k, _)| *k);
-    for (key, bytes) in added {
-        found.changes.push(Outside::plain(key, place(path, &key), Some(bytes), None, Some(now)));
-    }
     found.changes.sort_by(|a, b| a.path.cmp(&b.path));
     found
 }

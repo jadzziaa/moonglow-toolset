@@ -126,6 +126,7 @@ fn loaded(
 /// case).
 #[test]
 fn engine_opens_the_hak_file_named_by_the_name_s_bytes() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = corpus!();
     if server_binary(&root).is_none() {
         eprintln!("skipped: no nwserver for this platform");
@@ -206,6 +207,7 @@ fn talk_table(
 /// doesn't load the module.
 #[test]
 fn engine_opens_the_talk_table_file_named_by_the_name_s_bytes() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = corpus!();
     if server_binary(&root).is_none() {
         eprintln!("skipped: no nwserver for this platform");

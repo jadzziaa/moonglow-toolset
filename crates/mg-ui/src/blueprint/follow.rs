@@ -576,10 +576,22 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     crate::area_view::objects_moved(app, &moved);
     crate::journal_view::retarget(app, &moved.journal);
     let mut closed = Vec::new();
+    let mut shifted_pages: Vec<((ResKey, GffPath), (ResKey, GffPath))> = Vec::new();
     for (_, tab) in app.dock.iter_all_tabs_mut() {
         let was = tab.clone();
         if !moved_tab(tab, &moved) {
             closed.push(was);
+        } else if let (
+            Tab::Instances { area, paths },
+            Tab::Instances { area: area2, paths: paths2 },
+        ) = (&was, &*tab)
+            && let (Some(old_first), Some(new_first)) = (paths.first(), paths2.first())
+            && moved.get(&(*area, old_first.clone())) == Some(&None)
+        {
+            shifted_pages.push((
+                (ResKey::new(*area, ResType::GIT), old_first.clone()),
+                (ResKey::new(*area2, ResType::GIT), new_first.clone()),
+            ));
         }
     }
     crate::tabs::close_tabs(&mut app.dock, |t| !closed.contains(t));
@@ -626,30 +638,53 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     app.window_ids.retain(|place, _| open.contains(place));
     let pages: Vec<_> = app.blueprint_pages.keys().cloned().collect();
     let mut taken = Vec::new();
+    let mut shifted = Vec::new();
     for (key, path) in pages {
         if let Some(to) = now(&key, &path)
-            && let Some(page) = app.blueprint_pages.remove(&(key, path))
+            && let Some(page) = app.blueprint_pages.remove(&(key, path.clone()))
         {
-            taken.extend(to.map(|to| (to, page)));
+            match to {
+                Some(to) => taken.push((to, page)),
+                None => {
+                    if let Some((_, to)) =
+                        shifted_pages.iter().find(|(from, _)| from.0 == key && from.1 == path)
+                    {
+                        shifted.push((to.clone(), page));
+                    }
+                }
+            }
         }
     }
     app.blueprint_pages.extend(taken);
+    for (to, page) in shifted {
+        app.blueprint_pages.entry(to).or_insert(page);
+    }
     // (Every window's notes: one whose own object stayed may have noted
     // another's field, in a window of several objects.)
     let changed: Vec<_> = app.properties_changed.keys().cloned().collect();
     let mut taken = Vec::new();
+    let mut shifted_changes = Vec::new();
     for (key, path) in changed {
-        let to = match now(&key, &path) {
-            Some(Some(to)) => to,
-            // (The window's first object gone: so is the window.)
-            Some(None) => {
-                app.properties_changed.remove(&(key, path));
-                continue;
-            }
-            None => (key, path.clone()),
+        let Some(mut changes) = app.properties_changed.remove(&(key, path.clone())) else {
+            continue;
         };
-        let Some(mut changes) = app.properties_changed.remove(&(key, path)) else { continue };
-        moved_tab(&mut changes.tab, &moved);
+        if !moved_tab(&mut changes.tab, &moved) {
+            continue;
+        }
+        let (to, is_shifted) = match &changes.tab {
+            Tab::Instances { area, paths } => {
+                let Some(first) = paths.first() else { continue };
+                let to = (ResKey::new(*area, ResType::GIT), first.clone());
+                let is_shifted = now(&key, &path) == Some(None);
+                (to, is_shifted)
+            }
+            _ => match now(&key, &path) {
+                Some(Some(to)) => (to, false),
+                // (The window's object gone: so is the window.)
+                Some(None) => continue,
+                None => ((key, path.clone()), false),
+            },
+        };
         changes.was.retain_mut(|was| {
             // (The object's path, and the structs of it the field is in.)
             let super::Was::Field(k, p, ..) = was else { return true };
@@ -666,16 +701,26 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
                 None => true,
             }
         });
-        taken.push((to, changes));
+        if is_shifted {
+            shifted_changes.push((to, changes));
+        } else {
+            taken.push((to, changes));
+        }
     }
     app.properties_changed.extend(taken);
+    for (to, changes) in shifted_changes {
+        app.properties_changed.entry(to).or_insert(changes);
+    }
     // The Variables pages of what moved, and of where it went: read anew
     // from their objects. (Kept by its place, one typed in was taken for
     // the page of the object that came to stand there.)
-    let moved_from = app.var_pages.keys().filter(|(k, p)| now(k, p).is_some()).cloned();
-    let moved_to = (moved.places.values().flatten())
-        .map(|(area, p)| (ResKey::new(*area, ResType::GIT), p.clone()));
-    for place in moved_from.chain(moved_to).collect::<Vec<_>>() {
+    app.var_pages.retain(|(k, p), _| now(k, p).is_none());
+    for place in moved
+        .places
+        .values()
+        .flatten()
+        .map(|(area, p)| (ResKey::new(*area, ResType::GIT), p.clone()))
+    {
         app.var_pages.remove(&place);
     }
     // The Variables window and String Edit, with their objects.
@@ -954,5 +999,67 @@ mod tests {
         let mut other = ring.clone();
         other.set("Dropable", Value::Byte(1));
         assert!(!same_item(&ring, &other));
+    }
+
+    #[test]
+    fn deleting_first_object_of_instances_window_keeps_cancel_history_and_page() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let area = mg_core::ResRef::from_bytes(b"area001").unwrap();
+        let git = ResKey::new(area, ResType::GIT);
+        let p0 = GffPath::root().item("Placeable List", 0);
+        let p1 = GffPath::root().item("Placeable List", 1);
+        let tab = Tab::Instances { area, paths: vec![p0.clone(), p1.clone()] };
+        app.dock.push_to_focused_leaf(tab.clone());
+        app.blueprint_pages.insert((git, p0.clone()), "Advanced");
+        app.properties_changed.insert(
+            (git, p0.clone()),
+            super::super::WindowChanges {
+                tab: tab.clone(),
+                was: vec![
+                    super::super::Was::Field(
+                        git,
+                        p0.clone(),
+                        "Tag".into(),
+                        Some(Value::String(b"a".to_vec())),
+                    ),
+                    super::super::Was::Field(
+                        git,
+                        p1.clone(),
+                        "Tag".into(),
+                        Some(Value::String(b"b".to_vec())),
+                    ),
+                ],
+                opening: false,
+            },
+        );
+        let moved = Followed {
+            places: HashMap::from([
+                ((area, p0.clone()), None),
+                ((area, p1.clone()), Some((area, p0.clone()))),
+            ]),
+            journal: HashMap::new(),
+        };
+        retarget(&mut app, moved);
+        let kept_tab = app
+            .dock
+            .iter_all_tabs()
+            .find_map(|(_, t)| matches!(t, Tab::Instances { .. }).then_some(t))
+            .expect("Instances tab should stay open");
+        assert_eq!(*kept_tab, Tab::Instances { area, paths: vec![p0.clone()] });
+        assert_eq!(app.blueprint_pages.get(&(git, p0.clone())), Some(&"Advanced"));
+        let changes = app
+            .properties_changed
+            .get(&(git, p0.clone()))
+            .expect("properties_changed should migrate to new first object");
+        assert_eq!(changes.tab, Tab::Instances { area, paths: vec![p0.clone()] });
+        assert_eq!(
+            changes.was,
+            vec![super::super::Was::Field(
+                git,
+                p0,
+                "Tag".into(),
+                Some(Value::String(b"b".to_vec())),
+            )]
+        );
     }
 }

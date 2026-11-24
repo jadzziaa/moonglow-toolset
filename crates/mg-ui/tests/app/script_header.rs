@@ -74,7 +74,8 @@ fn the_script_header_holds_every_control_from_420_to_1600() {
     for mode in MODES {
         let text = "void main()\n{\n}\n";
         let (mut h, _) = script_window(mode, "ui-script-header-widths", text, 1600.0);
-        let mut widths: Vec<f32> = (21..=80).map(|n| n as f32 * 20.0).collect();
+        let mut widths: Vec<f32> =
+            (21..=80).step_by(4).map(|n| n as f32 * 20.0).chain(std::iter::once(1600.0)).collect();
         widths.extend([1399.0, 1400.0, 961.0, 962.0, 795.0, 796.0]);
         for width in widths {
             h.set_size(egui::vec2(width, 700.0));

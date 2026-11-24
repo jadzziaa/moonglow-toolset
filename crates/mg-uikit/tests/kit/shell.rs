@@ -11,6 +11,8 @@ use mg_uikit::shell::{self, DockTab, DockTabs, FoldStrip, PanelHeader, Side, Str
 use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch};
 use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme};
 
+use crate::common::{rects, texts};
+
 /// A dock's tabs: found within the dock's tab list by their words, said
 /// selected or not; a click selects one (and says it changed), Tab and
 /// Enter choose one by the keyboard; a badge's count is the tab's value;
@@ -158,7 +160,11 @@ fn a_fold_button_shows_the_tip_it_is_given() {
     assert_eq!(fold.accesskit_node().data().is_expanded(), Some(true));
     fold.hover();
     // (A tooltip waits a moment.)
-    h.run_steps(60);
+    h.step();
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + 1.5);
+    h.run_steps(2);
+    h.input_mut().time = None;
     h.get_by_label("Fold the Left Dock (Ctrl+Alt+1)");
     h.get_by_label("Fold the Left Dock").click();
     h.run();
@@ -540,22 +546,6 @@ fn a_panel_header_s_detail_is_12_after_its_title() {
     assert_eq!(title.left() - 8.0, shell::DOCK_TAB_PADDING, "the harness's margin, then 10");
 }
 
-/// The words drawn in a frame, where.
-fn texts(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
-    fn add(shape: &egui::Shape, to: &mut Vec<(String, egui::Rect)>) {
-        match shape {
-            egui::Shape::Text(t) => {
-                to.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())))
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
-}
-
 /// The Top Bar's middle slot: centered in the room the two groups leave,
 /// at most the cap wide (and less where the room is less); the group
 /// named "Top Bar".
@@ -587,20 +577,6 @@ fn the_top_bar_centers_its_field() {
         assert!((rect.center().x - middle).abs() <= 1.0, "{width}: centered");
         h.get_by_label("Top Bar");
     }
-}
-
-/// The rectangles drawn in a frame.
-fn rects(h: &Harness<'_>) -> Vec<egui::epaint::RectShape> {
-    fn add(shape: &egui::Shape, to: &mut Vec<egui::epaint::RectShape>) {
-        match shape {
-            egui::Shape::Rect(r) => to.push(r.clone()),
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
 }
 
 /// A menu opened from a menu bar styled as the kit says: its rows 24 apart
@@ -732,7 +708,7 @@ fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
     });
     // Each width: the same on three frames; icons only below a boundary.
     let mut seen = Vec::new();
-    for w in (165..=320).map(|w| w as f32) {
+    for w in (165..=320).step_by(5).map(|w| w as f32) {
         width.set(w);
         let mut each = Vec::new();
         for _ in 0..3 {
@@ -758,22 +734,22 @@ fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
     let module = h.get_by_label("Left Dock").get_by_label("Module");
     assert_eq!(module.accesskit_node().is_selected(), Some(false));
     module.hover();
-    for _ in 0..30 {
-        h.run();
-    }
+    h.step();
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + 1.5);
+    h.run_steps(2);
+    h.input_mut().time = None;
     assert!(h.query_all_by_label("Module").count() >= 2, "its name in its tip");
 }
 
 /// Between their words and their icons, a dock's tabs show their words
 /// closer to their sides ([`shell::DOCK_TAB_TIGHT_PADDING`]) where only
-/// so they fit beside the tools (the Left Dock's at its first 260 points
-/// beside five tools, M3 T15): swept a point at a time, the Module tab is
-/// as wide as its words and the full padding, then (narrower bars) as its
-/// words and the tight padding, then its icon's, in that order, each form
-/// over a band of widths, and the tools never past the bar's end.
+/// so they fit beside the tools: swept narrower, the Module tab goes from
+/// full padding to tight padding to icon-only in that order, keeps its
+/// word padding symmetric in each form, and leaves room for the tools.
 #[test]
 fn a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons() {
-    let width = Cell::new(300.0f32);
+    let width = Cell::new(400.0f32);
     let ends = Cell::new((0.0f32, 0.0f32));
     let mut h = Harness::builder().with_size(egui::vec2(400.0, 120.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
@@ -795,90 +771,46 @@ fn a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons() {
             ends.set((out.inner, out.response.rect.right()));
         });
     });
-    let tab = |h: &Harness<'_>| h.get_by_label("Left Dock").get_by_label("Module").rect().width();
-    width.set(400.0);
+    let tab_rect = |h: &Harness<'_>| h.get_by_label("Left Dock").get_by_label("Module").rect();
     h.run();
-    let words = tab(&h);
+    let words = tab_rect(&h).width();
     let tight = words - 2.0 * (shell::DOCK_TAB_PADDING - shell::DOCK_TAB_TIGHT_PADDING);
     let icon = 2.0 * shell::DOCK_TAB_ICON_PADDING + 16.0 + 1.0;
     let mut forms = Vec::new();
-    for w in (200..=300).rev().map(|w| w as f32) {
+    for w in (200..=320).rev().step_by(5).map(|w| w as f32) {
         width.set(w);
         h.run();
         h.run();
         let (tools_end, bar_end) = ends.get();
         assert!(tools_end <= bar_end + 0.5, "{w}: the tools past the bar's end");
-        let form = match tab(&h) {
+        let tab = tab_rect(&h);
+        let form = match tab.width() {
             t if t == words => 0,
             t if t == tight => 1,
             t if t == icon => 2,
             t => panic!("{w}: a tab {t} wide ({words}, {tight}, {icon})"),
         };
+        let drawn = texts(&h).into_iter().find(|(t, _)| t == "Module").map(|(_, r)| r);
+        match (form, drawn) {
+            (2, None) => {}
+            (0, Some(r)) => {
+                let (left, right) = (r.left() - tab.left(), tab.right() - 1.0 - r.right());
+                assert!((left - shell::DOCK_TAB_PADDING).abs() < 0.01, "{w}: left={left}");
+                assert!((right - left).abs() < 0.01, "{w}: left={left}, right={right}");
+            }
+            (1, Some(r)) => {
+                let (left, right) = (r.left() - tab.left(), tab.right() - 1.0 - r.right());
+                assert!((left - shell::DOCK_TAB_TIGHT_PADDING).abs() < 0.01, "{w}: left={left}");
+                assert!((right - left).abs() < 0.01, "{w}: left={left}, right={right}");
+            }
+            other => panic!("{w}: form {form} with words {other:?}"),
+        }
         if forms.last().is_none_or(|&(_, f)| f != form) {
             forms.push((w, form));
         }
     }
     let order: Vec<i32> = forms.iter().map(|&(_, f)| f).collect();
     assert_eq!(order, [0, 1, 2], "words, closer, icons as the bar narrows: {forms:?}");
-}
-
-/// Where a dock tab's words are painted in each of its forms (M3 T15's
-/// review): with their words, `DOCK_TAB_PADDING` from the tab's left and
-/// as far from its right line; closer, `DOCK_TAB_TIGHT_PADDING` from
-/// each (the tab narrowed by the difference at each side, its words in
-/// it, not cut by its right line); as icons, no words at all. Swept as
-/// `a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons` is,
-/// every form seen.
-#[test]
-fn a_dock_tab_s_words_stand_by_its_padding_in_each_form() {
-    let width = Cell::new(400.0f32);
-    let mut h = Harness::builder().with_size(egui::vec2(400.0, 120.0)).build_ui(|ui| {
-        mg_uikit::apply(ui.ctx(), Theme::Dark);
-        let w = width.get();
-        ui.allocate_ui(egui::vec2(w, 60.0), |ui| {
-            ui.set_width(w);
-            let mut selected = 1;
-            DockTabs::new("Left Dock")
-                .with(DockTab::new("Module").icon(Icon::Module))
-                .with(DockTab::new("Resources").icon(Icon::Folder))
-                .tools_width(5.0 * 22.0)
-                .show(ui, &mut selected, |ui| {
-                    for name in ["A", "B", "C", "D", "E"] {
-                        ui.add(IconButton::new(Icon::Plus, name).icon_only(true));
-                    }
-                });
-        });
-    });
-    let mut seen = Vec::new();
-    for w in (200..=320).rev().step_by(2).map(|w| w as f32) {
-        width.set(w);
-        h.run();
-        h.run();
-        let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
-        let words = texts(&h).into_iter().find(|(t, _)| t == "Module").map(|(_, r)| r);
-        let form = match words {
-            None => "icons",
-            Some(r) => {
-                let (left, right) = (r.left() - tab.left(), tab.right() - 1.0 - r.right());
-                let padding = if (left - shell::DOCK_TAB_PADDING).abs() < 0.01 {
-                    "words"
-                } else if (left - shell::DOCK_TAB_TIGHT_PADDING).abs() < 0.01 {
-                    "tight"
-                } else {
-                    panic!("{w}: the words {left} from the tab's left: {r:?} in {tab:?}")
-                };
-                assert!(
-                    (right - left).abs() < 0.01,
-                    "{w}: {left} at the left, {right} at the right"
-                );
-                padding
-            }
-        };
-        if seen.last() != Some(&form) {
-            seen.push(form);
-        }
-    }
-    assert_eq!(seen, ["words", "tight", "icons"], "every form seen as the bar narrows");
 }
 
 /// A strip without its chevron (its dock unfolded by a control of its

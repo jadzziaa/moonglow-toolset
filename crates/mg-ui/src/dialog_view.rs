@@ -119,6 +119,22 @@ pub struct DialogView {
     cuts_made: u64,
     /// Where its tree's rows end on the right, as last drawn.
     rows_right: f32,
+    /// Cached flattened open tree rows keyed by `(gff_ptr, seen_fp, collapsed_sig)`.
+    flat: Option<FlatCache>,
+}
+
+type FlatCache = ((usize, Option<u64>, u64), std::sync::Arc<Vec<FlatRow>>);
+
+/// Flattened descriptor of one visible row in the conversation tree.
+#[derive(Debug, Clone, Copy)]
+struct FlatRow {
+    row: Row,
+    kind: Kind,
+    index: u32,
+    depth: u16,
+    linked: bool,
+    children: bool,
+    open: bool,
 }
 
 /// Rows' words laid out ([`DialogView::cuts`]): this frame's, the last's.
@@ -359,16 +375,25 @@ pub struct Shown {
     pub open: bool,
 }
 
-/// The rows of the tree from top to bottom as [`tree`] draws them: Root,
-/// then each line whose parents are open.
-pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
+struct TreeNode {
+    row: Option<Row>,
+    line: Option<(Kind, u32)>,
+    up: Option<usize>,
+    depth: u16,
+    linked: bool,
+    children: bool,
+    open: bool,
+}
+
+fn collect_tree_nodes(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<TreeNode> {
     fn walk(
         g: &Gff,
         parent: Parent,
         up: usize,
+        depth: u16,
         collapsed: &HashSet<(Kind, u32)>,
         path: &mut HashSet<(Kind, u32)>,
-        out: &mut Vec<Shown>,
+        out: &mut Vec<TreeNode>,
     ) {
         let kind = parent.child_kind();
         for (pos, l) in links(g, parent).iter().enumerate() {
@@ -376,12 +401,15 @@ pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
             if node(g, kind, index).is_none() {
                 continue;
             }
-            let children = !is_link(l) && !links(g, Parent::Node(kind, index)).is_empty();
+            let linked = is_link(l);
+            let children = !linked && !links(g, Parent::Node(kind, index)).is_empty();
             let open = !collapsed.contains(&(kind, index));
-            out.push(Shown {
+            out.push(TreeNode {
                 row: Some(Row { parent, pos }),
                 line: Some((kind, index)),
                 up: Some(up),
+                depth,
+                linked,
                 children,
                 open,
             });
@@ -390,14 +418,83 @@ pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
             // several lines own one, not again under each, which grows as
             // two to the power of how deep such lines go.)
             if children && open && path.insert((kind, index)) {
-                walk(g, Parent::Node(kind, index), here, collapsed, path, out);
+                walk(
+                    g,
+                    Parent::Node(kind, index),
+                    here,
+                    depth.saturating_add(1),
+                    collapsed,
+                    path,
+                    out,
+                );
             }
         }
     }
     let children = !links(g, Parent::Root).is_empty();
-    let mut out = vec![Shown { row: None, line: None, up: None, children, open: true }];
-    walk(g, Parent::Root, 0, collapsed, &mut HashSet::new(), &mut out);
+    let mut out = vec![TreeNode {
+        row: None,
+        line: None,
+        up: None,
+        depth: 0,
+        linked: false,
+        children,
+        open: true,
+    }];
+    walk(g, Parent::Root, 0, 1, collapsed, &mut HashSet::new(), &mut out);
     out
+}
+
+/// The rows of the tree from top to bottom as the tree draws them: Root,
+/// then each line whose parents are open.
+pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
+    collect_tree_nodes(g, collapsed)
+        .into_iter()
+        .map(|n| Shown { row: n.row, line: n.line, up: n.up, children: n.children, open: n.open })
+        .collect()
+}
+
+fn collapsed_sig(collapsed: &HashSet<(Kind, u32)>) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut xor = (collapsed.len() as u64).wrapping_mul(0x9e3779b97f4a7c15);
+    for &(k, i) in collapsed {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (k as u8, i).hash(&mut h);
+        xor ^= h.finish();
+    }
+    xor
+}
+
+fn flat_rows(view: &mut DialogView, g: &std::sync::Arc<Gff>) -> std::sync::Arc<Vec<FlatRow>> {
+    let key = (
+        std::sync::Arc::as_ptr(g) as usize,
+        view.seen.map(|s| s.1),
+        collapsed_sig(&view.collapsed),
+    );
+    if let Some((was, rows)) = &view.flat
+        && *was == key
+    {
+        return rows.clone();
+    }
+    let rows: Vec<FlatRow> = collect_tree_nodes(g, &view.collapsed)
+        .into_iter()
+        .skip(1)
+        .map(|n| {
+            let row = n.row.expect("non-root node has row");
+            let (kind, index) = n.line.expect("non-root node has line");
+            FlatRow {
+                row,
+                kind,
+                index,
+                depth: n.depth,
+                linked: n.linked,
+                children: n.children,
+                open: n.open,
+            }
+        })
+        .collect();
+    let rows = std::sync::Arc::new(rows);
+    view.flat = Some((key, rows.clone()));
+    rows
 }
 
 /// What a key does in the tree.
@@ -943,7 +1040,7 @@ fn row_fields(key: ResKey, row: Row, (kind, index): (Kind, u32)) -> ([egui::Id; 
 /// what was typed, the text's cursor and the keyboard's focus move to its
 /// new ones (`after`), and typing goes on there; where it is gone (no
 /// `after`), what was typed goes with it. Never set on the line that took
-/// its number (M4's U14: the Node panel's ids follow its line). Only the
+/// its number (the Node panel's ids follow its line). Only the
 /// line chosen's fields are drawn, so only theirs hold what is typed.
 fn follow_typed(
     app: &mut Moonglow,
@@ -965,10 +1062,15 @@ fn follow_typed(
     // is being typed, and the field drops what it kept there unset when it
     // is drawn again without the keyboard.)
     type Pairs = Vec<(String, String)>;
-    let pairs: Vec<Option<Pairs>> = params
-        .iter()
-        .map(|id| ctx.and_then(|c| c.data_mut(|d| d.remove_temp::<Pairs>(*id))))
-        .collect();
+    let pairs: Option<Vec<Option<Pairs>>> = ctx.map(|c| {
+        c.data_mut(|d| {
+            let mut removed = Vec::with_capacity(params.len());
+            for id in &params {
+                removed.push(d.remove_temp::<Pairs>(*id));
+            }
+            removed
+        })
+    });
     let Some((typed_to, params_to)) = to else { return };
     for ((from, (text, state)), to) in typed.iter().zip(moved).zip(typed_to) {
         if let Some(text) = text {
@@ -981,9 +1083,11 @@ fn follow_typed(
             ctx.memory_mut(|m| m.request_focus(to));
         }
     }
-    for (pairs, to) in pairs.into_iter().zip(params_to) {
-        if let (Some(pairs), Some(ctx)) = (pairs, ctx) {
-            ctx.data_mut(|d| d.insert_temp(to, pairs));
+    if let (Some(pairs), Some(ctx)) = (pairs, ctx) {
+        for (pairs, to) in pairs.into_iter().zip(params_to) {
+            if let Some(pairs) = pairs {
+                ctx.data_mut(|d| d.insert_temp(to, pairs));
+            }
         }
     }
 }
@@ -1093,15 +1197,29 @@ pub(crate) const NODE: &str = "Node";
 fn larger_text(app: &Moonglow, ui: &mut Ui) -> Option<std::sync::Arc<egui::Style>> {
     let size = app.settings.dialog_font_size?;
     let usual = ui.ctx().global_style();
-    let by = f32::from(size.clamp(6, 48)) / egui::TextStyle::Body.resolve(ui.style()).size;
-    let mut style = (**ui.style()).clone();
-    for font in style.text_styles.values_mut() {
-        font.size *= by;
-    }
-    style.spacing.interact_size.y *= by;
-    style.spacing.icon_width *= by;
-    ui.set_style(style.clone());
-    ui.ctx().set_global_style(style);
+    let body_size = egui::TextStyle::Body.resolve(ui.style()).size;
+    let key = (size, std::sync::Arc::as_ptr(&usual) as usize, body_size.to_bits());
+    let id = egui::Id::new("dlg-larger-style");
+    let scaled: std::sync::Arc<egui::Style> = match ui
+        .ctx()
+        .data(|d| d.get_temp::<((u8, usize, u32), std::sync::Arc<egui::Style>)>(id))
+    {
+        Some((was, style)) if was == key => style,
+        _ => {
+            let by = f32::from(size.clamp(6, 48)) / body_size;
+            let mut style = (**ui.style()).clone();
+            for font in style.text_styles.values_mut() {
+                font.size *= by;
+            }
+            style.spacing.interact_size.y *= by;
+            style.spacing.icon_width *= by;
+            let style = std::sync::Arc::new(style);
+            ui.ctx().data_mut(|d| d.insert_temp(id, (key, style.clone())));
+            style
+        }
+    };
+    ui.set_style(scaled.clone());
+    ui.ctx().set_global_style(scaled);
     Some(usual)
 }
 
@@ -1289,20 +1407,9 @@ fn header(
             }
         }
     };
-    // OK and Cancel at the end, with the tips they had at the foot; Close
-    // alone for a conversation only looked at.
     let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons: Vec<mg_uikit::KitButton> = match can.viewed {
-        true => vec![mg_uikit::KitButton::new(None, "Close").tip("Close the conversation")],
-        false => vec![
-            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-            mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-        ],
-    };
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
-        + gap * (buttons.len().saturating_sub(1)) as f32;
-    let out = EditorHeader::new(CONVERSATION_HEADER)
+    let close_tip = can.viewed.then_some("Close the conversation");
+    let header = EditorHeader::new(CONVERSATION_HEADER)
         .left(Item::button(icon::ADD, "Add").primary().enabled(edits && can.add).tip(add_tip))
         .left(
             Item::icon(icon::COPY, "Copy")
@@ -1358,21 +1465,8 @@ fn header(
                 .enabled(edits)
                 .tip("Read back the text, speakers and comments of a CSV export"),
         )
-        .right(Item::button(mg_uikit::Icon::Test, "Test").tip(TEST_TIP))
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        .right(Item::button(mg_uikit::Icon::Test, "Test").tip(TEST_TIP));
+    let out = crate::widgets::header_with_ok_cancel(ui, header, close_tip, tips);
     if scripts == app.settings.dialog_hide_scripts {
         app.settings.dialog_hide_scripts = !scripts;
     }
@@ -1542,7 +1636,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
         && let Some(p) = add_parent
     {
         if popup {
-            view.input = Some(NewLine { parent: p, text: placeholder.clone(), shown: false });
+            view.input = Some(NewLine { parent: p, text: placeholder, shown: false });
         } else {
             // The new line is selected, its text edited in place.
             let mut ng = Gff::clone(&g);
@@ -1717,6 +1811,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     // taken again where nothing changed: `cut_words`.)
     view.cuts.1 = std::mem::take(&mut view.cuts.0);
     let lines = egui::ScrollArea::vertical().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
+    let flat = flat_rows(&mut view, &g);
     let shown = lines.show(ui, |ui| {
         mg_uikit::list_rows(ui);
         view.rows_right = ui.max_rect().right();
@@ -1744,20 +1839,90 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
         if let Some(from) = root.dnd_release_payload::<(ResKey, Row)>().and_then(ours) {
             dropped = Some(Drop { from, onto: Parent::Root, link: link_key(ui), before: None });
         }
-        let mut path = HashSet::new();
-        tree(
-            ui,
-            app.game.as_deref(),
-            key,
-            &g,
-            Parent::Root,
-            1,
-            &mut view,
-            &mut path,
-            hl,
-            &look,
-            &mut dropped,
-        );
+        let a11y = ui.ctx().accesskit_node_builder(root.id, |_| ()).is_some();
+        if a11y {
+            for &fr in flat.iter() {
+                draw_flat_row(
+                    ui,
+                    app.game.as_deref(),
+                    key,
+                    &g,
+                    fr,
+                    &mut view,
+                    hl,
+                    &look,
+                    &mut dropped,
+                );
+            }
+        } else {
+            let pad = ui.spacing().button_padding;
+            let btn_font = egui::TextStyle::Button.resolve(ui.style());
+            let row_h = (ui.fonts_mut(|f| f.row_height(&btn_font)) + 2.0 * pad.y)
+                .max(ui.spacing().interact_size.y)
+                .max(mg_uikit::metrics::ICON_BUTTON);
+            let spacing_y = ui.spacing().item_spacing.y;
+            let step_y = row_h + spacing_y;
+            let start_y = ui.cursor().top();
+            let first_vis = (((ui.clip_rect().top() - step_y - start_y) / step_y).floor().max(0.0)
+                as usize)
+                .min(flat.len());
+            let last_vis = (((ui.clip_rect().bottom() + step_y - start_y) / step_y).ceil().max(0.0)
+                as usize)
+                .min(flat.len());
+            let reveal_idx = if view.reveal || view.nudge {
+                view.selected.and_then(|sel| flat.iter().position(|fr| fr.row == sel))
+            } else {
+                None
+            };
+            let skip = |ui: &mut Ui, n: usize| {
+                if n > 0 {
+                    ui.allocate_space(egui::vec2(
+                        1.0,
+                        (n as f32 * row_h + (n - 1) as f32 * spacing_y).max(0.0),
+                    ));
+                }
+            };
+            let draw_one = |ui: &mut Ui,
+                            fr: FlatRow,
+                            view: &mut DialogView,
+                            dropped: &mut Option<Drop>| {
+                let id_salt = match fr.row.parent {
+                    Parent::Root => (0u64, fr.row.pos),
+                    Parent::Node(Kind::Entry, i) => (1 + u64::from(i), fr.row.pos),
+                    Parent::Node(Kind::Reply, i) => ((1u64 << 32) | u64::from(i), fr.row.pos),
+                };
+                ui.push_id(id_salt, |ui| {
+                    draw_flat_row(ui, app.game.as_deref(), key, &g, fr, view, hl, &look, dropped);
+                });
+            };
+            match reveal_idx {
+                Some(idx) if idx < first_vis => {
+                    skip(ui, idx);
+                    draw_one(ui, flat[idx], &mut view, &mut dropped);
+                    skip(ui, first_vis - idx - 1);
+                    for &fr in &flat[first_vis..last_vis] {
+                        draw_one(ui, fr, &mut view, &mut dropped);
+                    }
+                    skip(ui, flat.len() - last_vis);
+                }
+                Some(idx) if idx >= last_vis => {
+                    skip(ui, first_vis);
+                    for &fr in &flat[first_vis..last_vis] {
+                        draw_one(ui, fr, &mut view, &mut dropped);
+                    }
+                    skip(ui, idx - last_vis);
+                    draw_one(ui, flat[idx], &mut view, &mut dropped);
+                    skip(ui, flat.len() - idx - 1);
+                }
+                _ => {
+                    skip(ui, first_vis);
+                    for &fr in &flat[first_vis..last_vis] {
+                        draw_one(ui, fr, &mut view, &mut dropped);
+                    }
+                    skip(ui, flat.len() - last_vis);
+                }
+            }
+        }
     });
 
     let pitch = mg_uikit::row_metrics(ui).1;
@@ -2936,203 +3101,191 @@ fn fill_span(clip: egui::Rect, max: egui::Rect, row: egui::Rect, half: f32) -> e
     egui::Rect::from_x_y_ranges(x, egui::Rangef::new(row.top() - half, row.bottom() + half))
 }
 
-/// Draws the rows under a parent of conversation `key`; `path` stops
-/// cycles through owning links.
+/// Draws one flattened row of conversation `key`'s tree.
 #[allow(clippy::too_many_arguments)]
-fn tree(
+fn draw_flat_row(
     ui: &mut Ui,
     game: Option<&mg_rules::GameData>,
     key: ResKey,
     g: &Gff,
-    parent: Parent,
-    depth: usize,
+    fr: FlatRow,
     view: &mut DialogView,
-    path: &mut HashSet<(Kind, u32)>,
     hl: [bool; 5],
     look: &Look,
     dropped: &mut Option<Drop>,
 ) {
-    let kind = parent.child_kind();
-    for (pos, l) in links(g, parent).iter().enumerate() {
-        let index = link_index(l);
-        let Some(n) = node(g, kind, index) else { continue };
-        let row = Row { parent, pos };
-        let linked = is_link(l);
-        let children = !linked && !links(g, Parent::Node(kind, index)).is_empty();
-        let open = !view.collapsed.contains(&(kind, index));
-        let label = row_label(game, g, kind, l, look.names);
-        let cond = l.resref("Active").filter(|r| !r.is_empty());
-        // (The row chosen: its words in the theme's `on-fill` on the
-        // selection's fill, where a speaker's color would not read.)
-        let color = if view.selected == Some(row) {
-            mg_uikit::tokens(ui.ctx()).on_fill
-        } else if linked {
-            look.link
-        } else if kind == Kind::Entry {
-            look.npc
+    let row = fr.row;
+    let kind = fr.kind;
+    let index = fr.index;
+    let linked = fr.linked;
+    let children = fr.children;
+    let open = fr.open;
+    let Some(l) = links(g, row.parent).get(row.pos) else { return };
+    let Some(n) = node(g, kind, index) else { return };
+    let label = row_label(game, g, kind, l, look.names);
+    let cond = l.resref("Active").filter(|r| !r.is_empty());
+    // (The row chosen: its words in the theme's `on-fill` on the
+    // selection's fill, where a speaker's color would not read.)
+    let color = if view.selected == Some(row) {
+        mg_uikit::tokens(ui.ctx()).on_fill
+    } else if linked {
+        look.link
+    } else if kind == Kind::Entry {
+        look.npc
+    } else {
+        look.pc
+    };
+    // (Found: the theme's `select`, faint behind the words.)
+    let found = highlighted(n, hl).then(|| mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3));
+    let chosen = view.selected == Some(row);
+    // (Its scripts' marks, after its words: on the selected row's fill
+    // `on-fill`, the board's; a condition's `?` where they are hidden.)
+    let marks = match look.scripts {
+        true => Some(markers(l, n)).filter(|m| !m.is_empty()).map(|m| {
+            let color = match chosen {
+                true => mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85),
+                false => ui.visuals().weak_text_color(),
+            };
+            (m, egui::TextStyle::Small.resolve(ui.style()), color)
+        }),
+        false => cond.is_some().then(|| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            (vec!["?".to_string()], font, ui.visuals().weak_text_color())
+        }),
+    };
+    // (The selected row filled the whole width of the tree, the board's
+    // `.dl-row.sel`, under what the row draws.)
+    let fill_at = ui.painter().add(egui::Shape::Noop);
+    // (No further in than leaves its words their least room.)
+    let level = usize::from(fr.depth).min(look.levels);
+    let row_shown = ui.horizontal(|ui| {
+        ui.add_space(level as f32 * INDENT);
+        if children {
+            // (Named with its line, said open or not: a screen reader's
+            // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
+            let (icon, verb, tip) = match open {
+                true => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the lines under it"),
+                false => (mg_uikit::Icon::ChevronRight, "Expand", "Show the lines under it"),
+            };
+            let arrow = crate::widgets::icon_only(icon, verb)
+                .name(format!("{verb} {label}"))
+                .expanded(open);
+            if ui.add(arrow).on_hover_text(tip).clicked() {
+                if open {
+                    view.collapsed.insert((kind, index));
+                } else {
+                    view.collapsed.remove(&(kind, index));
+                }
+            }
         } else {
-            look.pc
+            ui.add_space(ARROW_ROOM);
+        }
+        let ends = kind == Kind::Reply && !linked && !children;
+        let line = LineLook {
+            label: &label,
+            ends,
+            color,
+            italics: linked,
+            found,
+            selected: chosen,
+            marks,
         };
-        // (Found: the theme's `select`, faint behind the words.)
-        let found =
-            highlighted(n, hl).then(|| mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3));
-        let chosen = view.selected == Some(row);
-        // (Its scripts' marks, after its words: on the selected row's fill
-        // `on-fill`, the board's; a condition's `?` where they are hidden.)
-        let marks = match look.scripts {
-            true => Some(markers(l, n)).filter(|m| !m.is_empty()).map(|m| {
-                let color = match chosen {
-                    true => mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85),
-                    false => ui.visuals().weak_text_color(),
-                };
-                (m, egui::TextStyle::Small.resolve(ui.style()), color)
-            }),
-            false => cond.is_some().then(|| {
-                let font = egui::TextStyle::Body.resolve(ui.style());
-                (vec!["?".to_string()], font, ui.visuals().weak_text_color())
-            }),
+        let (r, cut, no_room) = line_row(ui, view, look.least, line);
+        // (The whole line where its words are cut, as the kit's cut
+        // words have it, and the marks with no room; its condition
+        // after it.)
+        let r = match (cut, no_room.is_empty()) {
+            (false, true) => r,
+            (true, true) => r.on_hover_text(label.as_str()),
+            (_, false) => r.on_hover_text(format!("{label}\n{}", no_room.join("  "))),
         };
-        // (The selected row filled the whole width of the tree, the board's
-        // `.dl-row.sel`, under what the row draws.)
-        let fill_at = ui.painter().add(egui::Shape::Noop);
-        // (No further in than leaves its words their least room.)
-        let level = depth.min(look.levels);
-        let row_shown = ui.horizontal(|ui| {
-            ui.add_space(level as f32 * INDENT);
-            if children {
-                // (Named with its line, said open or not: a screen reader's
-                // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
-                let (icon, verb, tip) = match open {
-                    true => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the lines under it"),
-                    false => (mg_uikit::Icon::ChevronRight, "Expand", "Show the lines under it"),
-                };
-                let arrow = crate::widgets::icon_only(icon, verb)
-                    .name(format!("{verb} {label}"))
-                    .expanded(open);
-                if ui.add(arrow).on_hover_text(tip).clicked() {
-                    if open {
-                        view.collapsed.insert((kind, index));
-                    } else {
-                        view.collapsed.remove(&(kind, index));
-                    }
-                }
+        // (With its conversation: a row dropped on another's tree
+        // is not one of its rows.)
+        r.dnd_set_drag_payload((key, row));
+        let ours = |p: std::sync::Arc<(ResKey, Row)>| (p.0 == key).then_some(p.1);
+        if let Some(from) = r.dnd_release_payload::<(ResKey, Row)>().and_then(ours)
+            && from != row
+        {
+            let link = link_key(ui);
+            // On a line of its own kind: above it, under its parent.
+            *dropped = Some(if !link && from.parent.child_kind() == kind {
+                Drop { from, onto: row.parent, link, before: Some(row.pos) }
             } else {
-                ui.add_space(ARROW_ROOM);
-            }
-            let ends = kind == Kind::Reply && !linked && !children;
-            let line = LineLook {
-                label: &label,
-                ends,
-                color,
-                italics: linked,
-                found,
-                selected: chosen,
-                marks,
-            };
-            let (r, cut, no_room) = line_row(ui, view, look.least, line);
-            // (The whole line where its words are cut, as the kit's cut
-            // words have it, and the marks with no room; its condition
-            // after it.)
-            let r = match (cut, no_room.is_empty()) {
-                (false, true) => r,
-                (true, true) => r.on_hover_text(label.as_str()),
-                (_, false) => r.on_hover_text(format!("{label}\n{}", no_room.join("  "))),
-            };
-            // (With its conversation: a row dropped on another's tree
-            // is not one of its rows.)
-            r.dnd_set_drag_payload((key, row));
-            let ours = |p: std::sync::Arc<(ResKey, Row)>| (p.0 == key).then_some(p.1);
-            if let Some(from) = r.dnd_release_payload::<(ResKey, Row)>().and_then(ours)
-                && from != row
-            {
-                let link = link_key(ui);
-                // On a line of its own kind: above it, under its parent.
-                *dropped = Some(if !link && from.parent.child_kind() == kind {
-                    Drop { from, onto: parent, link, before: Some(pos) }
-                } else {
-                    Drop { from, onto: Parent::Node(kind, index), link, before: None }
-                });
-            }
-            // Where a line held over this one would go: a line above it,
-            // or a frame around it.
-            if let Some(from) = r.dnd_hover_payload::<(ResKey, Row)>().and_then(ours)
-                && from != row
-            {
-                let stroke = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
-                if !link_key(ui) && from.parent.child_kind() == kind {
-                    ui.painter().hline(r.rect.x_range(), r.rect.top(), stroke);
-                } else {
-                    ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
-                }
-            }
-            mg_uikit::context_menu(&r, |ui| {
-                view.selected = Some(row);
-                if linked
-                    && ui
-                        .button("Go to Linked")
-                        .on_hover_text("The line this row links to, where it is owned")
-                        .clicked()
-                {
-                    go_to_line(view, g, kind, index);
-                    ui.close();
-                }
-                for (label, asked) in [
-                    ("Add", Asked::Add),
-                    ("Copy", Asked::Copy),
-                    ("Cut", Asked::Cut),
-                    ("Paste", Asked::Paste),
-                    ("Paste As Link", Asked::PasteLink),
-                    ("Delete", Asked::Delete),
-                ] {
-                    if ui.button(label).clicked() {
-                        view.menu = Some(asked);
-                        ui.close();
-                    }
-                }
-                // (Aurora's Bookmark, with its key as the menus show theirs:
-                // M5's W4, the owner's ruling 28.)
-                ui.separator();
-                let mut entry = egui::Button::new("Bookmark");
-                if !look.bookmark_key.is_empty() {
-                    let keys = mg_uikit::MenuKeys::new(ui, look.bookmark_key.clone());
-                    entry = entry.shortcut_text(keys.atom());
-                }
-                if ui.add(entry).on_hover_text(BOOKMARK_TIP).clicked() {
-                    view.menu = Some(Asked::Bookmark);
-                    ui.close();
-                }
+                Drop { from, onto: Parent::Node(kind, index), link, before: None }
             });
-            let r = match cond {
-                Some(c) => r.on_hover_text(format!("Appears when {c} returns TRUE")),
-                None => r,
-            };
-            if r.clicked() {
-                view.selected = Some(row);
+        }
+        // Where a line held over this one would go: a line above it,
+        // or a frame around it.
+        if let Some(from) = r.dnd_hover_payload::<(ResKey, Row)>().and_then(ours)
+            && from != row
+        {
+            let stroke = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
+            if !link_key(ui) && from.parent.child_kind() == kind {
+                ui.painter().hline(r.rect.x_range(), r.rect.top(), stroke);
+            } else {
+                ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
             }
-            // A double click on a link goes to the line it links to, as
-            // in Aurora.
-            if linked && r.double_clicked() {
+        }
+        mg_uikit::context_menu(&r, |ui| {
+            view.selected = Some(row);
+            if linked
+                && ui
+                    .button("Go to Linked")
+                    .on_hover_text("The line this row links to, where it is owned")
+                    .clicked()
+            {
                 go_to_line(view, g, kind, index);
+                ui.close();
             }
-            if view.reveal && view.selected == Some(row) {
-                r.scroll_to_me(Some(egui::Align::Center));
-                view.reveal = false;
+            for (label, asked) in [
+                ("Add", Asked::Add),
+                ("Copy", Asked::Copy),
+                ("Cut", Asked::Cut),
+                ("Paste", Asked::Paste),
+                ("Paste As Link", Asked::PasteLink),
+                ("Delete", Asked::Delete),
+            ] {
+                if ui.button(label).clicked() {
+                    view.menu = Some(asked);
+                    ui.close();
+                }
             }
-            if view.nudge && view.selected == Some(row) {
-                r.scroll_to_me(None);
-                view.nudge = false;
+            ui.separator();
+            let mut entry = egui::Button::new("Bookmark");
+            if !look.bookmark_key.is_empty() {
+                let keys = mg_uikit::MenuKeys::new(ui, look.bookmark_key.clone());
+                entry = entry.shortcut_text(keys.atom());
+            }
+            if ui.add(entry).on_hover_text(BOOKMARK_TIP).clicked() {
+                view.menu = Some(Asked::Bookmark);
+                ui.close();
             }
         });
-        if chosen {
-            fill_row(ui, fill_at, row_shown.response.rect);
+        let r = match cond {
+            Some(c) => r.on_hover_text(format!("Appears when {c} returns TRUE")),
+            None => r,
+        };
+        if r.clicked() {
+            view.selected = Some(row);
         }
-        guides(ui, row_shown.response.rect, level, chosen);
-        // (Once, as `shown_rows` has it.)
-        if children && open && path.insert((kind, index)) {
-            let under = Parent::Node(kind, index);
-            tree(ui, game, key, g, under, depth + 1, view, path, hl, look, dropped);
+        // A double click on a link goes to the line it links to, as
+        // in Aurora.
+        if linked && r.double_clicked() {
+            go_to_line(view, g, kind, index);
         }
+        if view.reveal && view.selected == Some(row) {
+            r.scroll_to_me(Some(egui::Align::Center));
+            view.reveal = false;
+        }
+        if view.nudge && view.selected == Some(row) {
+            r.scroll_to_me(None);
+            view.nudge = false;
+        }
+    });
+    if chosen {
+        fill_row(ui, fill_at, row_shown.response.rect);
     }
+    guides(ui, row_shown.response.rect, level, chosen);
 }
 
 /// The tags of the creatures placed in the module's areas, sorted, each
@@ -3616,41 +3769,50 @@ fn script_with_params(
         ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
     }
     if !current.is_empty() {
-        let source = app.script_source(&ResKey::new(current, ResType::NSS));
-        // (The board's `.preview`: its first lines, on the inset ground,
+        let preview = script_preview_cached(app, ui.ctx(), salt, current);
+        // (The board's `.preview`: its visible lines, on the inset ground,
         // scrolled for the rest.)
-        form_row(ui, "Script preview", |ui| match source {
-            Some(src) => {
-                let lines = 4.0 * ui.text_style_height(&egui::TextStyle::Monospace);
+        form_row(ui, "Script preview", |ui| match preview {
+            Some((src, ranges)) => {
+                let line_h = ui.text_style_height(&egui::TextStyle::Monospace);
+                let lines = 4.0 * line_h;
                 let inset = mg_uikit::tokens(ui.ctx()).inset;
-                // (The board's `.preview`: a gutter of line numbers, then the
-                // code, which scrolls sideways under its own bar, its last
-                // line above the bar; both down together.)
-                let numbers: String = (1..=src.lines().count().max(1))
-                    .map(|n| n.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
                 let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
                 egui::Frame::new().fill(inset).inner_margin(4).show(ui, |ui| {
                     let down = egui::ScrollArea::vertical().id_salt(("dlg-preview", salt));
-                    down.max_height(lines).auto_shrink([false, true]).show(ui, |ui| {
-                        ui.horizontal_top(|ui| {
-                            let gutter = RichText::new(numbers).monospace().weak();
-                            ui.add(egui::Label::new(gutter).selectable(false));
-                            let across = egui::ScrollArea::horizontal()
-                                .id_salt(("dlg-preview-code", salt))
-                                .auto_shrink([false, true]);
-                            across.show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    // (Each line on one row, as the gutter
-                                    // numbers them: never wrapped.)
-                                    let code = RichText::new(src).monospace();
-                                    ui.add(egui::Label::new(code).extend());
-                                    ui.add_space(bar);
+                    down.max_height(lines).auto_shrink([false, true]).show_rows(
+                        ui,
+                        line_h,
+                        ranges.len(),
+                        |ui, range| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            let mut numbers = String::new();
+                            let mut visible = String::new();
+                            for (pos, idx) in range.enumerate() {
+                                if pos > 0 {
+                                    numbers.push('\n');
+                                    visible.push('\n');
+                                }
+                                use std::fmt::Write as _;
+                                let _ = write!(&mut numbers, "{}", idx + 1);
+                                visible.push_str(&src[ranges[idx].clone()]);
+                            }
+                            ui.horizontal_top(|ui| {
+                                let gutter = RichText::new(numbers).monospace().weak();
+                                ui.add(egui::Label::new(gutter).selectable(false));
+                                let across = egui::ScrollArea::horizontal()
+                                    .id_salt(("dlg-preview-code", salt))
+                                    .auto_shrink([false, true]);
+                                across.show(ui, |ui| {
+                                    ui.vertical(|ui| {
+                                        let code = RichText::new(visible).monospace();
+                                        ui.add(egui::Label::new(code).extend());
+                                        ui.add_space(bar);
+                                    });
                                 });
                             });
-                        });
-                    });
+                        },
+                    );
                 });
             }
             None => {
@@ -3658,6 +3820,89 @@ fn script_with_params(
             }
         });
     }
+}
+
+fn split_line_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let bytes = text.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' {
+            let end = if i > start && bytes[i - 1] == b'\r' { i - 1 } else { i };
+            out.push(start..end);
+            start = i + 1;
+        }
+    }
+    if start < text.len() {
+        let end = if text.ends_with('\r') { text.len() - 1 } else { text.len() };
+        out.push(start..end);
+    }
+    if out.is_empty() {
+        out.push(0..0);
+    }
+    out
+}
+
+fn fast_bytes_hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    h.finish()
+}
+
+type ScriptPreview = (std::sync::Arc<String>, std::sync::Arc<Vec<std::ops::Range<usize>>>);
+
+fn script_preview_cached(
+    app: &Moonglow,
+    ctx: &egui::Context,
+    salt: &str,
+    current: ResRef,
+) -> Option<ScriptPreview> {
+    let script_key = ResKey::new(current, ResType::NSS);
+    let open_sig =
+        app.scripts.get(&script_key).map(|b| (b.text.len(), fast_bytes_hash(b.text.as_bytes())));
+    let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
+    let mark = (script_key, ws_key, app.load_order, open_sig);
+    crate::blueprint::kept_for_key(ctx, egui::Id::new(("dlg-preview-src", salt)), &mark, || {
+        app.script_source(&script_key).map(|src| {
+            let ranges = std::sync::Arc::new(split_line_ranges(&src));
+            (std::sync::Arc::new(src), ranges)
+        })
+    })
+}
+
+fn journal_summary_kept(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<JournalSummary> {
+    let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
+    crate::blueprint::kept_for_key(ctx, egui::Id::new("dlg-journal-summary"), &ws_key, || {
+        let cats = app
+            .ws
+            .as_mut()
+            .and_then(|w| w.doc(&ResKey::parse("module", ResType::JRL)?).ok())
+            .map(|g| g.root.items(&jrl::CATEGORIES))
+            .unwrap_or(&[]);
+        let mut tags = Vec::with_capacity(cats.len() + 1);
+        tags.push(String::new());
+        let mut entries = Vec::with_capacity(cats.len());
+        for c in cats {
+            tags.push(decode(c.read(&jrl::categories::TAG).as_bytes()));
+            let list = mg_module::journal::entries(c)
+                .iter()
+                .map(|e| {
+                    let id = e.read(&jrl::categories::entry_list::ID);
+                    let t = e.read(&jrl::categories::entry_list::TEXT);
+                    (id, crate::text::shown_text(&t))
+                })
+                .collect();
+            entries.push(list);
+        }
+        std::sync::Arc::new(JournalSummary { tags, entries })
+    })
+}
+
+#[derive(Clone, Default)]
+struct JournalSummary {
+    tags: Vec<String>,
+    entries: Vec<Vec<(u32, String)>>,
 }
 
 /// The name of the menu of a script's parameter sets' commands beside Add
@@ -3708,31 +3953,21 @@ fn other_tab(
             app.play_sound(crate::audio::Channel::Preview, sound, 1.0, false);
         }
     });
-    // Journal categories and entries of the module.
-    let journal: Vec<Struct> = app
-        .ws
-        .as_mut()
-        .and_then(|w| w.doc(&ResKey::parse("module", ResType::JRL)?).ok())
-        .map(|g| g.root.items(&jrl::CATEGORIES).to_vec())
-        .unwrap_or_default();
+    // Journal categories and entries of the module, cached per workspace revision.
+    let journal = journal_summary_kept(app, ui.ctx());
     let quest = decode(n.string("Quest").unwrap_or_default());
     form_row(ui, "Journal", |ui| {
-        // (The row of none is the empty tag.)
-        let tags: Vec<String> = std::iter::once(String::new())
-            .chain(journal.iter().map(|c| decode(c.read(&jrl::categories::TAG).as_bytes())))
-            .collect();
         let mut pick = quest.clone();
         crate::widgets::dropdown(("dlg-quest", key, kind, index))
             .selected_text(if quest.is_empty() { "(none)".into() } else { quest.clone() })
             .width(wide(ui))
-            .show(ui, &mut pick, &tags, |t| {
+            .show(ui, &mut pick, &journal.tags, |t| {
                 if t.is_empty() { "(none)".to_string() } else { t.clone() }
             });
         if pick.is_empty() && !quest.is_empty() {
             actions.push(set(key, "Journal", path.clone(), "Quest", Value::String(Vec::new())));
         } else if pick != quest
-            && let Some(c) =
-                (journal.iter()).find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == pick)
+            && let Some(cat_idx) = journal.tags[1..].iter().position(|t| *t == pick)
         {
             let mut edits = vec![Edit::SetField {
                 key,
@@ -3740,9 +3975,7 @@ fn other_tab(
                 label: "Quest".into(),
                 value: Some(Value::String(encode(&pick))),
             }];
-            let first = mg_module::journal::entries(c)
-                .first()
-                .map(|e| e.read(&jrl::categories::entry_list::ID));
+            let first = journal.entries.get(cat_idx).and_then(|e| e.first()).map(|e| e.0);
             edits.push(Edit::SetField {
                 key,
                 path: path.clone(),
@@ -3755,11 +3988,12 @@ fn other_tab(
     if !quest.is_empty() {
         form_row(ui, "Journal entry", |ui| {
             let entry = n.dword("QuestEntry").unwrap_or(0);
-            let category =
-                journal.iter().find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == quest);
-            let entries = category.map(mg_module::journal::entries).unwrap_or(&[]);
-            let ids: Vec<u32> =
-                entries.iter().map(|e| e.read(&jrl::categories::entry_list::ID)).collect();
+            let entries: &[(u32, String)] = journal.tags[1..]
+                .iter()
+                .position(|t| *t == quest)
+                .and_then(|cat_idx| journal.entries.get(cat_idx))
+                .map_or(&[], Vec::as_slice);
+            let ids: Vec<u32> = entries.iter().map(|(id, _)| *id).collect();
             let mut pick = entry;
             crate::widgets::dropdown(("dlg-quest-entry", key, kind, index))
                 .selected_text(entry.to_string())
@@ -3769,11 +4003,8 @@ fn other_tab(
                     &mut pick,
                     || ids.clone(),
                     |ui, pick| {
-                        for e in entries {
-                            let id = e.read(&jrl::categories::entry_list::ID);
-                            let t = e.read(&jrl::categories::entry_list::TEXT);
-                            let t = crate::text::shown_text(&t);
-                            ui.selectable_value(pick, id, format!("{id}: {t}"));
+                        for (id, t) in entries {
+                            ui.selectable_value(pick, *id, format!("{id}: {t}"));
                         }
                     },
                 );
@@ -3993,24 +4224,43 @@ fn search_pane(
     // each was copied and drawn with its whole text every frame.
     mg_uikit::list_rows(ui);
     let row = mg_uikit::row_pitch(ui);
+    let row_h = mg_uikit::row_height(ui);
+    let spacing_y = ui.spacing().item_spacing.y;
+    let total = s.results.len();
+    let start_y = ui.cursor().top();
+    let first_vis =
+        (((ui.clip_rect().top() - row - start_y) / row).floor().max(0.0) as usize).min(total);
+    let last_vis =
+        (((ui.clip_rect().bottom() + row - start_y) / row).ceil().max(0.0) as usize).min(total);
+    if first_vis > 0 {
+        ui.allocate_space(egui::vec2(
+            1.0,
+            (first_vis as f32 * row_h + (first_vis - 1) as f32 * spacing_y).max(0.0),
+        ));
+    }
     let mut clicked = None;
-    for (at, (k, kind, index, t)) in s.results.iter().enumerate() {
-        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
-        if !ui.is_rect_visible(room) {
-            ui.add_space(row);
-            continue;
-        }
-        let line = t.lines().next().unwrap_or_default();
-        let label = if *k == key {
-            format!("{kind:?} {index}: {line}")
-        } else {
-            format!("{k}: {kind:?} {index}: {line}")
-        };
-        let found = ui.add(egui::Button::selectable(false, label).truncate());
-        let found = if line.len() < t.len() { found.on_hover_text(t) } else { found };
-        if found.clicked() {
-            clicked = Some(at);
-        }
+    for (at, (k, kind, index, t)) in s.results[first_vis..last_vis].iter().enumerate() {
+        let at = first_vis + at;
+        ui.push_id(at, |ui| {
+            let line = t.lines().next().unwrap_or_default();
+            let label = if *k == key {
+                format!("{kind:?} {index}: {line}")
+            } else {
+                format!("{k}: {kind:?} {index}: {line}")
+            };
+            let found = ui.add(egui::Button::selectable(false, label).truncate());
+            let found = if line.len() < t.len() { found.on_hover_text(t) } else { found };
+            if found.clicked() {
+                clicked = Some(at);
+            }
+        });
+    }
+    let trailing = total - last_vis;
+    if trailing > 0 {
+        ui.allocate_space(egui::vec2(
+            1.0,
+            (trailing as f32 * row_h + (trailing - 1) as f32 * spacing_y).max(0.0),
+        ));
     }
     let clicked = clicked.and_then(|at| s.results.get(at)).map(|r| (r.0, r.1, r.2));
     if let Some((k, kind, index)) = clicked {

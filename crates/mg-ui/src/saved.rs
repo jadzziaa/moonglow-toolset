@@ -91,12 +91,15 @@ impl Shelf {
         let path = match path.file_name() {
             Some(n) => {
                 let n = n.to_string_lossy();
-                let lower = n.to_lowercase();
                 // (`.params.json`, `.json` or `.params` already there.)
                 let bare = self.suffix.strip_suffix(".json").unwrap_or(self.suffix);
                 let cut = [self.suffix, ".json", bare]
                     .iter()
-                    .find(|s| lower.ends_with(*s))
+                    .find(|s| {
+                        n.len() >= s.len()
+                            && n.is_char_boundary(n.len() - s.len())
+                            && n[n.len() - s.len()..].eq_ignore_ascii_case(s)
+                    })
                     .map_or(n.len(), |s| n.len() - s.len());
                 path.with_file_name(self.file_name(&n[..cut]))
             }
@@ -192,6 +195,31 @@ impl<T> Default for Read<T> {
     fn default() -> Self {
         Read(Default::default())
     }
+}
+
+/// Most items shown in a saved set's tooltip summary before `"and N more"`.
+const DESCRIBED: usize = 12;
+
+/// Formats a saved set's tooltip summary: optional header line, `empty` when no
+/// entries exist, else the first [`DESCRIBED`] formatted entries plus `"and N more"`.
+pub(crate) fn describe_lines(
+    header: Option<String>,
+    empty: &str,
+    items: impl ExactSizeIterator<Item = String>,
+) -> String {
+    let mut lines = Vec::new();
+    if let Some(header) = header {
+        lines.push(header);
+    }
+    let total = items.len();
+    if total == 0 {
+        lines.push(empty.to_string());
+    }
+    lines.extend(items.take(DESCRIBED));
+    if total > DESCRIBED {
+        lines.push(format!("and {} more", total - DESCRIBED));
+    }
+    lines.join("\n")
 }
 
 /// Whether a name can be kept under (it names a file).

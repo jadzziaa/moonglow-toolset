@@ -229,10 +229,15 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
         Mode::PunchThrough => (0..16).filter(|&i| px[i][3] < 128).fold(0, |m, i| m | 1 << i),
         _ => 0,
     };
-    let visible: Vec<[f32; 3]> = (0..16)
-        .filter(|&i| hidden & (1 << i) == 0)
-        .map(|i| [px[i][0] as f32, px[i][1] as f32, px[i][2] as f32])
-        .collect();
+    let mut visible = [[0f32; 3]; 16];
+    let mut visible_len = 0;
+    for (i, p) in px.iter().enumerate() {
+        if hidden & (1 << i) == 0 {
+            visible[visible_len] = [p[0] as f32, p[1] as f32, p[2] as f32];
+            visible_len += 1;
+        }
+    }
+    let visible = &visible[..visible_len];
     if visible.is_empty() {
         return block_bytes(0, 0, &[3; 16]);
     }
@@ -252,13 +257,13 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
     // The principal axis of the colors, by power iteration.
     let n = visible.len() as f32;
     let mut mean = [0f32; 3];
-    for c in &visible {
+    for c in visible {
         for k in 0..3 {
             mean[k] += c[k] / n;
         }
     }
     let mut cov = [[0f32; 3]; 3];
-    for c in &visible {
+    for c in visible {
         let d = [c[0] - mean[0], c[1] - mean[1], c[2] - mean[2]];
         for i in 0..3 {
             for j in 0..3 {
@@ -437,19 +442,26 @@ fn alpha_block(a: &[u8; 16]) -> [u8; 8] {
     }
     // Six steps between the values that are not 0 or 255 (a0 <= a1),
     // which have their own indices.
-    let inner: Vec<u8> = a.iter().copied().filter(|&v| v != 0 && v != 255).collect();
-    match (inner.iter().min(), inner.iter().max()) {
-        (Some(&lo), Some(&hi)) => {
-            let reach = ((hi - lo) / 6).min(2);
-            for d0 in 0..=reach {
-                for d1 in 0..=reach {
-                    if lo + d0 <= hi - d1 {
-                        consider(lo + d0, hi - d1);
-                    }
+    let (mut lo, mut hi) = (u8::MAX, 0u8);
+    let mut any_inner = false;
+    for &v in a {
+        if v != 0 && v != 255 {
+            lo = lo.min(v);
+            hi = hi.max(v);
+            any_inner = true;
+        }
+    }
+    if any_inner {
+        let reach = ((hi - lo) / 6).min(2);
+        for d0 in 0..=reach {
+            for d1 in 0..=reach {
+                if lo + d0 <= hi - d1 {
+                    consider(lo + d0, hi - d1);
                 }
             }
         }
-        _ => consider(0, 0),
+    } else {
+        consider(0, 0);
     }
     let (_, a0, a1, idx) = best;
     let mut bits = 0u64;

@@ -294,9 +294,9 @@ fn model(app: &mut Moonglow, ui: &mut Ui, at: usize, key: ResKey, read: bool, fa
         y += pitch;
     }
     let facts_rect = egui::Rect::from_x_y_ranges(room.x_range(), facts_top..=y);
-    let said: Vec<String> = rows.iter().map(|(w, v)| format!("{w} {v}")).collect();
     let r = ui.interact(facts_rect, ui.id().with("hak-model-facts"), egui::Sense::hover());
     r.widget_info(|| {
+        let said: Vec<String> = rows.iter().map(|(w, v)| format!("{w} {v}")).collect();
         egui::WidgetInfo::labeled(
             egui::WidgetType::Label,
             true,

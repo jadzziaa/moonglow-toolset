@@ -578,6 +578,9 @@ impl Moonglow {
         // (Text typed in a script's editor is unsaved work too: it is in
         // no command until the script is saved.)
         if !ws.is_modified() && !self.scripts.values().any(|b| b.is_dirty()) {
+            if self.autosave.last.is_some() || self.autosave.held.is_some() {
+                self.forget_recovery();
+            }
             return None;
         }
         let every = Duration::from_secs(60 * u64::from(self.settings.autosave_every().max(1)));
@@ -1192,5 +1195,34 @@ mod tests {
         assert!(file_stem(None, "a b/c").starts_with("a_b_c-"));
         assert_eq!(age(now()), "less than a minute ago");
         assert_eq!(age(now() - 600), "10 minutes ago");
+    }
+
+    #[test]
+    fn autosave_tick_forgets_recovery_when_undone_to_clean() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-undo-clean");
+        let mut app = changed(&dir);
+        let t0 = std::time::Instant::now();
+        assert!(app.autosave_tick(t0).is_some());
+        assert!(app.autosave.last.is_some());
+
+        let wait = Duration::from_secs(60 * u64::from(app.settings.autosave_every().max(1)) + 1);
+        let _ = app.autosave_tick(t0 + wait);
+        let limit = std::time::Instant::now() + Duration::from_secs(5);
+        while app.autosave.busy.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < limit, "autosave finished");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        app.autosave_tick(t0 + wait + Duration::from_millis(5));
+        assert!(!find_all(&dir.join("recovery")).is_empty(), "recovery copy created");
+
+        app.ws.as_mut().unwrap().undo().unwrap();
+        let next = app.autosave_tick(t0 + wait + Duration::from_secs(1));
+        assert_eq!(next, None);
+        assert!(app.autosave.last.is_none());
+        assert!(app.autosave.held.is_none());
+        assert!(
+            find_all(&dir.join("recovery")).is_empty(),
+            "stale recovery copy removed after undoing back to clean"
+        );
     }
 }

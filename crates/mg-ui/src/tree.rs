@@ -60,6 +60,10 @@ pub(crate) struct AreaNames {
     groups: Option<Groups>,
     /// What the Filter finds, kept while it has the same typed.
     filtered: Filtered,
+    /// Set once every area in `ws.module` has been read into `app.area_contents`
+    /// for `(ws.identity(), ws.revision(), ws.module.len())`, avoiding repeated
+    /// per-frame `ResType::ARE` scans while the Filter is active.
+    areas_all_read: Option<(u64, u64, usize)>,
     /// How many times an area's placed objects were read for the tree
     /// (what the Filter found in them is then looked for again).
     reads: u64,
@@ -410,6 +414,7 @@ impl AreaNames {
     /// in it is looked for again.
     fn read_again(&mut self, area: ResRef) {
         self.filtered.areas.remove(&area);
+        self.areas_all_read = None;
         self.reads += 1;
     }
 
@@ -421,8 +426,10 @@ impl AreaNames {
     ) -> AreaInfo {
         let key = ResKey::new(area, ResType::ARE);
         let listed = self.listed(ws, area);
-        let read =
-            |are: &Gff| mg_module::areas::info_of(area, &are.root, &|n| shown(game, n), listed);
+        let cp = game.map_or(mg_core::Codepage::WINDOWS_1252, GameData::text_codepage);
+        let read = |are: &Gff| {
+            mg_module::areas::info_of_in(area, &are.root, &|n| shown(game, n), cp, listed)
+        };
         if let Some(are) = ws.loaded(&key) {
             return read(are);
         }
@@ -1389,10 +1396,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
         // (Rows out of sight are not laid out: the widest drawn since the
         // filter changed keeps the width scrolled through, which then
         // doesn't change as rows go by.)
-        let widest = egui::Id::new(("tree-widest", filter.as_str()));
+        let widest = egui::Id::new("tree-widest");
         let drawn = ui.min_rect().right() - left;
         let width = ui.data_mut(|d| {
-            let w = d.get_temp_mut_or(widest, 0.0_f32);
+            let (kept_filter, w) = d.get_temp_mut_or_default::<(String, f32)>(widest);
+            if kept_filter != filter.as_str() {
+                kept_filter.clear();
+                kept_filter.push_str(filter.as_str());
+                *w = 0.0;
+            }
             *w = w.max(drawn);
             *w
         });
@@ -1954,7 +1966,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut pointed_object = None;
     // The plugins' commands for right-click menus, and one chosen on a
     // resource's row.
-    let menu_commands = app.plugin_menu_commands();
+    let menu_commands = app.plugin_menu_commands_cached();
     let mut plugin_on: Option<(usize, ResKey)> = None;
     // One chosen on a row among several chosen: on them all.
     let mut plugin_several: Option<usize> = None;
@@ -1993,6 +2005,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut open = None;
     let mut make = None;
     let mut listed = 0;
+    let mut unlisted_mark_w: Option<f32> = None;
     // What the groups list: made when the module or the options that
     // shape the lists change (a module can hold thousands of a kind, and
     // every group was gathered, named and sorted each frame, open or not).
@@ -2118,10 +2131,19 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         app.tree_cursor_moved = true;
         ui.ctx().request_repaint();
     }
-    let found_before = (!filter.is_empty()).then(|| found_rows.clone());
-    ui.data_mut(|d| {
-        d.insert_temp(before_id, RowsBefore { lists: lists.clone(), found: found_before })
+    let found_before = (!filter.is_empty()).then_some(&found_rows);
+    let unchanged = before.as_ref().is_some_and(|b| {
+        Arc::ptr_eq(&b.lists, &lists)
+            && match (&b.found, found_before) {
+                (Some(a), Some(c)) => Arc::ptr_eq(a, c),
+                (None, None) => true,
+                _ => false,
+            }
     });
+    if !unchanged {
+        let kept = RowsBefore { lists: lists.clone(), found: found_before.cloned() };
+        ui.data_mut(|d| d.insert_temp(before_id, kept));
+    }
     // (An area's own, for its row and its objects' rows.)
     let found_of = |area: ResRef| -> Option<Arc<Vec<Order>>> {
         if filter.is_empty() {
@@ -2310,20 +2332,25 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     // the claims mark, which claims.rs draws, as wide as
                     // it was the frame before.)
                     let marks_id = egui::Id::new(("tree-area-marks", k.resref));
-                    let unlisted_mark = (is_area && unlisted.contains(&k.resref))
-                        .then(|| egui::RichText::new("(not in the area list)").weak());
+                    let is_unlisted = is_area && unlisted.contains(&k.resref);
                     if is_area {
                         let claims = ui.data(|d| d.get_temp::<f32>(marks_id)).unwrap_or(0.0);
                         let mut marks = claims;
-                        if let Some(text) = &unlisted_mark {
-                            let galley = egui::WidgetText::from(text.clone()).into_galley(
-                                ui,
-                                Some(egui::TextWrapMode::Extend),
-                                f32::INFINITY,
-                                egui::TextStyle::Body,
-                            );
+                        if is_unlisted {
+                            let w = *unlisted_mark_w.get_or_insert_with(|| {
+                                let text = egui::RichText::new("(not in the area list)").weak();
+                                egui::WidgetText::from(text)
+                                    .into_galley(
+                                        ui,
+                                        Some(egui::TextWrapMode::Extend),
+                                        f32::INFINITY,
+                                        egui::TextStyle::Body,
+                                    )
+                                    .size()
+                                    .x
+                            });
                             let gap = if claims > 0.0 { ui.spacing().item_spacing.x } else { 0.0 };
-                            marks += gap + galley.size().x;
+                            marks += gap + w;
                         }
                         let marks = if marks > 0.0 { marks + mg_uikit::tree::ROW_GAP } else { 0.0 };
                         let share = ui.available_width() * 0.5;
@@ -2337,6 +2364,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         row.response.rect.height()
                     );
                     if is_area {
+                        let unlisted_mark = is_unlisted
+                            .then(|| egui::RichText::new("(not in the area list)").weak());
                         // Who holds it (the project's claims table), and
                         // an ARE the module's area list leaves out (the
                         // game doesn't load it), after its name, to the
@@ -2650,15 +2679,30 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             && app.tree_reveal.is_some_and(|(k, _)| types.contains(&k.restype));
         // (The plugins' commands for every one of the group, where they are
         // all of one kind.)
-        let group_on: Vec<mg_plugin::Selected> = (listed_keys.iter())
-            .map(|k| crate::plugins::selected_at(*k, &mg_edit::GffPath::root()))
-            .collect();
-        let group_kinds = crate::plugins::kinds_of(&group_on);
+        let group_kind: Option<mg_plugin::Target> =
+            if menu_commands.is_empty() || listed_keys.is_empty() {
+                None
+            } else if types.len() == 1 {
+                crate::plugins::selected_at(listed_keys[0], &mg_edit::GffPath::root()).target()
+            } else {
+                let root = mg_edit::GffPath::root();
+                let mut first = crate::plugins::selected_at(listed_keys[0], &root).target();
+                if let Some(target) = first {
+                    for k in &listed_keys[1..] {
+                        if crate::plugins::selected_at(*k, &root).target() != Some(target) {
+                            first = None;
+                            break;
+                        }
+                    }
+                }
+                first
+            };
+        let group_kinds = group_kind.as_slice();
         let group_has =
-            group_kinds.len() == 1 && menu_commands.iter().any(|c| c.fits(&group_kinds));
+            !group_kinds.is_empty() && menu_commands.iter().any(|c| c.fits(group_kinds));
         if new.is_none() && group_has {
             mg_uikit::context_menu(&header.header_response, |ui| {
-                if let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds) {
+                if let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, group_kinds) {
                     plugin_group = Some((i, listed_keys.to_vec()));
                 }
             });
@@ -2667,7 +2711,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         if let (Some(id), Some(label)) = (new, &new_label) {
             mg_uikit::context_menu(&header.header_response, |ui| {
                 if group_has
-                    && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds)
+                    && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, group_kinds)
                 {
                     plugin_group = Some((i, listed_keys.to_vec()));
                 }
@@ -2701,18 +2745,24 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     }
     // While the Filter has something typed, what every area holds is
     // read (not only the areas opened out), for what it finds there.
-    if !filter.is_empty() {
+    let all_read_key = (ws.identity(), revision, ws.module.len());
+    if !filter.is_empty() && app.area_names.areas_all_read != Some(all_read_key) {
         // (Those opened out are to be read already: looked up in a set, the
         // list was gone through for each area, 1,500 times 1,500 a frame
         // until a world's areas were all read.)
         let opened: std::collections::HashSet<ResRef> = read.iter().copied().collect();
+        let mut missing = false;
         for k in ws.module.keys_of(ResType::ARE) {
             let now = read_of(ws, k.resref);
-            if app.area_contents.get(&k.resref).is_none_or(|c| c.0 != now)
-                && !opened.contains(&k.resref)
-            {
-                read.push(k.resref);
+            if app.area_contents.get(&k.resref).is_none_or(|c| c.0 != now) {
+                missing = true;
+                if !opened.contains(&k.resref) {
+                    read.push(k.resref);
+                }
             }
+        }
+        if !missing {
+            app.area_names.areas_all_read = Some(all_read_key);
         }
     }
     let others = ws.module.len() - listed;
@@ -2889,7 +2939,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             let contents = area_contents(ws, app.game.as_deref(), area);
             app.area_contents.insert(area, (read_of(ws, area), contents));
             app.area_names.read_again(area);
-            if began.elapsed() > std::time::Duration::from_millis(12) {
+            if began.elapsed() > std::time::Duration::from_millis(3) {
                 break;
             }
         }

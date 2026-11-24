@@ -39,7 +39,7 @@ pub use actions::{
     merge_events, rename_in_code, string_expr, variant_function, window_id_function,
 };
 pub use error::NuiError;
-pub use rename::{Renamed, build_renamed, can_rename, rename};
+pub use rename::{Renamed, build_renamed, can_rename, rename, rename_calls, script_calls_function};
 pub use schema::{controls, jui_schema, settings_schema};
 pub use script::{Build, Generated, generate, is_current, opener_source, rebuild_events};
 pub use validate::{Diagnostic, Severity, plain_name, validate};
@@ -420,14 +420,25 @@ pub fn template(ty: &str) -> Value {
     v
 }
 
-/// Calls `f` with `v` and everything in it, objects and arrays alike:
-/// names are found wherever a document has them, in fields this version
-/// knows or not.
+/// Calls `f` with every JSON object in `v` (skipping primitives so huge numeric
+/// arrays are not walked recursively when searching for object properties).
 fn walk<'a>(v: &'a Value, f: &mut impl FnMut(&'a Value)) {
-    f(v);
     match v {
-        Value::Object(o) => o.values().for_each(|v| walk(v, f)),
-        Value::Array(a) => a.iter().for_each(|v| walk(v, f)),
+        Value::Object(o) => {
+            f(v);
+            for child in o.values() {
+                if matches!(child, Value::Object(_) | Value::Array(_)) {
+                    walk(child, f);
+                }
+            }
+        }
+        Value::Array(a) => {
+            for child in a {
+                if matches!(child, Value::Object(_) | Value::Array(_)) {
+                    walk(child, f);
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -526,20 +537,45 @@ pub fn image_names_in(layout: &Value, settings: &Settings, out: &mut BTreeSet<St
         }
     }
     let named = |v: &Value, out: &mut BTreeSet<String>| {
-        let bound = v["bind"].as_str().and_then(|n| settings.bindings.get(n));
+        let bound = v.get("bind").and_then(Value::as_str).and_then(|n| settings.bindings.get(n));
         add(bound.map_or(v, |b| &b.value), out);
     };
-    match layout["type"].as_str() {
-        Some("image") => named(&layout["value"], out),
-        Some("button_image") => named(&layout["label"], out),
-        _ => {}
-    }
-    if let Some(image) = layout.get("image") {
-        named(image, out);
-    }
     match layout {
-        Value::Object(o) => o.values().for_each(|v| image_names_in(v, settings, out)),
-        Value::Array(a) => a.iter().for_each(|v| image_names_in(v, settings, out)),
+        Value::Object(o) => {
+            let ty = o.get("type").and_then(Value::as_str);
+            match ty {
+                Some("image") => {
+                    if let Some(v) = o.get("value") {
+                        named(v, out);
+                    }
+                }
+                Some("button_image") => {
+                    if let Some(v) = o.get("label") {
+                        named(v, out);
+                    }
+                }
+                _ => {}
+            }
+            if let Some(image) = o.get("image") {
+                named(image, out);
+            }
+            let skip_chart_value = ty == Some("chart");
+            for (k, v) in o {
+                if skip_chart_value && k == "value" {
+                    continue;
+                }
+                if matches!(v, Value::Object(_) | Value::Array(_)) {
+                    image_names_in(v, settings, out);
+                }
+            }
+        }
+        Value::Array(a) => {
+            for v in a {
+                if matches!(v, Value::Object(_) | Value::Array(_)) {
+                    image_names_in(v, settings, out);
+                }
+            }
+        }
         _ => {}
     }
 }

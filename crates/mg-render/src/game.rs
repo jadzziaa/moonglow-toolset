@@ -11,10 +11,10 @@
 //!   has no data for (`vColor`, the engine's baked static light, with
 //!   `staticLighting` 0) read zeros from a buffer of their own.
 //! - **Varyings** are matched by name ([`Program::link_inputs`]).
-//! - **Bind groups**: the vertex program's resources in group 0, the
-//!   fragment program's in group 1 (each binds its own uniform block at
-//!   binding 0), each block at a dynamic offset into one buffer of the
-//!   frame's blocks.
+//! - **Bind groups**: group 0 holds the shared draw/light/order storage buffers
+//!   ([`DRAW_GROUP`]), group 1 holds skinned bone uniforms and framebuffer
+//!   textures ([`BONES_GROUP`]), and groups 2 and 3 hold the vertex and fragment
+//!   stages' per-material frame blocks and textures ([`STAGE_GROUPS`]).
 //! - **The uniform contract**: every member of a block is filled by name
 //!   from what the renderer has ([`key`]); names it doesn't know are an
 //!   MTR `parameter` of that name, else zero.
@@ -923,8 +923,8 @@ const DRAW_GROUP: u32 = 0;
 const BONES_GROUP: u32 = 1;
 const STAGE_GROUPS: [u32; 2] = [2, 3];
 
-/// The storage buffers of group 2: the variable's name, the stage, the
-/// binding.
+/// The storage buffers of group 0 (`DRAW_GROUP`): the variable's name, the
+/// stage, the binding.
 const STORAGE: [(&str, usize, u32); 7] = [
     (mg_shader::ORDER, 0, 0),
     (mg_shader::DRAWS, 0, 1),
@@ -1345,8 +1345,8 @@ pub(crate) struct GameDraw<'a> {
     /// Its place among its pipeline's values this frame: each stage's draw
     /// and lights.
     places: [u32; 4],
-    /// Its bones' offset in the bones' buffer (a skinned draw's).
-    bones: Option<u32>,
+    /// Each stage's bones offset in the bones buffer, where that stage reads it.
+    bones: [Option<u32>; 2],
     /// The instance it is drawn as: its place in the order of draws.
     instance: u32,
     /// Drawn after the framebuffer's copy, which it reads (shiny water
@@ -1392,7 +1392,7 @@ impl GameDraw<'_> {
     /// and material (and the renderer's mesh); `None` for a skinned draw,
     /// whose bones are its own.
     pub(crate) fn batch_key(&self) -> Option<(u32, u32)> {
-        self.bones.is_none().then_some((self.pipeline.id, self.material))
+        (self.bones == [None, None]).then_some((self.pipeline.id, self.material))
     }
 
     /// Whether `next` can be drawn as the next instance of this draw.
@@ -1401,8 +1401,8 @@ impl GameDraw<'_> {
             && self.material == next.material
             && matches!((self.geometry, next.geometry), (Geometry::Mesh(a), Geometry::Mesh(b)) if std::ptr::eq(a, b))
             && self.dynamic == next.dynamic
-            && self.bones.is_none()
-            && next.bones.is_none()
+            && self.bones == [None, None]
+            && next.bones == [None, None]
     }
 }
 
@@ -1583,16 +1583,26 @@ pub(crate) struct GameShaders {
     /// frame where the pipeline draws.
     frames: Blocks,
     /// The frame each pipeline's frame blocks were last written in (by its
-    /// number); the frame's number; and the places written this frame.
+    /// `id - filled_base`); the frame's number; and the places written this frame.
     filled: Vec<u64>,
+    filled_base: u32,
     frame: u64,
     written: Vec<(u32, u32)>,
-    /// Bumped when a buffer the groups bind is made anew.
-    generation: u64,
-    groups: Fast<(u32, u32), [wgpu::BindGroup; 2]>,
+    /// Generation counters bumped independently when storage buffers
+    /// (`data`, `light_table`, `order_buffer`), `bones.buffer`, or
+    /// `frames.buffer` are reallocated.
+    storage_gen: u64,
+    bones_gen: u64,
+    frames_gen: u64,
+    /// Per-(pipeline, material) stage-0 (if stage 0 samples textures) and
+    /// stage-1 bind groups.
+    groups: Fast<(u32, u32), (Option<wgpu::BindGroup>, wgpu::BindGroup)>,
+    /// Shared stage-0 bind group per pipeline whose vertex stage samples no textures.
+    stage0_groups: Fast<u32, wgpu::BindGroup>,
     /// Each pipeline's groups 0 and 1 (a pipeline that reads the
-    /// framebuffer: its group 1 with white for the copies).
-    draw_groups: Fast<u32, [wgpu::BindGroup; 2]>,
+    /// framebuffer: its group 1 with white for the copies), paired with their
+    /// storage and bones generations.
+    draw_groups: Fast<u32, (u64, u64, [wgpu::BindGroup; 2])>,
     /// The group of the draws' values, the same for every pipeline.
     storage_group: Option<wgpu::BindGroup>,
     /// A pipeline's group 1 with the framebuffer's copies, and which.
@@ -1601,9 +1611,11 @@ pub(crate) struct GameShaders {
     fb: Option<FbViews>,
     /// Nearest, clamped: the depth copy's sampler.
     nearest: wgpu::Sampler,
-    groups_generation: u64,
     align: u32,
     next_id: u32,
+    /// Per-clear counter for [`GamePipeline::values`] so `regions` and
+    /// `light_places` stay dense starting from 1 after `clear()`.
+    next_values_id: u32,
 }
 
 /// What a window is told by when a pipeline is ready (it asks for a
@@ -1997,7 +2009,7 @@ impl Worker {
             .zip(visibility)
             .filter_map(|(s, v)| s.bones.as_ref().map(|b| block_entry(b, v, true)))
             .collect();
-        // (The framebuffer's copies with the bones: group 0 stays the same
+        // (Group 1 holds bones and framebuffer copies so group 0 stays the same
         // for every pipeline.)
         if reads_fb {
             bones.extend(fb_layout_entries());
@@ -2245,10 +2257,14 @@ impl GameShaders {
             light_table: storage_buffer(gpu, "game draws' lights", 1 << 12),
             frames: Blocks::new(gpu, "game frame blocks"),
             filled: Vec::new(),
+            filled_base: 0,
             frame: 0,
             written: Vec::new(),
-            generation: 0,
+            storage_gen: 0,
+            bones_gen: 0,
+            frames_gen: 0,
             groups: Fast::default(),
+            stage0_groups: Fast::default(),
             draw_groups: Fast::default(),
             storage_group: None,
             fb_groups: Fast::default(),
@@ -2257,9 +2273,9 @@ impl GameShaders {
                 label: Some("framebuffer depth"),
                 ..Default::default()
             }),
-            groups_generation: 0,
             align: gpu.device.limits().min_uniform_buffer_offset_alignment.max(16),
             next_id: 0,
+            next_values_id: 0,
         }
     }
 
@@ -2269,23 +2285,29 @@ impl GameShaders {
         self.pending.clear();
         self.pipelines.clear();
         self.groups.clear();
+        self.stage0_groups.clear();
         self.draw_groups.clear();
         self.fb_groups.clear();
         self.regions.clear();
+        self.light_places.clear();
         self.templates.clear();
         self.value_ids.clear();
+        self.next_values_id = 0;
         self.filled.clear();
+        self.filled_base = self.next_id;
         self.frames.bytes.clear();
         self.zero_bones = 0;
         self.failures.clear();
     }
 
-    /// Forgets what was made of the renderer's materials (their places
-    /// among its groups are given anew): the bind groups of their textures
-    /// and the values they decide.
-    pub(crate) fn forget_materials(&mut self) {
-        self.groups.clear();
-        self.templates.clear();
+    /// Forgets the bind groups and templates of the renderer materials whose
+    /// slot indices are in `gone`.
+    pub(crate) fn forget_materials_in(&mut self, gone: &std::collections::HashSet<u32>) {
+        if gone.is_empty() {
+            return;
+        }
+        self.groups.retain(|&(_, m), _| !gone.contains(&m));
+        self.templates.retain(|&(_, _, m, _), _| !gone.contains(&m));
     }
 
     pub(crate) fn fail(&mut self, what: &str, why: String) {
@@ -2495,11 +2517,14 @@ impl GameShaders {
                     }
                 }
                 self.next_id += 1;
-                let next = self.next_id;
-                let values = *self
-                    .value_ids
+                let value_ids = &mut self.value_ids;
+                let next_values_id = &mut self.next_values_id;
+                let values = *value_ids
                     .entry((key.vs.clone(), key.fs.clone(), key.no_discard, key.skinned))
-                    .or_insert(next);
+                    .or_insert_with(|| {
+                        *next_values_id += 1;
+                        *next_values_id
+                    });
                 Some(Arc::new(GamePipeline {
                     id: self.next_id,
                     values,
@@ -2600,11 +2625,13 @@ impl GameShaders {
                 };
             }
         }
-        let bones = pipeline.stages[0].bones.as_ref().filter(|_| !d.bones.is_empty()).map(|b| {
-            let at = self.bones.take(b.plan.size, self.align);
-            let end = (at + b.plan.size) as usize;
-            fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
-            at
+        let bones = std::array::from_fn(|s| {
+            pipeline.stages[s].bones.as_ref().filter(|_| !d.bones.is_empty()).map(|b| {
+                let at = self.bones.take(b.plan.size, self.align);
+                let end = (at + b.plan.size) as usize;
+                fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
+                at
+            })
         });
         GameDraw {
             pipeline,
@@ -2634,7 +2661,7 @@ impl GameShaders {
     /// Writes a pipeline's frame blocks, the first time the frame draws
     /// with it.
     fn fill_frame(&mut self, pipeline: &GamePipeline, f: &FrameValues) {
-        let id = pipeline.id as usize;
+        let id = pipeline.id.saturating_sub(self.filled_base) as usize;
         if self.filled.len() <= id {
             self.filled.resize(id + 1, 0);
         }
@@ -2673,7 +2700,8 @@ impl GameShaders {
         }
         if self.data.size() < end.max(16) {
             self.data = storage_buffer(gpu, "game draws' values", end.next_power_of_two());
-            self.generation += 1;
+            self.storage_gen += 1;
+            self.storage_group = None;
         }
         for r in self.regions.iter().flatten().filter(|r| !r.bytes.is_empty()) {
             let at = u64::from(r.base) * u64::from(r.stride.max(16));
@@ -2691,23 +2719,28 @@ impl GameShaders {
         if self.light_table.size() < table.len() as u64 {
             let size = (table.len() as u64).next_power_of_two();
             self.light_table = storage_buffer(gpu, "game draws' lights", size);
-            self.generation += 1;
+            self.storage_gen += 1;
+            self.storage_group = None;
         }
         gpu.queue.write_buffer(&self.light_table, 0, table);
         let order: &[u8] = bytemuck::cast_slice(&self.order);
         if self.order_buffer.size() < order.len() as u64 {
             let size = (order.len() as u64).next_power_of_two();
             self.order_buffer = storage_buffer(gpu, "game draws' order", size);
-            self.generation += 1;
+            self.storage_gen += 1;
+            self.storage_group = None;
         }
         if !order.is_empty() {
             gpu.queue.write_buffer(&self.order_buffer, 0, order);
         }
         if self.bones.fit(gpu) {
-            self.generation += 1;
+            self.bones_gen += 1;
+            self.fb_groups.clear();
         }
         if self.frames.fit(gpu) {
-            self.generation += 1;
+            self.frames_gen += 1;
+            self.groups.clear();
+            self.stage0_groups.clear();
             // (Made anew: every place written again.)
             self.written = vec![(0, self.frames.bytes.len() as u32)];
         }
@@ -2722,9 +2755,12 @@ impl GameShaders {
 
     /// Whether the bind groups `draw` needs are made ([`GameShaders::prepare`]).
     pub(crate) fn prepared(&self, draw: &GameDraw<'_>) -> bool {
-        self.groups_generation == self.generation
+        self.draw_groups
+            .get(&draw.pipeline.id)
+            .is_some_and(|&(sg, bg, _)| sg == self.storage_gen && bg == self.bones_gen)
             && self.groups.contains_key(&(draw.pipeline.id, draw.material))
-            && self.draw_groups.contains_key(&draw.pipeline.id)
+            && (!draw.pipeline.stages[0].textures.is_empty()
+                || self.stage0_groups.contains_key(&draw.pipeline.id))
             && (!draw.pipeline.reads_fb
                 || self.fb_group(draw.pipeline.id).is_some() == self.fb.is_some())
     }
@@ -2769,13 +2805,6 @@ impl GameShaders {
 
     /// Makes the bind groups a draw needs, where they aren't made yet.
     pub(crate) fn prepare(&mut self, gpu: &Gpu, draw: &GameDraw<'_>, views: &MaterialViews<'_>) {
-        if self.groups_generation != self.generation {
-            self.groups.clear();
-            self.draw_groups.clear();
-            self.storage_group = None;
-            self.fb_groups.clear();
-            self.groups_generation = self.generation;
-        }
         let p = &draw.pipeline;
         // (The copies, with the bones in group 1: white in the pipeline's
         // own group 1, this frame's in one made for them.)
@@ -2799,73 +2828,87 @@ impl GameShaders {
                 },
             ]
         };
-        let bones: Vec<wgpu::BindGroupEntry> = p
-            .stages
-            .iter()
-            .filter_map(|s| s.bones.as_ref())
-            .map(|b| wgpu::BindGroupEntry {
-                binding: b.binding,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &self.bones.buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(u64::from(b.plan.size)),
-                }),
-            })
-            .collect();
-        if p.reads_fb
-            && let Some(fb) = &self.fb
-            && self.fb_groups.get(&p.id).is_none_or(|(of, _)| *of != fb.id)
-        {
-            let mut entries = bones.clone();
-            entries.extend(fb_entries(&fb.color, &fb.depth));
-            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("game bones, framebuffer"),
-                layout: &p.layouts[3],
-                entries: &entries,
-            });
-            self.fb_groups.insert(p.id, (fb.id, group));
-        }
-        if !self.draw_groups.contains_key(&p.id) {
-            let storage = self.storage_group.get_or_insert_with(|| {
-                let entries: Vec<wgpu::BindGroupEntry> = STORAGE
+        let need_fb = p.reads_fb
+            && self
+                .fb
+                .as_ref()
+                .is_some_and(|fb| self.fb_groups.get(&p.id).is_none_or(|(of, _)| *of != fb.id));
+        let (prev_sg, prev_bg) =
+            self.draw_groups.get(&p.id).map_or((None, None), |(sg, bg, _)| (Some(*sg), Some(*bg)));
+        let need_storage = prev_sg != Some(self.storage_gen);
+        let need_bones = prev_bg != Some(self.bones_gen);
+        if need_fb || need_storage || need_bones {
+            let make_bones = || -> Vec<wgpu::BindGroupEntry> {
+                p.stages
                     .iter()
-                    .map(|&(name, _, binding)| wgpu::BindGroupEntry {
-                        binding,
-                        resource: match name {
-                            n if n == mg_shader::ORDER => self.order_buffer.as_entire_binding(),
-                            n if n == mg_shader::LIGHT_TABLE => {
-                                self.light_table.as_entire_binding()
-                            }
-                            _ => self.data.as_entire_binding(),
-                        },
+                    .filter_map(|s| s.bones.as_ref())
+                    .map(|b| wgpu::BindGroupEntry {
+                        binding: b.binding,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.bones.buffer,
+                            offset: 0,
+                            size: wgpu::BufferSize::new(u64::from(b.plan.size)),
+                        }),
                     })
-                    .collect();
-                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("game draws"),
-                    layout: &p.layouts[2],
-                    entries: &entries,
-                })
-            });
-            let storage = storage.clone();
-            let mut bones = bones;
-            if p.reads_fb {
-                bones.extend(fb_entries(views.white, views.white));
-            }
-            let group = |label, layout, entries: &[wgpu::BindGroupEntry]| {
-                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some(label),
-                    layout,
-                    entries,
-                })
+                    .collect()
             };
-            let groups = [storage, group("game bones", &p.layouts[3], &bones)];
-            self.draw_groups.insert(p.id, groups);
+            if need_fb && let Some(fb) = &self.fb {
+                let mut entries = make_bones();
+                entries.extend(fb_entries(&fb.color, &fb.depth));
+                let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("game bones, framebuffer"),
+                    layout: &p.layouts[3],
+                    entries: &entries,
+                });
+                self.fb_groups.insert(p.id, (fb.id, group));
+            }
+            if need_storage || need_bones {
+                let storage = if need_storage {
+                    self.storage_group
+                        .get_or_insert_with(|| {
+                            let entries: Vec<wgpu::BindGroupEntry> = STORAGE
+                                .iter()
+                                .map(|&(name, _, binding)| wgpu::BindGroupEntry {
+                                    binding,
+                                    resource: match name {
+                                        n if n == mg_shader::ORDER => {
+                                            self.order_buffer.as_entire_binding()
+                                        }
+                                        n if n == mg_shader::LIGHT_TABLE => {
+                                            self.light_table.as_entire_binding()
+                                        }
+                                        _ => self.data.as_entire_binding(),
+                                    },
+                                })
+                                .collect();
+                            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("game draws"),
+                                layout: &p.layouts[2],
+                                entries: &entries,
+                            })
+                        })
+                        .clone()
+                } else {
+                    self.draw_groups[&p.id].2[0].clone()
+                };
+                let bones_group = if need_bones {
+                    let mut entries = make_bones();
+                    if p.reads_fb {
+                        entries.extend(fb_entries(views.white, views.white));
+                    }
+                    gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("game bones"),
+                        layout: &p.layouts[3],
+                        entries: &entries,
+                    })
+                } else {
+                    self.draw_groups[&p.id].2[1].clone()
+                };
+                self.draw_groups
+                    .insert(p.id, (self.storage_gen, self.bones_gen, [storage, bones_group]));
+            }
         }
-        let key = (p.id, draw.material);
-        if self.groups.contains_key(&key) {
-            return;
-        }
-        let group = |i: usize| {
+        let stage_group = |i: usize| {
             let stage = &p.stages[i];
             let mut entries = Vec::new();
             if let (Some(b), Some(at)) = (&stage.frame, p.frame_at[i]) {
@@ -2909,7 +2952,15 @@ impl GameShaders {
                 entries: &entries,
             })
         };
-        let groups = [group(0), group(1)];
+        let g0_shared = p.stages[0].textures.is_empty();
+        if g0_shared && !self.stage0_groups.contains_key(&p.id) {
+            self.stage0_groups.insert(p.id, stage_group(0));
+        }
+        let key = (p.id, draw.material);
+        if self.groups.contains_key(&key) {
+            return;
+        }
+        let groups = (if g0_shared { None } else { Some(stage_group(0)) }, stage_group(1));
         self.groups.insert(key, groups);
     }
 
@@ -2929,7 +2980,7 @@ impl GameShaders {
         #[allow(clippy::type_complexity)]
         let mut found_for: Option<(
             (u32, u32),
-            &[wgpu::BindGroup; 2],
+            (&Option<wgpu::BindGroup>, &wgpu::BindGroup),
             &[wgpu::BindGroup; 2],
         )> = None;
         while i < draws.len() {
@@ -2949,14 +3000,29 @@ impl GameShaders {
             // looked up once.)
             let found = match found_for {
                 Some((at, groups, own)) if at == (id, d.material) => Some((groups, own)),
-                _ => self.groups.get(&(id, d.material)).zip(self.draw_groups.get(&id)),
+                _ => self
+                    .groups
+                    .get(&(id, d.material))
+                    .map(|(g0, g1)| (g0, g1))
+                    .zip(self.draw_groups.get(&id).map(|(_, _, g)| g)),
             };
             let Some((groups, own)) = found else { continue };
             found_for = Some(((id, d.material), groups, own));
             // (A pipeline of skinned meshes binds each draw's bones; the
             // others, the zeros once.)
-            let skinned = d.pipeline.skin_slot.is_some() && d.pipeline.stages[0].bones.is_some();
-            let has_bones = d.pipeline.stages[0].bones.is_some();
+            let stage_has =
+                [d.pipeline.stages[0].bones.is_some(), d.pipeline.stages[1].bones.is_some()];
+            let any_bones = stage_has[0] || stage_has[1];
+            let skinned = d.pipeline.skin_slot.is_some() && any_bones;
+            let mut bone_offsets = [0u32; 2];
+            let mut offset_len = 0usize;
+            for (has, at) in stage_has.into_iter().zip(d.bones) {
+                if has {
+                    bone_offsets[offset_len] = if skinned { at.unwrap_or(0) } else { 0 };
+                    offset_len += 1;
+                }
+            }
+            let bone_offsets = &bone_offsets[..offset_len];
             if *pipeline != Some(id) {
                 pass.set_pipeline(&d.pipeline.pipeline);
                 *pipeline = Some(id);
@@ -2974,21 +3040,22 @@ impl GameShaders {
                     *storage = true;
                 }
                 if !skinned {
-                    let zeros: &[u32] = if has_bones { &[0] } else { &[] };
-                    pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), zeros);
+                    pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
                 }
             }
             if skinned {
                 // (Its bones, or the zeros of a draw without.)
-                pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), &[d.bones.unwrap_or(0)]);
+                pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
             }
             if *material != Some(d.material) {
                 // (A vertex program that samples no texture binds the same
                 // for every material: once a pipeline.)
-                if material.is_none() || !d.pipeline.stages[0].textures.is_empty() {
-                    pass.set_bind_group(STAGE_GROUPS[0], &groups[0], &[]);
+                if (material.is_none() || !d.pipeline.stages[0].textures.is_empty())
+                    && let Some(g0) = groups.0.as_ref().or_else(|| self.stage0_groups.get(&id))
+                {
+                    pass.set_bind_group(STAGE_GROUPS[0], g0, &[]);
                 }
-                pass.set_bind_group(STAGE_GROUPS[1], &groups[1], &[]);
+                pass.set_bind_group(STAGE_GROUPS[1], groups.1, &[]);
                 *material = Some(d.material);
                 *materials += 1;
             }

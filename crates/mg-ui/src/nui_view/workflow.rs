@@ -218,13 +218,11 @@ pub(super) fn ui(
                     ui.ctx().data_mut(|d| d.insert_temp(id, to));
                 });
                 // A handler that shows it calls its function: removing it would break the build.
-                let call = format!("{}(", mg_nui::variant_function(window, name));
-                let shown = script.is_some_and(|t| {
-                    t.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&call))
-                }) || s
-                    .handlers
-                    .iter()
-                    .any(|r| matches!(&r.action, mg_nui::Action::Variant { variant: view, .. } if view==name));
+                let func = mg_nui::variant_function(window, name);
+                let shown = script.is_some_and(|t| mg_nui::script_calls_function(t, &func))
+                    || s.handlers
+                        .iter()
+                        .any(|r| matches!(&r.action, mg_nui::Action::Variant { variant: view, .. } if view==name));
                 if ui
                     .add_enabled(!shown, egui::Button::new("Remove"))
                     .on_disabled_hover_text(

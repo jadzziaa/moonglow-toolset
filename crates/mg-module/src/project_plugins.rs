@@ -314,6 +314,38 @@ fn value_of(v: &SettingValue) -> toml_edit::Value {
     }
 }
 
+fn table_is_uncommented_empty(t: &toml_edit::Table) -> bool {
+    let said = t.decor().prefix().and_then(|p| p.as_str()).is_some_and(|p| p.contains('#'));
+    t.is_empty() && !said
+}
+
+fn remove_plugin_setting(plugins: &mut toml_edit::Table, id: &str, name: &str) {
+    if let Some(t) = plugins.get_mut(id).and_then(|i| i.as_table_mut()) {
+        t.remove(name);
+        if table_is_uncommented_empty(t) {
+            plugins.remove(id);
+        }
+        return;
+    }
+    let Some(at) = id.match_indices('.').map(|(i, _)| i).find(|&i| {
+        plugins.get(&id[..i]).is_some_and(|t| {
+            t.as_table().is_some_and(|t| {
+                let rest = &id[i + 1..];
+                t.get(rest).is_some_and(|x| x.is_table()) || rest.contains('.')
+            })
+        })
+    }) else {
+        return;
+    };
+    let (head, rest) = (&id[..at], &id[at + 1..]);
+    if let Some(sub) = plugins.get_mut(head).and_then(|i| i.as_table_mut()) {
+        remove_plugin_setting(sub, rest, name);
+        if table_is_uncommented_empty(sub) {
+            plugins.remove(head);
+        }
+    }
+}
+
 /// The text of a file with a plugin's setting set to `value` (or, `None`,
 /// taken out), the rest as written.
 pub fn with_setting(
@@ -341,17 +373,7 @@ pub fn with_setting(
                 }
             }
         }
-        None => {
-            if let Some(t) = plugin_table(plugins, id) {
-                t.remove(name);
-                // (Left empty, it goes; but not a comment written over it.)
-                let said =
-                    t.decor().prefix().and_then(|p| p.as_str()).is_some_and(|p| p.contains('#'));
-                if t.is_empty() && !said {
-                    plugins.remove(id);
-                }
-            }
-        }
+        None => remove_plugin_setting(plugins, id, name),
     }
     Ok(())
 }
@@ -530,5 +552,21 @@ mod tests {
                 let _ = with_setting(&mut doc, "c.d", "y", None);
             }
         }
+    }
+
+    #[test]
+    fn removing_last_setting_of_nested_table_prunes_empty_tables() {
+        let mut doc: toml_edit::DocumentMut =
+            "[plugins.a.b]\nx = 1\n[plugins.c.d]\ny = 2\n[plugins.c.e]\nz = 3\n# keep comment\n[plugins.f.g]\nk = 4\n"
+                .parse()
+                .unwrap();
+        with_setting(&mut doc, "a.b", "x", None).unwrap();
+        with_setting(&mut doc, "c.d", "y", None).unwrap();
+        with_setting(&mut doc, "f.g", "k", None).unwrap();
+        let out = doc.to_string();
+        assert!(!out.contains("[plugins.a"), "{out}");
+        assert!(!out.contains("[plugins.c.d]"), "{out}");
+        assert!(out.contains("[plugins.c.e]"), "{out}");
+        assert!(out.contains("[plugins.f.g]"), "{out}");
     }
 }

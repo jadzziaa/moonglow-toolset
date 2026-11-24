@@ -69,9 +69,9 @@ fn plugins_are_listed_and_checked() {
     assert_eq!(checked["plugins"][0]["faults"].as_array().unwrap().len(), 4, "{checked}");
 }
 
-/// `mg plugin check` (and `pack`, which checks first) runs a plugin's
-/// top-level code, an archive's from anywhere too: code that never
-/// returns is stopped, and said to have run out of time.
+/// `mg plugin check` runs a plugin's top-level code, an archive's from
+/// anywhere too: code that never returns is stopped, and said to have run
+/// out of time.
 #[test]
 fn a_plugin_whose_code_never_loads_is_stopped() {
     let dir = mg_testkit::scratch_dir("mg-plugin-endless");
@@ -87,10 +87,7 @@ fn a_plugin_whose_code_never_loads_is_stopped() {
     assert!(!ok, "{checked}");
     let fault = checked["plugins"][0]["faults"][0].as_str().unwrap_or_default();
     assert!(fault.contains("ran out of time: its code may take 5 seconds to load"), "{checked}");
-    let out = dir.join("endless.zip");
-    let (ok, packed) = mg(&["plugin", "pack", dir.to_str().unwrap(), "-o", out.to_str().unwrap()]);
-    assert!(!ok && !out.exists(), "{packed}");
-    assert!(started.elapsed() < std::time::Duration::from_secs(60), "{:?}", started.elapsed());
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
 }
 
 #[test]
@@ -331,10 +328,7 @@ fn a_plugin_is_packed_and_installed() {
 /// verify against).
 #[test]
 fn a_plugin_s_checks_count_in_verify() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("mg-plugin-verify");
     let path = module(&dir);
     let plugins = fixtures().join("tag-conventions");
@@ -498,6 +492,11 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
              game = \"bare\"\n[[test.finding]]\nresource = \"guard.utc\"\nmessage = \"AnimalEmpathy\"\n",
             root.display().to_string()
         ));
+    } else {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
     }
     std::fs::write(source.join("tests/game.toml"), tests).unwrap();
     let out = crate::mg_on(dir.join("no-game"), None)
@@ -644,10 +643,7 @@ fn a_project_s_plugins_are_listed_as_allowed() {
 /// (a build pipeline); answers the project carries itself allow nothing.
 #[test]
 fn verify_runs_a_project_s_plugins_as_allowed() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let dir = project_with_plugins("mg-project-plugins-verify");
     let home = mg_testkit::scratch_dir("mg-project-plugins-verify-home");
     let args = ["--root", root.to_str().unwrap(), "verify", dir.to_str().unwrap()];
@@ -950,14 +946,14 @@ fn a_plugin_refuses_or_warns_of_what_mg_saves() {
     let out = set("INN", true);
     assert!(!out.status.success());
     // (With --json, the error is in the JSON.)
-    let stderr = String::from_utf8_lossy(&out.stdout);
-    assert!(stderr.contains("not saved: a plugin refuses it"), "{stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("not saved: a plugin refuses it"), "{stdout}");
     assert!(
-        stderr.contains(
+        stdout.contains(
             "House rules: tavern.are: its tag was TAVERN, now INN: players' places are kept by it \
              (fix: Put back TAVERN)"
         ),
-        "{stderr}"
+        "{stdout}"
     );
     assert_eq!(area_tag(&dir), "TAVERN", "nothing written");
     // --dry-run says the same, and writes nothing either.

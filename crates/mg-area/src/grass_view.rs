@@ -16,10 +16,10 @@
 //! put into one mesh, made the first time the chunk is seen (on a thread
 //! of its own, [`crate::AreaScene::grow_grass`]) and kept: a large area seen
 //! from high up is some sixty draws of grass rather than a thousand. Until
-//! a chunk's mesh is made, its tiles are drawn by themselves, with the
-//! same tufts: nothing in the picture changes when it is.
+//! a chunk's mesh is made, its tiles are drawn individually with per-tile
+//! wind sway (`SWAY_NODE`), whereas completed chunk meshes are static.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, mpsc};
 
 use glam::{Mat4, Vec3};
@@ -84,21 +84,28 @@ pub fn chunk_of(position: Vec3) -> (i32, i32) {
 /// or far. A chunk all of whose grass is at the last level is drawn whole;
 /// the grass of the others, tile by tile.
 pub fn grass_chosen(grown: &[Grown], sight: &Sight) -> Vec<GrassDraw> {
-    let mut chunks: BTreeMap<(i32, i32), Vec<&Grown>> = BTreeMap::new();
-    for g in grown {
-        chunks.entry(chunk_of(g.1)).or_default().push(g);
-    }
+    let mut entries: Vec<((i32, i32), &Grown)> = grown.iter().map(|g| (chunk_of(g.1), g)).collect();
+    // Stable sort keeps tiles within each chunk in their input order, matching the former BTreeMap.
+    entries.sort_by_key(|&(k, _)| k);
     let mut out = Vec::new();
-    for (key, tiles) in chunks {
-        let (centre, radius) = around(tiles.iter().map(|g| (g.2, g.3)));
+    let mut start = 0;
+    while start < entries.len() {
+        let key = entries[start].0;
+        let mut end = start + 1;
+        while end < entries.len() && entries[end].0 == key {
+            end += 1;
+        }
+        let tiles = &entries[start..end];
+        start = end;
+        let (centre, radius) = around(tiles.iter().map(|(_, g)| (g.2, g.3)));
         if sight.frustum.hides(centre, radius) {
             continue;
         }
         if level(sight.distance(centre, radius)) == FAR {
-            out.push(GrassDraw::Chunk(key, tiles.iter().map(|g| g.0).collect()));
+            out.push(GrassDraw::Chunk(key, tiles.iter().map(|(_, g)| g.0).collect()));
             continue;
         }
-        for &&(i, _, centre, radius) in &tiles {
+        for &(_, &(i, _, centre, radius)) in tiles {
             if !sight.frustum.hides(centre, radius) {
                 out.push(GrassDraw::Tile(i, level(sight.distance(centre, radius))));
             }
@@ -256,15 +263,17 @@ impl ChunkGrass {
     }
 }
 
-/// A chunk to put together: the GPU, the chunk, and what of.
-type Job = (Gpu, (i32, i32), MadeOf);
+/// A chunk to put together: the generation, GPU, chunk, and what of.
+type Job = (u64, Gpu, (i32, i32), MadeOf);
 
 /// Puts chunks together on a thread of its own, so that no frame waits on
 /// one: a frame hands them over and takes those that are ready.
 #[derive(Debug)]
 pub(crate) struct ChunkWorker {
     jobs: mpsc::Sender<Job>,
-    done: mpsc::Receiver<((i32, i32), Option<ChunkGrass>)>,
+    done: mpsc::Receiver<(u64, (i32, i32), Option<ChunkGrass>)>,
+    /// Invalidates in-flight results from earlier grass/tile configurations.
+    generation: u64,
     /// The chunks handed over and not yet taken back.
     pending: HashSet<(i32, i32)>,
     /// Those that failed (drawn tile by tile from then on).
@@ -279,30 +288,45 @@ impl ChunkWorker {
         std::thread::Builder::new()
             .name("grass chunks".into())
             .spawn(move || {
-                for (gpu, key, tiles) in todo {
+                for (generation, gpu, key, tiles) in todo {
                     let chunk =
                         mg_render::guard::guarded("grass", || ChunkGrass::new(&gpu, key, tiles));
-                    if made.send((key, chunk)).is_err() {
+                    if made.send((generation, key, chunk)).is_err() {
                         break;
                     }
                 }
             })
             .ok()?;
         let (pending, failed) = (HashSet::new(), HashSet::new());
-        Some(ChunkWorker { jobs, done, pending, failed })
+        Some(ChunkWorker { jobs, done, generation: 0, pending, failed })
+    }
+
+    /// Invalidates in-flight jobs and forgets previous chunk failures.
+    pub(crate) fn reset(&mut self) {
+        self.generation += 1;
+        self.pending.clear();
+        self.failed.clear();
+    }
+
+    /// Retries previously failed chunks without cancelling valid in-flight work.
+    pub(crate) fn clear_failed(&mut self) {
+        self.failed.clear();
     }
 
     /// Hands chunk `key` over, unless it is being made already (or failed).
     pub(crate) fn make(&mut self, gpu: &Gpu, key: (i32, i32), tiles: MadeOf) {
         if !self.failed.contains(&key) && self.pending.insert(key) {
-            let _ = self.jobs.send((gpu.clone(), key, tiles));
+            let _ = self.jobs.send((self.generation, gpu.clone(), key, tiles));
         }
     }
 
     /// The chunks made since the last call.
     pub(crate) fn made(&mut self) -> Vec<((i32, i32), ChunkGrass)> {
         let mut out = Vec::new();
-        while let Ok((key, chunk)) = self.done.try_recv() {
+        while let Ok((generation, key, chunk)) = self.done.try_recv() {
+            if generation != self.generation {
+                continue;
+            }
             self.pending.remove(&key);
             match chunk {
                 Some(c) => out.push((key, c)),
@@ -453,5 +477,26 @@ mod tests {
         assert_eq!(last, FAR);
         let levels = crate::grass::LEVELS;
         assert!(levels.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 > w[1].1));
+    }
+
+    #[test]
+    fn chunk_worker_reset_clears_failed_and_drops_stale_generations() {
+        let (jobs_tx, _jobs_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let mut worker = ChunkWorker {
+            jobs: jobs_tx,
+            done: done_rx,
+            generation: 0,
+            pending: HashSet::from([(1, 1)]),
+            failed: HashSet::from([(2, 2)]),
+        };
+        done_tx.send((0, (1, 1), None)).unwrap();
+        worker.reset();
+        assert_eq!(worker.generation, 1);
+        assert!(worker.failed.is_empty());
+        assert!(worker.pending.is_empty());
+        // Stale gen 0 failure must not re-blacklist (1, 1) after reset.
+        assert!(worker.made().is_empty());
+        assert!(!worker.failed.contains(&(1, 1)));
     }
 }

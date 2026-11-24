@@ -92,6 +92,38 @@ pub(crate) fn app_in(mode: Mode, open: Vec<std::path::PathBuf>) -> Moonglow {
     app
 }
 
+/// Shared base `GameData` components (`ResMan` base keys/dirs + `Arc<Tlk>`),
+/// creating a fresh `GameData` (whose caches and module layers stay isolated)
+/// without re-reading KEY/BIF/dialog.tlk across hundreds of UI tests.
+fn shared_game_data_for(install: &mg_resman::GameInstall) -> Option<mg_rules::GameData> {
+    static TLK: mg_testkit::Shared<
+        (std::path::PathBuf, String),
+        Option<std::sync::Arc<mg_tlk::Tlk>>,
+    > = mg_testkit::Shared::new();
+    let resman = mg_testkit::shared_resman(install).ok()?;
+    let key = (install.root.clone(), install.language.clone());
+    let tlk =
+        TLK.get(&key, || mg_rules::GameData::open_tlk(install).ok().map(std::sync::Arc::new))?;
+    Some(mg_rules::GameData::with_shared_tlk(resman, tlk))
+}
+
+/// Shared base `GameData` components (`ResMan` base keys/dirs + `Arc<Tlk>`),
+/// creating a fresh `GameData` (whose caches and module layers stay isolated)
+/// without re-reading KEY/BIF/dialog.tlk across hundreds of UI tests.
+pub(crate) fn shared_game_data(
+    root: &std::path::Path,
+    user: Option<std::path::PathBuf>,
+) -> mg_rules::GameData {
+    shared_game_data_for(&mg_resman::GameInstall::new(root, user, "en"))
+        .expect("open base game data")
+}
+
+/// Opens `Moonglow` with shared immutable base game resources.
+pub(crate) fn open_game_app(install: mg_resman::GameInstall, dialogs: NoDialogs) -> Moonglow {
+    let game = shared_game_data_for(&install);
+    Moonglow::new_with_game(Some(install), game, Box::new(dialogs))
+}
+
 /// The application on the game installed at `root`, in English, with
 /// `user` as the game's user folder (`None`: none), its dialogs answered
 /// by `dialogs`.
@@ -100,7 +132,7 @@ pub(crate) fn game_app_with(
     user: Option<std::path::PathBuf>,
     dialogs: NoDialogs,
 ) -> Moonglow {
-    Moonglow::new(Some(mg_resman::GameInstall::new(root, user, "en")), Box::new(dialogs))
+    open_game_app(mg_resman::GameInstall::new(root, user, "en"), dialogs)
 }
 
 /// [`game_app_with`] answering no dialogs.
@@ -111,16 +143,72 @@ pub(crate) fn game_app(
     game_app_with(root, user, NoDialogs::default())
 }
 
-/// `app`'s window in a harness `width` by `height` points, drawn (by
-/// `render`, `snapshot`) on a GPU device of kittest's own: a test that
-/// draws takes the GPU first (`mg_testkit::gpu::hold`).
-pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
-    let h = Harness::builder()
-        .with_size(egui::vec2(width, height))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+std::thread_local! {
+    static USE_SHARED_GPU: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn using_shared_renderer() -> bool {
+    USE_SHARED_GPU.with(std::cell::Cell::get)
+}
+
+pub(crate) struct SharedRendererGuard(bool);
+
+impl Drop for SharedRendererGuard {
+    fn drop(&mut self) {
+        USE_SHARED_GPU.with(|cell| cell.set(self.0));
+    }
+}
+
+/// Attaches a fresh renderer sharing the cached GPU device to subsequent
+/// [`harness`] and UI area harnesses on this thread until dropped.
+pub(crate) fn with_shared_renderer() -> SharedRendererGuard {
+    let prev = USE_SHARED_GPU.with(|cell| cell.replace(true));
+    SharedRendererGuard(prev)
+}
+
+fn build_harness(
+    app: Moonglow,
+    width: f32,
+    height: f32,
+    step_dt: Option<f32>,
+    rs: Option<egui_wgpu::RenderState>,
+) -> Harness<'static, Moonglow> {
+    let mut b = Harness::builder().with_size(egui::vec2(width, height));
+    if let Some(dt) = step_dt {
+        b = b.with_step_dt(dt);
+    }
+    if let Some(rs) = rs.or_else(|| using_shared_renderer().then(gpu).flatten()) {
+        b = b.renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs));
+    }
+    let mut recorded = false;
+    let h = b.build_ui_state(
+        move |ui, app: &mut Moonglow| {
+            if !recorded {
+                recorded = true;
+                mg_uikit::header::record_headers(ui.ctx());
+                mg_ui::widgets::record_footers(ui.ctx());
+            }
+            app.ui(ui)
+        },
+        app,
+    );
     // (Which icons are drawn where, for a test to ask: [`icon_drawn`].)
     mg_uikit::record_icons(&h.ctx);
     h
+}
+
+/// `app`'s window in a harness `width` by `height` points, drawn (by
+/// `render`, `snapshot`) on a GPU device of kittest's own unless
+/// [`with_shared_renderer`] is active: a test that draws takes the GPU
+/// first (`mg_testkit::gpu::hold`).
+pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
+    build_harness(app, width, height, None, None)
+}
+
+/// [`harness`] with frames a 60th of a second apart, as on a screen (for
+/// what moves over time: a smooth scroll, a double click).
+pub(crate) fn timed_harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
+    build_harness(app, width, height, Some(1.0 / 60.0), None)
 }
 
 /// The Left Dock unfolded by hand where the window's width folds it (a
@@ -185,6 +273,9 @@ pub(crate) fn game_data_in(
     root: &std::path::Path,
     user: Option<std::path::PathBuf>,
 ) -> mg_rules::GameData {
+    if user.is_none() {
+        return shared_game_data(root, None);
+    }
     mg_rules::GameData::open(&mg_resman::GameInstall::new(root, user, "en")).unwrap()
 }
 
@@ -198,9 +289,18 @@ pub(crate) fn window_harness(app: Moonglow) -> Harness<'static, Moonglow> {
 /// each event it queues a frame of its own, a quarter of a second by
 /// default, longer than egui's double-click time), a second past any
 /// click before at 60 frames a second (else the three are a triple click).
+/// Advances egui's simulated input clock by `seconds` in one frame step,
+/// avoiding multi-second 60-step frame burns for timers and double-click delays.
+pub(crate) fn advance_clock(h: &mut Harness<'_, Moonglow>, seconds: f64) {
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + seconds);
+    h.run_steps(1);
+    h.input_mut().time = None;
+}
+
 pub(crate) fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     h.hover_at(at);
-    h.run_steps(60);
+    advance_clock(h, 1.0);
     let button = egui::PointerButton::Primary;
     for pressed in [true, false, true, false] {
         let modifiers = egui::Modifiers::NONE;
@@ -303,10 +403,20 @@ pub(crate) fn gpu() -> Option<egui_wgpu::RenderState> {
         eprintln!("skipped: no GPU adapter");
         return None;
     }
-    Some(egui_kittest::wgpu::create_render_state(
-        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+    static BASE: std::sync::OnceLock<egui_wgpu::RenderState> = std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        egui_kittest::wgpu::create_render_state(
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        )
+    });
+    let mut rs = base.clone();
+    rs.renderer = std::sync::Arc::new(egui::epaint::mutex::RwLock::new(egui_wgpu::Renderer::new(
+        &rs.device,
+        rs.target_format,
         egui_wgpu::RendererOptions::PREDICTABLE,
-    ))
+    )));
+    Some(rs)
 }
 
 /// Whether this machine has a GPU adapter (CI's Linux runner has none):
@@ -342,12 +452,7 @@ pub(crate) fn gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    let h = Harness::builder()
-        .with_size(egui::vec2(width, height))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    mg_uikit::record_icons(&h.ctx);
-    h
+    build_harness(app, width, height, None, Some(rs))
 }
 
 /// [`gpu_harness`] for an area view: frames a 60th of a second apart, so
@@ -359,13 +464,7 @@ pub(crate) fn area_gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    let h = Harness::builder()
-        .with_size(egui::vec2(width, height))
-        .with_step_dt(1.0 / 60.0)
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    mg_uikit::record_icons(&h.ctx);
-    h
+    build_harness(app, width, height, Some(1.0 / 60.0), Some(rs))
 }
 
 /// What a key pressed with `modifiers` came to in its frame (pressed in
@@ -463,7 +562,7 @@ pub(crate) fn blueprint_harness_in(
         eprintln!("skipped: no game install");
         return None;
     };
-    let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
+    let dir = mg_testkit::scratch_dir(&crate::dialog_pattern::scratch(&format!("ui-bp-{copy}")));
     let path = sample_module(&dir);
     let mut app = game_app(&root, user);
     put_in(&mut app, mode);
@@ -677,9 +776,6 @@ pub(crate) fn header_holds<S>(h: &mut Harness<'_, S>, group: &str, names: &[&str
     header_holds_nth(h, group, 0, names);
 }
 
-/// [`header_holds`] for the `nth` header named `group` (by where it is:
-/// top to bottom, then left to right; `mg_uikit::header::records`).
-#[track_caller]
 /// Runs frames until the window rests, as [`settle`] does for any state:
 /// a view with work of its own under way (a table's look read on a
 /// thread, which asks for frames until it is done) is waited for, not
@@ -696,6 +792,9 @@ pub(crate) fn rest<S>(h: &mut Harness<'_, S>) {
     }
 }
 
+/// [`header_holds`] for the `nth` header named `group` (by where it is:
+/// top to bottom, then left to right; `mg_uikit::header::records`).
+#[track_caller]
 pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usize, names: &[&str]) {
     use mg_uikit::header::{self, Place};
     let record = |h: &Harness<'_, S>| {
@@ -1778,6 +1877,40 @@ pub(crate) fn area_harness_with(
     Some((h, area))
 }
 
+/// Non-GPU counterpart of [`area_app`] returning `(app, area)` without taking the GPU lock.
+pub(crate) fn area_ui_app(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+    user: Option<std::path::PathBuf>,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Moonglow, ResRef)> {
+    let (app, _, area) = area_app_with(name, tileset, tile, side, user, false, prepare)?;
+    Some((app, area))
+}
+
+/// Pure-UI area harness (no GPU device or `gpu::hold()`), rendering UI panels,
+/// docks, toolbars, and forms without a 3D viewport.
+pub(crate) fn area_ui_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    area_ui_harness_with(name, "ttr01", None, 4, None, &|_, _, _| {})
+}
+
+/// [`area_ui_harness`] with custom tileset, tile, size, user dir, and module setup.
+pub(crate) fn area_ui_harness_with(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+    user: Option<std::path::PathBuf>,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (app, area) = area_ui_app(name, tileset, tile, side, user, prepare)?;
+    let mut h = build_harness(app, AREA_HARNESS_WIDTH, 800.0, Some(1.0 / 60.0), None);
+    h.run_steps(3);
+    Some((h, area))
+}
+
 /// What [`area_harness_with`] puts in its harness: the application with
 /// the module open and its area's tab asked for, the GPU's render state
 /// (given to it) and the area.
@@ -1789,55 +1922,104 @@ pub(crate) fn area_app(
     user: Option<std::path::PathBuf>,
     prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
 ) -> Option<(Moonglow, egui_wgpu::RenderState, ResRef)> {
+    let (app, rs, area) = area_app_with(name, tileset, tile, side, user, true, prepare)?;
+    Some((app, rs?, area))
+}
+
+fn area_app_with(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+    user: Option<std::path::PathBuf>,
+    with_gpu: bool,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Moonglow, Option<egui_wgpu::RenderState>, ResRef)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
-    let rs = gpu()?;
-    let install = mg_resman::GameInstall::new(&root, user, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
-    let mut rng = fastrand::Rng::with_seed(7);
-    let mut m = new_module(&game, "Area View", &mut rng).unwrap();
-    let spec = AreaSpec {
-        name: "Field".into(),
-        tileset: ResRef::from_str(tileset).unwrap(),
-        width: side,
-        height: side,
+    let rs = if with_gpu { Some(gpu()?) } else { None };
+    let install = mg_resman::GameInstall::new(&root, user.clone(), "en");
+    let game = shared_game_data(&root, user.clone());
+    type StarterKey = (std::path::PathBuf, String, Option<i32>, u32);
+    static STARTER: mg_testkit::Shared<StarterKey, (ResRef, Module)> = mg_testkit::Shared::new();
+    let build = || {
+        let mut rng = fastrand::Rng::with_seed(7);
+        let mut m = new_module(&game, "Area View", &mut rng).unwrap();
+        let spec = AreaSpec {
+            name: "Field".into(),
+            tileset: ResRef::from_str(tileset).unwrap(),
+            width: side,
+            height: side,
+        };
+        let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+        if let Some(id) = tile {
+            let key = ResKey::new(area, ResType::ARE);
+            let mut are = m.gff(&key).unwrap().unwrap();
+            let t = &mut are.root.list_mut("Tile_List").unwrap()[5];
+            t.set("Tile_ID", mg_gff::Value::Int(id));
+            t.set("Tile_Orientation", mg_gff::Value::Int(0));
+            t.set("Tile_Height", mg_gff::Value::Int(0));
+            m.set_gff(key, &are).unwrap();
+        }
+        let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+        let bp = Gff::read(&bp).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let waypoints = [20.0, 30.0]
+            .map(|x| {
+                let at = Placement { position: [x, 20.0, 0.0], rotation: 0.3 };
+                instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap()
+            })
+            .to_vec();
+        git.root.set("WaypointList", mg_gff::Value::List(waypoints));
+        m.set_gff(git_key, &git).unwrap();
+        (m, area)
     };
-    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
-    if let Some(id) = tile {
-        let key = ResKey::new(area, ResType::ARE);
-        let mut are = m.gff(&key).unwrap().unwrap();
-        let t = &mut are.root.list_mut("Tile_List").unwrap()[5];
-        t.set("Tile_ID", mg_gff::Value::Int(id));
-        t.set("Tile_Orientation", mg_gff::Value::Int(0));
-        t.set("Tile_Height", mg_gff::Value::Int(0));
-        m.set_gff(key, &are).unwrap();
-    }
-    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
-    let bp = Gff::read(&bp).unwrap();
-    let git_key = ResKey::new(area, ResType::GIT);
-    let mut git = m.gff(&git_key).unwrap().unwrap();
-    let none = |_: ResRef| None;
-    let placing = Placing { game: &game, item: &none };
-    let waypoints = [20.0, 30.0]
-        .map(|x| {
-            let at = Placement { position: [x, 20.0, 0.0], rotation: 0.3 };
-            instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap()
-        })
-        .to_vec();
-    git.root.set("WaypointList", mg_gff::Value::List(waypoints));
-    m.set_gff(git_key, &git).unwrap();
+    let (mut m, area) = if user.is_none() {
+        let key = (root.clone(), tileset.to_string(), tile, side);
+        let (area, tmpl) = STARTER.get(&key, || {
+            let (m, area) = build();
+            (area, m)
+        });
+        (tmpl, area)
+    } else {
+        build()
+    };
     prepare(&mut m, &game, area);
     let path = mg_testkit::scratch_dir(&format!("ui-area-{name}")).join("area.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
-    app.set_render_state(rs.clone());
+    let mut app =
+        Moonglow::new_with_game(Some(install), Some(game), Box::new(NoDialogs::default()));
+    if let Some(rs) = &rs {
+        app.set_render_state(rs.clone());
+    }
     // (Moonglow's own shader, chosen: the area view tests' pictures don't
     // change as the game's programs are made.)
     app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     Some((app, rs, area))
+}
+
+/// Non-GPU [`read_only_area_harness`] for layout, permissions, and panel tests.
+pub(crate) fn read_only_area_ui_harness(
+    name: &str,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    read_only_area_ui_harness_with(name, "")
+}
+
+/// Non-GPU [`read_only_area_harness_with`].
+pub(crate) fn read_only_area_ui_harness_with(
+    name: &str,
+    rows: &str,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (app, _, area) = read_only_area_app_with(name, rows, false, &|_, _, _| {})?;
+    let mut h = build_harness(app, 1100.0, 800.0, Some(1.0 / 60.0), None);
+    h.run_steps(3);
+    Some((h, area))
 }
 
 /// [`area_harness`]'s area with a chest at 12, 20, in a project folder
@@ -1864,6 +2046,18 @@ pub(crate) fn read_only_area_harness_prepared(
     rows: &str,
     prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (app, rs, area) = read_only_area_app_with(name, rows, true, prepare)?;
+    let mut h = area_gpu_harness(app, rs?, 1100.0, 800.0);
+    h.run_steps(3);
+    Some((h, area))
+}
+
+fn read_only_area_app_with(
+    name: &str,
+    rows: &str,
+    with_gpu: bool,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Moonglow, Option<egui_wgpu::RenderState>, ResRef)> {
     let chest = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
         use mg_module::instances::{Placement, Placing, instance};
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -1878,7 +2072,7 @@ pub(crate) fn read_only_area_harness_prepared(
         m.set_gff(git_key, &git).unwrap();
         prepare(m, game, area);
     };
-    let (mut app, rs, area) = area_app(name, "ttr01", None, 4, None, &chest)?;
+    let (mut app, rs, area) = area_app_with(name, "ttr01", None, 4, None, with_gpu, &chest)?;
     // The same module as a project folder that names a claims table.
     let mut m = app.ws.as_ref()?.module.clone();
     let dir = mg_testkit::scratch_dir(&format!("ui-area-{name}-project"));
@@ -1894,9 +2088,7 @@ pub(crate) fn read_only_area_harness_prepared(
     mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
     app.open_module(&dir);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
-    h.run_steps(3);
-    Some((h, area))
+    Some((app, rs, area))
 }
 
 /// A waypoint's position in the workspace's GIT.
@@ -2714,10 +2906,193 @@ pub(crate) fn page(h: &mut Harness<'_, Moonglow>, name: &str) {
 /// The page `name` of the form in front, as drawn on its one scroll (a
 /// group named "Basic page"): what a test looks for on that page alone,
 /// the pages beside it in view too.
+#[track_caller]
 pub(crate) fn in_page<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
-    // (Leaked: a query holds its label as long as what it finds.)
-    let group: &'static str = format!("{name}{}", mg_uikit::pages::PAGE_GROUP).leak();
-    h.get_all_by_label(group).last().unwrap_or_else(|| panic!("no {group} drawn"))
+    let group = format!("{name}{}", mg_uikit::pages::PAGE_GROUP);
+    h.query_all_by(move |n| n.label().as_deref() == Some(group.as_str()))
+        .last()
+        .unwrap_or_else(|| panic!("no {name}{} drawn", mg_uikit::pages::PAGE_GROUP))
+}
+
+pub(crate) fn shot_dir(name: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("MG_SHOT").map(|_| mg_testkit::scratch_dir(name))
+}
+
+pub(crate) fn pos_to_pixel(pos: egui::Pos2, ppp: f32) -> (u32, u32) {
+    ((pos.x * ppp).round().max(0.0) as u32, (pos.y * ppp).round().max(0.0) as u32)
+}
+
+pub(crate) fn crop_rect(
+    img: &image::RgbaImage,
+    rect: egui::Rect,
+    ppp: f32,
+    inset: f32,
+) -> image::RgbaImage {
+    let r = rect.shrink(inset);
+    let x = ((r.min.x * ppp).round().max(0.0) as u32).min(img.width());
+    let y = ((r.min.y * ppp).round().max(0.0) as u32).min(img.height());
+    let w = ((r.width() * ppp).round().max(0.0) as u32).min(img.width().saturating_sub(x));
+    let h = ((r.height() * ppp).round().max(0.0) as u32).min(img.height().saturating_sub(y));
+    image::imageops::crop_imm(img, x, y, w, h).to_image()
+}
+
+/// Frames until `done` holds, for twenty seconds at most, failing with `what`.
+#[track_caller]
+pub(crate) fn until(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 20, "never: {what}");
+        h.step();
+    }
+}
+
+/// Frames until the Status Bar says each of `what` (drawn) and none of `not`.
+#[track_caller]
+pub(crate) fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
+    let started = std::time::Instant::now();
+    loop {
+        let now = h.state().status_said();
+        let has = |w: &&str| now.iter().any(|s| s == w);
+        let drawn = |w: &&str| h.get_by_label("Status Bar").query_by_label(w).is_some();
+        if what.iter().all(has) && !not.iter().any(has) && what.iter().all(drawn) {
+            return;
+        }
+        let missing: Vec<&&str> = what.iter().filter(|w| !drawn(w)).collect();
+        assert!(
+            started.elapsed().as_secs() < 10,
+            "never said {what:?} without {not:?}: it says {now:?}; not drawn: {missing:?}"
+        );
+        h.step();
+    }
+}
+
+/// Asserts that no widget in `dock` exceeds its right edge and no one-line field truncates its value.
+#[track_caller]
+pub(crate) fn fits_dock(
+    h: &Harness<'_, Moonglow>,
+    dock: egui::Rect,
+    what: &str,
+    font: egui::FontId,
+    skip_scrollbar: bool,
+) {
+    let in_sight = |n: &egui_kittest::Node<'_>| {
+        let r = n.rect();
+        r.left() >= dock.left() - 0.5
+            && r.top() >= dock.top() - 0.5
+            && r.bottom() <= dock.bottom()
+            && r.width() > 0.0
+    };
+    let past: Vec<String> = h
+        .get_all_by(|n| n.bounding_box().is_some())
+        .filter(in_sight)
+        .filter(|n| n.rect().right() > dock.right() + 0.5)
+        .filter(|n| {
+            !skip_scrollbar || n.accesskit_node().role() != egui::accesskit::Role::ScrollBar
+        })
+        .map(|n| {
+            let a = n.accesskit_node();
+            format!("{:?} {:?} {:?} {:?}", a.role(), a.label(), a.value(), n.rect())
+        })
+        .collect();
+    assert!(past.is_empty(), "{what}: past the edge {past:?}");
+    let margins = {
+        let m = mg_uikit::controls::FIELD_MARGIN;
+        f32::from(m.left) + f32::from(m.right)
+    };
+    let cut: Vec<String> = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(in_sight)
+        .filter_map(|n| {
+            let value = n.accesskit_node().value()?;
+            let words = h.ctx.fonts_mut(|f| {
+                f.layout_no_wrap(value.clone(), font.clone(), egui::Color32::WHITE).size().x
+            });
+            (n.rect().width() + 0.5 < words + margins)
+                .then(|| format!("{value:?}: {} for {}", n.rect().width(), words + margins))
+        })
+        .collect();
+    assert!(cut.is_empty(), "{what}: cut short in their fields {cut:?}");
+}
+
+/// Types `to` over the text field showing `from`, and leaves it with Tab.
+#[track_caller]
+pub(crate) fn retype(h: &mut Harness<'_, Moonglow>, from: &str, to: &str) {
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(from).find(is_input).expect("the field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(from).find(is_input).unwrap().type_text(to);
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(3);
+}
+
+/// Sweeps `settings.right_dock_width` across `270..=480` with coarse stride 12
+/// and 1px refinement across height transitions to verify monotonic panel height.
+#[track_caller]
+pub(crate) fn sweep_dock_heights(
+    h: &mut Harness<'_, Moonglow>,
+    label: &str,
+    height_of: impl Fn(&Harness<'_, Moonglow>) -> f32,
+    check_jitter: bool,
+) {
+    let measure = |h: &mut Harness<'_, Moonglow>, w: u32| -> f32 {
+        h.state_mut().settings.right_dock_width = Some(w);
+        settle(h);
+        height_of(h)
+    };
+    let mut prev: Option<(u32, f32)> = None;
+    let mut least: Option<(u32, f32)> = None;
+    let mut changes = Vec::new();
+    let coarse: Vec<u32> = (270..480).step_by(12).chain(std::iter::once(480)).collect();
+    for w in coarse {
+        let high = measure(h, w);
+        if let Some((pw, ph)) = prev
+            && (high - ph).abs() > 0.5
+        {
+            let mut inner_prev = ph;
+            for rw in (pw + 1)..w {
+                let rh = measure(h, rw);
+                if let Some((at, low)) = least {
+                    assert!(rh <= low + 0.5, "{label}: {low} at {at}, {rh} at {rw}");
+                }
+                if (rh - inner_prev).abs() > 0.5 {
+                    changes.push(rw);
+                }
+                if least.is_none_or(|(_, low)| rh < low) {
+                    least = Some((rw, rh));
+                }
+                inner_prev = rh;
+            }
+            if (high - inner_prev).abs() > 0.5 {
+                changes.push(w);
+            }
+        }
+        if let Some((at, low)) = least {
+            assert!(high <= low + 0.5, "{label}: {low} at {at}, {high} at {w}");
+        }
+        if least.is_none_or(|(_, low)| high < low) {
+            least = Some((w, high));
+        }
+        prev = Some((w, high));
+    }
+    if check_jitter {
+        for w in changes {
+            for at in w.saturating_sub(2)..=w + 2 {
+                h.state_mut().settings.right_dock_width = Some(at);
+                for high in (700..=900).step_by(20) {
+                    h.set_size(egui::vec2(1600.0, high as f32));
+                    settle(h);
+                }
+            }
+            h.set_size(egui::vec2(1600.0, 900.0));
+        }
+    }
 }
 
 /// The Top Bar's menu `name` ("Edit"), not a control of the same name a

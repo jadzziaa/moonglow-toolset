@@ -180,17 +180,14 @@ impl Copier {
         Copier { pipeline, layout }
     }
 
-    /// Fills `copies` from the target drawn into (`color`: multisampled or
-    /// not) and its `depth`.
-    pub(crate) fn copy(
+    /// Builds the bind group sampling `color` and `depth` for [`copy_with`](Self::copy_with).
+    pub(crate) fn make_group(
         &self,
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
         color: &wgpu::TextureView,
         depth: &wgpu::TextureView,
-        copies: &Copies,
-    ) {
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("framebuffer copy"),
             layout: &self.layout,
             entries: &[
@@ -203,7 +200,16 @@ impl Copier {
                     resource: wgpu::BindingResource::TextureView(depth),
                 },
             ],
-        });
+        })
+    }
+
+    /// Fills `copies` from a bind group built by [`make_group`](Self::make_group).
+    pub(crate) fn copy_with(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        group: &wgpu::BindGroup,
+        copies: &Copies,
+    ) {
         let attach = |view| {
             Some(wgpu::RenderPassColorAttachment {
                 view,
@@ -221,7 +227,7 @@ impl Copier {
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
     }
 }

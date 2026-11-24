@@ -16,8 +16,17 @@ use mg_resman::GameInstall;
 use mg_rules::GameData;
 
 fn game() -> Option<GameData> {
-    let root = mg_testkit::nwn_root()?;
-    GameData::open(&GameInstall::new(&root, None, "en")).ok()
+    let root = match mg_testkit::nwn_root() {
+        Some(r) => r,
+        None if mg_testkit::corpus_required() => {
+            panic!("MOONGLOW_REQUIRE_CORPUS is set but no game install was found (set NWN_ROOT)")
+        }
+        None => return None,
+    };
+    let install = GameInstall::new(&root, None, "en");
+    let rm = mg_testkit::shared_resman(&install).ok()?;
+    let tlk = std::sync::Arc::new(GameData::open_tlk(&install).ok()?);
+    Some(GameData::with_shared_tlk(rm, tlk))
 }
 
 /// A stock item of base item `base` with no properties (so no use

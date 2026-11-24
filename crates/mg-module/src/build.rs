@@ -115,14 +115,55 @@ pub fn script_stamps_of(
     stamps_from(module, scripts.iter().filter(|k| module.contains(k)).copied().collect())
 }
 
+#[derive(Clone, Copy)]
+struct StableHash(u64);
+
+impl StableHash {
+    fn new() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+
+    fn raw(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    fn u64(&mut self, v: u64) {
+        self.raw(&v.to_le_bytes());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        self.u64(bytes.len() as u64);
+        self.raw(bytes);
+    }
+
+    fn str(&mut self, s: &str) {
+        self.bytes(s.as_bytes());
+    }
+
+    fn u64s(&mut self, values: &[u64]) {
+        self.u64(values.len() as u64);
+        for &v in values {
+            self.u64(v);
+        }
+    }
+
+    fn path(&mut self, p: &std::path::Path) {
+        self.bytes(p.as_os_str().as_encoded_bytes());
+    }
+
+    fn finish(self) -> u64 {
+        self.0
+    }
+}
+
 /// The stamps of `scripts` (the module's) and of what they reach.
 fn stamps_from(
     module: &Module,
     mut scripts: Vec<ResKey>,
 ) -> std::collections::HashMap<ResKey, u64> {
     use std::collections::HashMap;
-    use std::hash::{Hash, Hasher};
-    let hasher = std::collections::hash_map::DefaultHasher::new;
     let mut at: HashMap<ResKey, usize> = HashMap::with_capacity(scripts.len());
     scripts.retain(|k| at.insert(*k, at.len()).is_none());
     // Each script's own part (its text, the names it includes in order)
@@ -134,12 +175,12 @@ fn stamps_from(
     while let Some(&key) = scripts.get(next_script) {
         next_script += 1;
         let source = module.get(&key).unwrap_or_default();
-        let mut h = hasher();
-        source.hash(&mut h);
+        let mut h = StableHash::new();
+        h.bytes(source);
         let mut to = Vec::new();
         for r in crate::refs::script_includes(key, source) {
             let name = r.target.to_lowercase();
-            name.to_string().hash(&mut h);
+            h.str(&name.to_string());
             let include = ResKey::new(name, ResType::NSS);
             let i = match at.get(&include) {
                 Some(&i) => i,
@@ -216,8 +257,9 @@ fn stamps_from(
             own.sort_unstable();
             below.sort_unstable();
             below.dedup();
-            let mut h = hasher();
-            (own, below).hash(&mut h);
+            let mut h = StableHash::new();
+            h.u64s(&own);
+            h.u64s(&below);
             component_stamps.push(h.finish());
         }
     }
@@ -237,10 +279,9 @@ pub struct Remembered {
 
 impl Remembered {
     fn compiled_stamp(module: &Module, script: &ResKey) -> u64 {
-        use std::hash::{Hash, Hasher};
         let Some(ncs) = module.get(&ResKey::new(script.resref, ResType::NCS)) else { return 0 };
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        ncs.hash(&mut h);
+        let mut h = StableHash::new();
+        h.bytes(ncs);
         h.finish().max(1)
     }
 
@@ -414,7 +455,7 @@ pub fn own_scratch_dir() -> std::io::Result<std::path::PathBuf> {
 
 /// A new folder in `base`, of a name no one can guess, made there (never
 /// one that was) and on Unix open to the user alone.
-fn new_private_dir(base: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+pub(crate) fn new_private_dir(base: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
     use std::hash::{BuildHasher, Hasher};
     let mut last = None;
     for attempt in 0..8u32 {
@@ -500,13 +541,25 @@ pub fn made_with(
     game: Option<&std::path::Path>,
     resman: &ResMan,
 ) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    module.map(settled).hash(&mut h);
-    format!("{external:?}").hash(&mut h);
-    game.hash(&mut h);
+    let mut h = StableHash::new();
+    match module.map(settled) {
+        Some(m) => {
+            h.raw(&[1]);
+            h.path(&m);
+        }
+        None => h.raw(&[0]),
+    }
+    h.str(&format!("{external:?}"));
+    match game {
+        Some(g) => {
+            h.raw(&[1]);
+            h.path(g);
+        }
+        None => h.raw(&[0]),
+    }
     for l in resman.layers().iter().filter(|l| user_content(l)) {
-        (&l.label, l.fingerprint).hash(&mut h);
+        h.str(&l.label);
+        h.u64(l.fingerprint);
     }
     h.finish()
 }
@@ -536,11 +589,14 @@ pub fn compile_changed(
     only: Option<Vec<ResKey>>,
     debug: bool,
 ) -> Pass {
-    let stamps = script_stamps(module);
     let scripts = module.keys_of(ResType::NSS).filter(|k| !skips_compiling(module, k)).count();
-    let names = match only {
-        Some(names) => names,
-        None => changed_of(module, known, &stamps, debug),
+    let (stamps, names) = match only {
+        Some(names) => (script_stamps_of(module, &names), names),
+        None => {
+            let stamps = script_stamps(module);
+            let names = changed_of(module, known, &stamps, debug);
+            (stamps, names)
+        }
     };
     let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
@@ -610,7 +666,10 @@ pub fn compiled_for_checks(module: &mut Module, resman: &ResMan) -> usize {
 
 /// A nasher project's target leaves the script uncompiled.
 fn skips_compiling(module: &Module, k: &ResKey) -> bool {
-    module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
+    module.project.as_ref().is_some_and(|p| {
+        let target = p.target();
+        !target.skip_compile.is_empty() && target.skips_compiling(&k.to_string())
+    })
 }
 
 /// [`compile_scripts_with`] for the scripts named.
@@ -1260,4 +1319,45 @@ mod tests {
     }
 
     const DEEP: usize = 60000;
+
+    #[test]
+    fn persisted_build_stamps_use_fixed_fnv_1a_hash() {
+        let mut m = Module::new();
+        m.set(key("inc_a", ResType::NSS), b"void helper() {}".to_vec());
+        m.set(key("main_s", ResType::NSS), b"#include \"inc_a\"\nvoid main() {}".to_vec());
+        m.set(key("main_s", ResType::NCS), b"ncs-bytes".to_vec());
+
+        let stamps = script_stamps(&m);
+        let compiled = Remembered::compiled_stamp(&m, &key("main_s", ResType::NSS));
+        let mut rm = ResMan::new();
+        let env_stamp = made_with(None, None, Some(std::path::Path::new("/nwn")), &rm);
+
+        // Recompute the expected FNV-1a hashes to assert cross-compiler determinism.
+        let expected_compiled = {
+            let mut h = StableHash::new();
+            h.bytes(b"ncs-bytes");
+            h.finish().max(1)
+        };
+        assert_eq!(compiled, expected_compiled);
+        assert_ne!(compiled, 0);
+        assert_ne!(stamps[&key("main_s", ResType::NSS)], 0);
+        assert_ne!(env_stamp, 0);
+
+        // Changing include or fingerprint invalidates the corresponding stamp.
+        m.set(key("inc_a", ResType::NSS), b"void helper() { int x; }".to_vec());
+        let stamps_after = script_stamps(&m);
+        assert_ne!(
+            stamps_after[&key("main_s", ResType::NSS)],
+            stamps[&key("main_s", ResType::NSS)]
+        );
+
+        rm.add(
+            mg_resman::priority::HAK,
+            "hak:one",
+            mg_resman::LayerClass::Erf,
+            MemContainer::new(),
+        );
+        let env_after = made_with(None, None, Some(std::path::Path::new("/nwn")), &rm);
+        assert_ne!(env_after, env_stamp);
+    }
 }

@@ -337,12 +337,7 @@ fn write(
     dry_run: bool,
     mut out: Output,
 ) -> Result<Output> {
-    let mut resources: Vec<ResKey> = Vec::new();
-    for e in &made.edits {
-        if !resources.contains(e.key()) {
-            resources.push(*e.key());
-        }
-    }
+    let resources = crate::edits::unique_keys(&made.edits);
     // (Said before it is written, a dry run too.)
     let left = left_out(&ws.module, &resources);
     ws.apply(made).with_context(|| window_text(module, name))?;

@@ -176,8 +176,13 @@ pub(crate) fn dressed_with(
                 .find(|m| lk.has_model(m))
         };
         // `part`: the armor part (an index of `ARMOR_PARTS`), which may
-        // have colors of its own.
-        let with = |model: String, attach: Option<&str>, animated: bool, part: Option<usize>| {
+        // have colors of its own. Passing `fallbacks: false` skips probing
+        // body-part PLTs when the caller supplies custom textures (cloaks).
+        let with = |model: String,
+                    attach: Option<&str>,
+                    animated: bool,
+                    part: Option<usize>,
+                    fallbacks: bool| {
             let mut p = Part::new(model);
             p.attach = attach.map(str::to_ascii_lowercase);
             p.colors = Some(match (armor, part) {
@@ -186,7 +191,9 @@ pub(crate) fn dressed_with(
             });
             p.env_map = env.clone();
             p.animated = animated;
-            p.textures = plt_fallbacks(&lk, &p.model);
+            if fallbacks {
+                p.textures = plt_fallbacks(&lk, &p.model);
+            }
             p
         };
 
@@ -204,7 +211,7 @@ pub(crate) fn dressed_with(
         if robe > 0
             && let Some(m) = part_model("robe", robe)
         {
-            preview.parts.push(with(m, None, true, Some(ROBE)));
+            preview.parts.push(with(m, None, true, Some(ROBE), true));
         }
 
         let capart = game.table("capart")?;
@@ -218,12 +225,9 @@ pub(crate) fn dressed_with(
             if let Some(model) =
                 cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m))
             {
-                let mut p = with(model, None, true, None);
+                let mut p = with(model, None, true, None, false);
                 p.local = look.cloak_transform.and_then(|t| t.matrix());
-                let texture =
-                    format!("cloak_{:03}", cell_int(&cloaks, row, "TEXTURE").unwrap_or(1));
-                p.textures =
-                    lk.bitmaps(&p.model).into_iter().map(|b| (b, texture.clone())).collect();
+                p.textures = cloak_textures(&lk, &cloaks, row, &p.model);
                 p.colors = Some(c.colors_over(colors));
                 p.env_map = env_map(cell(&cloaks, row, "ENVMAP"));
                 p.item = true;
@@ -259,7 +263,7 @@ pub(crate) fn dressed_with(
             }
             let node = cell(&capart, row, "NODENAME").unwrap_or("rootdummy");
             if let Some(m) = part_model(&mdlname, n) {
-                preview.parts.push(with(m, Some(node), false, Some(part)));
+                preview.parts.push(with(m, Some(node), false, Some(part), true));
             }
         }
 
@@ -299,7 +303,7 @@ pub(crate) fn dressed_with(
                 if head > 0
                     && let Some(m) = part_model("head", head)
                 {
-                    let mut p = with(m, Some("head_g"), false, None);
+                    let mut p = with(m, Some("head_g"), false, None, true);
                     p.local = look.head_transform.and_then(|t| t.matrix());
                     preview.parts.push(p);
                 }
@@ -413,6 +417,18 @@ pub(crate) fn helmet_textures(
     let found = read();
     kept.helmets.borrow_mut().insert(model, found.clone());
     found
+}
+
+/// Texture overrides for a cloak part, mapping every bitmap named by `model`
+/// to `cloak_NNN` from `cloaks` at `row`.
+pub(crate) fn cloak_textures(
+    lk: &Lookup<'_>,
+    cloaks: &mg_2da::TwoDa,
+    row: usize,
+    model: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let texture = format!("cloak_{:03}", cell_int(cloaks, row, "TEXTURE").unwrap_or(1));
+    lk.bitmaps(model).into_iter().map(|b| (b, texture.clone())).collect()
 }
 
 /// `own` on every mesh of `model` (a part or a helmet with a PLT of that

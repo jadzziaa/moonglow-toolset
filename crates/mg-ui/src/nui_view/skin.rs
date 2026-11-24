@@ -304,6 +304,8 @@ pub(crate) struct Assets {
     /// Where the skin, the fonts and the pictures of the window last
     /// prepared for came from, and what was not found of them.
     pub(super) origins: BTreeMap<String, String>,
+    /// Lowercase stem (`name` before last `.`) -> first-seen origin for O(1) lookup.
+    pub(super) origin_stems: std::collections::HashMap<String, String>,
     pub(super) issues: Vec<String>,
     pub(super) loaded: bool,
     /// Where the canvas put the window and each control, while a caller
@@ -665,12 +667,41 @@ impl Assets {
         s: &Settings,
     ) {
         fn collect(v: &Value, refs: &mut BTreeSet<i64>) {
-            if let Some(id) = v.get("strref").and_then(Value::as_i64) {
-                refs.insert(id);
-            }
             match v {
-                Value::Object(o) => o.values().for_each(|v| collect(v, refs)),
-                Value::Array(a) => a.iter().for_each(|v| collect(v, refs)),
+                Value::Object(o) => {
+                    if let Some(id) = o.get("strref").and_then(Value::as_i64) {
+                        refs.insert(id);
+                    }
+                    let is_chart = o.get("type").and_then(Value::as_str) == Some("chart");
+                    for (k, child) in o {
+                        if is_chart && k == "value" {
+                            if let Some(slots) = child.as_array() {
+                                for slot in slots {
+                                    if let Some(so) = slot.as_object() {
+                                        for (sk, sv) in so {
+                                            if sk != "data"
+                                                && matches!(sv, Value::Object(_) | Value::Array(_))
+                                            {
+                                                collect(sv, refs);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        if matches!(child, Value::Object(_) | Value::Array(_)) {
+                            collect(child, refs);
+                        }
+                    }
+                }
+                Value::Array(a) => {
+                    for child in a {
+                        if matches!(child, Value::Object(_) | Value::Array(_)) {
+                            collect(child, refs);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -678,6 +709,9 @@ impl Assets {
         collect(doc, &mut refs);
         for binding in s.bindings.values() {
             collect(&binding.value, &mut refs);
+        }
+        if refs.is_empty() && self.strings.is_empty() {
+            return;
         }
         self.strings = refs
             .into_iter()
@@ -732,12 +766,15 @@ impl Assets {
         // What the client draws for an image it can't find (nuklear_image.cpp).
         wanted.insert("gui_error".into());
         wanted.extend(self.requested.iter().cloned());
-        let layers: Vec<_> = rm
-            .into_iter()
-            .flat_map(|r| r.layers())
-            .map(|l| (&l.label, l.priority, l.fingerprint))
-            .collect();
-        let layers = hash(&layers);
+        let layers = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for l in rm.into_iter().flat_map(|r| r.layers()) {
+                l.label.hash(&mut h);
+                l.priority.hash(&mut h);
+                l.fingerprint.hash(&mut h);
+            }
+            h.finish()
+        };
         // The module changes with every edit of the window, and with every
         // key typed in a script beside it: only what it holds of the skin,
         // the pictures and the fonts is looked at then, and nothing is read
@@ -975,6 +1012,12 @@ impl Assets {
         self.origins = (self.fixed_origins.iter().map(|(k, v)| (k.clone(), v.clone())))
             .chain(pictures().filter_map(|p| p.origin.clone()))
             .collect();
+        self.origin_stems.clear();
+        for (k, origin) in &self.origins {
+            if let Some((stem, _)) = k.rsplit_once('.') {
+                self.origin_stems.entry(stem.to_string()).or_insert_with(|| origin.clone());
+            }
+        }
     }
 
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {

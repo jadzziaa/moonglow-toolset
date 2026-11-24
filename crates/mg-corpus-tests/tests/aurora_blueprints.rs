@@ -13,7 +13,7 @@ use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
-use crate::aurora_common::{PLAIN, lines};
+use crate::aurora_common::{PLAIN, diff_lines, lines};
 
 /// How the GFFs are compared, as lines.
 const SHOWN: crate::aurora_common::Shown<'static> = PLAIN;
@@ -27,18 +27,11 @@ fn same(name: &str, ours: &Gff, aurora: &Gff) -> Option<String> {
         return None;
     }
     let (a, b) = (lines(&ours.root, SHOWN), lines(&aurora.root, SHOWN));
-    let diff: Vec<String> = a
-        .iter()
-        .zip(&b)
-        .filter(|(x, y)| x != y)
-        .map(|(x, y)| format!("  ours   {x}\n  aurora {y}"))
-        .take(8)
-        .collect();
     Some(format!(
         "{name}: {} vs {} lines; first differences:\n{}",
         a.len(),
         b.len(),
-        diff.join("\n")
+        diff_lines(&a, &b, 8)
     ))
 }
 

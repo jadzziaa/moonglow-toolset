@@ -1,7 +1,7 @@
 //! Store Properties (`TdlgStoreEdit`): Basic (name, pricing, stolen
-//! goods, gold), Advanced, Restrictions (base items the store will not, or
-//! will only, buy), Comments; and the store's inventory (Aurora's
-//! Inventory… dialog) as its own page.
+//! goods, gold), Inventory (Aurora's Inventory… dialog), Advanced,
+//! Variables, Restrictions (base items the store will not, or will only,
+//! buy), Comments.
 
 use egui::Ui;
 use mg_edit::{Command, Edit, lists};
@@ -174,7 +174,8 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     }
     let base = f.path.clone();
     let key = f.key;
-    let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
+    let root = std::mem::replace(&mut f.root, Struct::new(0));
+    let pages = root.list("StoreList").unwrap_or(&[]);
     let names = f.blueprint_names(BlueprintKind::Item);
     let shown_id = f.id("utm-page");
     let first = STORE_PAGES
@@ -188,6 +189,8 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let mut add = None;
     let (mut adds, mut taken) = (Vec::new(), Vec::new());
     let mut edits = Vec::new();
+    let mark_up = root.integer("MarkUp").unwrap_or(100).max(0) as u64;
+    let mark_down = root.integer("MarkDown").unwrap_or(0).max(0) as u64;
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             add = f.item_picker(ui, "Add Item");
@@ -209,12 +212,9 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         };
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
-        let items = items.to_vec();
         // What the store sells each for and buys it for: its cost at the
         // store's mark up and mark down, as Aurora shows them (a buyer's
         // Appraise is the game's to add).
-        let mark_up = f.root.integer("MarkUp").unwrap_or(100).max(0) as u64;
-        let mark_down = f.root.integer("MarkDown").unwrap_or(0).max(0) as u64;
         let copied = f.app.item_clip.len();
         let ctx = ui.ctx().clone();
         let mut row = |_: usize, it: &Struct| {
@@ -237,13 +237,14 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             copied,
             palette: &names,
         };
-        let mut out = inventory::item_list(ui, key, &path, &items, look);
+        let mut out = inventory::item_list(ui, key, &path, items, look);
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added (to the page its kind goes on).
         let whose = inventory::owner(key, &path);
-        (adds, taken) = f.list_events(ui, &items, &mut out, whose, &path);
+        (adds, taken) = f.list_events(ui, items, &mut out, whose, &path);
         edits = out.edits;
     });
+    f.root = root;
     // (A moved item's removal goes with it, as one step; the page shown,
     // the last one's.)
     adds.extend(add.map(Added::Blueprint));
@@ -264,14 +265,76 @@ pub(crate) fn price(cost: u32, percent: u64) -> u64 {
 }
 
 /// The base items a store can list (those with a store panel), by name.
-fn base_items(f: &Form<'_>) -> Vec<Choice> {
-    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("baseitems") else { return Vec::new() };
-    let named = f.choices("baseitems", Some("Name"), Some("label"));
-    let items = (0..table.len())
-        .filter(|&row| table.get_int(row, "StorePanel").is_some())
-        .map(|row| Choice { row, text: mg_rules::choice_text(&named, row as i64) });
-    mg_rules::by_name(items.collect())
+fn base_items(f: &Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
+    super::kept_for_key(ctx, egui::Id::new("store-base-items"), &f.app.load_order, || {
+        let Some(game) = f.app.game.as_deref() else { return Default::default() };
+        let Ok(table) = game.table("baseitems") else { return Default::default() };
+        let named = f.choices("baseitems", Some("Name"), Some("label"));
+        let items = (0..table.len())
+            .filter(|&row| table.get_int(row, "StorePanel").is_some())
+            .map(|row| Choice { row, text: mg_rules::choice_text(&named, row as i64) });
+        std::sync::Arc::new(mg_rules::by_name(items.collect()))
+    })
+}
+
+const RESTRICT_MODES: [(&str, bool); 2] = [
+    ("Store will NOT buy the following items", false),
+    ("Store will ONLY buy the following items", true),
+];
+
+fn restrict_fields(only_buy: bool) -> (&'static str, &'static str) {
+    if only_buy { ("WillOnlyBuy", "WillNotBuy") } else { ("WillNotBuy", "WillOnlyBuy") }
+}
+
+struct BaseItemsPicker<'a> {
+    state_id: egui::Id,
+    key: mg_resman::ResKey,
+    items: &'a [Choice],
+    narrow: bool,
+    in_panel_scroll: bool,
+}
+
+fn base_items_picker(
+    ui: &mut Ui,
+    spec: &BaseItemsPicker<'_>,
+    filter: &mut String,
+    left: &mut Option<i64>,
+    skip: impl Fn(i64) -> bool,
+) -> Option<i64> {
+    let mut add = None;
+    ui.vertical(|ui| {
+        ui.set_width(super::part_width(spec.narrow, ui, 240.0));
+        ui.label("Base items");
+        crate::widgets::SearchField::new(spec.state_id.with("bases-find"), filter)
+            .hint("Find")
+            .show(ui);
+        let needle = mg_core::text::Needle::new(filter);
+        egui::ScrollArea::vertical()
+            .id_salt(("utm-bases", spec.key))
+            .max_height(if spec.in_panel_scroll { 220.0 } else { 360.0 })
+            .auto_shrink([false, spec.in_panel_scroll])
+            .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
+                for c in spec.items {
+                    let row = c.row as i64;
+                    if skip(row) || !needle.finds(&c.text) {
+                        continue;
+                    }
+                    let r = ui.selectable_label(*left == Some(row), &c.text);
+                    if r.clicked() {
+                        *left = Some(row);
+                    }
+                    if r.double_clicked() {
+                        add = Some(row);
+                    }
+                }
+            });
+    });
+    add
+}
+
+fn restrict_button(text: &str) -> egui::Button<'_> {
+    egui::Button::new(text).min_size(egui::vec2(90.0, 0.0))
 }
 
 fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
@@ -307,26 +370,19 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         )
     };
     let mut set: Option<(&str, Vec<(&str, Value)>)> = None;
-    for (text, mode) in [
-        ("Store will NOT buy the following items", false),
-        ("Store will ONLY buy the following items", true),
-    ] {
+    for (text, mode) in RESTRICT_MODES {
         if ui.radio_button(only == mode, text).clicked() && only != mode {
             only = mode;
             if !current.is_empty() {
                 // The items move to the other list.
-                let (to, from) = if mode {
-                    ("WillOnlyBuy", "WillNotBuy")
-                } else {
-                    ("WillNotBuy", "WillOnlyBuy")
-                };
+                let (to, from) = restrict_fields(mode);
                 set =
                     Some(("Restriction mode", vec![(to, entries(&current)), (from, entries(&[]))]));
             }
         }
     }
     ui.separator();
-    let items = base_items(f);
+    let items = base_items(f, ui.ctx());
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let mut add = None;
     let mut remove = None;
@@ -334,47 +390,20 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     // the other, the buttons in a row between.)
     let narrow = super::narrow(ui);
     let in_panel_scroll = super::panel_scroll(ui);
+    let picker = BaseItemsPicker { state_id, key, items: &items, narrow, in_panel_scroll };
     super::beside_or_over(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.set_width(super::part_width(narrow, ui, 240.0));
-            ui.label("Base items");
-            crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
-                .hint("Find")
-                .show(ui);
-            let needle = mg_core::text::Needle::new(&filter);
-            egui::ScrollArea::vertical()
-                .id_salt(("utm-bases", key))
-                .max_height(if in_panel_scroll { 220.0 } else { 360.0 })
-                .auto_shrink([false, in_panel_scroll])
-                .show(ui, |ui| {
-                    mg_uikit::list_rows(ui);
-                    for c in &items {
-                        let row = c.row as i64;
-                        if current.contains(&row) || !needle.finds(&c.text) {
-                            continue;
-                        }
-                        let r = ui.selectable_label(left == Some(row), &c.text);
-                        if r.clicked() {
-                            left = Some(row);
-                        }
-                        if r.double_clicked() {
-                            add = Some(row);
-                        }
-                    }
-                });
-        });
+        add = base_items_picker(ui, &picker, &mut filter, &mut left, |row| current.contains(&row));
         super::down_or_row(narrow, ui, |ui| {
             if !narrow {
                 ui.add_space(48.0);
             }
-            let button = |text| egui::Button::new(text).min_size(egui::vec2(90.0, 0.0));
-            if ui.add_enabled(left.is_some(), button("Add")).clicked() {
+            if ui.add_enabled(left.is_some(), restrict_button("Add")).clicked() {
                 add = left;
             }
-            if ui.add_enabled(right.is_some(), button("Remove")).clicked() {
+            if ui.add_enabled(right.is_some(), restrict_button("Remove")).clicked() {
                 remove = right;
             }
-            if ui.add_enabled(!current.is_empty(), button("Remove All")).clicked() {
+            if ui.add_enabled(!current.is_empty(), restrict_button("Remove All")).clicked() {
                 set = Some(("Clear restricted items", vec![(label, entries(&[]))]));
             }
         });
@@ -474,18 +503,11 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             );
         }
         ui.vertical(|ui| {
-            for (text, mode) in [
-                ("Store will NOT buy the following items", false),
-                ("Store will ONLY buy the following items", true),
-            ] {
+            for (text, mode) in RESTRICT_MODES {
                 if ui.radio_button(only == mode, text).clicked() {
                     only = mode;
                     // Each store whose items are in the other list: moved.
-                    let (to, from) = if mode {
-                        ("WillOnlyBuy", "WillNotBuy")
-                    } else {
-                        ("WillNotBuy", "WillOnlyBuy")
-                    };
+                    let (to, from) = restrict_fields(mode);
                     let mut out = lists::Outcome::default();
                     for (t, m) in targets.iter().zip(&modes) {
                         if *m != Some(!mode) {
@@ -507,7 +529,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
         });
     });
     ui.separator();
-    let items = base_items(f);
+    let items = base_items(f, ui.ctx());
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let (mut add, mut remove, mut give) = (None, None, None);
     let mut clear = false;
@@ -515,56 +537,30 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     // the other, the buttons in a row between.)
     let narrow = super::narrow(ui);
     let in_panel_scroll = super::panel_scroll(ui);
+    let picker = BaseItemsPicker { state_id, key, items: &items, narrow, in_panel_scroll };
     super::beside_or_over(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.set_width(super::part_width(narrow, ui, 240.0));
-            ui.label("Base items");
-            crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
-                .hint("Find")
-                .show(ui);
-            let needle = mg_core::text::Needle::new(&filter);
-            egui::ScrollArea::vertical()
-                .id_salt(("utm-bases", key))
-                .max_height(if in_panel_scroll { 220.0 } else { 360.0 })
-                .auto_shrink([false, in_panel_scroll])
-                .show(ui, |ui| {
-                    mg_uikit::list_rows(ui);
-                    for c in &items {
-                        let row = c.row as i64;
-                        let all = merged.iter().any(|m| m.key == row && m.all(total));
-                        if all || !needle.finds(&c.text) {
-                            continue;
-                        }
-                        let r = ui.selectable_label(left == Some(row), &c.text);
-                        if r.clicked() {
-                            left = Some(row);
-                        }
-                        if r.double_clicked() {
-                            add = Some(row);
-                        }
-                    }
-                });
+        add = base_items_picker(ui, &picker, &mut filter, &mut left, |row| {
+            merged.iter().any(|m| m.key == row && m.all(total))
         });
         super::down_or_row(narrow, ui, |ui| {
             if !narrow {
                 ui.add_space(48.0);
             }
-            let button = |text| egui::Button::new(text).min_size(egui::vec2(90.0, 0.0));
-            if ui.add_enabled(left.is_some(), button("Add")).clicked() {
+            if ui.add_enabled(left.is_some(), restrict_button("Add")).clicked() {
                 add = left;
             }
-            if ui.add_enabled(right.is_some(), button("Remove")).clicked() {
+            if ui.add_enabled(right.is_some(), restrict_button("Remove")).clicked() {
                 remove = right;
             }
             let some = right.filter(|r| merged.iter().any(|m| m.key == *r && !m.all(total)));
             if ui
-                .add_enabled(some.is_some(), button("Give to All"))
+                .add_enabled(some.is_some(), restrict_button("Give to All"))
                 .on_hover_text(super::creature_lists::GIVE_TIP)
                 .clicked()
             {
                 give = some;
             }
-            if ui.add_enabled(!merged.is_empty(), button("Remove All")).clicked() {
+            if ui.add_enabled(!merged.is_empty(), restrict_button("Remove All")).clicked() {
                 clear = true;
             }
         });

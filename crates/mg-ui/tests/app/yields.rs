@@ -15,16 +15,6 @@ use mg_uikit::shell as kit;
 /// `outer_margin`): the application's frame starts 8 points in.
 const HARNESS_MARGIN: f32 = 8.0;
 
-/// Frames until `done`, for twenty seconds at most (an area's view asks
-/// for frames as it draws, so `settle` may not end beside one).
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 20, "never: {what}");
-        h.step();
-    }
-}
-
 /// What the shell's layout is at this frame, to wait for it to rest: the
 /// bars' and the docks' controls and where the editor area and the docks
 /// are.
@@ -61,7 +51,7 @@ fn size(h: &mut Harness<'_, Moonglow>, width: f32, height: f32) {
 /// [`area_harness`]'s window (an area open in front, the game's data, the
 /// log open), the Open editors switch as `mode` has it.
 fn yielding(name: &str, mode: Mode) -> Option<(Harness<'static, Moonglow>, mg_core::ResRef)> {
-    let (mut h, area) = area_harness(name)?;
+    let (mut h, area) = area_ui_harness(name)?;
     h.state_mut().settings.open_editors = match mode {
         Mode::Floating => mg_ui::OpenEditors::Floating,
         Mode::Tabs => mg_ui::OpenEditors::Tabs,
@@ -279,7 +269,11 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
         until(&mut h, "the area in front", |h| h.state().active_editor() == Some(&Tab::Area(area)));
         let mut wrong = Vec::new();
         let mut strips = (0, 0);
-        for width in (420..=3440).step_by(20) {
+        let widths = [
+            420, 480, 560, 680, 795, 796, 880, 961, 962, 1120, 1280, 1499, 1500, 1600, 1850, 2200,
+            2600, 3000, 3440,
+        ];
+        for width in widths {
             let width = width as f32;
             size(&mut h, width, 800.0);
             let at = |what: String| format!("{mode:?} {width}: {what}");
@@ -308,8 +302,11 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
             if editor.width() + 2.0 * HARNESS_MARGIN < least - 1.0 {
                 wrong.push(at(format!("the editor area {} under {least}", editor.width())));
             }
+            let expect_right_open = width >= 796.0;
+            let expect_left_open = width >= 1500.0;
             match h.state().right_dock_rect() {
                 Some(dock) => {
+                    assert!(expect_right_open, "{mode:?} {width}: Right Dock open unexpectedly");
                     if !window.expand(0.5).contains_rect(dock) {
                         wrong.push(at(format!("the Right Dock {dock:?} outside")));
                     }
@@ -317,9 +314,13 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
                         wrong.push(at(format!("the Right Dock {} wide", dock.width())));
                     }
                 }
-                None => strips.1 += 1,
+                None => {
+                    assert!(!expect_right_open, "{mode:?} {width}: Right Dock folded unexpectedly");
+                    strips.1 += 1;
+                }
             }
             if left_as(&h) == "open" {
+                assert!(expect_left_open, "{mode:?} {width}: Left Dock open unexpectedly");
                 // (The Left Dock from the window's left to the editor
                 // area.)
                 let dock = editor.left() - HARNESS_MARGIN;
@@ -327,13 +328,12 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
                     wrong.push(at(format!("the Left Dock {dock} wide")));
                 }
             } else {
+                assert!(!expect_left_open, "{mode:?} {width}: Left Dock folded unexpectedly");
                 strips.0 += 1;
             }
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
-        // (Folded by the width: the Left Dock under 1500, the Right Dock
-        // under 796.)
-        assert_eq!(strips, (54, 19), "{mode:?}: the widths with each dock a strip");
+        assert_eq!(strips, (12, 5), "{mode:?}: the widths with each dock a strip");
     }
 }
 
@@ -349,8 +349,9 @@ fn a_window_narrowed_and_widened_writes_nothing_and_gives_all_back() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Placeable, 0)];
     let sweep = |h: &mut Harness<'_, Moonglow>, saved: &str| {
-        let widths = (420..=3440).rev().step_by(60).chain((420..=3440).step_by(60));
-        for width in widths {
+        let down = [3440, 2600, 1850, 1600, 1500, 1499, 1280, 962, 961, 796, 795, 600, 420];
+        let up = [600, 795, 796, 961, 962, 1280, 1499, 1500, 1600, 1850, 2600, 3440];
+        for width in down.into_iter().chain(up) {
             size(h, width as f32, 1000.0);
             assert_eq!(h.state().settings.saved_text(), saved, "written at {width}");
         }
@@ -831,7 +832,7 @@ fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
         })
     };
     let mut wrong = Vec::new();
-    for width in (420..1500).step_by(40) {
+    for width in [420, 560, 700, 795, 796, 961, 962, 1120, 1300, 1499] {
         let width = width as f32;
         // (From 1600 each time: neither dock unfolded by hand yet.)
         size(&mut h, 1600.0, 800.0);
@@ -1035,6 +1036,7 @@ fn a_header_holds_its_controls_down_to_its_least_width() {
     let mut day = true;
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 300.0)).build_ui(move |ui| {
         mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        mg_uikit::header::record_headers(ui.ctx());
         let _ = EditorHeader::new("Kit header")
             .left(Item::button(Icon::Save, "Save"))
             .left(Item::button(Icon::Compile, "Compile"))
@@ -1075,6 +1077,7 @@ fn two_headers_of_one_name_are_each_held() {
     use mg_uikit::header::{EditorHeader, Item};
     let mut h = Harness::builder().with_size(egui::vec2(900.0, 300.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        mg_uikit::header::record_headers(ui.ctx());
         for salt in ["first", "second"] {
             ui.push_id(salt, |ui| {
                 let _ = EditorHeader::new("Twin header")

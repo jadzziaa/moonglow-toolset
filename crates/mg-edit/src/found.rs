@@ -391,10 +391,13 @@ fn add_item(
         }
         return out;
     };
-    let base_of = |e: &Struct| -> i64 {
-        e.integer("BaseItem")
-            .or_else(|| read(lists::item_of(e)?)?.integer("BaseItem"))
-            .unwrap_or(-1)
+    let mut bases: HashMap<ResRef, i64> = HashMap::new();
+    let mut base_of = |e: &Struct| -> i64 {
+        if let Some(b) = e.integer("BaseItem") {
+            return b;
+        }
+        let Some(r) = lists::item_of(e) else { return -1 };
+        *bases.entry(r).or_insert_with(|| read(r).and_then(|g| g.integer("BaseItem")).unwrap_or(-1))
     };
     let cell = |base: i64, col: &str| -> Option<u32> {
         let t = game.table("baseitems").ok()?;
@@ -410,28 +413,32 @@ fn add_item(
     for t in targets {
         let store = t.at.get("StoreList").is_some();
         let pages = t.list("StoreList");
-        let (path, items) = if store {
+        let (path, items, new_page) = if store {
             let panel = cell(base, "StorePanel").unwrap_or(4);
             let id = lists::STORE_PANEL_PAGE.get(panel as usize).copied().unwrap_or(1);
             match pages.iter().position(|p| p.id == id) {
                 Some(i) => (
                     t.path.clone().item("StoreList", i),
                     pages[i].list("ItemList").unwrap_or(&[]).to_vec(),
+                    None,
                 ),
                 None => {
                     let at = pages.len();
-                    out.edits.push(Edit::insert_item(
-                        t.key,
-                        t.path.clone(),
-                        "StoreList",
-                        at,
-                        Struct::new(id),
-                    ));
-                    (t.path.clone().item("StoreList", at), Vec::new())
+                    (
+                        t.path.clone().item("StoreList", at),
+                        Vec::new(),
+                        Some(Edit::insert_item(
+                            t.key,
+                            t.path.clone(),
+                            "StoreList",
+                            at,
+                            Struct::new(id),
+                        )),
+                    )
                 }
             }
         } else {
-            (t.path.clone(), t.list("ItemList").to_vec())
+            (t.path.clone(), t.list("ItemList").to_vec(), None)
         };
         let taken: Vec<(u32, u32, u32, u32)> = items
             .iter()
@@ -443,6 +450,13 @@ fn add_item(
             .collect();
         let width = u32::from(mg_rules::levelup::INVENTORY_WIDTH);
         let (x, y) = lists::place(&taken, width, w, h);
+        let (Ok(x), Ok(y)) = (u16::try_from(x), u16::try_from(y)) else {
+            out.left.push(format!("{}: inventory is full", t.name));
+            continue;
+        };
+        if let Some(page) = new_page {
+            out.edits.push(page);
+        }
         let id = items.len() as u32;
         let item = if t.key.restype == ResType::GIT {
             mg_module::instances::with_placing(game, Some(module), |placing, _| {
@@ -453,7 +467,7 @@ fn add_item(
             e.set("InventoryRes", Value::resref(r));
             e
         };
-        let mut item = mg_module::instances::listed_item(&item, id, x as u16, y as u16);
+        let mut item = mg_module::instances::listed_item(&item, id, x, y);
         if store && !item.contains("Infinite") {
             item.set("Infinite", Value::Byte(0));
         }
@@ -483,7 +497,7 @@ fn set_fields(
                 if !objects_done.insert(o.clone()) {
                     continue;
                 }
-                (o.key, o.path.clone())
+                (o.key, o.path)
             }
         };
         if !done.insert((key, path.clone())) {
@@ -498,7 +512,7 @@ fn set_fields(
             out.skipped.push(format!("{place}: no {label}"));
             continue;
         };
-        let real = f.label.to_string_lossy().to_string();
+        let real = f.label.to_string_lossy();
         match value(&f.value) {
             Some(v) => {
                 out.edits.push(Edit::SetField { key, path, label: real, value: Some(v) });
@@ -526,7 +540,7 @@ pub fn events(module: &Module, hits: &[&Hit]) -> Vec<String> {
         for f in &s.fields {
             let l = f.label.to_string_lossy();
             if matches!(f.value, Value::ResRef(_)) && mg_module::refs::is_script_field(&l) {
-                out.push(l.to_string());
+                out.push(l);
             }
         }
     }
@@ -833,5 +847,53 @@ mod tests {
             apply(&after, &swords, Change::RemoveEntry { entry: any, name: "x".into() });
         assert_eq!(out.changed, 2);
         assert!(costs(&taken, "sword_a").is_empty() && costs(&taken, "sword_b").is_empty());
+    }
+
+    #[test]
+    fn add_item_rejects_coordinates_past_u16_max_without_wrapping() {
+        let mut m = Module::new();
+        let mut new_uti = Gff::new(*b"UTI ");
+        new_uti.root.set("BaseItem", Value::Int(0));
+        m.set_gff(ResKey::new(rr("big"), ResType::UTI), &new_uti).unwrap();
+
+        let mut baseitems = mg_resman::MemContainer::new();
+        baseitems.insert(
+            ResKey::parse("baseitems", ResType::TWODA).unwrap(),
+            b"2DA V2.0\r\n\r\nLabel InvSlotWidth InvSlotHeight\r\n0 big 10 255\r\n".to_vec(),
+        );
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "base", mg_resman::LayerClass::Key, baseitems);
+        let g = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+
+        // 258 items of size 10x255 occupy rows 0..65790, past u16::MAX (65535).
+        let occupied: Vec<Struct> = (0..258)
+            .map(|row| {
+                let mut e = Struct::new(row);
+                e.set("BaseItem", Value::Int(0));
+                e.set("Repos_PosX", Value::Word(0));
+                e.set("Repos_Posy", Value::Word((row * 255) as u16));
+                e.set("InventoryRes", Value::resref(rr("big")));
+                e
+            })
+            .collect();
+        let mut chest = Gff::new(*b"UTP ");
+        chest.root.set("Tag", Value::String(b"FULL".to_vec()));
+        chest.root.set("ItemList", Value::List(occupied));
+        let key = ResKey::new(rr("fullchest"), ResType::UTP);
+        m.set_gff(key, &chest).unwrap();
+
+        let hits = find(&m, Search::Field { label: Some("Tag".into()), value: None });
+        let hit_refs: Vec<&Hit> = hits.iter().collect();
+        let out = edits(
+            &m,
+            &hit_refs,
+            &Change::AddEntry { entry: Entry::Item(rr("big")), name: "big".into() },
+            Codepage::WINDOWS_1252,
+            Some(&g),
+        )
+        .unwrap();
+        assert_eq!(out.changed, 0);
+        assert!(out.edits.is_empty());
+        assert_eq!(out.skipped, ["fullchest.utp: inventory is full"]);
     }
 }

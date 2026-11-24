@@ -13,22 +13,51 @@ fn run(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
     (ok, json)
 }
 
-#[test]
-fn every_command_answers_in_json() {
-    let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("mg-json");
-    let user = dir.join("user");
-    std::fs::create_dir_all(&user).unwrap();
-    let chess = dir.join("chess.mod");
-    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
-    let c = chess.to_str().unwrap();
-    let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
-    let ok = |args: &[&str]| -> Value {
-        let (success, json) = run(&root, &user, args);
+struct JsonCase {
+    root: std::path::PathBuf,
+    dir: std::path::PathBuf,
+    user: std::path::PathBuf,
+    chess: std::path::PathBuf,
+}
+
+impl JsonCase {
+    fn new(name: &str) -> Option<Self> {
+        let Some(root) = mg_testkit::nwn_root() else {
+            assert!(
+                !mg_testkit::corpus_required(),
+                "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+            );
+            return None;
+        };
+        let dir = mg_testkit::scratch_dir(name);
+        let user = dir.join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        let chess = dir.join("chess.mod");
+        std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+        Some(Self { root, dir, user, chess })
+    }
+
+    fn c(&self) -> &str {
+        self.chess.to_str().unwrap()
+    }
+
+    fn at(&self, name: &str) -> String {
+        self.dir.join(name).to_str().unwrap().to_string()
+    }
+
+    fn ok(&self, args: &[&str]) -> Value {
+        let (success, json) = run(&self.root, &self.user, args);
         assert!(success, "{args:?}: {json}");
         assert!(json.get("error").is_none(), "{args:?}: {json}");
         json
-    };
+    }
+}
+
+#[test]
+fn archive_and_resource_commands_answer_in_json() {
+    let _ = mg_testkit::corpus!();
+    let g = JsonCase::new("mg-json-archives").unwrap();
+    let (c, at, ok) = (g.c(), |n: &str| g.at(n), |a: &[&str]| g.ok(a));
 
     // Archives and files.
     let ls = ok(&["ls", c]);
@@ -54,6 +83,19 @@ fn every_command_answers_in_json() {
     assert_eq!(set["cells"][0]["to"], "MgFighter");
     assert_eq!(ok(&["tlk", "12"])["strings"][0]["text"], "Paladin");
 
+    // Failure.
+    let (success, json) = run(&g.root, &g.user, &["which", "nothing_at_all.2da"]);
+    assert!(!success);
+    assert!(json["error"].as_str().unwrap().contains("not found"));
+}
+
+#[test]
+fn module_and_model_commands_answer_in_json() {
+    let _ = mg_testkit::corpus!();
+    let g = JsonCase::new("mg-json-modules").unwrap();
+    let (c, at, ok) = (g.c(), |n: &str| g.at(n), |a: &[&str]| g.ok(a));
+    ok(&["unpack", c, &at("unpacked")]);
+
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
     assert_eq!(ok(&["roundtrip", c])["differences"], serde_json::json!([]));
@@ -68,8 +110,10 @@ fn every_command_answers_in_json() {
     let listed = ok(&["model-files", "plc_a01", &at("files"), "--dry-run"]);
     assert_eq!(listed["files"], files["files"]);
     ok(&["model-files", "plc_a01", &at("files"), "--force"]);
-    let refused =
-        crate::mg_on(&root, None).args(["model-files", "plc_a01", &at("files")]).output().unwrap();
+    let refused = crate::mg_on(&g.root, None)
+        .args(["model-files", "plc_a01", &at("files")])
+        .output()
+        .unwrap();
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("--force"));
     // (What it names and the game lacks: the armoire's emitter names a
@@ -113,6 +157,19 @@ fn every_command_answers_in_json() {
     assert!(names.iter().any(|n| n.ends_with(".set")), "{names:?}");
     assert!(names.iter().any(|n| n.ends_with(".wok")), "{names:?}");
     assert!(names.iter().filter(|n| n.ends_with(".mdl")).count() > 5, "{names:?}");
+    let map = ok(&["minimap", c, "chess", &at("map.png")]);
+    assert!(map["width"].as_u64().unwrap() > 0);
+    let set = ok(&["cat", "tcn01.set"])["text"].as_str().unwrap().to_string();
+    std::fs::write(g.dir.join("tcn01.set"), set).unwrap();
+    let pal = ok(&["tileset-palette", &at("tcn01.set")]);
+    assert!(pal["groups"].as_u64().unwrap() > 10 && g.dir.join("tcn01palstd.itp").is_file());
+}
+
+#[test]
+fn editing_and_plugin_commands_answer_in_json() {
+    let _ = mg_testkit::corpus!();
+    let g = JsonCase::new("mg-json-editing").unwrap();
+    let (c, at, ok) = (g.c(), |n: &str| g.at(n), |a: &[&str]| g.ok(a));
     // Plugins: the plugin host's own fixture, listed, checked, run and
     // its checks counted.
     let plugins = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/mg-plugin/tests/fixtures");
@@ -145,7 +202,7 @@ fn every_command_answers_in_json() {
     assert_eq!(info["name"], "Neverwinter Chess");
     let dlg = info["resources"]["dlg"].as_u64().unwrap();
     assert!(dlg > 0);
-    let m = mg_module::Module::open(&chess).unwrap();
+    let m = mg_module::Module::open(&g.chess).unwrap();
     let conversation = m.keys_of(mg_core::ResType::DLG).next().unwrap().resref.to_string();
     ok(&["dialog-export", c, &format!("{conversation}.dlg"), &at("talk.ink")]);
     let imported = ok(&["dialog-import", c, &at("talk.ink"), "--name", "mg_talk"]);
@@ -162,7 +219,7 @@ fn every_command_answers_in_json() {
     assert!(ok(&["update-instances", c])["updated"].is_number());
     // (Chess has no project file: nothing baked, and why, as JSON.)
     let (baked, json) =
-        run(&root, &user, &["bake-walkmesh", c, "--area", "chess", "--object", "0"]);
+        run(&g.root, &g.user, &["bake-walkmesh", c, "--area", "chess", "--object", "0"]);
     assert!(!baked && json["error"].as_str().unwrap().contains("[bake]"), "{json}");
     let init = ok(&["init", c, &at("project")]);
     assert_eq!(init["target"], "default");
@@ -170,15 +227,16 @@ fn every_command_answers_in_json() {
     assert_eq!(built["compiled"]["failed"], 0);
     let imported = ok(&["import", c, &at("pawn.erf")]);
     assert_eq!(imported["stamp"], exported["stamp"], "the stamp reads back");
-    let hak = dir.join("mg_json.hak");
+    let hak = g.dir.join("mg_json.hak");
     std::fs::write(&hak, mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap()).unwrap();
     assert_eq!(ok(&["attach", c, hak.to_str().unwrap()])["haks"][0], "mg_json");
-    let map = ok(&["minimap", c, "chess", &at("map.png")]);
-    assert!(map["width"].as_u64().unwrap() > 0);
-    let set = ok(&["cat", "tcn01.set"])["text"].as_str().unwrap().to_string();
-    std::fs::write(dir.join("tcn01.set"), set).unwrap();
-    let pal = ok(&["tileset-palette", &at("tcn01.set")]);
-    assert!(pal["groups"].as_u64().unwrap() > 10 && dir.join("tcn01palstd.itp").is_file());
+}
+
+#[test]
+fn nui_and_nwsync_commands_answer_in_json() {
+    let _ = mg_testkit::corpus!();
+    let g = JsonCase::new("mg-json-nwsync").unwrap();
+    let (c, at, ok) = (g.c(), |n: &str| g.at(n), |a: &[&str]| g.ok(a));
     // A NUI window: added, checked, its scripts written.
     assert_eq!(ok(&["nui", "new", c, "mg_window"])["saved"], true);
     assert_eq!(ok(&["nui", "validate", c, "mg_window"])["errors"], 0);
@@ -197,7 +255,7 @@ fn every_command_answers_in_json() {
     // Uploaded by a stand-in command (nothing goes anywhere but this
     // folder): each part in turn, in the repository's folder, its output
     // kept off the JSON.
-    let order = dir.join("order.txt");
+    let order = g.dir.join("order.txt");
     let _ = std::fs::remove_file(&order);
     let stand_in = format!("echo {{part}}>> {}", mg_module::nwsync::shell_quoted(&order));
     let sent = || -> Vec<String> {
@@ -212,18 +270,13 @@ fn every_command_answers_in_json() {
     assert_eq!(sent()[3..], ["manifests", "data"]);
     // A part that fails: what came after it isn't sent, and mg fails.
     let (success, json) =
-        run(&root, &user, &["nwsync", c, &at("repo"), "--with-module", "--upload", "exit 3"]);
+        run(&g.root, &g.user, &["nwsync", c, &at("repo"), "--with-module", "--upload", "exit 3"]);
     assert!(!success);
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("failed sending data") && error.contains("nothing was sent"), "{error}");
     // No command given, and the module's project names none.
-    let (success, json) = run(&root, &user, &["nwsync", c, &at("repo"), "--upload"]);
+    let (success, json) = run(&g.root, &g.user, &["nwsync", c, &at("repo"), "--upload"]);
     assert!(!success && json["error"].as_str().unwrap().contains("no upload command"));
-
-    // A failure.
-    let (success, json) = run(&root, &user, &["which", "nothing_at_all.2da"]);
-    assert!(!success);
-    assert!(json["error"].as_str().unwrap().contains("not found"));
 }
 
 #[test]

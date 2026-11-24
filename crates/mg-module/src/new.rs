@@ -308,13 +308,12 @@ pub fn resref_for(name: &str, taken: impl Fn(&ResRef) -> bool) -> ResRef {
     resref_for_named(name, &crate::project_file::Naming::default(), taken)
 }
 
-/// [`resref_for`] by a project's naming: the builder's code in the team's
-/// pattern around the name (`ab_area001`), the name cut to fit.
-pub fn resref_for_named(
+/// Non-panicking bounded [`resref_for_named`]; searches candidates `1..10_000`.
+pub fn try_resref_for_named(
     name: &str,
     naming: &crate::project_file::Naming,
     taken: impl Fn(&ResRef) -> bool,
-) -> ResRef {
+) -> Option<ResRef> {
     let base: String = name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
@@ -324,12 +323,33 @@ pub fn resref_for_named(
     if base.is_empty() {
         base = "area".to_string();
     }
-    let make = |n: &str| resref(&naming.fit(&base, n));
-    let candidate = make("");
-    if !taken(&candidate) {
-        return candidate;
+    if let Some(candidate) = naming.resref(&base, "")
+        && !taken(&candidate)
+    {
+        return Some(candidate);
     }
-    (1..).map(|n| make(&n.to_string())).find(|r| !taken(r)).expect("a free resref")
+    (1..10_000).filter_map(|n| naming.resref(&base, &n.to_string())).find(|r| !taken(r))
+}
+
+/// [`resref_for`] by a project's naming: the builder's code in the team's
+/// pattern around the name (`ab_area001`), the name cut to fit.
+pub fn resref_for_named(
+    name: &str,
+    naming: &crate::project_file::Naming,
+    taken: impl Fn(&ResRef) -> bool,
+) -> ResRef {
+    try_resref_for_named(name, naming, &taken)
+        .or_else(|| {
+            let base: String = name
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            let base = naming.strip(&base);
+            let base = if base.is_empty() { "area" } else { base };
+            naming.resref(base, "")
+        })
+        .unwrap_or_else(|| resref("area"))
 }
 
 /// A tag from a name, as Aurora makes one ("Area 001" → `Area001`).
@@ -730,5 +750,24 @@ mod tests {
         let mut names = vec!["zarza", "Árboles", "arbustos", "Bosque", "half-orc", "halfling"];
         names.sort_by_cached_key(|n| word_sort_key(n));
         assert_eq!(names, ["Árboles", "arbustos", "Bosque", "halfling", "half-orc", "zarza"]);
+    }
+
+    #[test]
+    fn saturated_or_oversized_naming_never_hangs_or_panics_for_areas() {
+        let full = crate::project_file::Naming::default();
+        assert_eq!(super::try_resref_for_named("Area", &full, |_| true), None);
+        assert_eq!(super::resref_for_named("Area", &full, |_| true).as_str(), Some("area"));
+
+        let oversized = crate::project_file::Naming::new(&"x".repeat(16), "{code}_{name}");
+        let taken = |res: &mg_core::ResRef| res.as_str() == Some("xxxxxxxxxxxxxxxx");
+        assert_eq!(super::try_resref_for_named("Area", &oversized, taken), None);
+        assert_eq!(
+            super::resref_for_named("Area", &oversized, taken).as_str(),
+            Some("xxxxxxxxxxxxxxxx")
+        );
+
+        let bad_chars = crate::project_file::Naming::new("a\0b", "{code}_{name}");
+        assert_eq!(super::try_resref_for_named("Area", &bad_chars, |_| false), None);
+        assert_eq!(super::resref_for_named("Area", &bad_chars, |_| false).as_str(), Some("area"));
     }
 }

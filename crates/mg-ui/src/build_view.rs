@@ -613,9 +613,15 @@ fn compile(
         }
         if w.compile_encounters {
             // The creatures as they are now, ratings included.
-            let snapshot = staged.clone();
+            let utcs: std::collections::HashMap<ResRef, std::sync::Arc<[u8]>> = staged
+                .keys_of(ResType::UTC)
+                .filter_map(|k| staged.shared(k).map(|b| (k.resref, b.clone())))
+                .collect();
             let read = |r: ResRef| {
-                mg_module::gff_root(Some(&snapshot), game, &ResKey::new(r, ResType::UTC))
+                if let Some(bytes) = utcs.get(&r) {
+                    return mg_gff::Gff::read(bytes).ok().map(|g| g.root);
+                }
+                mg_module::gff_root(None, game, &ResKey::new(r, ResType::UTC))
             };
             let n = mg_module::build::compile_encounters(&mut staged, &read);
             notes.push(format!("Build: {n} encounter creature entries brought up to date"));
@@ -647,10 +653,7 @@ fn check(
     };
     // (The scripts the game's tables run, as the module sees them, count
     // as used, and what the module reaches in its haks and the game names.)
-    let unused = w.unused.then(|| {
-        let also = mg_module::verify::also_used(module, &references, &game.resman);
-        mg_module::verify::unused_of(module, &references, &also)
-    });
+    let unused = w.unused.then(|| mg_module::verify::unused_in(module, &references, &game.resman));
     if w.missing {
         let missing = mg_module::verify::missing_of(module, &game.resman, references);
         let mut n = 0;

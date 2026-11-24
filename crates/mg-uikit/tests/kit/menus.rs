@@ -5,40 +5,14 @@
 
 use std::cell::RefCell;
 
-use egui::{Color32, Rect};
+use egui::Rect;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::menu::{MENU_FORM_GAP, MENU_SEPARATOR};
 use mg_uikit::metrics::{MENU_ROW, POPOVER_RADIUS};
 use mg_uikit::{Icon, IconButton, Theme, Tokens};
 
-/// The shapes drawn in a frame, flattened.
-fn shapes(h: &Harness<'_>) -> Vec<egui::Shape> {
-    fn add(shape: &egui::Shape, to: &mut Vec<egui::Shape>) {
-        match shape {
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            s => to.push(s.clone()),
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
-}
-
-/// The color the words `text` were painted in.
-fn text_color(h: &Harness<'_>, text: &str) -> Option<Color32> {
-    shapes(h).into_iter().find_map(|s| match s {
-        // (Not a row's keys as egui lays them out, drawn clear for the
-        // kit to draw over.)
-        egui::Shape::Text(t) if t.galley.text() == text => {
-            let own = t.galley.job.sections.first().map(|s| s.format.color);
-            let own = own.filter(|c| *c != Color32::PLACEHOLDER);
-            let color = t.override_text_color.or(own).unwrap_or(t.fallback_color);
-            Some(color).filter(|c| c.a() > 0)
-        }
-        _ => None,
-    })
-}
+use crate::common::{shapes, text_color};
 
 /// A heading, rows, a separator, a note and a check box's row in a menu
 /// (a popover as the kit's menus have it): the heading padded 6 above and

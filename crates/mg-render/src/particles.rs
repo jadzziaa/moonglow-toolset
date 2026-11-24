@@ -55,7 +55,7 @@
 use glam::{Mat4, Quat, Vec2, Vec3};
 use mg_mdl::{AnimNode, Animation, Model, NodeKind};
 
-use crate::anim::sample;
+use crate::anim::{sample_into, sample_one};
 
 /// How a batch of particles blends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -109,8 +109,8 @@ pub struct ParticleBatch {
     /// the client, 10 over the larger of the emitter's `sizeStart` and
     /// `sizeEnd` (a particle fades over its last tenth), at either shader
     /// quality; 0 for the emitters the client lays along an axis
-    /// (`Billboard_to_Local_Z`, `Billboard_to_World_Z`) and, not read,
-    /// lightning ([`softness`]).
+    /// (`Billboard_to_Local_Z`, `Billboard_to_World_Z`), while lightning
+    /// uses `sizeEnd` 0 for its end size in [`softness`].
     pub softness: f32,
 }
 
@@ -371,7 +371,7 @@ fn param_opt(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, which: P) -> Option
     if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
     {
-        return sample(c, t).first().copied();
+        return sample_one(c, t);
     }
     e.rest[which as usize]
 }
@@ -382,7 +382,9 @@ fn color(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, end: bool, default: Vec
     if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == name)
     {
-        return color3(Some(&sample(c, t))).unwrap_or(default);
+        let mut buf = [0.0; 4];
+        let len = sample_into(c, t, &mut buf);
+        return color3(Some(&buf[..len])).unwrap_or(default);
     }
     e.colors[usize::from(end)].unwrap_or(default)
 }
@@ -495,7 +497,7 @@ impl Particles {
                 if let Some((an, t)) = at
                     && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
                 {
-                    return sample(c, t).first().copied().unwrap_or(default);
+                    return sample_one(c, t).unwrap_or(default);
                 }
                 rest[which as usize].unwrap_or(default)
             };
@@ -900,6 +902,9 @@ impl Particles {
         let at = anim.map(|a| (a, t));
         let mut out = Vec::new();
         for e in &self.emitters {
+            if e.particles.is_empty() {
+                continue;
+            }
             let NodeKind::Emitter(em) = &model.nodes[e.node].kind else { continue };
             let Some(chunk) = &e.chunk else { continue };
             let at = anim_node(model, e.node, at);
@@ -917,7 +922,7 @@ impl Particles {
             // was taken as turns a second about an axis of each chunk's
             // own, from a random angle.)
             let spin = p(P::ParticleRot, 0.0);
-            let (_, facing, _) = world.to_scale_rotation_translation();
+            let facing = rotation_of(world);
             for q in &e.particles {
                 let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
                 let rot = facing * Quat::from_rotation_z(spin * q.age);
@@ -937,6 +942,21 @@ impl Particles {
 /// its tail and wings, their own visual transform). Their speed is not:
 /// read in the client, `client_render/part_emitters.rs` (a tail scaled 3
 /// threw squares three times as big, rising as far in their life).
+fn rotation_of(world: Mat4) -> Quat {
+    let (x, y, z) = (world.x_axis.truncate(), world.y_axis.truncate(), world.z_axis.truncate());
+    let (lx, ly, lz) = (x.length(), y.length(), z.length());
+    if !(lx > 1e-6 && ly > 1e-6 && lz > 1e-6 && lx.is_finite() && ly.is_finite() && lz.is_finite())
+    {
+        return Quat::IDENTITY;
+    }
+    let mut basis = glam::Mat3::from_cols(x / lx, y / ly, z / lz);
+    if basis.determinant() < 0.0 {
+        basis.x_axis = -basis.x_axis;
+    }
+    let q = Quat::from_mat3(&basis);
+    if q.is_finite() { q.normalize() } else { Quat::IDENTITY }
+}
+
 fn grown_by(world: Mat4) -> f32 {
     world.x_axis.truncate().length()
 }
@@ -1835,6 +1855,32 @@ mod tests {
         for piece in v.chunks(6) {
             assert_eq!(piece[0].uv, [0.0, 0.5]);
             assert!((piece[2].uv[1] - (0.5 + 0.5 * 0.769)).abs() < 1e-3, "{:?}", piece[2].uv);
+        }
+    }
+
+    #[test]
+    fn zero_scaled_emitters_never_panic_or_emit_nan_chunks() {
+        let chunky = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            chunk: Some("mgchunk".into()),
+            ..Default::default()
+        };
+        let m = emitter(chunky, &[("birthrate", 4.0), ("lifeexp", 10.0), ("velocity", 0.25)]);
+        let pose = crate::rest_pose(&m);
+        let mut empty = Particles::new(&m);
+        // No particles yet: skipped cleanly even under degenerate scale.
+        assert!(empty.chunks(&m, None, 0.0, &pose, Mat4::from_scale(Vec3::ZERO)).is_empty());
+        for _ in 0..10 {
+            empty.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        assert!(!empty.emitters[0].particles.is_empty());
+        for deg in [Mat4::from_scale(Vec3::ZERO), Mat4::from_scale(Vec3::new(1.0, 0.0, 1.0))] {
+            let chunks = empty.chunks(&m, None, 0.0, &pose, deg);
+            assert!(!chunks.is_empty());
+            for ch in chunks {
+                assert!(ch.transform.is_finite(), "{:?}", ch.transform);
+            }
         }
     }
 }

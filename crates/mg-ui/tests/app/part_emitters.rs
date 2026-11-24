@@ -92,7 +92,7 @@ fn an_effect_worn_as_a_tail_shows_its_particles() {
     else {
         return;
     };
-    let out = mg_testkit::scratch_dir("ui-part-emitters");
+    let out = std::env::var_os("MG_SHOT").map(|_| mg_testkit::scratch_dir("ui-part-emitters"));
 
     // The area view.
     until(&mut h, &|h| h.state().area_views[&area].particles_shown > 0);
@@ -102,7 +102,9 @@ fn an_effect_worn_as_a_tail_shows_its_particles() {
     }
     h.run_steps(20);
     let img = h.render().expect("render");
-    img.save(out.join("area.png")).unwrap();
+    if let Some(dir) = &out {
+        img.save(dir.join("area.png")).unwrap();
+    }
     // (Each view's pictures are kept before what they show is checked.)
     let area_shown = (h.state().area_views[&area].particles_shown, magenta(&img));
 
@@ -122,7 +124,9 @@ fn an_effect_worn_as_a_tail_shows_its_particles() {
     view.orbit.distance *= 1.6;
     h.run_steps(20);
     let img = h.render().expect("render");
-    img.save(out.join("preview.png")).unwrap();
+    if let Some(dir) = &out {
+        img.save(dir.join("preview.png")).unwrap();
+    }
     let preview_seen = magenta(&img);
 
     // Its blueprint's picture, and the plain one's.
@@ -142,7 +146,9 @@ fn an_effect_worn_as_a_tail_shows_its_particles() {
         until(&mut h, &|h| h.state().thumbnails.waiting() == 0);
         h.run_steps(4);
         let img = h.render().expect("render");
-        img.save(out.join(format!("picture-{name}.png"))).unwrap();
+        if let Some(dir) = &out {
+            img.save(dir.join(format!("picture-{name}.png"))).unwrap();
+        }
         // (The palette's, the window's right fifth: the area view's own
         // particles are left of it.)
         let x = img.width() * 78 / 100;

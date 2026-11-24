@@ -2,8 +2,9 @@
 
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::container::{DirContainer, ErfContainer, KeyContainer};
+use crate::container::{Container, DirContainer, ErfContainer, KeyContainer};
 use crate::{LayerClass, ResError, ResMan, priority};
 
 /// A game install, the player's user directory and the language to load.
@@ -643,6 +644,120 @@ pub fn default_user_dir() -> Option<PathBuf> {
     }
 }
 
+#[derive(Debug)]
+struct SharedLayer {
+    label: String,
+    priority: u32,
+    class: LayerClass,
+    container: Arc<dyn Container>,
+}
+
+/// Immutable base-install layers (`data/{prt,amb,mus}` and the `data/*.key`
+/// archives) opened once and shared across [`ResMan`] stacks in tests.
+#[derive(Debug)]
+pub struct SharedGameBase {
+    root: PathBuf,
+    language: String,
+    layers: Vec<SharedLayer>,
+}
+
+impl SharedGameBase {
+    /// Opens the base install's directories and KEY/BIF archives for `(root, language)`.
+    pub fn open(root: &Path, language: &str) -> Result<SharedGameBase, ResError> {
+        let install = GameInstall::new(root, None, language);
+        let mut layers = Vec::new();
+        for_each_base_dir(&install, |p, label, c| {
+            layers.push(SharedLayer {
+                label: label.into(),
+                priority: p,
+                class: LayerClass::Directory,
+                container: Arc::new(c),
+            });
+        });
+        for_each_base_key(&install, |label, c| {
+            layers.push(SharedLayer {
+                label,
+                priority: priority::KEY,
+                class: LayerClass::Key,
+                container: Arc::new(c),
+            });
+        })?;
+        Ok(SharedGameBase { root: root.to_path_buf(), language: language.to_string(), layers })
+    }
+
+    /// Builds a [`ResMan`] stack for `install`, sharing these base layers via `Arc`.
+    pub fn stack(&self, install: &GameInstall) -> Result<ResMan, ResError> {
+        if install.root != self.root || install.language != self.language {
+            return ResMan::for_game(install);
+        }
+        let mut rm = ResMan::new();
+        add_user_layers(&mut rm, install);
+        for l in &self.layers {
+            rm.add(l.priority, l.label.clone(), l.class, Arc::clone(&l.container));
+        }
+        Ok(rm)
+    }
+}
+
+fn for_each_base_dir(install: &GameInstall, mut push: impl FnMut(u32, &'static str, DirContainer)) {
+    let data = install.root.join("data");
+    for (p, label, dir) in [
+        (priority::PORTRAITS, "portraits", data.join("prt")),
+        (priority::AMBIENT, "ambient", data.join("amb")),
+        (priority::MUSIC, "music", data.join("mus")),
+    ] {
+        push(p, label, DirContainer::open(&dir));
+    }
+}
+
+fn for_each_base_key(
+    install: &GameInstall,
+    mut push: impl FnMut(String, KeyContainer),
+) -> Result<(), ResError> {
+    let root = &install.root;
+    let data = root.join("data");
+    let lang_data = install.lang_data();
+    for key in ["nwn_retail_loc", "nwn_retail", "nwn_base_loc", "nwn_base"] {
+        let file = format!("{key}.key");
+        let label = format!("key:{key}");
+        if let Some(p) = Some(lang_data.join(&file)).filter(|p| p.is_file()) {
+            push(label, KeyContainer::open_localized(&p, root, &lang_data)?);
+        } else if let Some(p) = Some(data.join(&file)).filter(|p| p.is_file()) {
+            push(label, KeyContainer::open(&p, root)?);
+        }
+    }
+    Ok(())
+}
+
+fn add_user_layers(rm: &mut ResMan, install: &GameInstall) {
+    let workshop = |rm: &mut ResMan, p: u32, sub: &str| {
+        for item in install.workshop(sub) {
+            let id = item.parent().and_then(Path::file_name).unwrap_or_default();
+            let label = format!("workshop:{}", id.to_string_lossy());
+            rm.add(p, label, LayerClass::Directory, DirContainer::open(&item));
+        }
+    };
+    let dir = |rm: &mut ResMan, p: u32, label: &str, path: Option<PathBuf>| {
+        if let Some(path) = path {
+            rm.add(p, label, LayerClass::Directory, DirContainer::open(&path));
+        }
+    };
+    dir(rm, priority::PORTRAITS_USER, "user portraits", install.user("portraits"));
+    workshop(rm, priority::PORTRAITS, "portraits");
+    dir(rm, priority::DEVELOPMENT_USER, "development", install.user("development"));
+    dir(rm, priority::OVERRIDE, "override", install.user("override"));
+    workshop(rm, priority::WORKSHOP, "override");
+    dir(rm, priority::AMBIENT_USER, "user ambient", install.user("ambient"));
+    dir(rm, priority::MUSIC_USER, "user music", install.user("music"));
+    workshop(rm, priority::AMBIENT, "ambient");
+    workshop(rm, priority::MUSIC, "music");
+    for (name, path) in install.userpatch_haks() {
+        if let Some(c) = path.and_then(|p| ErfContainer::open(&p).ok()) {
+            rm.add(priority::USERPATCH, format!("userpatch:{name}"), LayerClass::Erf, c);
+        }
+    }
+}
+
 impl ResMan {
     /// The stack the toolset sees with no module open (see [`priority`]):
     /// portraits, `development/`, `override/`, ambient and music folders
@@ -656,62 +771,9 @@ impl ResMan {
     /// [`priority::MODULE`].
     pub fn for_game(install: &GameInstall) -> Result<ResMan, ResError> {
         let mut rm = ResMan::new();
-        let root = &install.root;
-        let data = root.join("data");
-        // A Workshop item's folder of a kind, as a layer at `p` (each item
-        // labelled by its number; of two items, the first by number first,
-        // the game's order not being known), added before the install's
-        // own of that priority: under the user's own, over the install's.
-        let workshop = |rm: &mut ResMan, p: u32, sub: &str| {
-            for item in install.workshop(sub) {
-                let id = item.parent().and_then(Path::file_name).unwrap_or_default();
-                let label = format!("workshop:{}", id.to_string_lossy());
-                rm.add(p, label, LayerClass::Directory, DirContainer::open(&item));
-            }
-        };
-        let dir = |rm: &mut ResMan, p: u32, label: &str, path: Option<PathBuf>| {
-            if let Some(path) = path {
-                rm.add(p, label, LayerClass::Directory, DirContainer::open(&path));
-            }
-        };
-        dir(&mut rm, priority::PORTRAITS_USER, "user portraits", install.user("portraits"));
-        workshop(&mut rm, priority::PORTRAITS, "portraits");
-        dir(&mut rm, priority::PORTRAITS, "portraits", Some(data.join("prt")));
-        dir(&mut rm, priority::DEVELOPMENT_USER, "development", install.user("development"));
-        dir(&mut rm, priority::OVERRIDE, "override", install.user("override"));
-        // The Workshop's overrides, under the user's own (the game started
-        // through Steam reads them).
-        workshop(&mut rm, priority::WORKSHOP, "override");
-        dir(&mut rm, priority::AMBIENT_USER, "user ambient", install.user("ambient"));
-        dir(&mut rm, priority::MUSIC_USER, "user music", install.user("music"));
-        workshop(&mut rm, priority::AMBIENT, "ambient");
-        dir(&mut rm, priority::AMBIENT, "ambient", Some(data.join("amb")));
-        workshop(&mut rm, priority::MUSIC, "music");
-        dir(&mut rm, priority::MUSIC, "music", Some(data.join("mus")));
-        // userpatch.ini's haks, under the module and its haks, over
-        // `override/`; the highest first (an archive that can't be read is
-        // left out, as a missing one is).
-        for (name, path) in install.userpatch_haks() {
-            if let Some(c) = path.and_then(|p| ErfContainer::open(&p).ok()) {
-                rm.add(priority::USERPATCH, format!("userpatch:{name}"), LayerClass::Erf, c);
-            }
-        }
-
-        let lang_data = install.lang_data();
-        for key in ["nwn_retail_loc", "nwn_retail", "nwn_base_loc", "nwn_base"] {
-            let file = format!("{key}.key");
-            let label = format!("key:{key}");
-            if let Some(p) = Some(lang_data.join(&file)).filter(|p| p.is_file()) {
-                rm.add(
-                    priority::KEY,
-                    label,
-                    LayerClass::Key,
-                    KeyContainer::open_localized(&p, root, &lang_data)?,
-                );
-            } else if let Some(p) = Some(data.join(&file)).filter(|p| p.is_file()) {
-                rm.add(priority::KEY, label, LayerClass::Key, KeyContainer::open(&p, root)?);
-            }
-        }
+        add_user_layers(&mut rm, install);
+        for_each_base_dir(install, |p, label, c| rm.add(p, label, LayerClass::Directory, c));
+        for_each_base_key(install, |label, c| rm.add(priority::KEY, label, LayerClass::Key, c))?;
         Ok(rm)
     }
 

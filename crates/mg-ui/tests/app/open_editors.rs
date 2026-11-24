@@ -82,16 +82,6 @@ fn reset_layout(h: &mut Harness<'_, Moonglow>) {
     settle(h);
 }
 
-/// Frames until `done` says so, for ten seconds at most, failing with
-/// `what`.
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 10, "never: {what}");
-        h.step();
-    }
-}
-
 /// A script, a Properties (a waypoint's blueprint), the Faction Editor
 /// and the user manual open as tabs of the focused editor group in As
 /// Tabs, as windows of their own in As Floating Windows; areas as tabs in

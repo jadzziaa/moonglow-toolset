@@ -127,11 +127,20 @@ pub struct TableDoc {
     /// The rows shown, for the table and the Find they were worked out
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, usize, u64, String, bool), Arc<Vec<usize>>)>,
+    shown: Option<((u64, usize, u64, usize, String, bool), Arc<Vec<usize>>)>,
     /// The cells that are wrong, for the table's revision and the other
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
-    faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
+    faults: Option<((u64, u64, u64, u64, TalkTables, usize), Arc<Vec<CellFault>>)>,
+    /// Cached base-game table copy and its own fault coordinates so edits do
+    /// not re-parse and re-validate the base game's copy on every change.
+    #[allow(clippy::type_complexity)]
+    base_faults: Option<(
+        (String, u64, TalkTables),
+        Option<Arc<(TwoDa, std::collections::HashSet<(usize, usize)>)>>,
+    )>,
+    /// Cached column list keyed on `edit.changes()` to avoid cloning per frame.
+    columns_cache: Option<(u64, Arc<[String]>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -214,6 +223,8 @@ impl TableDoc {
             within: None,
             shown: None,
             faults: None,
+            base_faults: None,
+            columns_cache: None,
             add_count: 1,
             new_column: None,
             renaming: None,
@@ -233,6 +244,18 @@ impl TableDoc {
     /// 20,000 rows, and then once a change.
     fn shared(&self) -> Arc<TwoDa> {
         self.edit.shared()
+    }
+
+    fn columns_cached(&mut self) -> Arc<[String]> {
+        let changes = self.edit.changes();
+        if let Some((was, cols)) = &self.columns_cache
+            && *was == changes
+        {
+            return cols.clone();
+        }
+        let cols: Arc<[String]> = Arc::from(self.edit.table().columns());
+        self.columns_cache = Some((changes, cols.clone()));
+        cols
     }
 
     pub fn name(&self) -> String {
@@ -1135,35 +1158,26 @@ fn talk_tables(app: &Moonglow) -> TalkTables {
     TalkTables { base, custom }
 }
 
-/// The cells that are wrong, kept until the table changes.
-fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
-    // (Another open table's change may be one a description names.)
-    let others: u64 = (app.tables.iter().enumerate())
-        .filter(|(i, _)| *i != at)
-        .map(|(_, t)| t.revision.wrapping_add(t.edit.changes()))
-        .fold(0, u64::wrapping_add);
-    let doc = &app.tables[at];
-    if let Some((mark, found)) = &doc.faults
-        && *mark == (doc.revision, others)
+type BaseFaults = (TwoDa, std::collections::HashSet<(usize, usize)>);
+
+/// Returns the game's base copy of `name` and its own fault coordinates, cached
+/// on `doc.base_faults` per `(name, load_order, talk_tables)`.
+fn base_faults_for(
+    doc: &mut TableDoc,
+    game: Option<&mg_rules::GameData>,
+    name: &str,
+    kinds: &[(&'static str, ColumnKind)],
+    load_order: u64,
+    tlk: TalkTables,
+) -> Option<Arc<BaseFaults>> {
+    let key = (name.to_ascii_lowercase(), load_order, tlk);
+    if let Some((was, cached)) = &doc.base_faults
+        && *was == key
     {
-        return found.clone();
+        return cached.clone();
     }
-    let name = doc.name();
-    let kinds = kinds(app, &name);
-    let game = app.game.as_deref();
-    let read = |n: &str| game.and_then(|g| g.table(n).ok());
-    let rows_of = |n: &str| read(n).map(|t| t.len());
-    // (With no game, no table is known to be there or not.)
-    let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
-    let mut found =
-        mg_module::doctor::table_faults(&name, doc.edit.table(), &kinds, tables, talk_tables(app));
-    // A cell as the game's own copy has it, wrong there too, is the
-    // game's, not the builder's (appearance's FOOTSTEPTYPE 30): as Verify
-    // leaves it.
-    if !found.is_empty()
-        && let Some(g) = game
-        && let Some(base) = mg_module::doctor::game_copy(&g.resman, &name)
-    {
+    let cached = game.and_then(|g| {
+        let base = mg_module::doctor::game_copy(&g.resman, name)?;
         let read = std::cell::RefCell::new(std::collections::HashMap::new());
         let game_read = |n: &str| -> Option<Arc<TwoDa>> {
             let mut read = read.borrow_mut();
@@ -1172,57 +1186,217 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
                 .or_insert_with(|| mg_module::doctor::game_copy(&g.resman, n).map(Arc::new));
             t.clone()
         };
-        let theirs = mg_module::doctor::table_faults(
-            &name,
-            &base,
-            &kinds,
-            Some(&game_read),
-            talk_tables(app),
-        );
-        let table = doc.edit.table();
-        // (Looked up, not looked through: with a custom StrRef column and
-        // no talk table every cell of it is a fault, 20,000 of them.)
-        let theirs = cells_of(&theirs);
-        found.retain(|f| {
-            let column = &table.columns()[f.column];
-            let kept = base.column(column).is_some_and(|c| {
-                base.cell(f.row, c) == table.cell(f.row, f.column) && theirs.contains(&(f.row, c))
-            });
-            !kept
+        let theirs = mg_module::doctor::table_faults(name, &base, kinds, Some(&game_read), tlk);
+        let set = cells_of(&theirs);
+        Some(Arc::new((base, set)))
+    });
+    doc.base_faults = Some((key, cached.clone()));
+    cached
+}
+
+fn filter_base_faults(
+    found: &mut Vec<CellFault>,
+    table: &TwoDa,
+    base: &TwoDa,
+    theirs: &std::collections::HashSet<(usize, usize)>,
+) {
+    found.retain(|f| {
+        let column = &table.columns()[f.column];
+        let kept = base.column(column).is_some_and(|c| {
+            base.cell(f.row, c) == table.cell(f.row, f.column) && theirs.contains(&(f.row, c))
         });
+        !kept
+    });
+}
+
+struct DescFaultsCtx<'a> {
+    app: &'a Moonglow,
+    doc: &'a TableDoc,
+    described: &'a Described,
+    description: &'a Description,
+    name: &'a str,
+    tlk: TalkTables,
+    base: Option<&'a TwoDa>,
+}
+
+fn description_faults_append(
+    found: &mut Vec<CellFault>,
+    ctx: &DescFaultsCtx<'_>,
+    rows: Option<&[usize]>,
+) {
+    let table = ctx.doc.edit.table();
+    let read = |n: &str| ctx.app.game.as_deref().and_then(|g| g.table(n).ok());
+    let rows_of = |n: &str| match n.eq_ignore_ascii_case(ctx.name) {
+        true => Some(table.len()),
+        false => project_table(ctx.app, ctx.described, n)
+            .map(|t| t.len())
+            .or_else(|| read(n).map(|t| t.len())),
+    };
+    let desc_faults = match rows {
+        Some(rows) => ctx.description.faults_rows(table, rows, &rows_of, ctx.tlk),
+        None => ctx.description.faults(table, &rows_of, ctx.tlk),
+    };
+    let mut said = cells_of(found);
+    for f in desc_faults {
+        let column = &table.columns()[f.column];
+        let the_game_s =
+            ctx.base.is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
+        if !the_game_s && said.insert((f.row, f.column)) {
+            found.push(f);
+        }
+    }
+}
+
+/// The cells that are wrong, kept until the table changes.
+fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
+    // (Another open table's change may be one a description names.)
+    let others: u64 = (app.tables.iter().enumerate())
+        .filter(|(i, _)| *i != at)
+        .map(|(_, t)| t.revision.wrapping_add(t.edit.changes()))
+        .fold(0, u64::wrapping_add);
+    let doc = &app.tables[at];
+    let changes = doc.edit.changes();
+    let described_ptr = doc.description().as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
+    let tlk = talk_tables(app);
+    let key = (doc.revision, changes, others, app.load_order, tlk, described_ptr);
+    if let Some((mark, found)) = &doc.faults
+        && *mark == key
+    {
+        return found.clone();
+    }
+    let name = doc.name();
+    let kinds = kinds(app, &name);
+
+    // Incremental path: only small cell edits occurred since previous faults,
+    // external factors match, and no self-referencing row flipped emptiness.
+    let incremental = doc.faults.as_ref().and_then(|(mark, prev)| {
+        let (_, prev_changes, prev_others, prev_lo, prev_tlk, prev_desc) = *mark;
+        if prev_changes < changes
+            && (prev_others, prev_lo, prev_tlk, prev_desc)
+                == (others, app.load_order, tlk, described_ptr)
+        {
+            let (touched, emptiness_changed) = doc.edit.cell_rows_since(prev_changes)?;
+            let self_ref = kinds.iter().any(|(_, k)| {
+                matches!(k, ColumnKind::Row(target) if target.eq_ignore_ascii_case(&name))
+                    || matches!(k, ColumnKind::RowBy { .. })
+            });
+            (!self_ref || !emptiness_changed).then(|| (touched, prev.clone()))
+        } else {
+            None
+        }
+    });
+
+    if let Some((touched, prev_found)) = incremental {
+        let base_pair = if app.game.is_some()
+            && (!prev_found.is_empty()
+                || doc.described.as_ref().is_some_and(|d| d.path.is_none() && d.read.is_ok()))
+        {
+            let game = app.game.clone();
+            base_faults_for(
+                &mut app.tables[at],
+                game.as_deref(),
+                &name,
+                &kinds,
+                app.load_order,
+                tlk,
+            )
+        } else {
+            None
+        };
+        let doc = &app.tables[at];
+        let game = app.game.as_deref();
+        let read = |n: &str| game.and_then(|g| g.table(n).ok());
+        let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
+        let mut touched_faults = mg_module::doctor::table_faults_rows(
+            &name,
+            doc.edit.table(),
+            &touched,
+            &kinds,
+            tables,
+            tlk,
+        );
+        if !touched_faults.is_empty()
+            && let Some(pair) = &base_pair
+        {
+            filter_base_faults(&mut touched_faults, doc.edit.table(), &pair.0, &pair.1);
+        }
+        if let Some(d) = &doc.described
+            && let Ok(description) = &d.read
+        {
+            let base = if d.path.is_none() { base_pair.as_ref().map(|p| &p.0) } else { None };
+            let ctx = DescFaultsCtx { app, doc, described: d, description, name: &name, tlk, base };
+            description_faults_append(&mut touched_faults, &ctx, Some(&touched));
+        }
+        touched_faults.sort_by_key(|f| (f.row, f.column));
+        let unchanged = touched.iter().all(|&r| {
+            let new_slice = row_faults(&touched_faults, r);
+            let old_slice = row_faults(&prev_found, r);
+            new_slice == old_slice
+        });
+        let found = if unchanged {
+            prev_found
+        } else {
+            let mut next = Vec::with_capacity(prev_found.len());
+            let mut pi = 0;
+            let mut ni = 0;
+            for &r in &touched {
+                while pi < prev_found.len() && prev_found[pi].row < r {
+                    next.push(prev_found[pi].clone());
+                    pi += 1;
+                }
+                while pi < prev_found.len() && prev_found[pi].row == r {
+                    pi += 1;
+                }
+                while ni < touched_faults.len() && touched_faults[ni].row < r {
+                    ni += 1;
+                }
+                while ni < touched_faults.len() && touched_faults[ni].row == r {
+                    next.push(touched_faults[ni].clone());
+                    ni += 1;
+                }
+            }
+            next.extend_from_slice(&prev_found[pi..]);
+            Arc::new(next)
+        };
+        app.tables[at].faults = Some((key, found.clone()));
+        return found;
+    }
+
+    let game = app.game.as_deref();
+    let read = |n: &str| game.and_then(|g| g.table(n).ok());
+    // (With no game, no table is known to be there or not.)
+    let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
+    let mut found = mg_module::doctor::table_faults(&name, doc.edit.table(), &kinds, tables, tlk);
+    let needs_base = (!found.is_empty()
+        || doc.described.as_ref().is_some_and(|d| d.path.is_none() && d.read.is_ok()))
+        && app.game.is_some();
+    let base_pair = if needs_base {
+        let game = app.game.clone();
+        base_faults_for(&mut app.tables[at], game.as_deref(), &name, &kinds, app.load_order, tlk)
+    } else {
+        None
+    };
+    if !found.is_empty()
+        && let Some(pair) = &base_pair
+    {
+        filter_base_faults(&mut found, app.tables[at].edit.table(), &pair.0, &pair.1);
     }
     // And by the table's own description: a table it names is this one
     // as it is now, one of its repository's, or the game's.
+    let doc = &app.tables[at];
     if let Some(d) = &doc.described
         && let Ok(description) = &d.read
     {
-        let rows_of = |n: &str| match n.eq_ignore_ascii_case(&name) {
-            true => Some(doc.edit.table().len()),
-            false => project_table(app, d, n).map(|t| t.len()).or_else(|| rows_of(n)),
-        };
-        // (Moonglow's description of the game's table: a cell as the
-        // game's own copy has it is the game's, not the builder's.)
-        let base = match d.path {
-            None => game.and_then(|g| mg_module::doctor::game_copy(&g.resman, &name)),
-            Some(_) => None,
-        };
-        let table = doc.edit.table();
-        let mut said = cells_of(&found);
-        for f in description.faults(table, &rows_of, talk_tables(app)) {
-            let column = &table.columns()[f.column];
-            let the_game_s =
-                base.as_ref().is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
-            if !the_game_s && said.insert((f.row, f.column)) {
-                found.push(f);
-            }
-        }
+        let base = if d.path.is_none() { base_pair.as_ref().map(|p| &p.0) } else { None };
+        let ctx = DescFaultsCtx { app, doc, described: d, description, name: &name, tlk, base };
+        description_faults_append(&mut found, &ctx, None);
     }
     // (By row, then column, always: the grid takes each row's with
     // `row_faults`.)
     found.sort_by_key(|f| (f.row, f.column));
     let found = Arc::new(found);
     let doc = &mut app.tables[at];
-    doc.faults = Some(((doc.revision, others), found.clone()));
+    doc.faults = Some((key, found.clone()));
     found
 }
 
@@ -1756,14 +1930,6 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
         }
         false => format!("Hidden from view: {}", hidden_names.join(", ")),
     };
-    // OK and Cancel at the end, with the tips they had at the foot.
-    let tips = crate::side_doc::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
     let mut h = EditorHeader::new(TABLE_HEADER)
         .more_words(true)
         .left(Item::button(Icon::Save, "Save").primary().enabled(dirty).tip("Save the table"))
@@ -1829,7 +1995,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
             }
         }));
     }
-    let out = h
+    let h = h
         .right(Item::joined(HOW_CELLS_SHOW, how))
         .right(
             Item::button(Icon::SaveAs, SAVE_AS_FILE)
@@ -1858,21 +2024,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
             Item::button(Icon::Column, RESET_ALL_WIDTHS)
                 .in_more()
                 .tip("Every column of this table back to its first width"),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out = crate::widgets::header_with_ok_cancel(ui, h, None, crate::side_doc::OK_CANCEL_TIPS);
     let widths_key = app.tables[at].widths_key(app);
     let doc = &mut app.tables[at];
     doc.filter = filter.into_inner();
@@ -2011,15 +2164,85 @@ fn notes(app: &Moonglow, ui: &mut Ui, at: usize) {
 /// changes.
 fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
     let within = doc.within.as_ref().map_or(0, |w| Arc::as_ptr(w) as usize);
-    let key = (doc.revision, within, doc.edit.changes(), doc.filter.clone(), doc.value_names);
+    let description = doc.description();
+    let described_ptr = description.as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
+    let changes = doc.edit.changes();
+    let key = (doc.revision, within, changes, described_ptr, doc.filter.clone(), doc.value_names);
     if let Some((k, rows)) = &doc.shown
         && *k == key
     {
         return rows.clone();
     }
+    if let Some((prev_k, prev_rows)) = &doc.shown {
+        let (_, prev_within, prev_changes, prev_desc, prev_filter, prev_names) = prev_k;
+        if *prev_changes < changes
+            && (*prev_within, *prev_desc, prev_filter.as_str(), *prev_names)
+                == (within, described_ptr, doc.filter.as_str(), doc.value_names)
+            && let Some((touched, _)) = doc.edit.cell_rows_since(*prev_changes)
+        {
+            let mut next = prev_rows.clone();
+            let t = doc.edit.table();
+            let needle = mg_core::text::Needle::new(&doc.filter);
+            if !needle.is_empty() {
+                let desc = description.filter(|_| doc.value_names);
+                let kinds: Vec<Option<&Kind>> =
+                    t.columns().iter().map(|c| Some(&desc.as_deref()?.column(c)?.kind)).collect();
+                let mut fields = Vec::new();
+                for r in touched {
+                    if r >= t.len() || doc.within.as_ref().is_some_and(|w| !w.contains(&r)) {
+                        continue;
+                    }
+                    let matches = row_matches(t, r, &needle, &kinds, &mut fields);
+                    match next.binary_search(&r) {
+                        Ok(_) if matches => {}
+                        Err(_) if !matches => {}
+                        Ok(idx) => {
+                            Arc::make_mut(&mut next).remove(idx);
+                        }
+                        Err(idx) => {
+                            Arc::make_mut(&mut next).insert(idx, r);
+                        }
+                    }
+                }
+            }
+            doc.shown = Some((key, next.clone()));
+            return next;
+        }
+    }
     let rows = Arc::new(rows_found(doc));
     doc.shown = Some((key, rows.clone()));
     rows
+}
+
+fn row_matches(
+    t: &TwoDa,
+    r: usize,
+    needle: &mg_core::text::Needle,
+    kinds: &[Option<&Kind>],
+    fields: &mut Vec<String>,
+) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.is_single_word() {
+        for (c, kind) in kinds.iter().enumerate() {
+            if let Some(v) = t.cell(r, c)
+                && (needle.finds(v)
+                    || kind.and_then(|k| k.named(v)).is_some_and(|n| needle.finds(&n)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    fields.clear();
+    for (c, kind) in kinds.iter().enumerate() {
+        if let Some(v) = t.cell(r, c) {
+            fields.push(mg_core::text::fold(v));
+            fields.extend(kind.and_then(|k| k.named(v)).map(|n| mg_core::text::fold(&n)));
+        }
+    }
+    needle.finds_in_strings(fields)
 }
 
 fn rows_found(doc: &TableDoc) -> Vec<usize> {
@@ -2037,18 +2260,8 @@ fn rows_found(doc: &TableDoc) -> Vec<usize> {
     let kinds: Vec<Option<&Kind>> =
         t.columns().iter().map(|c| Some(&description.as_deref()?.column(c)?.kind)).collect();
     // (Every word in one of the row's cells, or their names.)
-    all.into_iter()
-        .filter(|&r| {
-            let mut fields = Vec::new();
-            for (c, kind) in kinds.iter().enumerate() {
-                if let Some(v) = t.cell(r, c) {
-                    fields.push(mg_core::text::fold(v));
-                    fields.extend(kind.and_then(|k| k.named(v)).map(|n| mg_core::text::fold(&n)));
-                }
-            }
-            needle.finds_in(&fields.iter().map(String::as_str).collect::<Vec<_>>())
-        })
-        .collect()
+    let mut fields = Vec::new();
+    all.into_iter().filter(|&r| row_matches(t, r, &needle, &kinds, &mut fields)).collect()
 }
 
 /// Gives the keys to a table's grid: the arrows, and Undo and Redo, are
@@ -2436,12 +2649,12 @@ pub(crate) fn grid_in(
     };
     let lead = if layered.is_some() { from_width + ui.spacing().item_spacing.x } else { 0.0 };
     let rows = shown_rows(doc);
-    let columns: Vec<String> = doc.edit.table().columns().to_vec();
+    let columns = doc.columns_cached();
     // (A column hidden from view is drawn in no room: its cells are kept
     // and saved, and the keys pass over it.)
     let widths: Vec<f32> = column_widths(settings, table_name, &columns, CELL)
         .into_iter()
-        .zip(&columns)
+        .zip(columns.iter())
         .map(|(w, c)| if doc.hidden.contains(&c.to_lowercase()) { 0.0 } else { w })
         .collect();
     // Where each column begins, from the first's left.
@@ -2924,8 +3137,7 @@ pub(crate) fn grid_in(
                                     let below = l.copies.get(origin + 1)?;
                                     (r < below.1.len()).then(|| l.before(r, c)).flatten().map(
                                         |(below, value)| {
-                                            let by = l.copies[origin].0.clone();
-                                            (by, below.to_string(), value.map(str::to_string))
+                                            (l.copies[origin].0.as_str(), below, value)
                                         },
                                     )
                                 });
@@ -2983,22 +3195,26 @@ pub(crate) fn grid_in(
                                 let layout = egui::Layout::left_to_right(egui::Align::Center);
                                 ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
                                     .add(egui::Label::new(rich).truncate().selectable(false));
-                                let mut tip = Vec::new();
-                                if was_named {
-                                    tip.push(raw.unwrap_or_default().to_string());
-                                } else if text.is_some() {
-                                    tip.push(format!("StrRef {}", raw.unwrap_or_default()));
-                                }
-                                if let Some(f) = fault {
-                                    tip.push(f.message.clone());
-                                }
-                                if let Some((by, below, value)) = &was {
-                                    let value = value.as_deref().unwrap_or("****");
-                                    tip.push(format!("Set by {by} ({value} in {below})"));
-                                }
-                                let cell = match tip.is_empty() {
-                                    true => cell,
-                                    false => cell.on_hover_text(tip.join("\n")),
+                                let has_tip =
+                                    was_named || text.is_some() || fault.is_some() || was.is_some();
+                                let cell = match has_tip {
+                                    false => cell,
+                                    true => cell.on_hover_ui(|ui| {
+                                        let mut tip = Vec::new();
+                                        if was_named {
+                                            tip.push(raw.unwrap_or_default().to_string());
+                                        } else if text.is_some() {
+                                            tip.push(format!("StrRef {}", raw.unwrap_or_default()));
+                                        }
+                                        if let Some(f) = fault {
+                                            tip.push(f.message.clone());
+                                        }
+                                        if let Some((by, below, value)) = was {
+                                            let value = value.unwrap_or("****");
+                                            tip.push(format!("Set by {by} ({value} in {below})"));
+                                        }
+                                        ui.label(tip.join("\n"));
+                                    }),
                                 };
                                 if cell.clicked() && shift {
                                     reach = Some((r, c));

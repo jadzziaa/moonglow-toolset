@@ -665,17 +665,25 @@ impl GameData {
     /// baseitems.2da `PropColumn` names), by name. Made once for a column,
     /// until the tables change ([`invalidate`](Self::invalidate)).
     pub fn available_properties(&self, base_item: u32) -> Vec<PropertyType> {
+        self.available_property_list(base_item).as_ref().clone()
+    }
+
+    /// [`available_properties`](Self::available_properties), as the cached list:
+    /// for callers that inspect it every frame without copying.
+    pub fn available_property_list(&self, base_item: u32) -> Arc<Vec<PropertyType>> {
+        static EMPTY: std::sync::OnceLock<Arc<Vec<PropertyType>>> = std::sync::OnceLock::new();
+        let empty = || EMPTY.get_or_init(|| Arc::new(Vec::new())).clone();
         let column = self
             .table("baseitems")
             .ok()
             .and_then(|t| t.get_int(base_item as usize, "PropColumn"))
             .filter(|&c| c >= 0);
-        let Some(column) = column else { return Vec::new() };
+        let Some(column) = column else { return empty() };
         let cache = &self.property_types;
         if let Some(made) = cache.read().expect("property type cache poisoned").get(&column) {
-            return made.to_vec();
+            return made.clone();
         }
-        let Ok(props) = self.table("itemprops") else { return Vec::new() };
+        let Ok(props) = self.table("itemprops") else { return empty() };
         let mut out: Vec<PropertyType> = (0..props.len())
             .filter(|&row| props.cell(row, column as usize) == Some("1"))
             .filter_map(|row| self.property_type(row as u16))
@@ -683,7 +691,7 @@ impl GameData {
         out.sort_by_key(|t| t.name.to_lowercase());
         let made = Arc::new(out);
         cache.write().expect("property type cache poisoned").insert(column, made.clone());
-        made.to_vec()
+        made
     }
 
     /// Rows of a table with a name (its `Name` string, else its `Label`),

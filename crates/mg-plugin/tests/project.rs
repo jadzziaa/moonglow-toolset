@@ -2,7 +2,6 @@
 //! content, allowed or denied by the builder, and run from what was read;
 //! and a plugin's settings, read and set through `ctx.settings`.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -12,25 +11,11 @@ use mg_module::Module;
 use mg_module::project_file::ProjectFile;
 use mg_plugin::project::{self, Answers, Trust};
 use mg_plugin::{
-    Answer, Host, Input, Level, Plugin, PluginError, Question, SettingValue, Settings, run_check,
-    run_command, settings,
+    Input, Plugin, PluginError, SettingValue, Settings, run_check, run_command, settings,
 };
 use mg_resman::ResKey;
 
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<String>>,
-}
-
-impl Host for TestHost {
-    fn log(&self, _: Level, text: &str) {
-        self.log.borrow_mut().push(text.to_string());
-    }
-
-    fn ask(&self, _: &Question) -> Option<Answer> {
-        None
-    }
-}
+use crate::common::TestHost;
 
 fn module() -> Module {
     let mut m = Module::new();
@@ -133,7 +118,7 @@ fn run(
     let host = Rc::new(TestHost::default());
     let input = Input { settings, ..Input::new(module(), None) };
     let outcome = run_command(plugin, command, input, host.clone()).unwrap();
-    let log = host.log.borrow().clone();
+    let log = host.log_texts();
     (log, outcome)
 }
 

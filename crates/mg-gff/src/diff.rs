@@ -25,24 +25,49 @@ pub fn diff_structs(a: &Struct, b: &Struct, path: &str, limit: usize, out: &mut 
     }
     if a.id != b.id {
         out.push(format!("{path}: struct id {} != {}", a.id, b.id));
+        if out.len() >= limit {
+            return;
+        }
     }
-    let labels_a: Vec<_> = a.fields.iter().map(|f| f.label).collect();
-    let labels_b: Vec<_> = b.fields.iter().map(|f| f.label).collect();
-    if labels_a != labels_b {
-        let missing: Vec<_> = labels_a.iter().filter(|l| !labels_b.contains(l)).collect();
-        let extra: Vec<_> = labels_b.iter().filter(|l| !labels_a.contains(l)).collect();
+    let same_labels = a.fields.len() == b.fields.len()
+        && a.fields.iter().zip(&b.fields).all(|(x, y)| x.label == y.label);
+    if !same_labels {
+        let has = |fields: &[crate::value::Field], label: crate::value::Label| {
+            fields.iter().any(|f| f.label == label)
+        };
+        let missing: Vec<_> =
+            a.fields.iter().filter(|f| !has(&b.fields, f.label)).map(|f| f.label).collect();
+        let extra: Vec<_> =
+            b.fields.iter().filter(|f| !has(&a.fields, f.label)).map(|f| f.label).collect();
         if missing.is_empty() && extra.is_empty() {
             out.push(format!("{path}: same fields in a different order"));
         } else {
             out.push(format!("{path}: fields only in first {missing:?}, only in second {extra:?}"));
         }
-    }
-    for fa in &a.fields {
-        let Some(fb) = b.fields.iter().find(|f| f.label == fa.label) else { continue };
-        let p = format!("{path}/{}", fa.label);
-        diff_values(&fa.value, &fb.value, &p, limit, out);
         if out.len() >= limit {
             return;
+        }
+    }
+    if same_labels {
+        for (fa, fb) in a.fields.iter().zip(&b.fields) {
+            if fa.value != fb.value {
+                let p = format!("{path}/{}", fa.label);
+                diff_values(&fa.value, &fb.value, &p, limit, out);
+                if out.len() >= limit {
+                    return;
+                }
+            }
+        }
+    } else {
+        for fa in &a.fields {
+            let Some(fb) = b.fields.iter().find(|f| f.label == fa.label) else { continue };
+            if fa.value != fb.value {
+                let p = format!("{path}/{}", fa.label);
+                diff_values(&fa.value, &fb.value, &p, limit, out);
+                if out.len() >= limit {
+                    return;
+                }
+            }
         }
     }
 }
@@ -53,9 +78,17 @@ fn diff_values(a: &Value, b: &Value, path: &str, limit: usize, out: &mut Vec<Str
         (Value::List(x), Value::List(y)) => {
             if x.len() != y.len() {
                 out.push(format!("{path}: list of {} != list of {}", x.len(), y.len()));
+                if out.len() >= limit {
+                    return;
+                }
             }
             for (i, (sx, sy)) in x.iter().zip(y).enumerate() {
-                diff_structs(sx, sy, &format!("{path}[{i}]"), limit, out);
+                if sx != sy {
+                    diff_structs(sx, sy, &format!("{path}[{i}]"), limit, out);
+                    if out.len() >= limit {
+                        return;
+                    }
+                }
             }
         }
         _ if a != b => out.push(format!("{path}: {} != {}", brief(a), brief(b))),

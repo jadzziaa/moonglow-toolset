@@ -78,10 +78,7 @@ fn project_settings(dir: &Path) -> Option<Settings> {
 
 fn shown(v: &Option<Value>, cp: Codepage) -> String {
     let Some(v) = v else { return "(none)".into() };
-    let short = |s: String| match s.chars().count() > 60 {
-        true => s.chars().take(59).chain(['…']).collect(),
-        false => s,
-    };
+    let short = |s: String| crate::diff::truncate_ellipsis(s, 60);
     match v {
         Value::String(b) | Value::ResRef(b) => format!("\"{}\"", short(cp.decode(b).into_owned())),
         // (Its English, else another language's, as lists show it.)
@@ -112,13 +109,17 @@ fn conflict_json(c: &Conflict, cp: Codepage) -> serde_json::Value {
     })
 }
 
-pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
-    let prefer = match args.prefer {
-        None => None,
-        Some("ours" | "a") => Some(Prefer::Ours),
-        Some("theirs" | "b") => Some(Prefer::Theirs),
+fn parse_prefer<T>(prefer: Option<&str>, ours: T, theirs: T) -> Result<Option<T>> {
+    match prefer {
+        None => Ok(None),
+        Some("ours" | "a") => Ok(Some(ours)),
+        Some("theirs" | "b") => Ok(Some(theirs)),
         Some(other) => bail!("--prefer ours or theirs, not {other}"),
-    };
+    }
+}
+
+pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
+    let prefer = parse_prefer(args.prefer, Prefer::Ours, Prefer::Theirs)?;
     let near = match args.path {
         Some(p) => p.parent().map(Path::to_path_buf).unwrap_or_default(),
         None => args.ours.parent().map(Path::to_path_buf).unwrap_or_default(),
@@ -151,16 +152,13 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
             shown(&c.theirs, cp)
         ));
     }
-    let unsettled = !merged.conflicts.is_empty() && prefer.is_none();
-    out.json["merged"] = json!(!unsettled);
-    if unsettled {
-        out.failed = true;
-        out.json["written"] = json!(null);
-        out.note(format!(
+    if crate::diff::mark_unsettled(&mut out, merged.conflicts.len(), prefer.is_some(), true, || {
+        format!(
             "{name}: {} values were changed by both, each its own way: nothing written (--prefer \
              ours or theirs takes one side's)",
             merged.conflicts.len()
-        ));
+        )
+    }) {
         return Ok(out);
     }
     let target = args.output.unwrap_or(args.ours);
@@ -209,12 +207,7 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
 /// as it was.
 pub(crate) fn merge_claims(args: &Args<'_>) -> Result<Output> {
     use mg_module::claims::{Side, decode};
-    let prefer = match args.prefer {
-        None => None,
-        Some("ours" | "a") => Some(Side::Ours),
-        Some("theirs" | "b") => Some(Side::Theirs),
-        Some(other) => bail!("--prefer ours or theirs, not {other}"),
-    };
+    let prefer = parse_prefer(args.prefer, Side::Ours, Side::Theirs)?;
     let bytes = |p: &Path| std::fs::read(p).with_context(|| p.display().to_string());
     let (base, ours, theirs) = (bytes(args.base)?, bytes(args.ours)?, bytes(args.theirs)?);
     let ((b, _), (o, utf8), (t, _)) = (decode(&base), decode(&ours), decode(&theirs));
@@ -237,16 +230,13 @@ pub(crate) fn merge_claims(args: &Args<'_>) -> Result<Output> {
             text(&c.theirs)
         ));
     }
-    let unsettled = !merged.conflicts.is_empty() && prefer.is_none();
-    out.json["merged"] = json!(!unsettled);
-    if unsettled {
-        out.failed = true;
-        out.json["written"] = json!(null);
-        out.note(format!(
+    if crate::diff::mark_unsettled(&mut out, merged.conflicts.len(), prefer.is_some(), true, || {
+        format!(
             "{name}: {} areas were changed by both, each its own way: nothing written (--prefer \
              ours or theirs takes one side's)",
             merged.conflicts.len()
-        ));
+        )
+    }) {
         return Ok(out);
     }
     let target = args.output.unwrap_or(args.ours);

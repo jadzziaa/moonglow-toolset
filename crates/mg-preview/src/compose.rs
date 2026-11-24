@@ -115,6 +115,18 @@ fn playing<'a>(asked: &str, find: impl Fn(&str) -> Option<&'a Animation>) -> Opt
     })
 }
 
+/// Whether every controller in `a` is constant over time and there is no anim-mesh morph.
+fn animation_is_static(a: &Animation) -> bool {
+    a.nodes.iter().all(|n| {
+        n.anim_mesh.is_none()
+            && n.controllers.iter().all(|c| {
+                c.columns == 0
+                    || c.times.len() <= 1
+                    || c.values.chunks_exact(c.columns).all(|row| row == c.row(0))
+            })
+    })
+}
+
 /// A preview ready to draw.
 #[derive(Debug)]
 pub struct Composed {
@@ -132,6 +144,10 @@ pub struct Composed {
     lamps: Vec<anim::Lamp>,
     /// How many of [`Composed::lamps`] are the base model's (the first).
     base_lamps: usize,
+    /// Whether the idle animation has no animated keys so `idle_pose` can be
+    /// computed once and shared across frames and objects.
+    idle_static: bool,
+    idle_pose: std::sync::OnceLock<Arc<Vec<Mat4>>>,
     /// Its idle animation keys the base's meshes (their alpha or
     /// self-illumination, or their vertices): played with the pose.
     idle_keys_meshes: bool,
@@ -379,6 +395,8 @@ impl Composed {
             lights: preview.lights.clone(),
             lamps: Vec::new(),
             base_lamps: 0,
+            idle_static: false,
+            idle_pose: std::sync::OnceLock::new(),
             idle_keys_meshes: false,
             emitting: Vec::new(),
             missing,
@@ -400,6 +418,7 @@ impl Composed {
             .map(|(i, _)| i)
             .collect();
         let idle = c.idle.as_deref().and_then(|a| playing(a, |n| c.base.animation(n)));
+        c.idle_static = idle.is_none_or(animation_is_static);
         c.idle_keys_meshes = idle.is_some_and(|a| {
             a.nodes.iter().any(|n| {
                 n.anim_mesh.is_some()
@@ -490,7 +509,7 @@ impl Composed {
                     model: &self.base.gpu.model,
                     animation: base_anim,
                     held_at: None,
-                    pose: base_pose.clone(),
+                    pose: base_pose.to_vec(),
                     transform: self.base.local,
                 });
                 continue;
@@ -555,14 +574,25 @@ impl Composed {
 
     /// The base as it stands in `animation` at `t`: the animation it
     /// plays for it (none: it has none of the name, and is at rest) and
-    /// its nodes.
-    fn base_posed(&self, animation: Option<&str>, t: f32) -> (Option<&Animation>, Vec<Mat4>) {
+    /// its nodes. Reuses the cached `idle_pose` when the idle animation
+    /// has no animated keys.
+    fn base_posed(&self, animation: Option<&str>, t: f32) -> (Option<&Animation>, Arc<Vec<Mat4>>) {
         let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
+        if self.idle_static && animation == self.idle.as_deref() {
+            let pose = self.idle_pose.get_or_init(|| {
+                let raw = match base_anim {
+                    Some(a) => self.base.pose(a, 0.0),
+                    None => self.base.gpu.rest.clone(),
+                };
+                Arc::new(raw)
+            });
+            return (base_anim, Arc::clone(pose));
+        }
         let pose = match base_anim {
             Some(a) => self.base.pose(a, t),
             None => self.base.gpu.rest.clone(),
         };
-        (base_anim, pose)
+        (base_anim, Arc::new(pose))
     }
 
     /// A part's nodes as it stands where `animation` is asked at `t`, the
@@ -599,7 +629,6 @@ impl Composed {
 
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
         let (base_anim, base_pose) = self.base_posed(animation, t);
-        let base_pose: Arc<Vec<Mat4>> = Arc::new(base_pose);
         let instance = |p: &Placed, transform: Mat4, pose: Option<Arc<Vec<Mat4>>>| Instance {
             pose,
             env_map: p.env_map.clone(),
@@ -662,7 +691,7 @@ impl Composed {
             return self.point_lights(transform);
         };
         let model = &*self.base.gpu.model;
-        let pose = self.base.pose(a, t);
+        let (_, pose) = self.base_posed(animation, t);
         let mut lights = self.row_lights(transform);
         let base = anim::lamps_layers(model, &[a], t, &pose);
         let parts = self.lamps.iter().skip(self.base_lamps);
@@ -801,7 +830,8 @@ impl Composed {
     /// [`Composed::ray_hit_in`] meets it. Made once and kept, a click on
     /// it is tried against what the box is around.
     pub fn stance(&self, animation: Option<&str>, t: f32) -> Stance {
-        let (base_anim, base) = self.base_posed(animation, t);
+        let (base_anim, base_pose) = self.base_posed(animation, t);
+        let base = base_pose.as_ref().clone();
         // The parts: each as [`Composed::instances`] draws it (those that
         // play it, wings, tails and robes, as they stand in it; the
         // others on the base's nodes).

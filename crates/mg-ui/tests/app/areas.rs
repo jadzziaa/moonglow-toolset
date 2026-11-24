@@ -406,7 +406,7 @@ fn the_area_header_s_toggles_toggle() {
 
 #[test]
 fn area_properties_edit_the_area() {
-    let Some((mut h, area)) = area_harness("area-props") else { return };
+    let Some((mut h, area)) = area_ui_harness("area-props") else { return };
     let are = |h: &mut Harness<'_, Moonglow>| -> mg_gff::Struct {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
@@ -457,8 +457,10 @@ fn area_properties_edit_the_area() {
     h.run_steps(2);
     let a = are(&mut h);
     assert_eq!((a.integer("DayNightCycle"), a.integer("IsNight")), (Some(0), Some(1)));
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-props").join("visual.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-props") {
+        let img = h.render().expect("render");
+        img.save(dir.join("visual.png")).unwrap();
+    }
 }
 
 /// The Copy window's ResRef set to `resref`, and its Tag to the
@@ -474,7 +476,7 @@ fn keep_the_original_s_tag(h: &mut Harness<'_, Moonglow>, resref: &str) {
 /// copy kept the original's tag).
 #[test]
 fn an_area_s_copy_takes_its_resref_as_its_tag() {
-    let Some((mut h, area)) = area_harness("copy-area-resref-tag") else { return };
+    let Some((mut h, area)) = area_ui_harness("copy-area-resref-tag") else { return };
     let key = ResKey::new(area, ResType::ARE);
     h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
     h.run_steps(3);
@@ -519,7 +521,7 @@ fn an_area_s_copy_takes_its_resref_as_its_tag() {
 /// gives the copy's their own.
 #[test]
 fn an_area_copied_with_its_tags_offers_retag() {
-    let Some((mut h, area)) = area_harness("copy-area-tags") else { return };
+    let Some((mut h, area)) = area_ui_harness("copy-area-tags") else { return };
     // (Options › General › Show duplicate tags warning: off by default.)
     h.state_mut().settings.warn_duplicate_tags = true;
     h.state_mut().ws.as_mut().unwrap().module.project_file.tags.unique =
@@ -568,7 +570,7 @@ fn an_area_copied_with_its_tags_offers_retag() {
 /// script that spells the waypoint's tag is said, not changed.
 #[test]
 fn retag_all_follows_the_copy_s_transitions_and_names_the_scripts() {
-    let Some((mut h, area)) = area_harness("copy-area-retag-all") else { return };
+    let Some((mut h, area)) = area_ui_harness("copy-area-retag-all") else { return };
     let git = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
@@ -781,7 +783,7 @@ fn a_tag_outside_ascii_is_found_and_retagged() {
 /// and not listed; its two waypoints of one tag are, in the copy.
 #[test]
 fn an_area_copied_counts_tags_unique_in_each_area_in_the_copy() {
-    let Some((mut h, area)) = area_harness("copy-area-tags-in-area") else { return };
+    let Some((mut h, area)) = area_ui_harness("copy-area-tags-in-area") else { return };
     let key = ResKey::new(area, ResType::ARE);
     let tag = |h: &mut Harness<'_, Moonglow>, k: ResKey, path: mg_edit::GffPath| {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1217,9 +1219,11 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
         "the same scheme: its own"
     );
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    let img = h.render().expect("render");
-    img.save(mg_testkit::output_dir("ui-areas-scheme").join("visual.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-areas-scheme") {
+        mg_testkit::gpu::hold();
+        let img = h.render().expect("render");
+        img.save(dir.join("visual.png")).unwrap();
+    }
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_eq!(sources(&mut h, "cave2"), before, "one undo");
@@ -1229,7 +1233,7 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
 /// under the ResRef and Tag given, and the module lists it.
 #[test]
 fn an_area_is_copied_with_its_objects() {
-    let Some((mut h, area)) = area_harness("copy-area") else { return };
+    let Some((mut h, area)) = area_ui_harness("copy-area") else { return };
     let key = ResKey::new(area, ResType::ARE);
     h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
     h.run_steps(3);
@@ -1286,7 +1290,7 @@ fn an_area_is_copied_with_its_objects() {
 #[test]
 fn an_area_s_variables_are_kept_in_its_git() {
     use mg_gff::{Struct, Value};
-    let Some((mut h, area)) = area_harness("area-variables") else { return };
+    let Some((mut h, area)) = area_ui_harness("area-variables") else { return };
     let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
     let var = |name: &str, value: i32| {
         let mut s = Struct::new(0);

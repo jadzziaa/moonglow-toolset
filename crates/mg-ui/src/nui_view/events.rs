@@ -7,7 +7,7 @@
 //! ([`follow_controls`]), and opened at a handler's code ([`open_script`]).
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Target {
     Window,
     Control(String), // JSON pointer in the currently edited layout
@@ -250,8 +250,8 @@ pub(super) fn follow_controls(
         // comparison, a JSON string): not every string that spells it.
         text = mg_nui::rename_in_code(&text, old_name, new_name);
     }
-    for (from, to) in &calls {
-        text = text.replace(&format!("{from}("), &format!("{to}("));
+    if !calls.is_empty() {
+        text = mg_nui::rename_calls(&text, &calls);
     }
     // The guards are rebuilt for the new names.
     let text = mg_nui::merge_events(name, &s, Some(&text)).ok()?;
@@ -547,7 +547,8 @@ fn editor_of(
     scope: Option<Target>,
 ) -> Option<(String, String)> {
     let mut new_id = None;
-    ui.push_id(("events", format!("{:?}", scope), &state.edit_view.clone()), |ui| {
+    let edit_view_id = state.edit_view.as_deref().map(egui::util::hash);
+    ui.push_id(("events", &scope, edit_view_id), |ui| {
         if scope.is_none() {
             widgets::section_heading(ui, "Events");
             ui.weak(
@@ -567,7 +568,7 @@ fn editor_of(
             Some(t) => handler_target(r) == *t,
         };
         let mut remove = None;
-        for (i, handler) in s.handlers.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
+        for (i, handler) in s.handlers.iter().enumerate().filter(|(_, r)| shown(r, doc)) {
             ui.push_id(i, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     widgets::field_label(ui, label(&handler.event));

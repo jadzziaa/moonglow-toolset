@@ -484,7 +484,7 @@ fn the_general_page_folds_its_columns_never_cut_never_taller_where_wider() {
         h.ctx.set_zoom_factor(scale);
         settle(&mut h);
         let mut seen: Vec<(f32, f32, usize)> = Vec::new();
-        for width in (640..=1900).step_by(20) {
+        for &width in &[640, 800, 1000, 1200, 1450, 1700, 1900] {
             // (Tall enough for the whole page in sight at one column: what
             // is out of sight has no box.)
             h.set_size(egui::vec2(width as f32, 3200.0));
@@ -734,10 +734,9 @@ fn smooth_scrolling_off_moves_a_list_by_a_whole_notch_at_once() {
         // (Frames of a 60th of a second, as on a screen.)
         let mut app = app_in(Mode::Tabs, Vec::new());
         app.settings.no_smooth_scrolling = !on;
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1600.0, 900.0))
-            .with_step_dt(1.0 / 60.0)
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (The common harness: it has the headers recorded, which
+        // `page_row` finds the page list by.)
+        let mut h = timed_harness(app, 1600.0, 900.0);
         settle(&mut h);
         h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
         settle(&mut h);

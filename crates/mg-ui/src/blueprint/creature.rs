@@ -1,6 +1,6 @@
 //! Creature Properties (`TdlgCreatureEdit`): Basic, Statistics, Appearance,
-//! Classes, Skills, Feats, Spells, Special Abilities, the inventory, Scripts,
-//! Advanced, Comments.
+//! Classes, Skills, Feats, Spells, Special Abilities, Inventory, Scripts,
+//! Advanced, Variables, Visuals, Comments.
 //!
 //! Every change also stores the creature's recomputed `MaxHitPoints` and
 //! `ChallengeRating` (in the same undoable command), as Aurora does on OK.
@@ -170,7 +170,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     // row without one is `DELETED`, `INVALID_RACE`, CEP's `CEP_RESERVED`.)
     let races = f.choices("racialtypes", Some("Name"), None);
     let appearances = f.choices("appearance", Some("STRING_REF"), Some("LABEL"));
-    let appearances = f.appearance_rows(mg_rules::ObjectKind::Creature, &appearances);
+    let appearances = f.appearance_rows(ui.ctx(), mg_rules::ObjectKind::Creature, &appearances);
     let phenotypes = f.choices("phenotype", Some("Name"), Some("Label"));
     let genders = f.choices("gender", Some("NAME"), Some("GENDER"));
     let key = f.key;
@@ -619,23 +619,37 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
     let Some(prefix) = prefix else { return };
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Body Parts");
+    let parts_choices: std::sync::Arc<Vec<Vec<mg_rules::Choice>>> = super::kept_for_key(
+        ui.ctx(),
+        egui::Id::new(("utc-body-parts", prefix)),
+        &f.app.load_order,
+        || {
+            let single = prefix[0] == prefix[1];
+            let load_order = f.app.load_order;
+            let built: Vec<Vec<mg_rules::Choice>> = BODY_PARTS
+                .iter()
+                .map(|(_, _, part)| {
+                    let mut numbers: Vec<u16> = Vec::new();
+                    for skeleton in prefix.iter().take(if single { 1 } else { 2 }) {
+                        let models = format!("{skeleton}_{part}");
+                        numbers.extend(
+                            super::item::model_numbers(ui, game, load_order, &models).iter(),
+                        );
+                    }
+                    numbers.sort_unstable();
+                    numbers.dedup();
+                    situated::part_choices(&numbers, |n| n.to_string())
+                })
+                .collect();
+            std::sync::Arc::new(built)
+        },
+    );
     super::form_grid(ui, ("utc-parts", f.key)).spacing([12.0, 4.0]).show(ui, |ui| {
-        for (text, label, part) in BODY_PARTS {
-            // The numbers either skeleton has a model of: a phenotype with
-            // few parts of its own (or none) wears its default's.
-            let mut numbers: Vec<u16> = Vec::new();
-            for skeleton in prefix.iter().take(if prefix[0] == prefix[1] { 1 } else { 2 }) {
-                let models = format!("{skeleton}_{part}");
-                let load_order = f.app.load_order;
-                numbers.extend(super::item::model_numbers(ui, game, load_order, &models).iter());
-            }
-            numbers.sort_unstable();
-            numbers.dedup();
+        for ((text, label, _), choices) in BODY_PARTS.into_iter().zip(parts_choices.iter()) {
             let current = part_number(&f.root, label).unwrap_or(0);
-            let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
             f.mark_mixed(ui, label);
-            if let Some(v) = situated::pick_part(ui, f.picks(), label, &choices, current, 220.0) {
+            if let Some(v) = situated::pick_part(ui, f.picks(), label, choices, current, 220.0) {
                 super::item::set_part(f, text, &[label], v);
             }
             ui.end_row();

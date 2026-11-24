@@ -216,3 +216,22 @@ fn several_conversations_go_into_a_folder() {
     let out = run(&["dialog-export", p, "--to", s, "--format", "ink"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("--all for every one"));
 }
+
+#[test]
+fn dialog_export_rejects_non_dialog_resource() {
+    let dir = mg_testkit::scratch_dir("mg-dialog-export-non-dlg");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mod_path = dir.join("keep.mod");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.set_gff(ResKey::parse("guard", ResType::UTC).unwrap(), &mg_gff::Gff::new(*b"UTC ")).unwrap();
+    m.save_as(&ModuleLocation::Archive(mod_path.clone())).unwrap();
+    let ink = dir.join("out.ink");
+    let out = crate::mg_alone()
+        .args(["dialog-export", mod_path.to_str().unwrap(), "guard.utc", ink.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("not a conversation (.dlg)"), "{stderr}");
+}

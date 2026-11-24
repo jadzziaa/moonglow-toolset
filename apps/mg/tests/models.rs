@@ -63,11 +63,8 @@ fn cat_prints_a_compiled_model_as_text() {
     let compiled = run(&["cat", "plc_a01.mdl"]);
     assert!(mg_mdl::is_binary(&compiled));
     let text = String::from_utf8(run(&["cat", "plc_a01.mdl", "--text"])).unwrap();
-    assert!(
-        text.to_ascii_lowercase().contains("newmodel plc_a01"),
-        "{}",
-        &text[..200.min(text.len())]
-    );
+    let end = text.floor_char_boundary(200.min(text.len()));
+    assert!(text.to_ascii_lowercase().contains("newmodel plc_a01"), "{}", &text[..end]);
     // The text is the model: it reads as the compiled one does.
     let (a, b) =
         (mg_mdl::Model::read(&compiled).unwrap(), mg_mdl::Model::read(text.as_bytes()).unwrap());
@@ -202,6 +199,11 @@ fn the_model_spec_suite_passes() {
         assert!(stock.len() >= 14, "{} stock models", stock.len());
         let f = failed(&stock);
         assert!(f.is_empty(), "{f:#?}");
+    } else {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
     }
 }
 

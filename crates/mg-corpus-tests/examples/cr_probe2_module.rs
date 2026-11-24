@@ -278,7 +278,8 @@ fn main() {
         for r in [1, 5, 10, 20] {
             add("skills", r.to_string(), Change::Skills(r));
         }
-        // Sizes: a tiny (rat), small (halfling), large (ogre), huge (giant).
+        // Appearances across creature sizes: Halfling (3), Deer_Stag (37), Ogre (127),
+        // Bugbear_B (30), War_Devourer (54), Golem_Flesh (88).
         for a in [3u16, 37, 127, 30, 54, 88] {
             add("appearance", a.to_string(), Change::Appearance(a));
         }

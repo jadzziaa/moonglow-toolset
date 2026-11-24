@@ -273,10 +273,10 @@ impl Grid {
         if !self.all_inside(edges.iter().map(|(c, _)| c).chain(click)) {
             return (None, edges.to_vec());
         }
-        let mut lattice = self.lattice.clone();
         let mut cells: Vec<(u32, u32)> = click.to_vec();
-        let (mut laid, mut held, mut blocked) = (false, Vec::new(), Vec::new());
-        // The lattice and cells with `with` laid on what is laid so far,
+        let mut last_stroke: Option<Stroke> = None;
+        let (mut held, mut blocked) = (Vec::new(), Vec::new());
+        // The cells and validated stroke with `with` laid on what is laid so far,
         // if every tile they touch fits.
         let tried = |lattice: &Lattice, cells: &[(u32, u32)], with: &[((u32, u32), usize)]| {
             let mut l = lattice.clone();
@@ -289,20 +289,19 @@ impl Grid {
                     }
                 }
             }
-            let fits = self.stroke(index, l.clone(), BTreeSet::new(), more.clone()).is_some();
-            fits.then_some((l, more))
+            self.stroke(index, l, BTreeSet::new(), more.clone()).map(|stroke| (more, stroke))
         };
         for &e in edges {
+            let cur_lattice = last_stroke.as_ref().map_or(&self.lattice, |s| &s.lattice);
             let mut with = held.clone();
             with.push(e);
-            if let Some(t) = tried(&lattice, &cells, &with) {
-                (lattice, cells) = t;
-                (laid, held) = (true, Vec::new());
-            } else if let Some(t) =
-                (!held.is_empty()).then(|| tried(&lattice, &cells, &[e])).flatten()
+            if let Some((more, stroke)) = tried(cur_lattice, &cells, &with) {
+                (cells, last_stroke) = (more, Some(stroke));
+                held.clear();
+            } else if let Some((more, stroke)) =
+                (!held.is_empty()).then(|| tried(cur_lattice, &cells, &[e])).flatten()
             {
-                (lattice, cells) = t;
-                laid = true;
+                (cells, last_stroke) = (more, Some(stroke));
             } else {
                 if !held.contains(&e) {
                     held.push(e);
@@ -315,11 +314,16 @@ impl Grid {
             }
         }
         // (Those still held at the end are the ones passed over.)
-        if !laid {
-            *self.blocked.borrow_mut() = blocked;
-            return (None, held);
+        match last_stroke {
+            Some(stroke) => {
+                self.blocked.borrow_mut().clear();
+                (Some(stroke), held)
+            }
+            None => {
+                *self.blocked.borrow_mut() = blocked;
+                (None, held)
+            }
         }
-        (self.stroke(index, lattice, BTreeSet::new(), cells), held)
     }
 
     /// The Eraser on cell (x, y): the crossers on its edges go and its tile
@@ -392,6 +396,17 @@ impl Grid {
         y: u32,
         only: Option<Crosser>,
     ) -> Option<Stroke> {
+        self.erase_only_unlocking(index, x, y, only, &[])
+    }
+
+    fn erase_only_unlocking(
+        &self,
+        index: &TileIndex,
+        x: u32,
+        y: u32,
+        only: Option<Crosser>,
+        unlocked: &[(u32, u32)],
+    ) -> Option<Stroke> {
         if !self.lattice.has_cell(x, y) {
             return None;
         }
@@ -437,7 +452,7 @@ impl Grid {
                 clear(&mut lattice, n, None, &mut queue);
             }
         }
-        self.stroke(index, lattice, BTreeSet::new(), cells)
+        self.stroke_unlocking(index, lattice, BTreeSet::new(), cells, unlocked)
     }
 
     /// Choosing the tiles of `cells` again, the terrain as it is (the
@@ -467,7 +482,6 @@ impl Grid {
         }
         let mut grid = self.clone();
         let mut chosen: Vec<(u32, u32)> = Vec::new();
-        let mut unlocked = Vec::new();
         // (A group's tile: the whole group, where it is whole.)
         let mut all: Vec<(u32, u32)> = Vec::new();
         let mut seen = BTreeSet::new();
@@ -477,6 +491,9 @@ impl Grid {
                 group.unwrap_or_else(|| vec![(x, y)]).into_iter().filter(|c| seen.insert(*c)),
             );
         }
+        // Unlock the entire batch upfront so clearing an internal crosser between
+        // two grouped tiles does not fail against an unvisited sibling cell.
+        let unlocked = all.clone();
         // (Refused on the copy: what refused it is this grid's to show.)
         let refused = |at: Vec<(u32, u32)>| {
             *self.blocked.borrow_mut() = at;
@@ -485,7 +502,6 @@ impl Grid {
         let mut seen = BTreeSet::new();
         for &(x, y) in &all {
             let stroke = if index.is_grouped(grid.tile(x, y).tile) {
-                unlocked.push((x, y));
                 let mut lattice = grid.lattice.clone();
                 let mut also = vec![(x, y)];
                 for edge in 0..4 {
@@ -496,7 +512,7 @@ impl Grid {
                 }
                 grid.stroke_unlocking(index, lattice, BTreeSet::new(), also, &unlocked)
             } else {
-                grid.erase(index, x, y)
+                grid.erase_only_unlocking(index, x, y, None, &unlocked)
             };
             let Some(stroke) = stroke else { return refused(grid.blocked()) };
             // Stand-in tiles, so that the next tile sees what this one leaves.
@@ -1353,7 +1369,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         let pond = group("Pond", vec![Some(n + 2)]);
         // (A barn whose west tile is the hut's.)
         let barn = group("Barn", vec![Some(n), Some(n + 3)]);
-        set.groups.extend([hut.clone(), pond.clone(), barn.clone()]);
+        set.groups.extend([hut.clone(), pond, barn.clone()]);
         let index = TileIndex::new(&set);
         let mut g = grid(&index, 5);
         // (A step up under where the hut goes.)
@@ -1396,7 +1412,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert!(before.place_group_exact(&index, &hut, 4, 0, 0).is_none());
         // Over half of a hut: refused, the hut flashing; over all of it
         // (the same hut put again): it goes.
-        let mut g = before.clone();
+        let mut g = before;
         let s = g.place_group_exact(&index, &hut, 0, 4, 0);
         put(&mut g, s);
         assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
@@ -1651,12 +1667,47 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         }
         // A tile alone in its cell has no other appearance.
         let r = index.crosser("R").unwrap();
-        let mut l = g.lattice.clone();
+        let mut l = g.lattice;
         l.set_edge(1, 1, crate::NORTH, Some(r));
         let end = l.cell(1, 1);
         let only = index.fits(&end);
         assert_eq!(only.len(), 1, "{only:?}");
         assert_eq!(step_appearance(&index, &end, only[0], false), None);
         assert_eq!(turn_fit(&index, &end, only[0], false), None);
+    }
+
+    #[test]
+    fn delete_and_erase_remove_groups_with_internal_crossers() {
+        let mut set = set();
+        let n = set.tiles.len() as u32;
+        let mut west = set.tiles[0].clone();
+        west.model = "bridge_w".into();
+        west.edges[crate::EAST] = "R".into();
+        let mut east = set.tiles[0].clone();
+        east.model = "bridge_e".into();
+        east.edges[crate::WEST] = "R".into();
+        set.tiles.extend([west, east]);
+        set.groups.push(mg_set::Group {
+            name: "Bridge".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 2,
+            tiles: vec![Some(n), Some(n + 1)],
+        });
+        let index = TileIndex::new(&set);
+        let bridge = set.groups[0].clone();
+        let mut g = grid(&index, 5);
+        apply(&mut g, &index, |g| g.place_group(&index, &bridge, 1, 2, 0));
+        assert_eq!(g.group_cells(&index, 1, 2), Some(vec![(1, 2), (2, 2)]));
+
+        let via_erase = g.erase(&index, 1, 2).expect("erase clears group with internal crosser");
+        assert!(via_erase.cells.contains(&(1, 2)) && via_erase.cells.contains(&(2, 2)));
+        assert_eq!(via_erase.lattice.cell(1, 2).edges, [None; 4]);
+        assert_eq!(via_erase.lattice.cell(2, 2).edges, [None; 4]);
+
+        let via_delete =
+            g.delete(&index, &[(2, 2)]).expect("delete clears group with internal crosser");
+        assert!(via_delete.cells.contains(&(1, 2)) && via_delete.cells.contains(&(2, 2)));
+        assert_eq!(via_delete.lattice, via_erase.lattice);
     }
 }

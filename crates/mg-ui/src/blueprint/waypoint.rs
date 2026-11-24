@@ -1,5 +1,5 @@
-//! Waypoint Properties (`TdlgWaypointEdit`): Basic, Advanced, Description,
-//! Comments.
+//! Waypoint Properties (`TdlgWaypointEdit`): Basic, Advanced, Variables,
+//! Description, Comments.
 
 use egui::Ui;
 use mg_module::palette::BlueprintKind;
@@ -19,7 +19,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.choices("waypoint", Some("STRREF"), Some("LABEL"));
-    let appearances = f.appearance_rows(mg_rules::ObjectKind::Waypoint, &appearances);
+    let appearances = f.appearance_rows(ui.ctx(), mg_rules::ObjectKind::Waypoint, &appearances);
     super::form_grid(ui, ("utw-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Category");

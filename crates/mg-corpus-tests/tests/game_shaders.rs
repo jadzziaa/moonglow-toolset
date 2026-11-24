@@ -41,7 +41,16 @@ fn tdod(root: &std::path::Path, dir: &std::path::Path) -> ResMan {
 }
 
 fn gpu() -> Option<Gpu> {
-    mg_testkit::gpu::open(Gpu::headless)
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g
+    });
+    base.as_ref().map(|g| Gpu::new(g.device.clone(), g.queue.clone()))
 }
 
 fn model(gpu: &Gpu, rm: &ResMan, name: &str) -> Arc<GpuModel> {

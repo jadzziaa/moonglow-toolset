@@ -565,43 +565,7 @@ fn every_table_panel_fits_the_right_dock() {
 /// edge, every one-line field in sight as wide as its text.
 #[track_caller]
 fn fits(h: &Harness<'_, Moonglow>, dock: egui::Rect, what: &str) {
-    // (In the dock's rows from its left edge on: what begins past its right
-    // edge, a button pushed out of it, counts too.)
-    let in_sight = |n: &egui_kittest::Node<'_>| {
-        let r = n.rect();
-        r.left() >= dock.left() - 0.5
-            && r.top() >= dock.top() - 0.5
-            && r.bottom() <= dock.bottom()
-            && r.width() > 0.0
-    };
-    let past: Vec<String> = h
-        .get_all_by(|n| n.bounding_box().is_some())
-        .filter(in_sight)
-        .filter(|n| n.rect().right() > dock.right() + 0.5)
-        .map(|n| {
-            let a = n.accesskit_node();
-            format!("{:?} {:?} {:?} {:?}", a.role(), a.label(), a.value(), n.rect())
-        })
-        .collect();
-    assert!(past.is_empty(), "{what}: past the edge {past:?}");
-    let margins = {
-        let m = mg_uikit::controls::FIELD_MARGIN;
-        f32::from(m.left) + f32::from(m.right)
-    };
-    let cut: Vec<String> = h
-        .get_all_by_role(egui::accesskit::Role::TextInput)
-        .filter(in_sight)
-        .filter_map(|n| {
-            let value = n.accesskit_node().value()?;
-            let font = egui::FontId::monospace(mg_uikit::metrics::BODY_SIZE);
-            let words = h.ctx.fonts_mut(|f| {
-                f.layout_no_wrap(value.clone(), font, egui::Color32::WHITE).size().x
-            });
-            (n.rect().width() + 0.5 < words + margins)
-                .then(|| format!("{value:?}: {} for {}", n.rect().width(), words + margins))
-        })
-        .collect();
-    assert!(cut.is_empty(), "{what}: cut short in their fields {cut:?}");
+    fits_dock(h, dock, what, egui::FontId::monospace(mg_uikit::metrics::BODY_SIZE), false);
 }
 
 /// The Cell panel's content's height, as drawn: from its Value to the foot
@@ -632,39 +596,7 @@ fn never_taller(h: &mut Harness<'_, Moonglow>, id: u32, cells: &[(usize, usize)]
         h.state_mut().settings.right_dock_width = None;
         h.set_size(egui::vec2(1600.0, 900.0));
         select(h, id, cell);
-        let mut was: Option<(u32, f32)> = None;
-        // (Held to the least height at any narrower width, M4's U17
-        // review: step to step, a growth of a quarter point a step went
-        // through.)
-        let mut least: Option<(u32, f32)> = None;
-        let mut changes = Vec::new();
-        for w in 270..=480u32 {
-            h.state_mut().settings.right_dock_width = Some(w);
-            settle(h);
-            let high = cell_height(h);
-            if let Some((at, low)) = least {
-                assert!(high <= low + 0.5, "{cell:?}: {low} at {at}, {high} at {w}");
-            }
-            if let Some((_, before)) = was
-                && (high - before).abs() > 0.5
-            {
-                changes.push(w);
-            }
-            was = Some((w, high));
-            if least.is_none_or(|(_, low)| high < low) {
-                least = Some((w, high));
-            }
-        }
-        for w in changes {
-            for at in w.saturating_sub(2)..=w + 2 {
-                h.state_mut().settings.right_dock_width = Some(at);
-                for high in (700..=900).step_by(10) {
-                    h.set_size(egui::vec2(1600.0, high as f32));
-                    settle(h);
-                }
-            }
-            h.set_size(egui::vec2(1600.0, 900.0));
-        }
+        sweep_dock_heights(h, &format!("{cell:?}"), cell_height, true);
     }
 }
 
@@ -1042,25 +974,6 @@ fn a_table_only_looked_at_says_whose_it_is() {
 }
 
 /// [`h`]'s Status Bar comes to say each of `what` (drawn) and none of
-/// `not`, within a deadline.
-#[track_caller]
-fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
-    let started = std::time::Instant::now();
-    loop {
-        let now = h.state().status_said();
-        let has = |w: &&str| now.iter().any(|s| s == w);
-        let drawn = |w: &&str| h.get_by_label("Status Bar").query_by_label(w).is_some();
-        if what.iter().all(has) && !not.iter().any(has) && what.iter().all(drawn) {
-            return;
-        }
-        assert!(
-            started.elapsed().as_secs() < 10,
-            "never said {what:?} without {not:?}: it says {now:?}"
-        );
-        h.step();
-    }
-}
-
 /// The panels follow the table in front: two tables in two groups, each
 /// one's Cell shown as its group has the focus; a floating table's in its
 /// window, the docked one's dock left as it was.

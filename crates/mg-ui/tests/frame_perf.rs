@@ -372,7 +372,7 @@ fn frames(
         upload(full.textures_delta);
         out.ui.push(t1 - t0);
         out.tessellate.push(t2 - t1);
-        out.gpu.push(t3 - t1);
+        out.gpu.push(t3 - t2);
         out.vertices = shapes
             .iter()
             .map(|s| match &s.primitive {

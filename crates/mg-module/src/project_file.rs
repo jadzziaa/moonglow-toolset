@@ -700,19 +700,51 @@ pub struct ProjectFile {
     pub errors: Vec<String>,
     /// The files' times and sizes when read, to see a change.
     stamps: Vec<Option<(SystemTime, u64, u64)>>,
+    /// When [`ProjectFile::read_at`] started reading these files (none for
+    /// defaults / in-memory reads).
+    read_at: Option<SystemTime>,
     /// Where they were read from.
     place: Option<Place>,
 }
 
-fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
+fn hash_file(path: &Path) -> Option<u64> {
     use std::hash::{Hash, Hasher};
-    let m = std::fs::metadata(path).ok()?;
-    // These files are small: their bytes' hash too, as a rewrite of the
-    // same length within a timestamp's tick (coarse on some systems) would
-    // otherwise go unseen.
     let mut h = std::collections::hash_map::DefaultHasher::new();
     std::fs::read(path).ok()?.hash(&mut h);
-    Some((m.modified().ok()?, m.len(), h.finish()))
+    Some(h.finish())
+}
+
+fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len(), hash_file(path)?))
+}
+
+/// Checks `path` against a recorded stamp without reading file contents once its
+/// modification time is comfortably past the coarse filesystem tick window at `read_at`.
+fn stamp_unchanged(
+    path: &Path,
+    was: Option<(SystemTime, u64, u64)>,
+    read_at: Option<SystemTime>,
+) -> bool {
+    let Ok(m) = std::fs::metadata(path) else {
+        return was.is_none();
+    };
+    let Some((old_mtime, old_len, old_hash)) = was else {
+        return false;
+    };
+    let Ok(mtime) = m.modified() else {
+        return false;
+    };
+    if mtime != old_mtime || m.len() != old_len {
+        return false;
+    }
+    if read_at
+        .and_then(|t| t.duration_since(old_mtime).ok())
+        .is_some_and(|d| d >= std::time::Duration::from_secs(2))
+    {
+        return true;
+    }
+    hash_file(path) == Some(old_hash)
 }
 
 /// The line (from 1) a byte of `source` is on.
@@ -978,6 +1010,7 @@ impl ProjectFile {
             path: Some(path.clone()),
             // (The claims table's last, once the team's file says where.)
             stamps: vec![stamp(&path), user.as_deref().and_then(stamp), stamp(&described), None],
+            read_at: Some(SystemTime::now()),
             place: Some(place.clone()),
             ..Default::default()
         };
@@ -1256,8 +1289,10 @@ impl ProjectFile {
                             },
                             "hak" => {
                                 if let Some(t) = r.text(e) {
-                                    self.lights.hak =
-                                        Some(t.trim().trim_end_matches(".hak").into());
+                                    self.lights.hak = Some(
+                                        mg_core::text::strip_suffix_ascii_ci(t.trim(), ".hak")
+                                            .into(),
+                                    );
                                 }
                             }
                             "first_row" => match e.1.get_ref() {
@@ -1511,7 +1546,10 @@ impl ProjectFile {
                         None => r.warn(at, "rows is to be rows in quotes: \"16500-16999\""),
                     }
                 }
-                "hak" => match r.text(e).map(|t| t.trim().trim_end_matches(".hak").to_string()) {
+                "hak" => match r
+                    .text(e)
+                    .map(|t| mg_core::text::strip_suffix_ascii_ci(t.trim(), ".hak").to_string())
+                {
                     Some(h) if !h.is_empty() && h.len() <= 16 => rules.hak = Some(h),
                     Some(h) => {
                         r.warn(at, format!("hak \"{h}\": a hak's name is 1 to 16 characters"))
@@ -1717,17 +1755,32 @@ impl ProjectFile {
     /// were read.
     pub fn changed(&self) -> bool {
         let Some(place) = &self.place else { return false };
-        let mut now = vec![
-            stamp(&place.team()),
-            place.user().as_deref().and_then(stamp),
-            stamp(&place.variables()),
-            self.claims.path_in(&place.root).and_then(|t| stamp(&t)),
-        ];
         let team = place.team();
         let dir = team.parent().unwrap_or(&place.root);
-        now.extend(self.palette.from_paths(dir).iter().map(|f| stamp(f)));
-        now.extend(self.bake.rows_path(dir).map(|f| stamp(&f)));
-        now != self.stamps
+        let from_paths = self.palette.from_paths(dir);
+        let bake_rows = self.bake.rows_path(dir);
+        let mut idx = 0usize;
+        let mut differs = |path: Option<&Path>| -> bool {
+            let Some(&was) = self.stamps.get(idx) else { return true };
+            idx += 1;
+            match path {
+                None => was.is_some(),
+                Some(p) => !stamp_unchanged(p, was, self.read_at),
+            }
+        };
+        let user = place.user();
+        let vars = place.variables();
+        let claims = self.claims.path_in(&place.root);
+        if differs(Some(&team))
+            || differs(user.as_deref())
+            || differs(Some(&vars))
+            || differs(claims.as_deref())
+            || from_paths.iter().any(|p| differs(Some(p)))
+            || bake_rows.as_deref().is_some_and(|p| differs(Some(p)))
+        {
+            return true;
+        }
+        idx != self.stamps.len()
     }
 
     /// Where its files were read from.
@@ -3114,5 +3167,13 @@ keeper_variable = "tdod_store"
         assert!(m.reread_project_file());
         assert_eq!(m.project_file.talk.lines, Some(Lines { from: 7, to: 7 }));
         assert!(m.project_file.warnings.is_empty(), "read beside a .mod");
+    }
+
+    #[test]
+    fn uppercase_hak_extensions_strip_case_insensitively() {
+        let p = read("[lights]\nhak = \"TDOD.HAK\"\n[bake]\nrows = \"1-2\"\nhak = \"BAKE.HAK\"\n");
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        assert_eq!(p.lights.hak.as_deref(), Some("TDOD"));
+        assert_eq!(p.bake.hak.as_deref(), Some("BAKE"));
     }
 }

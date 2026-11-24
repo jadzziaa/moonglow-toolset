@@ -735,6 +735,20 @@ pub struct HeaderRecord {
     pub places: Vec<(String, Place)>,
 }
 
+fn recording_id() -> Id {
+    Id::new("mg-uikit-record-headers")
+}
+
+/// Has `ctx` keep header placement records (`HeaderOutput::places`,
+/// [`records`], [`places`]) for tests.
+pub fn record_headers(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(recording_id(), true));
+}
+
+fn is_recording_headers(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(recording_id())).unwrap_or(false)
+}
+
 /// The id under which the records of the headers named `name` are kept.
 fn record_id(name: &str) -> Id {
     Id::new(("mg-uikit-header-records", name))
@@ -900,31 +914,38 @@ impl<'a> EditorHeader<'a> {
         // measured with them.)
         let mut kit_style = (**ui.style()).clone();
         crate::theme::kit_sizes(&mut kit_style);
-        let measure = ui.new_child(UiBuilder::new().max_rect(rect).invisible());
-        let mut measure = measure;
-        measure.set_style(kit_style.clone());
+        let kit_style = std::sync::Arc::new(kit_style);
+        let mut measure = ui.new_child(UiBuilder::new().max_rect(rect).invisible());
+        measure.set_style(std::sync::Arc::clone(&kit_style));
 
         let n = self.items.len();
+        let recording = is_recording_headers(ui.ctx());
         // (Its items' names, separators none, for the record, and what
         // each records after it: a popover's rows where they unfold, a
         // joined group's buttons.)
-        let names: Vec<Option<String>> = (self.items.iter())
-            .map(|(_, item)| match item.kind {
-                Kind::Separator => None,
-                _ => Some(item.name.clone()),
-            })
-            .collect();
-        let rows_of: Vec<Vec<String>> = (self.items.iter())
-            .map(|(_, item)| match &item.kind {
-                Kind::Popover { popover, .. } => popover.check_names(),
-                Kind::Joined { parts } => {
-                    parts.iter().filter(|p| !p.words).map(|p| p.name.clone()).collect()
-                }
-                _ => Vec::new(),
-            })
-            .collect();
-        let joined_items: Vec<bool> =
-            self.items.iter().map(|(_, item)| matches!(item.kind, Kind::Joined { .. })).collect();
+        let (names, rows_of, joined_items) = if recording {
+            let names = (self.items.iter())
+                .map(|(_, item)| match item.kind {
+                    Kind::Separator => None,
+                    _ => Some(item.name.clone()),
+                })
+                .collect();
+            let rows_of = (self.items.iter())
+                .map(|(_, item)| match &item.kind {
+                    Kind::Popover { popover, .. } => popover.check_names(),
+                    Kind::Joined { parts } => {
+                        parts.iter().filter(|p| !p.words).map(|p| p.name.clone()).collect()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect();
+            let joined_items = (self.items.iter())
+                .map(|(_, item)| matches!(item.kind, Kind::Joined { .. }))
+                .collect();
+            (names, rows_of, joined_items)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
         let widths: Vec<[Option<f32>; 3]> = (self.items.iter())
             .map(|(_, item)| {
                 [Place::Unfolded, Place::Row, Place::Icon].map(|form| item.width(&measure, form))
@@ -992,53 +1013,53 @@ impl<'a> EditorHeader<'a> {
 
         // The row's parts for the forms (the separators that stand
         // between items alone), and its width.
-        let parts_of = |forms: &[Place], more_at_end: bool| -> Vec<Part> {
+        let mut parts = Vec::new();
+        let parts_into = |forms: &[Place], more_at_end: bool, out: &mut Vec<Part>| {
+            out.clear();
             let any_more = forms.contains(&Place::More);
             let more_after = self.more_after.as_ref().and_then(|name| {
                 (0..n).find(|&i| self.items[i].1.name == *name && forms[i] != Place::More)
             });
             let more_here = any_more && (more_at_end || more_after.is_none());
-            let mut parts = Vec::new();
             for side in [Side::Left, Side::Right] {
                 if side == Side::Right {
-                    parts.push(Part::Spacer);
+                    out.push(Part::Spacer);
                 }
-                let mut group: Vec<Part> = Vec::new();
+                let mut empty = true;
                 let mut pending_line = false;
                 for i in (0..n).filter(|&i| self.items[i].0 == side) {
                     if forms[i] == Place::More {
                         continue;
                     }
                     if matches!(self.items[i].1.kind, Kind::Separator) {
-                        pending_line = !group.is_empty();
+                        pending_line = !empty;
                         continue;
                     }
                     if pending_line {
-                        group.push(Part::Line);
+                        out.push(Part::Line);
                         pending_line = false;
                     }
-                    group.push(Part::Item(i));
+                    out.push(Part::Item(i));
+                    empty = false;
                     if any_more && !more_at_end && more_after == Some(i) {
-                        group.push(Part::More);
+                        out.push(Part::More);
                     }
                 }
                 // (A line at the right group's end stands before More
                 // where More follows it: the Script board's codepage | ⋯.)
                 if side == Side::Right && pending_line && more_here {
-                    group.push(Part::Line);
+                    out.push(Part::Line);
                 }
-                parts.extend(group);
             }
             if more_here {
-                parts.push(Part::More);
+                out.push(Part::More);
             }
             if end_line {
-                parts.push(Part::EndLine);
+                out.push(Part::EndLine);
             }
             if has_end {
-                parts.push(Part::End);
+                out.push(Part::End);
             }
-            parts
         };
         let part_width = |part: Part, forms: &[Place]| -> f32 {
             match part {
@@ -1060,7 +1081,8 @@ impl<'a> EditorHeader<'a> {
             let sum: f32 = parts.iter().map(|&p| part_width(p, forms)).sum();
             sum + HEADER_GAP * parts.len().saturating_sub(1) as f32
         };
-        let mut fits = total(&parts_of(&forms, false), &forms) <= room;
+        parts_into(&forms, false, &mut parts);
+        let mut fits = total(&parts, &forms) <= room;
         let mut taken = 0;
         for &(i, to) in &steps {
             if fits {
@@ -1068,7 +1090,8 @@ impl<'a> EditorHeader<'a> {
             }
             forms[i] = to;
             taken += 1;
-            fits = total(&parts_of(&forms, false), &forms) <= room;
+            parts_into(&forms, false, &mut parts);
+            fits = total(&parts, &forms) <= room;
         }
         // (Where only popovers were folded, one folded early that has room
         // again beside those folded after it unfolds once more, from the
@@ -1078,12 +1101,13 @@ impl<'a> EditorHeader<'a> {
             for &(i, _) in steps[..taken].iter().rev() {
                 let was = forms[i];
                 forms[i] = Place::Unfolded;
-                if total(&parts_of(&forms, false), &forms) > room {
+                parts_into(&forms, false, &mut parts);
+                if total(&parts, &forms) > room {
                     forms[i] = was;
                 }
             }
         }
-        let parts = parts_of(&forms, !fits);
+        parts_into(&forms, !fits, &mut parts);
 
         // Where each part goes: where everything fits, the left group from
         // the left and the rest against the right end; where it does not,
@@ -1195,7 +1219,7 @@ impl<'a> EditorHeader<'a> {
             }
         };
         ui.scope_builder(row, |ui| {
-            ui.set_style(kit_style.clone());
+            ui.set_style(kit_style);
             crate::icons::name_group(ui, &self.name);
             for (part, r) in &rects {
                 let builder = UiBuilder::new()
@@ -1453,34 +1477,38 @@ impl<'a> EditorHeader<'a> {
             }) && ui.ctx().layer_id_at(ui.input(|i| i.pointer.interact_pos()).unwrap_or_default())
                 == Some(ui.layer_id());
 
-        let mut places: Vec<(String, Place)> = Vec::new();
-        for (((name, form), rows), joined) in
-            names.into_iter().zip(forms.iter().copied()).zip(rows_of).zip(joined_items)
-        {
-            let Some(name) = name else { continue };
-            places.push((name, form));
-            if joined {
-                // (A joined group's buttons go where it goes.)
-                places.extend(rows.into_iter().map(|row| (row, form)));
-            } else if form == Place::Unfolded {
-                places.extend(rows.into_iter().map(|row| (row, Place::Unfolded)));
+        let places = if recording {
+            let mut places = Vec::new();
+            for (((name, form), rows), joined) in
+                names.into_iter().zip(forms.iter().copied()).zip(rows_of).zip(joined_items)
+            {
+                let Some(name) = name else { continue };
+                places.push((name, form));
+                if joined {
+                    // (A joined group's buttons go where it goes.)
+                    places.extend(rows.into_iter().map(|row| (row, form)));
+                } else if form == Place::Unfolded {
+                    places.extend(rows.into_iter().map(|row| (row, Place::Unfolded)));
+                }
             }
-        }
-        let more_drawn = more_rect;
-        keep_record(
-            ui.ctx(),
-            &self.name,
-            pass,
-            HeaderRecord {
-                id,
-                row: rect,
-                end: end_rect,
-                more: more_drawn,
-                popover: popover_rect,
-                open: open.clone(),
-                places: places.clone(),
-            },
-        );
+            keep_record(
+                ui.ctx(),
+                &self.name,
+                pass,
+                HeaderRecord {
+                    id,
+                    row: rect,
+                    end: end_rect,
+                    more: more_rect,
+                    popover: popover_rect,
+                    open: open.clone(),
+                    places: places.clone(),
+                },
+            );
+            places
+        } else {
+            Vec::new()
+        };
         let end = match (end_out, end.take()) {
             (Some(out), _) => out,
             // (No end slot: the closure has nothing to show.)

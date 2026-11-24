@@ -811,11 +811,16 @@ fn drive(case: &Case) -> Option<Done> {
     let p0 = position(h, area, case.kind, index);
     let q0 = second.map(|i| position(h, area, case.kind, i));
     eprintln!("placed at {p0} (and {q0:?})");
-    let shots = mg_testkit::output_dir("tile-edges").join(case.name);
-    std::fs::create_dir_all(&shots).unwrap();
+    let shots = std::env::var_os("MG_SHOT").map(|_| {
+        let dir = mg_testkit::output_dir("tile-edges").join(case.name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    });
     h.hover_at(egui::pos2(960.0, 610.0));
     h.run_steps(10);
-    h.render().unwrap().save(shots.join("before.png")).unwrap();
+    if let Some(dir) = &shots {
+        h.render().unwrap().save(dir.join("before.png")).unwrap();
+    }
     let tiles_before = tile_list(h, area);
 
     // The path: steps of 10 cm from the object to the end.
@@ -887,7 +892,9 @@ fn drive(case: &Case) -> Option<Done> {
                 lead(h, area, &mut watch, &pts, &edges, 6, gap)
             };
             let end = finish(h, &mut watch, end);
-            h.render().unwrap().save(shots.join("held.png")).unwrap();
+            if let Some(dir) = &shots {
+                h.render().unwrap().save(dir.join("held.png")).unwrap();
+            }
             press(h, end, false, egui::Modifiers::NONE);
         }
         How::SlideX | How::SlideY => {
@@ -916,7 +923,9 @@ fn drive(case: &Case) -> Option<Done> {
             let pts: Vec<Vec3> = path.iter().map(|p| head + (*p - case.from).extend(0.0)).collect();
             let edges: Vec<Vec2> = case.edges.iter().map(|e| *e + (head - p0).truncate()).collect();
             let end = lead(h, area, &mut watch, &pts, &edges, 6, None);
-            h.render().unwrap().save(shots.join("held.png")).unwrap();
+            if let Some(dir) = &shots {
+                h.render().unwrap().save(dir.join("held.png")).unwrap();
+            }
             h.event(left(end, false));
             h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         }
@@ -950,7 +959,9 @@ fn drive(case: &Case) -> Option<Done> {
                 view.ghost_shown.as_ref().map(|g| g.position),
                 view.pasted_shown
             );
-            h.render().unwrap().save(shots.join("held.png")).unwrap();
+            if let Some(dir) = &shots {
+                h.render().unwrap().save(dir.join("held.png")).unwrap();
+            }
             press(h, end, true, egui::Modifiers::NONE);
             press(h, end, false, egui::Modifiers::NONE);
         }
@@ -972,7 +983,9 @@ fn drive(case: &Case) -> Option<Done> {
             let end = finish(h, &mut watch, end);
             let view = &h.state().area_views[&area];
             eprintln!("ghost at the end: {:?}", view.ghost_shown.as_ref().map(|g| g.position));
-            h.render().unwrap().save(shots.join("held.png")).unwrap();
+            if let Some(dir) = &shots {
+                h.render().unwrap().save(dir.join("held.png")).unwrap();
+            }
             press(h, end, false, egui::Modifiers::NONE);
         }
     }
@@ -980,7 +993,9 @@ fn drive(case: &Case) -> Option<Done> {
         frame(h, area, &mut watch, end_at);
     }
     settle(h);
-    h.render().unwrap().save(shots.join("after.png")).unwrap();
+    if let Some(dir) = &shots {
+        h.render().unwrap().save(dir.join("after.png")).unwrap();
+    }
     let undo = h.state().ws.as_ref().unwrap().can_undo().map(String::from);
     let now = count(h, area, kind);
     let moved = match case.how {

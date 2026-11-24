@@ -474,16 +474,19 @@ fn show_in(
         let mut clicked = None;
         let mut double = None;
         let mut copy = None;
+        let mut cells: Vec<egui::Rect> = Vec::with_capacity(spec.cols.len());
+        let start_left = ui.cursor().left();
+        let xs = columns(spec.cols, start_left, width);
         for &r in &order[range] {
             let (rect, resp) =
                 ui.allocate_exact_size(egui::vec2(width, pitch), egui::Sense::click());
             let on = selected == Some(r);
-            let (name, value) = words(r);
             resp.widget_info(|| {
+                let (name, value) = words(r);
                 let mut info =
                     egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, &name);
                 if !value.is_empty() {
-                    info.current_text_value = Some(value.clone());
+                    info.current_text_value = Some(value);
                 }
                 info
             });
@@ -493,10 +496,18 @@ fn show_in(
                 (false, false) => look::Cell::Plain,
             };
             look::cell(ui.painter(), &t, rect, state);
-            let cells: Vec<egui::Rect> = columns(spec.cols, rect.left(), rect.width())
-                .into_iter()
-                .map(|x| egui::Rect::from_x_y_ranges(x, rect.y_range()))
-                .collect();
+            cells.clear();
+            if (rect.left() - start_left).abs() < f32::EPSILON {
+                cells.extend(
+                    xs.iter().map(|x| egui::Rect::from_x_y_ranges(x.clone(), rect.y_range())),
+                );
+            } else {
+                cells.extend(
+                    columns(spec.cols, rect.left(), rect.width())
+                        .into_iter()
+                        .map(|x| egui::Rect::from_x_y_ranges(x, rect.y_range())),
+                );
+            }
             for c in &cells {
                 lines
                     .cell(*c, if state == look::Cell::Plain { state } else { look::Cell::Hovered });
@@ -570,7 +581,14 @@ pub(crate) fn text(
 
 /// Two words compared as a builder reads a list: case aside.
 pub(crate) fn by_words(a: &str, b: &str) -> Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
+    if a.is_ascii() && b.is_ascii() {
+        a.bytes()
+            .map(|c| c.to_ascii_lowercase())
+            .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+            .then_with(|| a.cmp(b))
+    } else {
+        a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
+    }
 }
 
 #[cfg(test)]

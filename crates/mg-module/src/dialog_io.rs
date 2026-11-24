@@ -50,9 +50,11 @@ use mg_core::{Codepage, Gender, Language, LocString, LocStringKey, ResRef};
 use mg_gff::{Gff, Struct, Value};
 
 use crate::dialog::{
-    Kind, Parent, add_link, add_node, is_link, link_index, links, new_dialog, node, node_mut,
-    set_condition, text,
+    Kind, Parent, add_link_raw, add_node_raw, add_start_raw, is_link, link_index, links,
+    new_dialog, node, node_mut, renumber, set_condition, text,
 };
+#[cfg(test)]
+use crate::dialog::{add_link, add_node};
 
 /// The formats a conversation is written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -332,7 +334,10 @@ fn condition(l: &Struct) -> Option<String> {
 /// [`condition`] writes it: the script and its parameters.
 fn set_condition_call(g: &mut Gff, parent: Parent, pos: usize, call: &str) -> Result<(), String> {
     let (script, params) = read_call(call)?;
-    set_condition(g, parent, pos, &script);
+    let _ = ResRef::from_str(&script).map_err(|e| format!("{script}: {e}"))?;
+    if !set_condition(g, parent, pos, &script) {
+        return Err(format!("{script}: condition link not found"));
+    }
     if !params.is_empty()
         && let Some(l) = crate::dialog::links_mut(g, parent).and_then(|l| l.get_mut(pos))
     {
@@ -398,7 +403,7 @@ fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     let mut out = Vec::new();
     let speaker = string(n, "Speaker");
     if kind == Kind::Entry && !speaker.is_empty() {
-        out.push(format!("speaker:{}", escape(&speaker)));
+        out.push(format!("speaker:{}", percent(&speaker, " ")));
     }
     if let Some(a) = resref(n, "Script") {
         let p = params(n, "ActionParams");
@@ -410,7 +415,11 @@ fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     }
     let quest = string(n, "Quest");
     if !quest.is_empty() {
-        out.push(format!("journal:{}:{}", escape(&quest), n.integer("QuestEntry").unwrap_or(0)));
+        out.push(format!(
+            "journal:{}:{}",
+            percent(&quest, " :"),
+            n.integer("QuestEntry").unwrap_or(0)
+        ));
     }
     if let Some(s) = resref(n, "Sound") {
         out.push(format!("sound:{}", escape(&s)));
@@ -439,14 +448,15 @@ fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
     let r = |v: &str| ResRef::from_str(v).map(Value::resref).map_err(|e| format!("{v}: {e}"));
     for t in tags {
         let (k, raw) = t.split_once(':').unwrap_or((t, ""));
-        let v = unescape(raw.trim());
+        let raw_trimmed = raw.trim();
+        let v = unescape(raw_trimmed);
         match k.trim() {
-            "speaker" => n.set("Speaker", string_value(&v)),
+            "speaker" => n.set("Speaker", string_value(&unpercent(raw_trimmed))),
             "do" => {
                 // `a_give?item=gold%20coins` (a Twine passage's tag) or
                 // `a_give item="gold coins"`.
                 let query =
-                    raw.trim().split_once('?').filter(|(s, _)| !s.contains(char::is_whitespace));
+                    raw_trimmed.split_once('?').filter(|(s, _)| !s.contains(char::is_whitespace));
                 let (script, params) = match query {
                     Some((s, q)) => (unescape(s), read_query(q)?),
                     None => read_call(raw).map(|(s, p)| (unescape(&s), p))?,
@@ -458,8 +468,8 @@ fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
             }
             "sound" => n.set("Sound", r(&v)?),
             "journal" => {
-                let (q, e) = v.rsplit_once(':').unwrap_or((&v, "0"));
-                n.set("Quest", string_value(q));
+                let (q, e) = raw_trimmed.rsplit_once(':').unwrap_or((raw_trimmed, "0"));
+                n.set("Quest", string_value(&unpercent(q)));
                 n.set("QuestEntry", Value::Dword(e.trim().parse().unwrap_or(0)));
             }
             "anim" => n.set("Animation", Value::Dword(read_animation(&v)?)),
@@ -1327,15 +1337,22 @@ fn parse_twee(source: &str) -> Story {
             finish(current.take(), &mut passages, &mut start);
             // Name, then [tags], then {metadata}.
             let header = header.trim();
-            let (head, _) = header.split_once('{').map_or((header, ""), |(a, b)| (a.trim(), b));
-            let (name, tags) = match head.split_once('[') {
-                Some((n, t)) => (
-                    n.trim(),
-                    t.trim_end_matches(']').split_whitespace().map(str::to_string).collect(),
+            let (head, _) = match ink_find(header, '{') {
+                Some(at) => (header[..at].trim(), &header[at + 1..]),
+                None => (header, ""),
+            };
+            let (name, tags) = match ink_find(head, '[') {
+                Some(at) => (
+                    head[..at].trim(),
+                    head[at + 1..]
+                        .trim_end_matches(']')
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect(),
                 ),
                 None => (head, Vec::new()),
             };
-            let name = name.replace("\\[", "[").replace("\\]", "]");
+            let name = ink_unescape(name);
             if !matches!(name.as_str(), "StoryTitle" | "StoryData") {
                 order.push(name.clone());
             }
@@ -1412,19 +1429,19 @@ impl Builder<'_> {
         let pos = links(&self.g, parent).len();
         if let Some(&i) = self.made.get(name) {
             let linked = match parent {
-                Parent::Root => crate::dialog::add_start(&mut self.g, i),
-                _ => add_link(&mut self.g, parent, i),
+                Parent::Root => add_start_raw(&mut self.g, i),
+                _ => add_link_raw(&mut self.g, parent, i),
             };
             if !linked {
                 return Ok(());
             }
         } else {
-            let i = add_node(&mut self.g, parent, &line.text);
+            let i = add_node_raw(&mut self.g, parent, &line.text);
             apply_tags(node_mut(&mut self.g, Kind::Entry, i).expect("made"), &line.tags)?;
             self.made.insert(name.to_string(), i);
             for (text, rc, tags, to) in &line.replies {
                 let at = Parent::Node(Kind::Entry, i);
-                let r = add_node(&mut self.g, at, text);
+                let r = add_node_raw(&mut self.g, at, text);
                 apply_tags(node_mut(&mut self.g, Kind::Reply, r).expect("made"), tags)?;
                 if let Some(c) = rc {
                     let last = links(&self.g, at).len() - 1;
@@ -1454,6 +1471,7 @@ impl Builder<'_> {
         if let Some(start) = start {
             b.place(Parent::Root, start, None, 0)?;
         }
+        renumber(&mut b.g);
         settings.apply(&mut b.g, replaced)?;
         crate::dialog::recount(&mut b.g);
         Ok(b.g)
@@ -1632,6 +1650,72 @@ fn with_params(at: usize, cond: Option<&str>, call: String) -> Result<String, St
     }
 }
 
+fn parse_ink_choice(at: usize, line: &str) -> Result<Reply, String> {
+    let named = |tags: &str| tags.split('#').map(|t| t.trim().to_string()).collect();
+    let joined;
+    let (choice, mut tags): (&str, Vec<String>) = match ink_find(line, '#') {
+        Some(hash) => match line[hash..].rfind("->") {
+            Some(arrow) => {
+                joined = format!("{} {}", &line[..hash], &line[hash + arrow..]);
+                (joined.as_str(), named(&line[hash + 1..hash + arrow]))
+            }
+            None => (&line[..hash], named(&line[hash + 1..])),
+        },
+        None => (line, Vec::new()),
+    };
+    let mut rest = choice.trim();
+    let mut cond = None;
+    if let Some(r) = rest.strip_prefix('{') {
+        let end = r.find('}').ok_or(format!("line {at}: a condition doesn't end"))?;
+        cond = Some(r[..end].trim().to_string());
+        rest = r[end + 1..].trim();
+    }
+    if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
+        let call = tags.remove(i)["if:".len()..].trim().to_string();
+        if tags.iter().any(|t| t.starts_with("if:")) {
+            return Err(format!("line {at}: a choice has one condition, one # if:"));
+        }
+        cond = Some(with_params(at, cond.as_deref(), call)?);
+    }
+    let (text, after) = match rest.strip_prefix('[') {
+        Some(r) => {
+            let end =
+                ink_find(r, ']').ok_or(format!("line {at}: a choice's [text] doesn't end"))?;
+            (r[..end].to_string(), r[end + 1..].trim())
+        }
+        None => match rest.split_once("->") {
+            Some((t, _)) => (t.trim().to_string(), &rest[t.len()..]),
+            None => (rest.to_string(), ""),
+        },
+    };
+    let target = after
+        .trim()
+        .strip_prefix("->")
+        .map(|t| t.trim().to_string())
+        .ok_or(format!("line {at}: a choice must divert (-> KNOT or -> END)"))?;
+    let text = text.trim();
+    let text = if text == "(Continue)" { String::new() } else { ink_choice_unescape(text) };
+    let to = (target != "END" && target != "DONE").then_some(target);
+    Ok((text, cond, tags, to))
+}
+
+fn parse_ink_divert(
+    at: usize,
+    inner: &str,
+    pending_if: Option<(usize, String)>,
+) -> Result<(Option<String>, String), String> {
+    let body = inner.strip_suffix('}').ok_or(format!("line {at}: logic isn't read"))?;
+    let (cond, target) = body
+        .split_once(':')
+        .and_then(|(c, t)| Some((c.trim(), t.trim().strip_prefix("->")?.trim())))
+        .ok_or(format!("line {at}: only {{condition: -> KNOT}} is read"))?;
+    let cond = match pending_if {
+        Some((from, call)) => with_params(from, Some(cond), call)?,
+        None => cond.to_string(),
+    };
+    Ok((Some(cond), target.to_string()))
+}
+
 /// Reads an Ink story as a new conversation: the subset [`to_ink`]
 /// writes (knots, `# tags`, text, choices with a condition and a divert,
 /// conditional diverts). Anything else (stitches, gathers, logic, glue) is
@@ -1705,68 +1789,9 @@ pub fn from_ink_over(source: &str, replaced: Option<&Gff>) -> Result<Gff, String
                 None => k.tags.push(tag.trim().to_string()),
             }
         } else if let Some(choice) = line.strip_prefix('+').or_else(|| line.strip_prefix('*')) {
-            // + {cond} [text] # tag -> target (and, as Moonglow wrote it
-            // before 1.22.1, + {cond} [text] -> target # tag)
-            let named = |tags: &str| tags.split('#').map(|t| t.trim().to_string()).collect();
-            let joined;
-            let (choice, tags): (&str, Vec<String>) = match ink_find(choice, '#') {
-                Some(at) => match choice[at..].rfind("->") {
-                    Some(arrow) => {
-                        joined = format!("{} {}", &choice[..at], &choice[at + arrow..]);
-                        (joined.as_str(), named(&choice[at + 1..at + arrow]))
-                    }
-                    None => (&choice[..at], named(&choice[at + 1..])),
-                },
-                None => (choice, Vec::new()),
-            };
-            let mut rest = choice.trim();
-            let mut cond = None;
-            if let Some(r) = rest.strip_prefix('{') {
-                let end = r.find('}').ok_or(format!("line {at}: a condition doesn't end"))?;
-                cond = Some(r[..end].trim().to_string());
-                rest = r[end + 1..].trim();
-            }
-            // `# if:c_x key=value`: the condition's parameters.
-            let mut tags = tags;
-            if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
-                let call = tags.remove(i)["if:".len()..].trim().to_string();
-                if tags.iter().any(|t| t.starts_with("if:")) {
-                    return Err(format!("line {at}: a choice has one condition, one # if:"));
-                }
-                cond = Some(with_params(at, cond.as_deref(), call)?);
-            }
-            let (text, after) = match rest.strip_prefix('[') {
-                Some(r) => {
-                    let end = ink_find(r, ']')
-                        .ok_or(format!("line {at}: a choice's [text] doesn't end"))?;
-                    (r[..end].to_string(), r[end + 1..].trim())
-                }
-                None => match rest.split_once("->") {
-                    Some((t, _)) => (t.trim().to_string(), &rest[t.len()..]),
-                    None => (rest.to_string(), ""),
-                },
-            };
-            let target = after
-                .trim()
-                .strip_prefix("->")
-                .map(|t| t.trim().to_string())
-                .ok_or(format!("line {at}: a choice must divert (-> KNOT or -> END)"))?;
-            let text = text.trim();
-            let text = if text == "(Continue)" { String::new() } else { ink_choice_unescape(text) };
-            let to = (target != "END" && target != "DONE").then_some(target);
-            k.replies.push((text, cond, tags, to));
+            k.replies.push(parse_ink_choice(at, choice)?);
         } else if let Some(r) = line.strip_prefix('{') {
-            // {cond: -> target}
-            let inner = r.strip_suffix('}').ok_or(format!("line {at}: logic isn't read"))?;
-            let (cond, target) = inner
-                .split_once(':')
-                .and_then(|(c, t)| Some((c.trim(), t.trim().strip_prefix("->")?.trim())))
-                .ok_or(format!("line {at}: only {{condition: -> KNOT}} is read"))?;
-            let cond = match pending_if {
-                Some((from, call)) => with_params(from, Some(cond), call)?,
-                None => cond.to_string(),
-            };
-            k.choice.get_or_insert_with(Vec::new).push((Some(cond), target.to_string()));
+            k.choice.get_or_insert_with(Vec::new).push(parse_ink_divert(at, r, pending_if)?);
         } else if let Some(t) = line.strip_prefix("->") {
             k.choice.get_or_insert_with(Vec::new).push((None, t.trim().to_string()));
         } else if line.starts_with('-')
@@ -2303,5 +2328,44 @@ mod tests {
     fn unsupported_ink_is_refused_with_its_line() {
         let e = from_ink("-> a\n=== a ===\nHi\n- gather\n").unwrap_err();
         assert!(e.starts_with("line 4:"), "{e}");
+    }
+
+    #[test]
+    fn overlong_condition_errors_and_special_tags_and_escaped_headers_round_trip() {
+        // Overlong condition script (>16 chars) returns an error instead of writing ConditionParams alone.
+        let bad_twee = ":: StoryTitle\nTest\n\n:: StoryData\n{\"start\":\"Start\"}\n\n:: Start [npc-choice]\n[[if cond_script_too_long_17 item=1->E0]]\n\n:: E0\nHi\n";
+        assert!(from_twee(bad_twee).is_err());
+        let bad_ink = "VAR cond_script_too_long_17 = true\n-> Start\n=== Start ===\n{cond_script_too_long_17 item=1: -> E0}\n=== E0 ===\nHi\n";
+        assert!(from_ink(bad_ink).is_err());
+
+        // Speaker and journal tags containing brackets, braces, comments, colons, spaces, newlines round-trip.
+        let mut g = new_dialog();
+        let e = add_node(&mut g, Parent::Root, "Line");
+        let speaker = "Sir [A] {B} // C:1\nD";
+        let quest = "q_[sub]:{part}//x";
+        let n = node_mut(&mut g, Kind::Entry, e).unwrap();
+        n.set("Speaker", Value::String(speaker.as_bytes().to_vec()));
+        n.set("Quest", Value::String(quest.as_bytes().to_vec()));
+        n.set("QuestEntry", Value::Dword(7));
+
+        let twee = to_twee(&g, "T");
+        let back_twee = from_twee(&twee).unwrap();
+        let ne = node(&back_twee, Kind::Entry, 0).unwrap();
+        assert_eq!(string(ne, "Speaker"), speaker);
+        assert_eq!(string(ne, "Quest"), quest);
+        assert_eq!(ne.integer("QuestEntry"), Some(7));
+
+        let ink = to_ink(&g);
+        let back_ink = from_ink(&ink).unwrap();
+        let ie = node(&back_ink, Kind::Entry, 0).unwrap();
+        assert_eq!(string(ie, "Speaker"), speaker);
+        assert_eq!(string(ie, "Quest"), quest);
+        assert_eq!(ie.integer("QuestEntry"), Some(7));
+
+        // parse_twee keeps escaped brackets in passage names before real [tags].
+        let (passages, start, _, _) =
+            parse_twee(":: Escaped\\[Name\\] [speaker:NPC] {\"position\":\"1,2\"}\nHello\n");
+        assert!(start.is_none());
+        assert_eq!(passages["Escaped[Name]"].tags, ["speaker:NPC"]);
     }
 }

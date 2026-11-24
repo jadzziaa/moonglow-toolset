@@ -433,14 +433,7 @@ fn header(ui: &mut Ui, view: &JournalView, copy: &Seen) -> Asked {
         (Some(Clip::Category(_)), _) | (Some(Clip::Entry(_)), Some(_))
     );
     let any = !copy.seen.is_empty();
-    let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(JOURNAL_HEADER)
+    let header = EditorHeader::new(JOURNAL_HEADER)
         .left(
             Item::button(icon::ADD, "Add")
                 .enabled(can_add)
@@ -458,21 +451,9 @@ fn header(ui: &mut Ui, view: &JournalView, copy: &Seen) -> Asked {
         .left(Item::icon(icon::EXPAND_ALL, "Expand All").enabled(any).tip("Open every category"))
         .left(
             Item::icon(icon::COLLAPSE_ALL, "Collapse All").enabled(any).tip("Close every category"),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::blueprint::OK_CANCEL_TIPS);
     Asked {
         add: out.clicked("Add"),
         copy: out.clicked("Copy"),
@@ -725,8 +706,10 @@ fn draw_row(
         };
         let b = egui::Button::new("").frame(false).min_size(arrow.size());
         let r = ui.put(arrow, b).on_hover_text(hint);
-        let named = format!("{verb} {name}");
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &named));
+        r.widget_info(|| {
+            let named = format!("{verb} {name}");
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &named)
+        });
         mg_uikit::say_expanded(&r, open);
         let color = if selected { t.on_fill } else { t.text_3 };
         icon.paint(
@@ -760,10 +743,9 @@ fn draw_row(
         painter.galley(egui::pos2(at, cy - galley.size().y / 2.0), galley, color);
         w
     };
-    let said = match row {
+    match row {
         Row::Root => {
             put("Root".into(), font, text, x, right - x);
-            "Root".to_string()
         }
         Row::Category(c) => {
             let cat = &copy.seen[c];
@@ -782,13 +764,11 @@ fn draw_row(
                 + if count.is_empty() { 0.0 } else { 4.0 + GAP + measure(&count, &small) };
             let name_w = put(cat.name.clone(), font, text, x, right - x - tail - GAP);
             x += name_w + GAP;
-            let tag_w = put(tag.clone(), small.clone(), text_3, x, right - x);
+            let tag_w = put(tag, small.clone(), text_3, x, right - x);
             x += tag_w + GAP + 4.0;
             if !count.is_empty() {
-                put(count.clone(), small, text_3, x, right - x);
+                put(count, small, text_3, x, right - x);
             }
-            // (Its name and tag alone: whether it is open its arrow says.)
-            format!("{} {tag}", cat.name)
         }
         Row::Entry(c, e) => {
             let entry = &copy.seen[c].entries[e];
@@ -803,10 +783,10 @@ fn draw_row(
                 (1.0, guide),
             );
             let id = format!("[{:04}]", entry.id);
-            put(id.clone(), mono, text_2, x, 48.0);
+            put(id, mono, text_2, x, 48.0);
             x += 48.0 + GAP;
             if entry.end {
-                let words = painter.layout_no_wrap("End".into(), small.clone(), t.on_status);
+                let words = painter.layout_no_wrap("End".into(), small, t.on_status);
                 let size = words.size() + egui::vec2(8.0, 2.0);
                 let badge = egui::Rect::from_min_size(egui::pos2(x, cy - size.y / 2.0), size);
                 painter.rect_filled(badge, 3.0, t.ok);
@@ -814,14 +794,26 @@ fn draw_row(
             }
             x += 32.0 + GAP;
             put(entry.text.clone(), font, text_2, x, right - x);
-            match entry.end {
-                true => format!("{id} {}, finishes the category", entry.text),
-                false => format!("{id} {}", entry.text),
-            }
         }
-        Row::Empty => String::new(),
-    };
+        Row::Empty => {}
+    }
     r.widget_info(|| {
+        // (Its name and tag alone: whether it is open its arrow says.)
+        let said = match row {
+            Row::Root => "Root".to_string(),
+            Row::Category(c) => {
+                let cat = &copy.seen[c];
+                format!("{} [{}]", cat.name, cat.tag)
+            }
+            Row::Entry(c, e) => {
+                let entry = &copy.seen[c].entries[e];
+                match entry.end {
+                    true => format!("[{:04}] {}, finishes the category", entry.id, entry.text),
+                    false => format!("[{:04}] {}", entry.id, entry.text),
+                }
+            }
+            Row::Empty => String::new(),
+        };
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &said)
     });
     match (

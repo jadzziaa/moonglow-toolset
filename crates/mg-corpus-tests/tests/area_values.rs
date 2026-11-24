@@ -73,7 +73,12 @@ fn a_creature_walking_on_a_large_area_costs_little() {
     use mg_area::ObjectKind;
     let root = corpus!();
     mg_testkit::gpu::hold();
-    let Some(gpu) = mg_render::Gpu::headless() else {
+    static BASE: std::sync::OnceLock<Option<mg_render::Gpu>> = std::sync::OnceLock::new();
+    let Some(gpu) = BASE
+        .get_or_init(mg_render::Gpu::headless)
+        .as_ref()
+        .map(|g| mg_render::Gpu::new(g.device.clone(), g.queue.clone()))
+    else {
         eprintln!("skipped: no GPU");
         return;
     };

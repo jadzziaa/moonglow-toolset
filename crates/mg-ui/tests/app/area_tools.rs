@@ -224,7 +224,7 @@ fn terrain_is_on_with_a_tile_brush_in_hand() {
 /// takes it out too (none left: the section says how to choose them).
 #[test]
 fn x_takes_a_blueprint_out_of_the_brush() {
-    let Some((mut h, _)) = area_harness("tools-brush-x") else { return };
+    let Some((mut h, _)) = area_ui_harness("tools-brush-x") else { return };
     let statue = ResKey::parse("plc_statue1", ResType::UTP).unwrap();
     let tree = ResKey::parse("plc_tree", ResType::UTP).unwrap();
     {

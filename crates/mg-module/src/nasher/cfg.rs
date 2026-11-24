@@ -57,7 +57,7 @@ impl FileText {
 /// repeat). For other files written the same way (a plugin's manifest).
 pub fn sections(text: &str) -> Result<Vec<Section>, String> {
     let mut out: Vec<Section> = Vec::new();
-    for (line, event) in parse_events(text.as_bytes())? {
+    for (line, _, event) in parse_events(text.as_bytes())? {
         match event {
             Event::Section(name) => out.push(Section { name, line, pairs: Vec::new() }),
             Event::Pair(key, value) => match out.last_mut() {
@@ -95,7 +95,7 @@ enum Event {
 /// Reads parsecfg text into events. The text as bytes, as Nim reads it: a
 /// file need not be UTF-8 (a description typed in Windows-1252), and what
 /// is not is read with U+FFFD in its place.
-fn parse_events(b: &[u8]) -> Result<Vec<(usize, Event)>, String> {
+fn parse_events(b: &[u8]) -> Result<Vec<(usize, usize, Event)>, String> {
     let mut i = 0;
     let mut line = 1;
     let mut events = Vec::new();
@@ -290,7 +290,8 @@ fn parse_events(b: &[u8]) -> Result<Vec<(usize, Event)>, String> {
                 if token(&mut i, &mut line)? != Tok::Close {
                     return Err(format!("line {at}: ']' expected"));
                 }
-                events.push((at, Event::Section(name)));
+                let end = line;
+                events.push((at, end, Event::Section(name)));
                 tok = token(&mut i, &mut line)?;
             }
             Tok::DashDash | Tok::Sym(_) => {
@@ -298,6 +299,7 @@ fn parse_events(b: &[u8]) -> Result<Vec<(usize, Event)>, String> {
                     tok = token(&mut i, &mut line)?;
                 }
                 let Tok::Sym(key) = tok else { return Err(format!("line {at}: key expected")) };
+                let mut end = line;
                 tok = token(&mut i, &mut line)?;
                 let mut value = String::new();
                 if matches!(tok, Tok::Eq | Tok::Colon) {
@@ -305,9 +307,10 @@ fn parse_events(b: &[u8]) -> Result<Vec<(usize, Event)>, String> {
                         return Err(format!("line {at}: value expected after {key:?}"));
                     };
                     value = v;
+                    end = line;
                     tok = token(&mut i, &mut line)?;
                 }
-                events.push((at, Event::Pair(key, value)));
+                events.push((at, end, Event::Pair(key, value)));
             }
             Tok::Eq | Tok::Colon | Tok::Close => {
                 return Err(format!("line {at}: unexpected token"));
@@ -340,6 +343,61 @@ pub struct Target {
     pub variables: Vec<(String, String)>,
     /// Unpack rules: a file-name pattern and the folder for files it matches.
     pub rules: Vec<(String, String)>,
+}
+
+fn expand_vars(
+    s: &str,
+    vars: &[(String, String)],
+    target_name: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<String, String> {
+    let lookup = |key: &str| -> Result<String, String> {
+        if let Some((_, v)) = vars.iter().rev().find(|(k, _)| k == key) {
+            return Ok(v.clone());
+        }
+        match env(key).filter(|v| !v.is_empty()) {
+            Some(v) => Ok(v),
+            None => Err(format!("unknown variable ${key} in target {target_name}")),
+        }
+    };
+    let b = s.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'$' {
+            let start = i;
+            while i < b.len() && b[i] != b'$' {
+                i += 1;
+            }
+            out.push_str(&s[start..i]);
+            continue;
+        }
+        match b.get(i + 1) {
+            Some(b'$') => {
+                out.push('$');
+                i += 2;
+            }
+            Some(b'{') => {
+                let end = s[i + 2..].find('}').map_or(s.len(), |e| i + 2 + e);
+                out.push_str(&lookup(&s[i + 2..end])?);
+                i = end + 1;
+            }
+            Some(c) if c.is_ascii_alphabetic() || *c == b'_' || *c >= 0x80 => {
+                let mut j = i + 1;
+                while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] >= 0x80)
+                {
+                    j += 1;
+                }
+                out.push_str(&lookup(&s[i + 1..j])?);
+                i = j;
+            }
+            _ => {
+                out.push('$');
+                i += 1;
+            }
+        }
+    }
+    Ok(out)
 }
 
 impl Target {
@@ -381,61 +439,17 @@ impl Target {
         }
     }
 
-    /// Expands `$var` and `${var}` in every field but the name.
-    fn resolve(&mut self, env: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
+    fn effective_vars(&self) -> Vec<(String, String)> {
         let mut vars = self.variables.clone();
         vars.push(("target".into(), self.name.clone()));
         vars.push(("ext".into(), "$ext".into()));
-        let lookup = |key: &str| -> Result<String, String> {
-            if let Some((_, v)) = vars.iter().rev().find(|(k, _)| k == key) {
-                return Ok(v.clone());
-            }
-            match env(key).filter(|v| !v.is_empty()) {
-                Some(v) => Ok(v),
-                None => Err(format!("unknown variable ${key} in target {}", self.name)),
-            }
-        };
-        let expand = |s: &str| -> Result<String, String> {
-            let b = s.as_bytes();
-            let mut out = String::new();
-            let mut i = 0;
-            while i < b.len() {
-                if b[i] != b'$' {
-                    let start = i;
-                    while i < b.len() && b[i] != b'$' {
-                        i += 1;
-                    }
-                    out.push_str(&s[start..i]);
-                    continue;
-                }
-                match b.get(i + 1) {
-                    Some(b'$') => {
-                        out.push('$');
-                        i += 2;
-                    }
-                    Some(b'{') => {
-                        let end = s[i + 2..].find('}').map_or(s.len(), |e| i + 2 + e);
-                        out.push_str(&lookup(&s[i + 2..end])?);
-                        i = end + 1;
-                    }
-                    Some(c) if c.is_ascii_alphabetic() || *c == b'_' || *c >= 0x80 => {
-                        let mut j = i + 1;
-                        while j < b.len()
-                            && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] >= 0x80)
-                        {
-                            j += 1;
-                        }
-                        out.push_str(&lookup(&s[i + 1..j])?);
-                        i = j;
-                    }
-                    _ => {
-                        out.push('$');
-                        i += 1;
-                    }
-                }
-            }
-            Ok(out)
-        };
+        vars
+    }
+
+    /// Expands `$var` and `${var}` in every field but the name.
+    fn resolve(&mut self, env: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
+        let vars = self.effective_vars();
+        let expand = |s: &str| expand_vars(s, &vars, &self.name, env);
         for f in [
             &mut self.description,
             &mut self.file,
@@ -587,155 +601,17 @@ impl Package {
         text: &[u8],
         env: &dyn Fn(&str) -> Option<String>,
     ) -> Result<Package, String> {
-        let mut targets: Vec<Target> = Vec::new();
-        let mut defaults = Target::default();
-        let mut target = Target::default();
-        let (mut context, mut section) = (String::new(), String::new());
-        let mut default_name = String::new();
-        let mut is_default = false;
-        let mut default_index: Option<usize> = None;
-        let finish = |targets: &mut Vec<Target>,
-                      mut t: Target,
-                      defaults: &Target,
-                      is_default: bool,
-                      default_index: &mut Option<usize>|
-         -> Result<(), String> {
-            if t.name.is_empty() {
-                return Err(format!("target {} has no name", targets.len() + 1));
-            }
-            let parent = if t.parent.is_empty() {
-                defaults.clone()
-            } else {
-                targets.iter().find(|p| p.name == t.parent).cloned().unwrap_or_default()
-            };
-            t.inherit(&parent);
-            if is_default {
-                *default_index = Some(targets.len());
-            }
-            targets.push(t);
-            Ok(())
-        };
-        for (line, event) in parse_events(text)? {
-            match event {
-                Event::Section(name) => {
-                    let lower = name.to_ascii_lowercase();
-                    match lower.as_str() {
-                        "package" => {
-                            if !section.is_empty() {
-                                return Err(format!(
-                                    "line {line}: [package] must come first, once"
-                                ));
-                            }
-                            context = "package".into();
-                        }
-                        "target" => {
-                            match context.as_str() {
-                                "package" | "" => defaults = std::mem::take(&mut target),
-                                _ => {
-                                    let t = std::mem::take(&mut target);
-                                    finish(
-                                        &mut targets,
-                                        t,
-                                        &defaults,
-                                        is_default,
-                                        &mut default_index,
-                                    )?;
-                                }
-                            }
-                            context = "target".into();
-                            is_default = false;
-                        }
-                        "sources" | "rules" | "variables" => {}
-                        "package.sources" | "package.rules" | "package.variables"
-                            if context == "target" =>
-                        {
-                            return Err(format!("line {line}: [{name}] must be within [package]"));
-                        }
-                        "target.sources" | "target.rules" | "target.variables"
-                            if context != "target" =>
-                        {
-                            return Err(format!("line {line}: [{name}] must be within [target]"));
-                        }
-                        "package.sources" | "package.rules" | "package.variables"
-                        | "target.sources" | "target.rules" | "target.variables" => {}
-                        _ => return Err(format!("line {line}: invalid section [{name}]")),
-                    }
-                    section = lower.rsplit('.').next().unwrap_or_default().to_string();
-                }
-                Event::Pair(key, value) => match section.as_str() {
-                    "package" | "target" => match key.as_str() {
-                        "default" if section == "package" => default_name = value,
-                        "default" => {
-                            is_default = match value.to_ascii_lowercase().as_str() {
-                                "true" | "yes" | "on" | "y" | "1" => true,
-                                "false" | "no" | "off" | "n" | "0" => false,
-                                _ => {
-                                    return Err(format!(
-                                        "line {line}: target.default must be true or false"
-                                    ));
-                                }
-                            };
-                        }
-                        "name" if section == "target" => {
-                            if value.is_empty() || value == "all" {
-                                return Err(format!("line {line}: invalid target name {value:?}"));
-                            }
-                            if targets.iter().any(|t| t.name == value) {
-                                return Err(format!("line {line}: duplicate target {value:?}"));
-                            }
-                            is_default = is_default || value == default_name;
-                            target.name = value;
-                        }
-                        "name" => {}
-                        "description" => target.description = value,
-                        "file" => target.file = value,
-                        "branch" => target.branch = value,
-                        "parent" => {
-                            if !targets.iter().any(|t| t.name == value) {
-                                return Err(format!("line {line}: unknown parent {value:?}"));
-                            }
-                            target.parent = value;
-                        }
-                        "modName" => target.mod_name = value,
-                        "modMinGameVersion" => target.mod_min_game_version = value,
-                        "modDescription" => target.mod_description = value,
-                        "group" => target.groups.push(value),
-                        "flags" => target.flags.push(value),
-                        "source" | "include" => target.includes.push(value),
-                        "exclude" => target.excludes.push(value),
-                        "filter" => target.filters.push(value),
-                        "skipCompile" => target.skip_compile.push(value),
-                        "version" | "url" | "author" => {}
-                        // Older packages put unpack rules here.
-                        _ => target.rules.push((key, value)),
-                    },
-                    "sources" => match key.as_str() {
-                        "include" => target.includes.push(value),
-                        "exclude" => target.excludes.push(value),
-                        "filter" => target.filters.push(value),
-                        "skipCompile" => target.skip_compile.push(value),
-                        _ => {
-                            return Err(format!("line {line}: invalid key {key:?} in [{section}]"));
-                        }
-                    },
-                    "rules" => target.rules.push((key, value)),
-                    "variables" => target.variables.push((key, value)),
-                    _ => {}
-                },
-            }
-        }
-        if context == "target" {
-            let t = std::mem::take(&mut target);
-            finish(&mut targets, t, &defaults, is_default, &mut default_index)?;
-        }
-        if let Some(i) = default_index {
-            let t = targets.remove(i);
-            targets.insert(0, t);
-        }
-        for t in &mut targets {
-            t.resolve(env)?;
-        }
-        Ok(Package { root: root.to_path_buf(), targets })
+        let parsed = parse_cfg(text, env)?;
+        Ok(Package { root: root.to_path_buf(), targets: parsed.targets })
+    }
+
+    /// Parses source locations and spans of `[package]` and each `[target]`
+    /// in `nasher.cfg` bytes for line-preserving edits.
+    pub(super) fn layout_bytes(
+        text: &[u8],
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Layout, String> {
+        parse_cfg(text, env).map(|p| p.layout)
     }
 
     /// The target Moonglow edits: the default target if it packs a module,
@@ -751,6 +627,309 @@ impl Package {
     pub fn target(&self, name: &str) -> Option<&Target> {
         self.targets.iter().find(|t| t.name == name)
     }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct IncludeSpan {
+    pub(super) end_line: usize,
+    pub(super) raw_pattern: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct TargetLayout {
+    pub(super) name: String,
+    pub(super) parent: String,
+    pub(super) start_line: usize,
+    pub(super) end_line: usize,
+    pub(super) sources_line: Option<usize>,
+    pub(super) has_own_exclude: bool,
+    pub(super) includes: Vec<IncludeSpan>,
+    pub(super) vars: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Layout {
+    pub(super) package_includes: Vec<IncludeSpan>,
+    pub(super) targets: Vec<TargetLayout>,
+}
+
+impl Layout {
+    pub(super) fn target(&self, name: &str) -> Option<&TargetLayout> {
+        self.targets.iter().find(|t| t.name == name)
+    }
+
+    /// Finds the 1-based end line of the `include`/`source` pair responsible for
+    /// `pattern` in `target_name`, walking own -> inherited parent -> package.
+    pub(super) fn include_end_line(
+        &self,
+        target_name: &str,
+        pattern: &str,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<usize> {
+        let edited = self.target(target_name)?;
+        let matches_with = |vars: &[(String, String)], owner: &str, raw: &str| {
+            expand_vars(raw, vars, owner, env).ok().is_some_and(|v| v == pattern)
+        };
+        if let Some(span) = edited
+            .includes
+            .iter()
+            .find(|i| matches_with(&edited.vars, &edited.name, &i.raw_pattern))
+        {
+            return Some(span.end_line);
+        }
+        // Walk explicit `parent` chain while edited target had no includes of its own.
+        let mut cursor = edited.parent.as_str();
+        let mut depth = 0;
+        while !cursor.is_empty() && depth < self.targets.len() {
+            depth += 1;
+            let Some(p) = self.target(cursor) else { break };
+            if !p.includes.is_empty() {
+                return p
+                    .includes
+                    .iter()
+                    .find(|i| matches_with(&edited.vars, &edited.name, &i.raw_pattern))
+                    .map(|i| i.end_line);
+            }
+            cursor = p.parent.as_str();
+        }
+        if let Some(span) = self
+            .package_includes
+            .iter()
+            .find(|i| matches_with(&edited.vars, &edited.name, &i.raw_pattern))
+        {
+            return Some(span.end_line);
+        }
+        self.targets.iter().find_map(|t| {
+            t.includes
+                .iter()
+                .find(|i| matches_with(&t.vars, &t.name, &i.raw_pattern))
+                .map(|i| i.end_line)
+        })
+    }
+}
+
+struct ParsedCfg {
+    targets: Vec<Target>,
+    layout: Layout,
+}
+
+fn parse_cfg(text: &[u8], env: &dyn Fn(&str) -> Option<String>) -> Result<ParsedCfg, String> {
+    let total_lines = text.split(|&b| b == b'\n').count().max(1);
+    let mut targets: Vec<Target> = Vec::new();
+    let mut target_layouts: Vec<TargetLayout> = Vec::new();
+    let mut defaults = Target::default();
+    let mut target = Target::default();
+    let mut current_layout = TargetLayout::default();
+    let mut package_includes = Vec::new();
+    let (mut context, mut section) = (String::new(), String::new());
+    let mut default_name = String::new();
+    let mut is_default = false;
+    let mut default_index: Option<usize> = None;
+    let finish = |targets: &mut Vec<Target>,
+                  layouts: &mut Vec<TargetLayout>,
+                  mut t: Target,
+                  mut tl: TargetLayout,
+                  end_line: usize,
+                  defaults: &Target,
+                  is_default: bool,
+                  default_index: &mut Option<usize>|
+     -> Result<(), String> {
+        if t.name.is_empty() {
+            return Err(format!("target {} has no name", targets.len() + 1));
+        }
+        let parent = if t.parent.is_empty() {
+            defaults.clone()
+        } else {
+            targets.iter().find(|p| p.name == t.parent).cloned().unwrap_or_default()
+        };
+        t.inherit(&parent);
+        if is_default {
+            *default_index = Some(targets.len());
+        }
+        tl.name = t.name.clone();
+        tl.parent = t.parent.clone();
+        tl.end_line = end_line;
+        tl.vars = t.effective_vars();
+        targets.push(t);
+        layouts.push(tl);
+        Ok(())
+    };
+    for (line, end, event) in parse_events(text)? {
+        match event {
+            Event::Section(name) => {
+                let lower = name.to_ascii_lowercase();
+                match lower.as_str() {
+                    "package" => {
+                        if !section.is_empty() {
+                            return Err(format!("line {line}: [package] must come first, once"));
+                        }
+                        context = "package".into();
+                    }
+                    "target" => {
+                        match context.as_str() {
+                            "package" | "" => defaults = std::mem::take(&mut target),
+                            _ => {
+                                let t = std::mem::take(&mut target);
+                                let tl = std::mem::take(&mut current_layout);
+                                finish(
+                                    &mut targets,
+                                    &mut target_layouts,
+                                    t,
+                                    tl,
+                                    line,
+                                    &defaults,
+                                    is_default,
+                                    &mut default_index,
+                                )?;
+                            }
+                        }
+                        context = "target".into();
+                        current_layout.start_line = line;
+                        is_default = false;
+                    }
+                    "sources" | "rules" | "variables" => {
+                        if context == "target"
+                            && lower == "sources"
+                            && current_layout.sources_line.is_none()
+                        {
+                            current_layout.sources_line = Some(end);
+                        }
+                    }
+                    "package.sources" | "package.rules" | "package.variables"
+                        if context == "target" =>
+                    {
+                        return Err(format!("line {line}: [{name}] must be within [package]"));
+                    }
+                    "target.sources" | "target.rules" | "target.variables"
+                        if context != "target" =>
+                    {
+                        return Err(format!("line {line}: [{name}] must be within [target]"));
+                    }
+                    "target.sources" => {
+                        if current_layout.sources_line.is_none() {
+                            current_layout.sources_line = Some(end);
+                        }
+                    }
+                    "package.sources" | "package.rules" | "package.variables" | "target.rules"
+                    | "target.variables" => {}
+                    _ => return Err(format!("line {line}: invalid section [{name}]")),
+                }
+                section = lower.rsplit('.').next().unwrap_or_default().to_string();
+            }
+            Event::Pair(key, value) => match section.as_str() {
+                "package" | "target" => match key.as_str() {
+                    "default" if section == "package" => default_name = value,
+                    "default" => {
+                        is_default = match value.to_ascii_lowercase().as_str() {
+                            "true" | "yes" | "on" | "y" | "1" => true,
+                            "false" | "no" | "off" | "n" | "0" => false,
+                            _ => {
+                                return Err(format!(
+                                    "line {line}: target.default must be true or false"
+                                ));
+                            }
+                        };
+                    }
+                    "name" if section == "target" => {
+                        if value.is_empty() || value == "all" {
+                            return Err(format!("line {line}: invalid target name {value:?}"));
+                        }
+                        if targets.iter().any(|t| t.name == value) {
+                            return Err(format!("line {line}: duplicate target {value:?}"));
+                        }
+                        is_default = is_default || value == default_name;
+                        target.name = value;
+                    }
+                    "name" => {}
+                    "description" => target.description = value,
+                    "file" => target.file = value,
+                    "branch" => target.branch = value,
+                    "parent" => {
+                        if !targets.iter().any(|t| t.name == value) {
+                            return Err(format!("line {line}: unknown parent {value:?}"));
+                        }
+                        target.parent = value;
+                    }
+                    "modName" => target.mod_name = value,
+                    "modMinGameVersion" => target.mod_min_game_version = value,
+                    "modDescription" => target.mod_description = value,
+                    "group" => target.groups.push(value),
+                    "flags" => target.flags.push(value),
+                    "source" | "include" => {
+                        if context == "target" {
+                            current_layout
+                                .includes
+                                .push(IncludeSpan { end_line: end, raw_pattern: value.clone() });
+                        } else {
+                            package_includes
+                                .push(IncludeSpan { end_line: end, raw_pattern: value.clone() });
+                        }
+                        target.includes.push(value);
+                    }
+                    "exclude" => {
+                        if context == "target" {
+                            current_layout.has_own_exclude = true;
+                        }
+                        target.excludes.push(value);
+                    }
+                    "filter" => target.filters.push(value),
+                    "skipCompile" => target.skip_compile.push(value),
+                    "version" | "url" | "author" => {}
+                    // Older packages put unpack rules here.
+                    _ => target.rules.push((key, value)),
+                },
+                "sources" => match key.as_str() {
+                    "include" => {
+                        if context == "target" {
+                            current_layout
+                                .includes
+                                .push(IncludeSpan { end_line: end, raw_pattern: value.clone() });
+                        } else {
+                            package_includes
+                                .push(IncludeSpan { end_line: end, raw_pattern: value.clone() });
+                        }
+                        target.includes.push(value);
+                    }
+                    "exclude" => {
+                        if context == "target" {
+                            current_layout.has_own_exclude = true;
+                        }
+                        target.excludes.push(value);
+                    }
+                    "filter" => target.filters.push(value),
+                    "skipCompile" => target.skip_compile.push(value),
+                    _ => {
+                        return Err(format!("line {line}: invalid key {key:?} in [{section}]"));
+                    }
+                },
+                "rules" => target.rules.push((key, value)),
+                "variables" => target.variables.push((key, value)),
+                _ => {}
+            },
+        }
+    }
+    if context == "target" {
+        let t = std::mem::take(&mut target);
+        let tl = std::mem::take(&mut current_layout);
+        finish(
+            &mut targets,
+            &mut target_layouts,
+            t,
+            tl,
+            total_lines + 1,
+            &defaults,
+            is_default,
+            &mut default_index,
+        )?;
+    }
+    if let Some(i) = default_index {
+        let t = targets.remove(i);
+        targets.insert(0, t);
+    }
+    for t in &mut targets {
+        t.resolve(env)?;
+    }
+    Ok(ParsedCfg { targets, layout: Layout { package_includes, targets: target_layouts } })
 }
 
 /// nasher's per-user settings that change what a source tree holds: from
@@ -834,7 +1013,7 @@ impl Settings {
     /// [`Settings::apply`] of a file's bytes, which need not be UTF-8.
     fn apply_bytes(&mut self, text: &[u8]) {
         let Ok(events) = parse_events(text) else { return };
-        for (_, e) in events {
+        for (_, _, e) in events {
             let Event::Pair(key, value) = e else { continue };
             match key.as_str() {
                 "gffFormat" => self.gff_format = value,
@@ -996,7 +1175,7 @@ default = true
         .unwrap();
         let pairs: Vec<(String, String)> = events
             .into_iter()
-            .filter_map(|(_, e)| match e {
+            .filter_map(|(_, _, e)| match e {
                 Event::Pair(k, v) => Some((k, v)),
                 _ => None,
             })

@@ -46,11 +46,16 @@ pub struct Editing {
     /// came with ([`Editing::changes`]): what [`Editing::follow`] takes a
     /// cell through. The last [`MOVES_KEPT`] alone.
     moves: std::collections::VecDeque<(u64, Move)>,
+    /// Recent cell-only edits (without row/column renumbering): `(changes_after,
+    /// sorted_rows, emptiness_changed)` for incremental UI re-filtering/faults.
+    cell_edits: std::collections::VecDeque<(u64, Vec<usize>, bool)>,
 }
 
 /// How many of the latest renumberings [`Editing::follow`] can go back
 /// through.
 const MOVES_KEPT: usize = 1024;
+/// How many of the latest cell-only edits [`Editing::cell_rows_since`] keeps.
+const CELL_EDITS_KEPT: usize = 64;
 
 /// A renumbering of rows or columns, as a change or its Undo made it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,43 +114,77 @@ fn row_of(ours: &TwoDa, other: &TwoDa, row: usize) -> Vec<Option<String>> {
     ours.columns().iter().map(|c| other.get(row, c).map(str::to_string)).collect()
 }
 
+fn cell_by<'a>(table: &'a TwoDa, cols: &[Option<usize>], row: usize, c: usize) -> Option<&'a str> {
+    cols[c].and_then(|col| table.cell(row, col))
+}
+
 /// The rows of `other` that `ours` could take: those it lacks, and those
 /// it has differently. With `base` (the lowest copy, usually the game's),
 /// a row `other` left as the base has it is not offered (only this table
 /// changed it), and one both changed is a conflict.
 pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Candidate> {
+    let other_cols: Vec<Option<usize>> = ours.columns().iter().map(|c| other.column(c)).collect();
+    let base_cols: Option<Vec<Option<usize>>> =
+        base.map(|b| ours.columns().iter().map(|c| b.column(c)).collect());
     let mut out = Vec::new();
     for row in 0..other.len() {
-        let theirs = row_of(ours, other, row);
-        if theirs.iter().all(Option::is_none) {
-            continue;
-        }
-        let mine: Vec<Option<String>> =
-            (0..ours.columns().len()).map(|c| ours.cell(row, c).map(str::to_string)).collect();
-        if mine == theirs {
-            continue;
-        }
-        let based = base.filter(|b| row < b.len()).map(|b| row_of(ours, b, row));
-        let offered = if row >= ours.len() || mine.iter().all(Option::is_none) {
-            Offered::New
-        } else {
-            match &based {
-                Some(b) if *b == theirs => continue,
-                Some(b) if *b != mine => Offered::Conflict,
-                _ => Offered::Changed,
+        let mut any_theirs = false;
+        let mut any_diff = false;
+        let mut all_none_mine = true;
+        for c in 0..ours.columns().len() {
+            let m = ours.cell(row, c);
+            let t = cell_by(other, &other_cols, row, c);
+            if t.is_some() {
+                any_theirs = true;
             }
+            if m.is_some() {
+                all_none_mine = false;
+            }
+            if m != t {
+                any_diff = true;
+            }
+        }
+        if !any_theirs || !any_diff {
+            continue;
+        }
+        let base_row = base.zip(base_cols.as_deref()).filter(|(b, _)| row < b.len());
+        let offered = if row >= ours.len() || all_none_mine {
+            Offered::New
+        } else if let Some((b, bcols)) = base_row {
+            let theirs_eq_base = (0..ours.columns().len())
+                .all(|c| cell_by(b, bcols, row, c) == cell_by(other, &other_cols, row, c));
+            if theirs_eq_base {
+                continue;
+            }
+            let mine_eq_base =
+                (0..ours.columns().len()).all(|c| cell_by(b, bcols, row, c) == ours.cell(row, c));
+            if mine_eq_base { Offered::Changed } else { Offered::Conflict }
+        } else {
+            Offered::Changed
         };
-        let differ: Vec<usize> = (0..mine.len()).filter(|&c| mine[c] != theirs[c]).collect();
-        let cells = differ.iter().map(|&c| (c, mine[c].clone(), theirs[c].clone())).collect();
-        let whose = differ
-            .iter()
-            .map(|&c| match &based {
-                Some(b) if b[c] == mine[c] => Whose::Theirs,
-                Some(b) if b[c] == theirs[c] => Whose::Ours,
-                Some(_) => Whose::Both,
+        let mut cells = Vec::new();
+        let mut whose = Vec::new();
+        for c in 0..ours.columns().len() {
+            let m = ours.cell(row, c);
+            let t = cell_by(other, &other_cols, row, c);
+            if m == t {
+                continue;
+            }
+            cells.push((c, m.map(str::to_string), t.map(str::to_string)));
+            whose.push(match base_row {
+                Some((b, bcols)) => {
+                    let bv = cell_by(b, bcols, row, c);
+                    if bv == m {
+                        Whose::Theirs
+                    } else if bv == t {
+                        Whose::Ours
+                    } else {
+                        Whose::Both
+                    }
+                }
                 None => Whose::Untold,
-            })
-            .collect();
+            });
+        }
         out.push(Candidate { row, offered, cells, whose });
     }
     out
@@ -161,6 +200,7 @@ impl Editing {
             saved: Some(0),
             changes: 0,
             moves: Default::default(),
+            cell_edits: Default::default(),
         }
     }
 
@@ -229,6 +269,75 @@ impl Editing {
         self.moves.push_back((self.changes, m));
     }
 
+    /// Records touched rows and whether any touched row transitioned between
+    /// blank and non-blank, for cell-only edits (`Change::Cells`); clears the
+    /// log on structural or large bulk changes.
+    fn note_cell_edit(&mut self, change: &Change, forward: bool) {
+        let Change::Cells(cells) = change else {
+            self.cell_edits.clear();
+            return;
+        };
+        if cells.len() > 256 {
+            self.cell_edits.clear();
+            return;
+        }
+        let mut rows: Vec<usize> = cells.iter().map(|c| c.0).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        let cols = self.table.columns().len();
+        let mut emptiness_changed = false;
+        for &r in &rows {
+            if r >= self.table.len() {
+                continue;
+            }
+            let is_empty_now = (0..cols).all(|c| self.table.cell(r, c).is_none());
+            let was_empty = (0..cols).all(|c| {
+                let prior = if forward {
+                    cells.iter().find(|x| x.0 == r && x.1 == c).map(|x| x.2.as_deref())
+                } else {
+                    cells.iter().rfind(|x| x.0 == r && x.1 == c).map(|x| x.3.as_deref())
+                };
+                match prior {
+                    Some(v) => v.is_none(),
+                    None => self.table.cell(r, c).is_none(),
+                }
+            });
+            emptiness_changed |= was_empty != is_empty_now;
+        }
+        if self.cell_edits.len() == CELL_EDITS_KEPT {
+            self.cell_edits.pop_front();
+        }
+        self.cell_edits.push_back((self.changes, rows, emptiness_changed));
+    }
+
+    /// If every change strictly after `since` up to [`Self::changes`] was a
+    /// small cell-only edit, returns `(sorted_deduped_rows, any_emptiness_changed)`.
+    pub fn cell_rows_since(&self, since: u64) -> Option<(Vec<usize>, bool)> {
+        if since == self.changes {
+            return Some((Vec::new(), false));
+        }
+        if since > self.changes {
+            return None;
+        }
+        let needed = usize::try_from(self.changes - since).ok()?;
+        if needed > self.cell_edits.len() {
+            return None;
+        }
+        let start = self.cell_edits.len() - needed;
+        if self.cell_edits[start].0 != since + 1 {
+            return None;
+        }
+        let mut rows = Vec::new();
+        let mut emptiness_changed = false;
+        for (_, r, empty) in self.cell_edits.range(start..) {
+            rows.extend_from_slice(r);
+            emptiness_changed |= *empty;
+        }
+        rows.sort_unstable();
+        rows.dedup();
+        Some((rows, emptiness_changed))
+    }
+
     pub fn table(&self) -> &TwoDa {
         &self.table
     }
@@ -280,6 +389,7 @@ impl Editing {
     fn done(&mut self, label: impl Into<String>, change: Change) {
         self.changes += 1;
         self.note_moves(&change, true);
+        self.note_cell_edit(&change, true);
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
@@ -380,7 +490,7 @@ impl Editing {
         self.table_mut().add_row();
         let cells = (cells.iter())
             .filter_map(|(name, value)| Some((row, self.table.column(name)?, Some(value.clone()))))
-            .filter(|(_, _, v)| !v.as_ref().is_some_and(|v| v.contains('"')))
+            .filter(|(_, _, v)| v.as_deref().is_none_or(|v| mg_2da::TwoDa::holds(v).is_ok()))
             .collect();
         let changed = self.put(cells).unwrap_or_default();
         self.done(label, Change::Rows(1, changed));
@@ -531,7 +641,9 @@ impl Editing {
             put.push((row, c, value));
         }
         // (A cell another table's rules cannot hold is left as it is.)
-        put.retain(|(_, _, value)| !value.as_ref().is_some_and(|v| v.contains('"')));
+        put.retain(|(_, _, value)| {
+            value.as_deref().is_none_or(|v| mg_2da::TwoDa::holds(v).is_ok())
+        });
         let changed = self.put(put).unwrap_or_default();
         let mut taken: Vec<usize> =
             changed.iter().map(|c| c.0).filter(|r| whole.contains(r)).collect();
@@ -610,6 +722,7 @@ impl Editing {
         self.changes += 1;
         self.back(&change);
         self.note_moves(&change, false);
+        self.note_cell_edit(&change, false);
         self.redo.push((label, change));
         true
     }
@@ -619,6 +732,7 @@ impl Editing {
         self.changes += 1;
         self.again(&change);
         self.note_moves(&change, true);
+        self.note_cell_edit(&change, true);
         self.undo.push((label, change));
         true
     }
@@ -928,5 +1042,80 @@ mod tests {
         e.remove_column(1);
         assert_eq!((e.follow((0, 1), before), e.follow((0, 2), before)), (None, Some((0, 1))));
         assert_eq!(e.follow((0, 0), e.changes() + 1), None, "a change not made yet");
+    }
+
+    #[test]
+    fn add_row_of_and_take_filter_line_breaks_without_dropping_valid_cells() {
+        let mut e = Editing::new(table("  A B C\n0 x y z\n"));
+        let row = e.add_row_of(
+            "add",
+            &[
+                ("A".into(), "ok".into()),
+                ("B".into(), "bad\nline".into()),
+                ("C".into(), "also\rbad".into()),
+            ],
+        );
+        assert_eq!(e.table().get(row, "A"), Some("ok"));
+        assert_eq!(e.table().get(row, "B"), None);
+
+        let mut other = TwoDa::new(vec!["A".into(), "B".into(), "C".into()]).unwrap();
+        other.rows.push(vec![
+            Some("valid".into()),
+            Some("cr\rlf\n".into()),
+            Some("q\"uote".into()),
+        ]);
+        let (_, changed) = e.take(&other, &[], &[(0, 0), (0, 1), (0, 2)]);
+        assert_eq!(changed, 1);
+        assert_eq!(e.table().get(0, "A"), Some("valid"));
+        assert_eq!(e.table().get(0, "B"), Some("y"));
+        assert_eq!(e.table().get(0, "C"), Some("z"));
+    }
+
+    #[test]
+    fn cell_rows_since_tracks_small_edits_undo_redo_and_resets_on_structure() {
+        let mut e = Editing::new(table("  A B\n0 a b\n1 c ****\n2 **** ****\n"));
+        let s0 = e.changes();
+        assert_eq!(e.cell_rows_since(s0), Some((vec![], false)));
+        assert_eq!(e.cell_rows_since(s0 + 1), None);
+
+        // Single-cell edit not changing emptiness.
+        e.set(0, 1, Some("z".into())).unwrap();
+        assert_eq!(e.cell_rows_since(s0), Some((vec![0], false)));
+
+        // Editing an all-blank row flips emptiness.
+        let s1 = e.changes();
+        e.set(2, 0, Some("fill".into())).unwrap();
+        assert_eq!(e.cell_rows_since(s1), Some((vec![2], true)));
+        assert_eq!(e.cell_rows_since(s0), Some((vec![0, 2], true)));
+
+        // Undoing back to blank reports the touched row and emptiness transition.
+        let s2 = e.changes();
+        assert!(e.undo());
+        assert_eq!(e.cell_rows_since(s2), Some((vec![2], true)));
+        let s3 = e.changes();
+        assert!(e.redo());
+        assert_eq!(e.cell_rows_since(s3), Some((vec![2], true)));
+
+        // Exceeding CELL_EDITS_KEPT invalidates older history while keeping recent window.
+        let before_burst = e.changes();
+        for i in 0..70 {
+            e.set(1, 0, Some(format!("v{i}"))).unwrap();
+        }
+        assert_eq!(e.cell_rows_since(before_burst), None);
+        assert_eq!(e.cell_rows_since(e.changes() - 2), Some((vec![1], false)));
+
+        // Structural edit clears the cell log.
+        let before_add = e.changes();
+        e.add_rows(1);
+        assert_eq!(e.cell_rows_since(before_add), None);
+        let after_add = e.changes();
+        e.set(3, 0, Some("x".into())).unwrap();
+        assert_eq!(e.cell_rows_since(before_add), None);
+        assert_eq!(e.cell_rows_since(after_add), Some((vec![3], true)));
+
+        let before_col = e.changes();
+        e.add_column("C").unwrap();
+        assert_eq!(e.cell_rows_since(before_col), None);
+        assert_eq!(e.cell_rows_since(after_add), None);
     }
 }

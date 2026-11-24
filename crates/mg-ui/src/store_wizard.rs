@@ -32,6 +32,9 @@ pub enum Page {
     Finish,
 }
 
+/// Cache key for the Store Setup Wizard's store list: `(custom, (ws_identity, ws_revision), load_order)`.
+type StoreListKey = (bool, Option<(u64, u64)>, u64);
+
 /// The Store Setup Wizard's choices.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoreWizard {
@@ -56,8 +59,8 @@ pub struct StoreWizard {
     pub hostile: bool,
     pub use_faction: bool,
     pub faction: u32,
-    /// The stores listed, for Custom or not.
-    listed: Option<(bool, Vec<(ResRef, String)>)>,
+    /// The stores listed, for `(custom, module revision, load_order)`.
+    listed: Option<(StoreListKey, Vec<(ResRef, String)>)>,
     /// The list was scrolled to the store chosen (once each time it is
     /// listed: the project's blueprint may be far down it).
     scrolled: bool,
@@ -188,23 +191,40 @@ fn steps(ui: &mut egui::Ui, page: Page) {
     let _ = list.show(ui);
 }
 
-pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(mut w) = app.store_wizard.take() else { return };
+fn refresh_state(app: &Moonglow, w: &mut StoreWizard) -> bool {
     // The project's rules as they are now (its file read again while the
     // wizard is open), not as they were when it opened.
+    let mut rules_changed = false;
     if let Some(ws) = &app.ws {
-        w.rules.clone_from(&ws.module.project_file.store);
+        rules_changed = w.rules != ws.module.project_file.store;
+        if rules_changed {
+            w.rules.clone_from(&ws.module.project_file.store);
+        }
     }
+    if w.rules.is_none() {
+        w.tag = None;
+    }
+    if w.page == Page::Store {
+        let ws_key = app.ws.as_ref().filter(|_| w.custom).map(|ws| (ws.identity(), ws.revision()));
+        let list_key = (w.custom, ws_key, app.load_order);
+        let prev_custom = w.listed.as_ref().map(|(k, _)| k.0);
+        if w.listed.as_ref().is_none_or(|(k, _)| *k != list_key) {
+            w.listed = Some((list_key, stores(app, w.custom)));
+            if prev_custom != Some(w.custom) {
+                w.scrolled = false;
+            }
+        }
+    }
+    rules_changed
+}
+
+pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut w) = app.store_wizard.take() else { return };
+    let rules_changed = refresh_state(app, &mut w);
     let (mut finish, mut close) = (false, false);
     let mut go_to_finish = false;
-    if w.page == Page::Store && w.listed.as_ref().is_none_or(|(c, _)| *c != w.custom) {
-        w.listed = Some((w.custom, stores(app, w.custom)));
-        w.scrolled = false;
-    }
     let choices = w.listed.as_ref().map_or(&[][..], |(_, l)| l.as_slice()).to_vec();
-    let faction_names: Vec<String> = factions(app)
-        .map(|f| f.factions.iter().map(|x| x.name.clone()).collect())
-        .unwrap_or_else(|| mg_module::factions::STANDARD.iter().map(|s| s.to_string()).collect());
+    let faction_names = crate::blueprint::situated::faction_names_kept(app, ctx);
     // (A name the module has already: Finish replaces what is there.)
     let there = |name: &str, types: &[ResType]| {
         let name = ResRef::from_str(name.trim()).ok().filter(|r| *r != ResRef::EMPTY);
@@ -377,8 +397,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     // (Said on the last page where the project gives the tag; Aurora's
     // page says nothing of it.)
-    if go_to_finish && w.rules.is_some() {
-        w.tag = store_tag(app, &w).ok();
+    if go_to_finish || (w.page == Page::Finish && rules_changed) {
+        w.tag = w.rules.as_ref().and_then(|_| store_tag(app, &w).ok());
     }
     if finish {
         match build(app, &w) {
@@ -391,6 +411,82 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     if !close {
         app.store_wizard = Some(w);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_module::project_file::StoreRules;
+    use mg_rules::GameData;
+
+    #[test]
+    fn custom_store_list_refreshes_on_module_edit_and_clears_removed_rule_tag() {
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(
+            mg_resman::priority::KEY,
+            "game",
+            mg_resman::LayerClass::Key,
+            mg_resman::MemContainer::new(),
+        );
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.game = Some(std::sync::Arc::new(GameData::new(
+            rm,
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        )));
+        let mut module = mg_module::Module::new();
+        let store_a = ResKey::parse("sto_a", ResType::UTM).unwrap();
+        let store_b = ResKey::parse("sto_b", ResType::UTM).unwrap();
+        let gff_bytes = Gff::new(*b"UTM ").to_bytes().unwrap();
+        module.set(store_a, gff_bytes.clone());
+        module.project_file.store = Some(StoreRules::default());
+        app.ws = Some(mg_edit::Workspace::new(module));
+
+        let mut w = StoreWizard {
+            area: ResRef::from_str("area001").unwrap(),
+            list: "Creature List",
+            creature: 0,
+            page: Page::Store,
+            greeting: String::new(),
+            yes: String::new(),
+            no: String::new(),
+            appraise: true,
+            dialog: "dlg".into(),
+            script: "sc".into(),
+            store: Some(store_a.resref),
+            custom: true,
+            filter: String::new(),
+            hostile: false,
+            use_faction: true,
+            faction: 1,
+            listed: None,
+            scrolled: false,
+            rules: app.ws.as_ref().unwrap().module.project_file.store.clone(),
+            tag: Some("TAG_1".into()),
+        };
+
+        assert!(!refresh_state(&app, &mut w));
+        let first_list: Vec<ResRef> =
+            w.listed.as_ref().unwrap().1.iter().map(|(r, _)| *r).collect();
+        assert_eq!(first_list, [store_a.resref]);
+
+        app.ws
+            .as_mut()
+            .unwrap()
+            .apply(Command::new(
+                "add store",
+                vec![Edit::SetResource { key: store_b, data: Some(gff_bytes) }],
+            ))
+            .unwrap();
+        refresh_state(&app, &mut w);
+        let updated: Vec<ResRef> = w.listed.as_ref().unwrap().1.iter().map(|(r, _)| *r).collect();
+        assert_eq!(updated, [store_a.resref, store_b.resref]);
+
+        w.page = Page::Finish;
+        app.ws.as_mut().unwrap().module.project_file.store = None;
+        assert!(refresh_state(&app, &mut w));
+        assert!(w.rules.is_none());
+        assert_eq!(w.tag, None);
     }
 }
 
@@ -411,7 +507,7 @@ fn store_tag(app: &mut Moonglow, w: &StoreWizard) -> Result<String, String> {
         .ok()
         .and_then(|a| a.root.string("Tag").map(crate::text::decode))
         .unwrap_or_else(|| w.area.to_string());
-    let index = crate::tag_clash::index(&mut app.tag_cache, ws);
+    let index = crate::tag_clash::view(&mut app.tag_cache, ws);
     // (In the area, for a tag the project wants unique in each area.)
     let tags = &ws.module.project_file.tags;
     let counted = mg_module::tags::taken_in(&index, tags, w.area);

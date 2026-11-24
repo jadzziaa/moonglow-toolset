@@ -9,6 +9,7 @@ use mg_2da::TwoDa;
 use mg_core::Codepage;
 use serde_json::json;
 
+use crate::diff::shown_cell as shown;
 use crate::{Output, path_text};
 
 /// What `mg 2da-set` is asked.
@@ -34,15 +35,6 @@ fn split(cell: &str) -> Result<(&str, Option<String>)> {
         .with_context(|| format!("{cell:?}: give a cell as COLUMN=VALUE"))?;
     let value = Some(value.to_string()).filter(|v| !v.is_empty() && v != "****");
     Ok((column.trim(), value))
-}
-
-/// A cell as the file writes it.
-fn shown(cell: Option<&str>) -> String {
-    match cell {
-        None => "****".into(),
-        Some(v) if v.is_empty() || v.contains([' ', '\t']) => format!("\"{v}\""),
-        Some(v) => v.to_string(),
-    }
 }
 
 pub(crate) fn run(asked: &Asked<'_>, cp: Codepage) -> Result<Output> {

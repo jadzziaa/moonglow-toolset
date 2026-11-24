@@ -612,13 +612,54 @@ pub enum GearPlace {
 pub const INVENTORY_WIDTH: u16 = 10;
 const INVENTORY_ROWS: u16 = 255;
 
+/// Where an inventory's entry is in its grid (`Repos_PosX`, `Repos_Posy`),
+/// for [`place`]: a number below 0 (a file's INT of -1) is 0, as a place
+/// left out is.
+pub fn placed_at(entry: &Struct) -> (u32, u32) {
+    let at =
+        |label: &str| u32::try_from(entry.integer(label).unwrap_or(0).max(0)).unwrap_or(u32::MAX);
+    (at("Repos_PosX"), at("Repos_Posy"))
+}
+
+/// The first free place for a `w`×`h` item in an inventory grid
+/// `width` wide, row by row, among `taken` rectangles (x, y, w, h).
+///
+/// The rows looked at are the first and those just under a taken
+/// rectangle: the first free place is in one of them (a place free in a
+/// row and not in the row above is right under what was in its way), so
+/// a rectangle of any height costs one look, not a row at a time down
+/// its side. Where every such row is past what a place can be (rectangles
+/// down to the last row), the last row is given.
+pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32, u32) {
+    let width = width.max(1);
+    let w = w.clamp(1, width);
+    // (A place and a size are numbers a file gives: added in 64 bits, an
+    // item at the far end of what a field holds wraps onto no row.)
+    let end = |at: u32, size: u32| u64::from(at) + u64::from(size);
+    let free = |x: u32, y: u32| {
+        taken.iter().all(|&(tx, ty, tw, th)| {
+            end(x, w) <= u64::from(tx)
+                || end(tx, tw) <= u64::from(x)
+                || end(y, h) <= u64::from(ty)
+                || end(ty, th) <= u64::from(y)
+        })
+    };
+    let mut rows: Vec<u32> = std::iter::once(0)
+        .chain(taken.iter().filter_map(|&(_, ty, _, th)| u32::try_from(end(ty, th)).ok()))
+        .collect();
+    rows.sort_unstable();
+    rows.dedup();
+    (rows.into_iter())
+        .find_map(|y| (0..=width - w).find(|&x| free(x, y)).map(|x| (x, y)))
+        .unwrap_or((0, u32::MAX))
+}
+
 impl GameData {
     /// The room a base item takes in an inventory's grid (baseitems.2da
     /// `InvSlotWidth` by `InvSlotHeight`): 1 by 1 where the table says
     /// nothing, and at most the grid's width across and 255 down, whatever
-    /// a hak's cell says (an item 40,000 by 40,000 was 1.6 billion cells
-    /// to mark as taken). The one reading of it: a new class's gear and
-    /// Advanced Search's Add Item place items by it.
+    /// a hak's cell says. Both [`GameData::new_class_gear`] and edit-list
+    /// item placement read this bound and place items via [`place`].
     pub fn inventory_size(&self, base_item: usize) -> (u16, u16) {
         let table = self.table("baseitems").ok();
         let cell = |column: &str, most: u16| {
@@ -646,21 +687,15 @@ impl GameData {
         let size = |b: usize| self.inventory_size(b);
         let mut used: u32 =
             creature.list("Equip_ItemList").unwrap_or(&[]).iter().fold(0, |m, e| m | e.id);
-        // The backpack's cells taken.
-        let mut taken: BTreeSet<(u16, u16)> = BTreeSet::new();
-        let occupy = |taken: &mut BTreeSet<(u16, u16)>, x: u16, y: u16, (w, h): (u16, u16)| {
-            for i in 0..w {
-                for j in 0..h {
-                    taken.insert((x + i, y + j));
-                }
-            }
-        };
+        // The backpack's occupied rectangles (x, y, w, h).
+        let mut taken: Vec<(u32, u32, u32, u32)> = Vec::new();
         for e in creature.list("ItemList").unwrap_or(&[]) {
             let b = base_of(e)
                 .or_else(|| e.resref("InventoryRes").and_then(item).and_then(|i| base_of(&i)));
-            let at = |l: &str| e.integer(l).unwrap_or(0).clamp(0, 255) as u16;
             if let Some(b) = b {
-                occupy(&mut taken, at("Repos_PosX"), at("Repos_Posy"), size(b));
+                let (x, y) = placed_at(e);
+                let (w, h) = size(b);
+                taken.push((x, y, u32::from(w), u32::from(h)));
             }
         }
         let classes = self.table("classes").ok();
@@ -696,19 +731,10 @@ impl GameData {
                 continue;
             }
             let (w, h) = size(b);
-            let fits =
-                |x: u16, y: u16| (0..w).all(|i| (0..h).all(|j| !taken.contains(&(x + i, y + j))));
-            // (Down to the row under everything carried, which is free
-            // across: an item always finds room. Only the first 200 rows
-            // were looked at, and an item with none there was not given,
-            // without a word.)
-            let under = taken.iter().map(|&(_, y)| y + 1).max().unwrap_or(0);
-            let place = (0..=under)
-                .flat_map(|y| (0..=INVENTORY_WIDTH.saturating_sub(w)).map(move |x| (x, y)))
-                .find(|&(x, y)| fits(x, y));
-            if let Some((x, y)) = place {
-                occupy(&mut taken, x, y, (w, h));
-                out.push((res, GearPlace::Carry(x, y)));
+            let (x, y) = place(&taken, u32::from(INVENTORY_WIDTH), u32::from(w), u32::from(h));
+            if let (Ok(cx), Ok(cy)) = (u16::try_from(x), u16::try_from(y)) {
+                taken.push((x, y, u32::from(w), u32::from(h)));
+                out.push((res, GearPlace::Carry(cx, cy)));
             }
         }
         out
@@ -877,6 +903,25 @@ mod tests {
             ("big", GearPlace::Carry(0, 255)),
             ("ring", GearPlace::Equip(16)),
             ("band", GearPlace::Carry(0, 510)),
+        ];
+        assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
+        // An existing item placed past row 255 keeps its true row instead
+        // of clamping onto row 255, leaving row 255 free for a smaller item.
+        let mut high = Struct::new(0);
+        let mut at_0 = Struct::new(0);
+        at_0.set("BaseItem", Value::Int(0));
+        let mut at_300 = Struct::new(0);
+        at_300.set("BaseItem", Value::Int(1));
+        at_300.set("Repos_PosX", Value::Word(0));
+        at_300.set("Repos_Posy", Value::Word(300));
+        high.set("ItemList", Value::List(vec![at_0, at_300]));
+        let gear = game.new_class_gear(&high, 0, &item);
+        let places: Vec<(String, GearPlace)> =
+            gear.into_iter().map(|(r, at)| (r.to_string(), at)).collect();
+        let expected = [
+            ("big", GearPlace::Carry(0, 301)),
+            ("ring", GearPlace::Equip(16)),
+            ("band", GearPlace::Carry(0, 255)),
         ];
         assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
     }

@@ -136,24 +136,14 @@ pub fn read_all(dir: Option<&Path>, kept: &mut Read) -> Vec<(String, Result<Para
 /// The sets as [`read_all`] last read them, by file.
 pub type Read = crate::saved::Read<ParamSet>;
 
-/// The most parameters a set's summary names ([`describe`]).
-const DESCRIBED: usize = 12;
-
 /// What a set holds, as its tip says it: its script, then a parameter a
-/// line, `NAME = value`, the first [`DESCRIBED`] and how many more.
+/// line, `NAME = value`, the first 12 and how many more.
 pub fn describe(set: &ParamSet) -> String {
-    let mut lines = Vec::new();
-    if let Some(script) = set.script {
-        lines.push(format!("Script: {script}"));
-    }
-    if set.parameters.is_empty() {
-        lines.push("No parameters".to_string());
-    }
-    lines.extend(set.parameters.iter().take(DESCRIBED).map(|(n, v)| format!("{n} = {v}")));
-    if set.parameters.len() > DESCRIBED {
-        lines.push(format!("and {} more", set.parameters.len() - DESCRIBED));
-    }
-    lines.join("\n")
+    crate::saved::describe_lines(
+        set.script.map(|s| format!("Script: {s}")),
+        "No parameters",
+        set.parameters.iter().map(|(n, v)| format!("{n} = {v}")),
+    )
 }
 
 /// What a set's file is called: `NAME.params.json`.

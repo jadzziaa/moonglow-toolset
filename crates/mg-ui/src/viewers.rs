@@ -7,7 +7,7 @@
 //! (another Play anywhere takes the channel), and stops where the place
 //! that plays it is drawn no more (closed, behind another tab, folded).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mg_core::ResType;
@@ -29,12 +29,16 @@ pub(crate) fn is_sound(t: ResType) -> bool {
 
 /// Pictures decoded, all told.
 static DECODED: AtomicUsize = AtomicUsize::new(0);
+/// Enabled when tests query [`decoded_of`].
+static TRACK_DECODED_OF: AtomicBool = AtomicBool::new(false);
 /// Each picture's decodes, by its resource (the tests' count: decoded
 /// once, not per frame).
 static DECODED_OF: Mutex<Option<std::collections::HashMap<ResKey, usize>>> = Mutex::new(None);
+static HELD_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Pictures whose decodes wait until they are let go of (the tests': the
 /// frames go on meanwhile).
 static HELD: Mutex<Vec<ResKey>> = Mutex::new(Vec::new());
+static FAILS_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Pictures whose decodes panic (the tests': nothing is left waiting, the
 /// window decodes on).
 static FAILS: Mutex<Vec<ResKey>> = Mutex::new(Vec::new());
@@ -213,6 +217,7 @@ pub fn decoded() -> usize {
 /// How many times the picture resource `key` has been decoded.
 #[doc(hidden)]
 pub fn decoded_of(key: ResKey) -> usize {
+    TRACK_DECODED_OF.store(true, Ordering::Relaxed);
     let kept = DECODED_OF.lock().unwrap_or_else(|e| e.into_inner());
     kept.as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(0)
 }
@@ -222,26 +227,34 @@ pub fn decoded_of(key: ResKey) -> usize {
 /// side by side).
 #[doc(hidden)]
 pub fn hold(keys: &[ResKey]) {
-    HELD.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(keys);
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    held.extend_from_slice(keys);
+    HELD_COUNT.store(held.len(), Ordering::Relaxed);
 }
 
 /// Lets the decodes of `keys`' pictures go on.
 #[doc(hidden)]
 pub fn release(keys: &[ResKey]) {
-    HELD.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| !keys.contains(k));
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    held.retain(|k| !keys.contains(k));
+    HELD_COUNT.store(held.len(), Ordering::Relaxed);
 }
 
 /// Makes the decode of `key`'s picture panic (`None`: none), for a test
 /// to see that nothing is left waiting.
 #[doc(hidden)]
 pub fn fail(keys: &[ResKey]) {
-    FAILS.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(keys);
+    let mut fails = FAILS.lock().unwrap_or_else(|e| e.into_inner());
+    fails.extend_from_slice(keys);
+    FAILS_COUNT.store(fails.len(), Ordering::Relaxed);
 }
 
 /// Lets the decodes of `keys`' pictures succeed again.
 #[doc(hidden)]
 pub fn heal(keys: &[ResKey]) {
-    FAILS.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| !keys.contains(k));
+    let mut fails = FAILS.lock().unwrap_or_else(|e| e.into_inner());
+    fails.retain(|k| !keys.contains(k));
+    FAILS_COUNT.store(fails.len(), Ordering::Relaxed);
 }
 
 type Decoded = Result<(egui::ColorImage, [usize; 2]), String>;
@@ -308,20 +321,26 @@ impl Picture {
                 if done.slot.strong_count() == 0 {
                     return;
                 }
-                while HELD.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+                while HELD_COUNT.load(Ordering::Relaxed) > 0
+                    && HELD.lock().unwrap_or_else(|e| e.into_inner()).contains(&key)
+                {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
-                if FAILS.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+                if FAILS_COUNT.load(Ordering::Relaxed) > 0
+                    && FAILS.lock().unwrap_or_else(|e| e.into_inner()).contains(&key)
+                {
                     panic!("a picture's decode failed on purpose (the tests')");
                 }
                 let made = decode_now(key.restype, &data, &palettes, side);
                 DECODED.fetch_add(1, Ordering::Relaxed);
-                *DECODED_OF
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get_or_insert_default()
-                    .entry(key)
-                    .or_default() += 1;
+                if TRACK_DECODED_OF.load(Ordering::Relaxed) {
+                    *DECODED_OF
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_or_insert_default()
+                        .entry(key)
+                        .or_default() += 1;
+                }
                 if let Some(slot) = done.slot.upgrade() {
                     *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(made);
                 }

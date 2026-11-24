@@ -79,7 +79,9 @@ pub fn from_text(text: &str) -> Result<Vec<VarRow>, String> {
                 Some("float") => {
                     (2, value.as_f64().ok_or(format!("{name}: not a float"))?.to_string())
                 }
-                Some("string") => (3, value.as_str().unwrap_or_default().to_string()),
+                Some("string") => {
+                    (3, value.as_str().ok_or_else(|| format!("{name}: not a string"))?.to_string())
+                }
                 other => return Err(format!("{name}: type {other:?} isn't int, float or string")),
             };
             Ok(VarRow::new(name, kind, &value))
@@ -139,32 +141,22 @@ pub fn read_all(dir: Option<&Path>, kept: &mut Read) -> Vec<(String, Result<Vec<
 /// The sets as [`read_all`] last read them, by file.
 pub type Read = crate::saved::Read<Vec<VarRow>>;
 
-/// The most variables a set's summary names ([`describe`]).
-const DESCRIBED: usize = 12;
-
 /// What a set holds, as its tip says it: a variable a line, `NAME (type)
-/// = value`, the first [`DESCRIBED`] and how many more.
+/// = value`, the first 12 and how many more.
 pub fn describe(rows: &[VarRow]) -> String {
-    if rows.is_empty() {
-        return "No variables".to_string();
-    }
     let kind = |k: u32| match k {
         1 => "int",
         2 => "float",
         _ => "string",
     };
-    let mut lines: Vec<String> = rows
-        .iter()
-        .take(DESCRIBED)
-        .map(|r| match r.kind {
+    crate::saved::describe_lines(
+        None,
+        "No variables",
+        rows.iter().map(|r| match r.kind {
             3 => format!("{} ({}) = \"{}\"", r.name, kind(r.kind), r.value),
             k => format!("{} ({}) = {}", r.name, kind(k), r.value),
-        })
-        .collect();
-    if rows.len() > DESCRIBED {
-        lines.push(format!("and {} more", rows.len() - DESCRIBED));
-    }
-    lines.join("\n")
+        }),
+    )
 }
 
 /// What a set's file is called: `NAME.vars.json`.
@@ -239,6 +231,13 @@ mod tests {
                 .unwrap_err()
                 .contains("isn't int")
         );
+        for bad in ["123", "true", "null", "[]"] {
+            let err = from_text(&format!(
+                "{{\"variables\": [{{\"name\": \"X\", \"type\": \"string\", \"value\": {bad}}}]}}"
+            ))
+            .unwrap_err();
+            assert!(err.contains("not a string"), "{bad}: {err}");
+        }
     }
 
     #[test]

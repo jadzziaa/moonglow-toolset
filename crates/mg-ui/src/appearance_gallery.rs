@@ -14,6 +14,8 @@
 //! Right Dock (`shell::Brings`), and the Status Bar's hints and count
 //! ([`shown`]).
 
+use std::collections::HashMap;
+
 use mg_core::ResType;
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Value;
@@ -200,6 +202,8 @@ pub struct Gallery {
     /// to take the keys: it takes them as the tab comes to the front of
     /// its pane (opened, or its tab chosen), not after.
     pub(crate) shown: (u64, bool),
+    /// Per-row `appearance_problem` results cached by `(kind, app.load_order)`.
+    pub(crate) problems: ((Kind, u64), HashMap<usize, Option<String>>),
 }
 
 /// What the gallery was last drawn as ([`Gallery::drawn`]).
@@ -338,6 +342,10 @@ fn grid(
 ) -> Clicked {
     let kind = state.kind;
     let Some(game) = app.game.clone() else { return Clicked::default() };
+    if state.problems.0 != (kind, app.load_order) {
+        state.problems.0 = (kind, app.load_order);
+        state.problems.1.clear();
+    }
     let name = rows.name;
     let side = tile_side(app);
     let ready = &app.thumbnails;
@@ -385,7 +393,12 @@ fn grid(
                     let chosen = current == Some(c.row as i64) || taking == Some(c.row as i64);
                     // (Marked where it has no model: a builder chose such rows
                     // and saw nothing say why.)
-                    let problem = kind.problem(&game, c.row);
+                    let problem = state
+                        .problems
+                        .1
+                        .entry(c.row)
+                        .or_insert_with(|| kind.problem(&game, c.row))
+                        .as_deref();
                     mg_uikit::gallery::GalleryCell::new(
                         &c.text,
                         crate::widgets::cell_picture(made),
@@ -394,11 +407,13 @@ fn grid(
                     .selected(chosen)
                     .no_model(problem.is_some())
                     .paint(ui, rect, tile, cell, r);
-                    let mut about = format!("{} ({name}.2da row {})", c.text, c.row);
-                    if let Some(p) = &problem {
-                        about = format!("{about}\n{p}");
-                    }
-                    let r = r.clone().on_hover_text(about);
+                    let r = r.clone().on_hover_ui(|ui| {
+                        if let Some(p) = problem {
+                            ui.label(format!("{} ({name}.2da row {})\n{p}", c.text, c.row));
+                        } else {
+                            ui.label(format!("{} ({name}.2da row {})", c.text, c.row));
+                        }
+                    });
                     if r.double_clicked() {
                         pick.double = Some(c.row as i64);
                     } else if r.clicked() {
@@ -466,12 +481,12 @@ type Chosen = (ResKey, Vec<usize>, Option<i64>, Option<u64>, bool);
 /// kept for its place (`at`) and the workspace's revision: its fields
 /// were written out and hashed each frame.
 fn dressed_kept(
-    app: &mut Moonglow,
+    thumbnails: &mut crate::model_view::Thumbnails,
+    revision: Option<u64>,
     ctx: &egui::Context,
     at: (ResKey, GffPath),
     of: &mg_gff::Struct,
 ) -> u64 {
-    let revision = app.ws.as_ref().map(mg_edit::Workspace::revision);
     let id = egui::Id::new("appearance-gallery-dressed");
     let key = (at, revision);
     type Kept = (((ResKey, GffPath), Option<u64>), u64);
@@ -479,7 +494,7 @@ fn dressed_kept(
     if let Some((_, kept)) = kept.filter(|(k, _)| *k == key) {
         return kept;
     }
-    let made = app.thumbnails.creature(of);
+    let made = thumbnails.creature(of);
     ctx.data_mut(|d| d.insert_temp(id, (key, made)));
     made
 }
@@ -494,13 +509,16 @@ fn selected(app: &mut Moonglow, ctx: &egui::Context, kind: Kind) -> Option<Chose
         view.selection.iter().filter(|(k, _)| *k == object).map(|&(_, i)| i).collect();
     let git = ResKey::new(area, ResType::GIT);
     let first = *chosen.first()?;
-    let doc = app.ws.as_mut()?.doc(&git).ok()?;
+    let Moonglow { ws: Some(ws), thumbnails, .. } = app else { return None };
+    let revision = Some(ws.revision());
+    let doc = ws.doc(&git).ok()?;
     let list = doc.root.list(object.list())?;
-    let of = list.get(first)?.clone();
+    let of = list.get(first)?;
     let now = of.integer(kind.field());
     let alike = chosen.iter().all(|&i| list.get(i).and_then(|s| s.integer(kind.field())) == now);
     let path = GffPath::root().item(object.list(), first);
-    let dressed = (kind == Kind::Creature).then(|| dressed_kept(app, ctx, (git, path), &of));
+    let dressed =
+        (kind == Kind::Creature).then(|| dressed_kept(thumbnails, revision, ctx, (git, path), of));
     Some((git, chosen, now, dressed, alike))
 }
 
@@ -516,16 +534,28 @@ fn header(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut Gallery, count: &st
         (Kind::Door, "Doors", "Doors: genericdoors.2da"),
     ];
     let kind = Cell::new(state.kind);
-    let switch_width = {
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let color = ui.visuals().text_color();
-        let words = |w: &str| {
-            ui.fonts_mut(|f| f.layout_no_wrap(w.to_string(), font.clone(), color)).size().x
-        };
-        let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
-        let widths: f32 = choices.iter().map(|c| words(c.1) + pad).sum();
-        widths.ceil() + (choices.len() - 1) as f32
-    };
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let ppp = ui.ctx().pixels_per_point().to_bits();
+    let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
+    let sw_id = egui::Id::new("appearance-gallery-switch-width");
+    let sw_key = (font.size.to_bits(), pad.to_bits(), ppp);
+    let switch_width = ui
+        .data(|d| d.get_temp::<((u32, u32, u32), f32)>(sw_id))
+        .filter(|(k, _)| *k == sw_key)
+        .map(|(_, w)| w)
+        .unwrap_or_else(|| {
+            let words = |w: &str| {
+                ui.fonts_mut(|f| {
+                    f.layout_no_wrap(w.to_string(), font.clone(), egui::Color32::PLACEHOLDER)
+                })
+                .size()
+                .x
+            };
+            let widths: f32 = choices.iter().map(|c| words(c.1) + pad).sum();
+            let w = widths.ceil() + (choices.len() - 1) as f32;
+            ui.data_mut(|d| d.insert_temp(sw_id, (sw_key, w)));
+            w
+        });
     let switch = |ui: &mut egui::Ui| {
         let mut chosen = kind.get();
         let room = egui::vec2(switch_width, mg_uikit::metrics::CONTROL_HEIGHT);
@@ -679,11 +709,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let kind = state.kind;
     // The one object it was opened for, as it is now.
     let one = state.target.clone().and_then(|(key, path)| {
-        let doc = app.ws.as_mut()?.doc(&key).ok()?;
-        let of = path.get(&doc.root)?.clone();
-        let dressed =
-            (kind == Kind::Creature).then(|| dressed_kept(app, &ctx, (key, path.clone()), &of));
-        Some((key, path, of.integer(kind.field()), dressed))
+        let Moonglow { ws: Some(ws), thumbnails, .. } = app else { return None };
+        let revision = Some(ws.revision());
+        let doc = ws.doc(&key).ok()?;
+        let of = path.get(&doc.root)?;
+        let now = of.integer(kind.field());
+        let dressed = (kind == Kind::Creature)
+            .then(|| dressed_kept(thumbnails, revision, &ctx, (key, path.clone()), of));
+        Some((key, path, now, dressed))
     });
     if one.is_none() {
         state.target = None;
@@ -879,10 +912,21 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&cra
         return;
     };
     let source = crate::model_view::Source::Appearance { restype: kind.restype(), row: row as u32 };
-    // (Its views of the rows chosen before go: clicked through, each was
-    // kept with its models on the GPU.)
-    app.model_views
-        .retain(|s, _| !matches!(s, crate::model_view::Source::Appearance { .. }) || *s == source);
+    // (Its views of the rows chosen before go: release their GPU targets
+    // first so free_texture and renderer caches do not leak while browsing.)
+    let drop_keys: Vec<_> = app
+        .model_views
+        .keys()
+        .filter(|s| matches!(s, crate::model_view::Source::Appearance { .. }) && **s != source)
+        .cloned()
+        .collect();
+    for k in drop_keys {
+        if let Some(mut view) = app.model_views.remove(&k)
+            && let Some(vp) = app.viewport.as_mut()
+        {
+            view.let_go_of_targets(vp);
+        }
+    }
     let shown =
         crate::model_view::Shown { info: false, pop_out: false, restore: false, paused: true };
     crate::model_view::panel(app, ui, source, shown);

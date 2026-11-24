@@ -185,13 +185,19 @@ impl ProgramCache {
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("tmp{:010}{:010}", std::process::id(), seq));
+        self.write_at(path, &tmp, bytes)
+    }
+
+    fn write_at(&self, path: &Path, tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         // (Whole or not at all: written beside it, then put in its place.)
         // (A write that fails, the disk full partway, takes its file away
         // too: it was left, one for each program and run.)
-        let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-        std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path)).inspect_err(|_| {
-            let _ = std::fs::remove_file(&tmp);
+        std::fs::write(tmp, bytes).and_then(|()| std::fs::rename(tmp, path)).inspect_err(|_| {
+            let _ = std::fs::remove_file(tmp);
         })
     }
 }
@@ -309,7 +315,7 @@ void main ()
         let path = d.join("entry.spv");
         let tmp = path.with_extension(format!("tmp{}", std::process::id()));
         std::os::unix::fs::symlink("/dev/full", &tmp).unwrap();
-        assert!(cache.write(&path, &[1; 4096]).is_err());
+        assert!(cache.write_at(&path, &tmp, &[1; 4096]).is_err());
         assert!(std::fs::symlink_metadata(&tmp).is_err(), "nothing left beside it");
         assert!(!path.exists());
         // And one that works leaves only the entry.
@@ -483,6 +489,29 @@ void main ()
         std::fs::write(&path, b"\xff\xfe not an entry").unwrap();
         assert_eq!(cache.compile(&a).unwrap().1, Cached::Miss);
         assert_eq!(cache.compile(&a).unwrap().1, Cached::Hit);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn concurrent_writes_to_same_entry_never_collide() {
+        let d = dir("concurrent-writes");
+        std::fs::create_dir_all(&d).unwrap();
+        let cache = ProgramCache::new(&d);
+        let path = d.join("00000000000000000000000000000001.spv");
+        let payload = b"0123456789abcdef".repeat(64);
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..20 {
+                        cache.write(&path, &payload).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(std::fs::read(&path).unwrap(), payload);
+        let names: Vec<_> =
+            std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["00000000000000000000000000000001.spv"]);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

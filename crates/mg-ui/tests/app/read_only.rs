@@ -262,7 +262,8 @@ fn the_read_only_header_holds_its_controls() {
             if alone {
                 compact_seen += 1;
                 from.hover();
-                h.run_steps(60);
+                h.step();
+                advance_clock(&mut h, 1.5);
                 // (The count, which the Status Bar shows too, in the tip.)
                 let tip = "from key:nwn_base, 3078 bytes, shown as the game reads it";
                 let has = |n: &egui_kittest::Node<'_>| {
@@ -301,7 +302,8 @@ fn the_read_only_header_holds_its_controls() {
     let copy = h.get_by_label(header).get_by_label("Copy to Module");
     assert!(copy.accesskit_node().is_disabled(), "the module has its own");
     copy.hover();
-    h.run_steps(60);
+    h.step();
+    advance_clock(&mut h, 1.5);
     h.get_by_label_contains("The module has its own nw_chicken.utc");
 }
 
@@ -445,7 +447,8 @@ fn copy_to_module_is_off_for_a_kind_a_module_folder_cannot_hold() {
         assert_eq!(copy.accesskit_node().is_disabled(), !takes, "{}", path.display());
         if !takes {
             copy.hover();
-            h.run_steps(60);
+            h.step();
+            advance_clock(&mut h, 1.5);
             h.get_by_label_contains("A module kept as files cannot hold this kind");
             continue;
         }
@@ -673,7 +676,8 @@ fn a_floating_read_only_tab_says_where_it_is_from_and_its_size() {
     let lock =
         h.get_by_label(mg_ui::RESOURCE_HEADER).get_by_label("Read-only: from the game's data");
     lock.hover();
-    h.run_steps(60);
+    h.step();
+    advance_clock(&mut h, 1.5);
     let tip = format!("{count}, shown as the game reads it");
     let shown: Vec<String> = (h.query_all_by_label_contains("as the game reads it"))
         .map(|n| {
@@ -982,11 +986,27 @@ fn a_sound_open_read_only_plays_and_stops_when_unseen() {
 /// own work is under way; then it is shown, decoded once, not again as
 /// frames are drawn; let go of with its tab and decoded anew when opened
 /// again.
+struct ReleaseOnDrop<'a>(&'a [ResKey]);
+impl Drop for ReleaseOnDrop<'_> {
+    fn drop(&mut self) {
+        mg_ui::viewers::release(self.0);
+    }
+}
+
+struct HealOnDrop<'a>(&'a [ResKey]);
+impl Drop for HealOnDrop<'_> {
+    fn drop(&mut self) {
+        mg_ui::viewers::heal(self.0);
+    }
+}
+
 #[test]
 fn a_large_picture_is_decoded_off_the_frame_once() {
     let big = w6_key("mg_w6big.tga");
+    let held_keys = [big];
     let files = [("mg_w6big.tga", tga_of(2048, 2048))];
-    mg_ui::viewers::hold(&[big]);
+    mg_ui::viewers::hold(&held_keys);
+    let release_guard = ReleaseOnDrop(&held_keys);
     let Some((mut h, _)) = ({
         // (Opened without waiting: the hold keeps it under way.)
         let root = mg_testkit::nwn_root();
@@ -1009,7 +1029,6 @@ fn a_large_picture_is_decoded_off_the_frame_once() {
             }
         }
     }) else {
-        mg_ui::viewers::release(&[big]);
         return;
     };
     let before = mg_ui::viewers::decoded_of(big);
@@ -1020,7 +1039,7 @@ fn a_large_picture_is_decoded_off_the_frame_once() {
     assert!(in_tab(&h, "Reading the picture…").is_some(), "said while it is read");
     assert!(h.state().under_way().is_some(), "the window's own work");
     assert_eq!(mg_ui::viewers::decoded_of(big), before, "not on the frame");
-    mg_ui::viewers::release(&[big]);
+    drop(release_guard);
     settle(&mut h);
     assert!(in_tab(&h, "mg_w6big.tga, 2048 by 2048 pixels").is_some(), "shown");
     assert_eq!(mg_ui::viewers::decoded_of(big), before + 1, "decoded once");
@@ -1041,6 +1060,7 @@ fn a_large_picture_is_decoded_off_the_frame_once() {
     settle(&mut h);
     assert!(in_tab(&h, "mg_w6big.tga, 2048 by 2048 pixels").is_some(), "shown again");
     assert_eq!(mg_ui::viewers::decoded_of(big), before + 2, "decoded anew");
+    decodes_ended(&mut h, "all done");
 }
 
 /// Show Bytes on over a picture, longer than a picture unseen is kept
@@ -1073,10 +1093,12 @@ fn a_picture_under_its_bytes_is_kept_and_decoded_once() {
 #[test]
 fn a_picture_whose_decode_fails_leaves_nothing_waiting() {
     let bad = w6_key("mg_w6bad.tga");
+    let bad_keys = [bad];
     let files = [("mg_w6bad.tga", tga_of(8, 4))];
-    mg_ui::viewers::fail(&[bad]);
+    mg_ui::viewers::fail(&bad_keys);
+    let heal_guard = HealOnDrop(&bad_keys);
     let opened = viewed_in("ui-w6-decode-fails", 1600.0, &files, bad);
-    mg_ui::viewers::heal(&[bad]);
+    drop(heal_guard);
     let Some((h, _)) = opened else { return };
     assert!(in_tab(&h, "The picture could not be read.").is_some(), "said");
     assert_eq!(h.state().under_way(), None, "nothing waiting");
@@ -1095,6 +1117,7 @@ fn many_pictures_are_decoded_a_few_at_a_time() {
     let before: Vec<usize> = keys.iter().map(|k| mg_ui::viewers::decoded_of(*k)).collect();
     // (Each made in front once, its decode held.)
     mg_ui::viewers::hold(&keys[1..]);
+    let release_guard = ReleaseOnDrop(&keys);
     for k in &keys[1..] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(*k)));
         h.run_steps(2);
@@ -1105,7 +1128,7 @@ fn many_pictures_are_decoded_a_few_at_a_time() {
     }
     std::thread::sleep(std::time::Duration::from_millis(100));
     let (workers, waiting) = h.state().picture_decodes();
-    mg_ui::viewers::release(&keys);
+    drop(release_guard);
     assert_eq!((workers, waiting), (4, 6), "four at a time, six waiting or under way");
     settle(&mut h);
     decodes_ended(&mut h, "all done");
@@ -1162,9 +1185,9 @@ fn the_window_decodes_on_after_decodes_that_panic() {
     let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
     let good = w6_key("mg_w6good.tga");
     mg_ui::viewers::fail(&keys);
+    let heal_guard = HealOnDrop(&keys);
     let opened = viewed_in("ui-w6-panics", 1600.0, &files, keys[0]);
     let Some((mut h, _)) = opened else {
-        mg_ui::viewers::heal(&keys);
         return;
     };
     for k in &keys[1..] {
@@ -1172,7 +1195,7 @@ fn the_window_decodes_on_after_decodes_that_panic() {
         settle(&mut h);
         assert!(in_tab(&h, "The picture could not be read.").is_some(), "{k} failed");
     }
-    mg_ui::viewers::heal(&keys);
+    drop(heal_guard);
     let before = mg_ui::viewers::decoded_of(good);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(good)));
     settle(&mut h);
@@ -1192,6 +1215,7 @@ fn a_picture_let_go_of_before_its_turn_is_not_decoded() {
     let Some((mut h, _)) = viewed_in("ui-w6-skip", 1600.0, &files, chicken()) else { return };
     let before = mg_ui::viewers::decoded_of(skip);
     mg_ui::viewers::hold(&held);
+    let release_guard = ReleaseOnDrop(&held);
     for k in &held {
         open_while_read(&mut h, *k);
     }
@@ -1215,7 +1239,7 @@ fn a_picture_let_go_of_before_its_turn_is_not_decoded() {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     let let_go = h.state().read_only_pictures();
-    mg_ui::viewers::release(&held);
+    drop(release_guard);
     assert_eq!(let_go, 0, "let go of");
     settle(&mut h);
     assert_eq!(mg_ui::viewers::decoded_of(skip), before, "not decoded");
@@ -1233,6 +1257,7 @@ fn the_picture_in_sight_is_decoded_before_hidden_ones() {
     let (held, front) = (&keys[..6], keys[6]);
     let before = mg_ui::viewers::decoded_of(front);
     mg_ui::viewers::hold(held);
+    let release_guard = ReleaseOnDrop(held);
     for k in &keys {
         open_while_read(&mut h, *k);
     }
@@ -1246,11 +1271,12 @@ fn the_picture_in_sight_is_decoded_before_hidden_ones() {
     }
     let decoded = mg_ui::viewers::decoded_of(front) - before;
     let waiting = h.state().picture_decodes().1;
-    mg_ui::viewers::release(held);
+    drop(release_guard);
     assert_eq!(decoded, 1, "the one in front decoded first");
     assert_eq!(waiting, 5, "the hidden ones still waiting (two) or held (three)");
     settle(&mut h);
     assert!(in_tab(&h, "mg_w6turn6.tga, 8 by 4 pixels").is_some(), "shown");
+    decodes_ended(&mut h, "all done");
 }
 
 /// A model open read-only (a layer's copy, or opened so by a plugin) is

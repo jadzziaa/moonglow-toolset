@@ -15,7 +15,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::lex::{Token, TokenKind, tokenize};
-use crate::outline::{Outline, outline};
+use crate::outline::Outline;
 
 /// The engine's implicit include.
 pub const NWSCRIPT: &str = "nwscript";
@@ -177,7 +177,7 @@ impl File {
             };
             members.push(MemberUse { span: t.span.clone(), of });
         }
-        let outline = outline(text.as_bytes());
+        let outline = crate::outline::outline_with_tokens(&text, &toks);
         let mut locals = Vec::new();
         for f in &outline.functions {
             let Some(body) = f.body.clone() else { continue };
@@ -254,25 +254,30 @@ impl File {
 
     /// The identifier at (or just before) a byte offset.
     fn ident_at(&self, offset: usize) -> Option<Range<usize>> {
-        self.idents.iter().find(|r| r.start <= offset && offset <= r.end).cloned()
+        let i = self.idents.partition_point(|r| r.start <= offset);
+        i.checked_sub(1).and_then(|k| self.idents.get(k)).filter(|r| offset <= r.end).cloned()
     }
 
     /// The local or parameter a name at `at` refers to.
     fn local(&self, name: &str, at: usize) -> Option<&Local> {
         self.locals
             .iter()
-            .filter(|l| l.name == name && l.decl.start <= at && l.scope.contains(&at))
+            .filter(|l| {
+                l.name == name
+                    && (l.decl.contains(&at) || (l.decl.start <= at && l.scope.contains(&at)))
+            })
             .max_by_key(|l| l.decl.start)
     }
 
     /// A name's span inside a declaration's span (after its type).
     fn name_in(&self, span: &Range<usize>, name: &str) -> Range<usize> {
-        self.idents
+        let start = self.idents.partition_point(|r| r.start < span.start);
+        self.idents[start..]
             .iter()
-            .filter(|r| r.start >= span.start && r.end <= span.end)
-            .find(|r| self.word(r) == name)
+            .take_while(|r| r.start < span.end)
+            .find(|r| r.end <= span.end && self.word(r) == name)
             .cloned()
-            .unwrap_or(span.clone())
+            .unwrap_or_else(|| span.clone())
     }
 }
 
@@ -458,6 +463,11 @@ impl Index {
         self.files.remove(&name.to_ascii_lowercase());
     }
 
+    /// The indexed source text for `name`, if cached and readable.
+    pub fn text(&self, name: &str) -> Option<&Arc<str>> {
+        self.files.get(&name.to_ascii_lowercase())?.as_ref().map(|f| &f.text)
+    }
+
     fn file(&mut self, name: &str, sources: &mut dyn Sources) -> Option<&File> {
         let name = name.to_ascii_lowercase();
         if !self.files.contains_key(&name) {
@@ -507,8 +517,17 @@ impl Index {
         sources: &mut dyn Sources,
     ) -> Option<Declaration> {
         let unit = self.unit(file, sources);
+        self.top_level_in(&unit, name, sources)
+    }
+
+    fn top_level_in(
+        &mut self,
+        unit: &[String],
+        name: &str,
+        sources: &mut dyn Sources,
+    ) -> Option<Declaration> {
         let mut prototype = None;
-        for f in &unit {
+        for f in unit {
             let Some(idx) = self.file(f, sources) else { continue };
             let o = &idx.outline;
             for func in o.functions.iter().filter(|x| x.name == name) {
@@ -970,8 +989,9 @@ impl Index {
             .chain(f.outline.globals.iter().map(|g| g.name.clone()))
             .chain(f.outline.structs.iter().map(|s| s.name.clone()))
             .collect();
+        let unit = self.unit(&name, sources);
         for n in names {
-            if let Some(d) = self.top_level(&name, &n, sources).filter(|d| d.at.file == name)
+            if let Some(d) = self.top_level_in(&unit, &n, sources).filter(|d| d.at.file == name)
                 && !out.iter().any(|o: &Declaration| o.at == d.at)
             {
                 out.push(d);
@@ -1262,5 +1282,25 @@ mod tests {
         assert_eq!((d.kind, d.doc.as_str()), (DeclKind::Local, "How many."));
         let d = idx.declaration_at("main", at(TEXT, "nOther", 0), &mut src).unwrap();
         assert_eq!(d.doc, "");
+    }
+
+    #[test]
+    fn parameter_declaration_resolves_references_and_renames() {
+        const PARAM_SRC: &str = "void Foo(int nBar)\n{\n    int x = nBar + 1;\n}\n";
+        const FILES: &[(&str, &str)] = &[("p", PARAM_SRC)];
+        let mut src = sources(FILES);
+        let mut idx = Index::new();
+        let all = vec!["p".to_string()];
+        let decl_at = at(PARAM_SRC, "nBar)", 0);
+        let decl = idx.declaration_at("p", decl_at, &mut src).expect("param decl");
+        assert_eq!(decl.kind, DeclKind::Parameter);
+        assert_eq!(decl.at.span.start, decl_at);
+        let refs = idx.references(&decl, &all, &mut src);
+        assert_eq!(refs.len(), 2, "{refs:?}");
+        assert_eq!(refs[0].span.start, decl_at);
+        assert_eq!(refs[1].span.start, at(PARAM_SRC, "nBar + 1", 0));
+        let renamed = idx.rename(&decl, "nBaz", &all, &mut src).unwrap();
+        assert_eq!(renamed.len(), 2);
+        assert_eq!(idx.text("p").map(|t| t.as_ref()), Some(PARAM_SRC));
     }
 }

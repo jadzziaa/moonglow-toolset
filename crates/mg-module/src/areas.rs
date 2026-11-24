@@ -73,10 +73,21 @@ pub fn info_of(
     named: crate::query::Namer<'_>,
     listed: bool,
 ) -> AreaInfo {
+    info_of_in(resref, are, named, Codepage::WINDOWS_1252, listed)
+}
+
+/// [`info_of`] decoding `Tag` bytes in `codepage`.
+pub fn info_of_in(
+    resref: ResRef,
+    are: &Struct,
+    named: crate::query::Namer<'_>,
+    codepage: Codepage,
+    listed: bool,
+) -> AreaInfo {
     AreaInfo {
         resref,
         name: are.locstring("Name").map_or(String::new(), named),
-        tag: String::from_utf8_lossy(are.string("Tag").unwrap_or_default()).into(),
+        tag: codepage.decode(are.string("Tag").unwrap_or_default()).into_owned(),
         tileset: are.resref("Tileset").unwrap_or(ResRef::EMPTY),
         flags: are.integer("Flags").unwrap_or(0) as u32,
         listed,
@@ -92,19 +103,28 @@ pub fn list(m: &Module) -> Vec<AreaInfo> {
 /// [`list`] with the game's codepage, where a module has its own table
 /// (`encoding.2da`): names in English, else another language's.
 pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
-    list_named(m, &|n| n.shown_in(Language::ENGLISH, game))
+    list_named_in(m, &|n| n.shown_in(Language::ENGLISH, game), game)
 }
 
 /// [`list`] with names read by `named` (`mg_rules::shown`, with the game's
 /// data: as the module tree shows them).
 pub fn list_named(m: &Module, named: crate::query::Namer<'_>) -> Vec<AreaInfo> {
+    list_named_in(m, named, Codepage::WINDOWS_1252)
+}
+
+/// [`list_named`] decoding non-localized `Tag` bytes in `codepage`.
+pub fn list_named_in(
+    m: &Module,
+    named: crate::query::Namer<'_>,
+    codepage: Codepage,
+) -> Vec<AreaInfo> {
     let listed = listed_in(m);
     let listed = |r: &ResRef| listed.as_ref().is_none_or(|l| l.contains(r));
     let mut out: Vec<AreaInfo> = m
         .keys_of(ResType::ARE)
         .filter_map(|k| {
             let are = m.gff(k)?.ok()?;
-            Some(info_of(k.resref, &are.root, named, listed(&k.resref)))
+            Some(info_of_in(k.resref, &are.root, named, codepage, listed(&k.resref)))
         })
         .collect();
     out.sort_by_key(|a| a.resref);
@@ -249,12 +269,17 @@ impl Has {
 /// tags (a chooser asked again as a builder types reads nothing anew).
 #[derive(Debug, Default)]
 pub struct HoldsCache {
-    parts: std::collections::HashMap<ResRef, (Bytes, Bytes, Holds)>,
+    parts: std::collections::HashMap<ResRef, (Bytes, Bytes, Codepage, Holds)>,
 }
 
 type Bytes = Option<std::sync::Arc<[u8]>>;
 
 impl HoldsCache {
+    /// Empties the cache (for instance when closing a module).
+    pub fn clear(&mut self) {
+        self.parts.clear();
+    }
+
     /// What `area` holds in the module as it is (its bytes: flush the
     /// workspace's documents first), none for an area it lacks.
     pub fn of(&mut self, m: &Module, area: ResRef, cp: Codepage) -> Option<&Holds> {
@@ -269,15 +294,15 @@ impl HoldsCache {
         let kept = self
             .parts
             .get(&area)
-            .is_some_and(|(a, g, _)| same(a, &Some(are.clone())) && same(g, &git));
+            .is_some_and(|(a, g, c, _)| *c == cp && same(a, &Some(are.clone())) && same(g, &git));
         if !kept {
             let read = |b: &[u8]| mg_gff::Gff::read(b).ok();
             let are_gff = read(&are)?;
             let git_gff = git.as_deref().and_then(read);
             let h = holds(&are_gff.root, git_gff.as_ref().map(|g| &g.root), cp);
-            self.parts.insert(area, (Some(are), git, h));
+            self.parts.insert(area, (Some(are), git, cp, h));
         }
-        self.parts.get(&area).map(|(_, _, h)| h)
+        self.parts.get(&area).map(|(_, _, _, h)| h)
     }
 }
 
@@ -298,6 +323,48 @@ pub struct Filter {
     pub has: Vec<Has>,
 }
 
+/// Precompiled form of [`Filter`] for filtering many areas without rebuilding
+/// the text matcher or scanning large `only` slices repeatedly.
+#[derive(Debug)]
+pub struct CompiledFilter<'a> {
+    filter: &'a Filter,
+    only_set: Option<std::collections::HashSet<ResRef>>,
+    needle: Option<mg_core::text::Needle>,
+}
+
+fn matches_cheap(filter: &Filter, a: &AreaInfo) -> bool {
+    filter.tileset.is_none_or(|t| t == a.tileset)
+        && [
+            (filter.interior, INTERIOR),
+            (filter.underground, UNDERGROUND),
+            (filter.natural, NATURAL),
+        ]
+        .iter()
+        .all(|(want, bit)| want.is_none_or(|w| (a.flags & bit != 0) == w))
+}
+
+fn matches_text(needle: &mg_core::text::Needle, a: &AreaInfo) -> bool {
+    let (name, tag) = (mg_core::text::fold(&a.name), mg_core::text::fold(&a.tag));
+    let lower = a.resref.to_lowercase();
+    let resref = lower
+        .as_str()
+        .map(std::borrow::Cow::Borrowed)
+        .unwrap_or_else(|| std::borrow::Cow::Owned(lower.to_string_lossy()));
+    needle.finds_in(&[&name, &tag, resref.as_ref()])
+}
+
+impl CompiledFilter<'_> {
+    pub fn matches(&self, a: &AreaInfo) -> bool {
+        let only_ok = match &self.only_set {
+            Some(set) => set.contains(&a.resref),
+            None => self.filter.only.is_empty() || self.filter.only.contains(&a.resref),
+        };
+        only_ok
+            && matches_cheap(self.filter, a)
+            && self.needle.as_ref().is_none_or(|t| matches_text(t, a))
+    }
+}
+
 impl Filter {
     /// Whether what an area holds meets [`Filter::has`].
     pub fn holds(&self, h: &Holds) -> bool {
@@ -309,19 +376,25 @@ impl Filter {
         *self == Filter::default()
     }
 
+    /// Precompiles the text matcher and large `only` filter for batch matching.
+    pub fn compiled(&self) -> CompiledFilter<'_> {
+        CompiledFilter {
+            filter: self,
+            only_set: (self.only.len() > 8).then(|| self.only.iter().copied().collect()),
+            needle: self.text.as_deref().map(mg_core::text::Needle::new),
+        }
+    }
+
     pub fn matches(&self, a: &AreaInfo) -> bool {
         // (Every word in its name, tag or ResRef, as the toolset's Filter
         // finds a row.)
-        let has = self.text.as_deref().map(mg_core::text::Needle::new).is_none_or(|t| {
-            let (name, tag) = (mg_core::text::fold(&a.name), mg_core::text::fold(&a.tag));
-            t.finds_in(&[&name, &tag, &a.resref.to_string().to_ascii_lowercase()])
-        });
         (self.only.is_empty() || self.only.contains(&a.resref))
-            && has
-            && self.tileset.is_none_or(|t| t == a.tileset)
-            && [(self.interior, INTERIOR), (self.underground, UNDERGROUND), (self.natural, NATURAL)]
-                .iter()
-                .all(|(want, bit)| want.is_none_or(|w| (a.flags & bit != 0) == w))
+            && matches_cheap(self, a)
+            && self
+                .text
+                .as_deref()
+                .map(mg_core::text::Needle::new)
+                .is_none_or(|t| matches_text(&t, a))
     }
 }
 
@@ -486,7 +559,7 @@ impl StaticPlan {
 }
 
 /// Why a placeable that isn't static is to stay dynamic, if it is.
-fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
+fn kept(p: &Struct, rules: &StaticRules, codepage: Codepage) -> Option<Kept> {
     let on = |label: &str| p.integer(label).unwrap_or(0) != 0;
     if on("Useable") {
         return Some(Kept::Useable);
@@ -513,7 +586,7 @@ fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
     if p.child("Material").and_then(|m| m.list("ShaderParams")).is_some_and(|l| !l.is_empty()) {
         return Some(Kept::Active("Material".into()));
     }
-    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let text = |b: &[u8]| codepage.decode(b).into_owned();
     for v in p.list("VarTable").unwrap_or(&[]) {
         let name = text(v.string("Name").unwrap_or_default());
         // (A tint's, whatever the project's rules: the client draws a
@@ -591,13 +664,18 @@ impl ScriptStrings {
 /// GIT root), by the project's rules (`StaticRules::default()` without a
 /// project file: a placeable with any variable stays dynamic).
 pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
+    static_plan_in(git, rules, Codepage::WINDOWS_1252)
+}
+
+/// [`static_plan`] decoding variable names and placeable tags in `codepage`.
+pub fn static_plan_in(git: &Struct, rules: &StaticRules, codepage: Codepage) -> StaticPlan {
     let mut plan = StaticPlan::default();
     for (i, p) in git.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
         if p.integer("Static").unwrap_or(0) != 0 {
             plan.already += 1;
             continue;
         }
-        let Some(why) = kept(p, rules) else {
+        let Some(why) = kept(p, rules, codepage) else {
             plan.convert.push(i);
             continue;
         };
@@ -722,6 +800,259 @@ fn set_var(
     Ok(Some((from, shown(&value))))
 }
 
+fn move_are_vars_to_git(
+    are: &mut mg_gff::Gff,
+    git: &mut mg_gff::Gff,
+    note: &mut impl FnMut(String, Option<String>, Option<String>),
+) -> (bool, bool) {
+    // An area's variables are its GIT's (`engine_area_variables`), where older
+    // files kept them in the ARE. Move ARE variables into GIT first while keeping
+    // any variable of the same name already present in GIT.
+    let in_are = are.root.list("VarTable").unwrap_or(&[]).to_vec();
+    if in_are.is_empty() {
+        return (false, false);
+    }
+    let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
+    for v in in_are {
+        if !vars.iter().any(|g| g.string("Name") == v.string("Name")) {
+            vars.push(v);
+        }
+    }
+    git.root.set("VarTable", Value::List(vars));
+    are.root.remove("VarTable");
+    note("variables moved from the ARE to the GIT".into(), None, None);
+    (true, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_change(
+    area: ResRef,
+    change: &Change,
+    are: &mut mg_gff::Gff,
+    git: &mut Option<mg_gff::Gff>,
+    rules: &StaticRules,
+    codepage: Codepage,
+    rng: &mut fastrand::Rng,
+    note: &mut impl FnMut(String, Option<String>, Option<String>),
+) -> Result<(bool, bool), String> {
+    let (mut are_changed, mut git_changed) = (false, false);
+    match change {
+        Change::Set { field, value } => {
+            if let Some((name, bit)) =
+                FLAG_FIELDS.iter().find(|(n, _)| n.eq_ignore_ascii_case(field))
+            {
+                let on =
+                    yes_no(value).ok_or_else(|| format!("{name}: {value:?} is not yes or no"))?;
+                let flags = are.root.integer("Flags").unwrap_or(0) as u32;
+                if (flags & bit != 0) != on {
+                    let new = if on { flags | bit } else { flags & !bit };
+                    are.root.set("Flags", Value::Dword(new));
+                    are_changed = true;
+                    let text = |b: bool| Some(if b { "yes" } else { "no" }.to_string());
+                    note((*name).into(), text(!on), text(on));
+                }
+            } else if AUDIO_FIELDS.contains(&field.as_str()) {
+                let props =
+                    git.as_mut().and_then(|g| g.root.child_mut("AreaProperties")).ok_or_else(
+                        || format!("{area} has no audio settings (its GIT lacks AreaProperties)"),
+                    )?;
+                if let Some((from, to)) =
+                    set_field(props, field, Some(FieldType::Int), value, codepage)?
+                {
+                    git_changed = true;
+                    note(field.clone(), from, Some(to));
+                }
+            } else {
+                let default = mg_schema::root_field_type(ResType::ARE, field);
+                if let Some((from, to)) = set_field(&mut are.root, field, default, value, codepage)?
+                {
+                    are_changed = true;
+                    note(field.clone(), from, Some(to));
+                }
+            }
+        }
+        Change::Var { name, kind, value } => {
+            if let Some(git) = git.as_mut() {
+                let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
+                if let Some((from, to)) = set_var(&mut vars, name, *kind, value, codepage)? {
+                    git.root.set("VarTable", Value::List(vars));
+                    git_changed = true;
+                    note(format!("var {name}"), from, Some(to));
+                }
+            }
+        }
+        Change::StaticPlaceables => {
+            if let Some(git) = git.as_mut() {
+                let plan = static_plan_in(&git.root, rules, codepage);
+                if let Some(list) = git.root.list_mut("Placeable List") {
+                    for &i in &plan.convert {
+                        let p = &mut list[i];
+                        for (label, value) in static_fields(p) {
+                            match value {
+                                Some(v) => p.set(label, v),
+                                None => _ = p.remove(label),
+                            }
+                        }
+                        let tag = codepage.decode(p.string("Tag").unwrap_or_default());
+                        note(
+                            format!("placeable {i} {tag} Static"),
+                            Some("0".into()),
+                            Some("1".into()),
+                        );
+                        git_changed = true;
+                    }
+                }
+            }
+        }
+        Change::DynamicPlaceables => {
+            if let Some(list) = git.as_mut().and_then(|g| g.root.list_mut("Placeable List")) {
+                for (i, p) in list.iter_mut().enumerate() {
+                    if p.integer("Static").unwrap_or(0) != 0 {
+                        p.set("Static", Value::Byte(0));
+                        let tag = codepage.decode(p.string("Tag").unwrap_or_default());
+                        let what = format!("placeable {i} {tag} Static");
+                        note(what, Some("1".into()), Some("0".into()));
+                        git_changed = true;
+                    }
+                }
+            }
+        }
+        Change::Grass(_) | Change::RemoveGrass(_) | Change::TilesetGrass(_) => {
+            use crate::grass;
+            let props = git.as_mut().and_then(|g| g.root.child_mut(grass::PROPERTIES)).ok_or_else(
+                || format!("{area} has no grass settings (its GIT lacks AreaProperties)"),
+            )?;
+            let shown = |o: &grass::GrassOverride| o.look.describe();
+            match change {
+                Change::Grass(o) => {
+                    if let Some(was) = grass::set_in(props, o) {
+                        let what = format!("grass on material {}", o.material);
+                        note(what, was.as_ref().map(shown), Some(shown(o)));
+                        git_changed = true;
+                    }
+                }
+                Change::RemoveGrass(material) => {
+                    if let Some(was) = grass::remove_in(props, *material) {
+                        note(format!("grass on material {material}"), Some(shown(&was)), None);
+                        git_changed = true;
+                    }
+                }
+                Change::TilesetGrass(on) => {
+                    if grass::set_disabled_in(props, !on) {
+                        let text = |b: bool| Some(if b { "yes" } else { "no" }.to_string());
+                        note("tileset grass".into(), text(!on), text(*on));
+                        git_changed = true;
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        Change::LightingScheme(scheme) => {
+            let was = are.root.get("LightingScheme").map(|v| shown(v, codepage));
+            let mut fields_changed = false;
+            for (label, value) in scheme.applied_fields() {
+                if are.root.get(label) != Some(&value) {
+                    are.root.set(label, value);
+                    fields_changed = true;
+                }
+            }
+            if fields_changed {
+                are_changed = true;
+                note("LightingScheme".into(), was, Some(scheme.row.to_string()));
+            }
+            let (mut n, mut lit) = (0, 0);
+            for tile in are.root.list_mut("Tile_List").into_iter().flatten() {
+                let mut changed = false;
+                for (label, value) in scheme.tile_fields(rng) {
+                    changed |= tile.get(label) != Some(&value);
+                    tile.set(label, value);
+                }
+                (n, lit) = (n + 1, lit + usize::from(changed));
+            }
+            if lit > 0 {
+                are_changed = true;
+                let what = format!("lights of {n} tile{}", if n == 1 { "" } else { "s" });
+                note(what, Some("their own".into()), Some(format!("scheme {}'s", scheme.row)));
+            }
+        }
+        Change::Lighting(saved, name, relight) => {
+            let (fields, lit) =
+                (saved.give(&mut are.root, rng, *relight)).map_err(|e| format!("{name}: {e}"))?;
+            if fields {
+                are_changed = true;
+                note("lighting".into(), None, Some(name.clone()));
+            }
+            if lit > 0 {
+                are_changed = true;
+                let what = format!("lights of {lit} tile{}", if lit == 1 { "" } else { "s" });
+                note(what, Some("their own".into()), Some(format!("{name}'s")));
+            }
+        }
+        Change::RemoveVar(name) => {
+            if let Some(git) = git.as_mut() {
+                let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
+                let named = codepage.encode_lossy(name);
+                let at = vars.iter().position(|v| v.string("Name") == Some(&named[..]));
+                if let Some(i) = at {
+                    let from = vars.remove(i).get("Value").map(|v| shown(v, codepage));
+                    git.root.set("VarTable", Value::List(vars));
+                    git_changed = true;
+                    note(format!("var {name}"), from, None);
+                }
+            }
+        }
+    }
+    Ok((are_changed, git_changed))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_area(
+    m: &Module,
+    area: ResRef,
+    changes: &[Change],
+    rules: &StaticRules,
+    wants_git: bool,
+    vars_changed: bool,
+    codepage: Codepage,
+    rng: &mut fastrand::Rng,
+    done: &mut Vec<Changed>,
+    write: &mut Vec<(ResKey, Vec<u8>)>,
+) -> Result<(), String> {
+    let are_key = ResKey::new(area, ResType::ARE);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let read = |key: &ResKey| match m.gff(key) {
+        Some(Ok(g)) => Ok(Some(g)),
+        Some(Err(e)) => Err(format!("{key}: {e}")),
+        None => Ok(None),
+    };
+    let mut are = read(&are_key)?.ok_or_else(|| format!("{area} is not an area of the module"))?;
+    let mut git = if wants_git { read(&git_key)? } else { None };
+    let (mut are_changed, mut git_changed) = (false, false);
+    let mut note = |what: String, from: Option<String>, to: Option<String>| {
+        done.push(Changed { area, what, from, to });
+    };
+    if vars_changed {
+        let git = git.as_mut().ok_or_else(|| format!("{area} has no GIT for its variables"))?;
+        let (a, g) = move_are_vars_to_git(&mut are, git, &mut note);
+        are_changed |= a;
+        git_changed |= g;
+    }
+    for change in changes {
+        let (a, g) =
+            apply_change(area, change, &mut are, &mut git, rules, codepage, rng, &mut note)?;
+        are_changed |= a;
+        git_changed |= g;
+    }
+    // (As bytes: what can't be written is said before anything is set.)
+    if are_changed {
+        write.push((are_key, are.to_bytes().map_err(|e| format!("{are_key}: {e}"))?));
+    }
+    if let (true, Some(git)) = (git_changed, git) {
+        write.push((git_key, git.to_bytes().map_err(|e| format!("{git_key}: {e}"))?));
+    }
+    Ok(())
+}
+
 /// Makes `changes` to each of `areas`, each area keeping what they don't
 /// name (its other flags and variables). Nothing is changed unless every
 /// change can be made to every area. Returns what changed (an area that
@@ -749,8 +1080,6 @@ pub fn apply(
         rules = rules.with_scripts(m);
     }
     let mut rng = fastrand::Rng::with_seed(seed);
-    // Whether any change is to the GIT (a field by another name is the
-    // ARE's, as below).
     let wants_git = changes.iter().any(|c| match c {
         Change::Set { field, .. } => {
             !FLAG_FIELDS.iter().any(|(n, _)| n.eq_ignore_ascii_case(field))
@@ -765,231 +1094,21 @@ pub fn apply(
         | Change::RemoveGrass(_)
         | Change::TilesetGrass(_) => true,
     });
+    let vars_changed =
+        changes.iter().any(|c| matches!(c, Change::Var { .. } | Change::RemoveVar(_)));
     for &area in areas {
-        let are_key = ResKey::new(area, ResType::ARE);
-        let git_key = ResKey::new(area, ResType::GIT);
-        let read = |key: &ResKey| match m.gff(key) {
-            Some(Ok(g)) => Ok(Some(g)),
-            Some(Err(e)) => Err(format!("{key}: {e}")),
-            None => Ok(None),
-        };
-        let mut are =
-            read(&are_key)?.ok_or_else(|| format!("{area} is not an area of the module"))?;
-        let mut git = if wants_git { read(&git_key)? } else { None };
-        let (mut are_changed, mut git_changed) = (false, false);
-        let mut note = |what: String, from: Option<String>, to: Option<String>| {
-            done.push(Changed { area, what, from, to });
-        };
-        // An area's variables are its GIT's: the game reads none from its
-        // ARE (`engine_area_variables`), where Moonglow wrote them before
-        // 1.34.3. Those are moved to the GIT first (one of the same name
-        // there keeps its value).
-        let vars_changed =
-            changes.iter().any(|c| matches!(c, Change::Var { .. } | Change::RemoveVar(_)));
-        if vars_changed {
-            let git = git.as_mut().ok_or_else(|| format!("{area} has no GIT for its variables"))?;
-            let in_are = are.root.list("VarTable").unwrap_or(&[]).to_vec();
-            if !in_are.is_empty() {
-                let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
-                for v in in_are {
-                    if !vars.iter().any(|g| g.string("Name") == v.string("Name")) {
-                        vars.push(v);
-                    }
-                }
-                git.root.set("VarTable", Value::List(vars));
-                are.root.remove("VarTable");
-                (are_changed, git_changed) = (true, true);
-                note("variables moved from the ARE to the GIT".into(), None, None);
-            }
-        }
-        for change in changes {
-            match change {
-                Change::Set { field, value } => {
-                    if let Some((name, bit)) =
-                        FLAG_FIELDS.iter().find(|(n, _)| n.eq_ignore_ascii_case(field))
-                    {
-                        let on = yes_no(value)
-                            .ok_or_else(|| format!("{name}: {value:?} is not yes or no"))?;
-                        let flags = are.root.integer("Flags").unwrap_or(0) as u32;
-                        if (flags & bit != 0) != on {
-                            let new = if on { flags | bit } else { flags & !bit };
-                            are.root.set("Flags", Value::Dword(new));
-                            are_changed = true;
-                            let text = |b: bool| Some(if b { "yes" } else { "no" }.to_string());
-                            note((*name).into(), text(!on), text(on));
-                        }
-                    } else if AUDIO_FIELDS.contains(&field.as_str()) {
-                        let props = git
-                            .as_mut()
-                            .and_then(|g| g.root.child_mut("AreaProperties"))
-                            .ok_or_else(|| {
-                            format!("{area} has no audio settings (its GIT lacks AreaProperties)")
-                        })?;
-                        if let Some((from, to)) =
-                            set_field(props, field, Some(FieldType::Int), value, codepage)?
-                        {
-                            git_changed = true;
-                            note(field.clone(), from, Some(to));
-                        }
-                    } else {
-                        let default = mg_schema::root_field_type(ResType::ARE, field);
-                        if let Some((from, to)) =
-                            set_field(&mut are.root, field, default, value, codepage)?
-                        {
-                            are_changed = true;
-                            note(field.clone(), from, Some(to));
-                        }
-                    }
-                }
-                Change::Var { name, kind, value } => {
-                    let Some(git) = git.as_mut() else { continue };
-                    let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
-                    if let Some((from, to)) = set_var(&mut vars, name, *kind, value, codepage)? {
-                        git.root.set("VarTable", Value::List(vars));
-                        git_changed = true;
-                        note(format!("var {name}"), from, Some(to));
-                    }
-                }
-                Change::StaticPlaceables => {
-                    let Some(git) = git.as_mut() else { continue };
-                    let plan = static_plan(&git.root, &rules);
-                    let Some(list) = git.root.list_mut("Placeable List") else { continue };
-                    for &i in &plan.convert {
-                        let p = &mut list[i];
-                        for (label, value) in static_fields(p) {
-                            match value {
-                                Some(v) => p.set(label, v),
-                                None => _ = p.remove(label),
-                            }
-                        }
-                        let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
-                        note(
-                            format!("placeable {i} {tag} Static"),
-                            Some("0".into()),
-                            Some("1".into()),
-                        );
-                        git_changed = true;
-                    }
-                }
-                Change::DynamicPlaceables => {
-                    let Some(list) = git.as_mut().and_then(|g| g.root.list_mut("Placeable List"))
-                    else {
-                        continue;
-                    };
-                    for (i, p) in list.iter_mut().enumerate() {
-                        if p.integer("Static").unwrap_or(0) != 0 {
-                            p.set("Static", Value::Byte(0));
-                            let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
-                            let what = format!("placeable {i} {tag} Static");
-                            note(what, Some("1".into()), Some("0".into()));
-                            git_changed = true;
-                        }
-                    }
-                }
-                Change::Grass(_) | Change::RemoveGrass(_) | Change::TilesetGrass(_) => {
-                    use crate::grass;
-                    let props = git
-                        .as_mut()
-                        .and_then(|g| g.root.child_mut(grass::PROPERTIES))
-                        .ok_or_else(|| {
-                            format!("{area} has no grass settings (its GIT lacks AreaProperties)")
-                        })?;
-                    let shown = |o: &grass::GrassOverride| o.look.describe();
-                    match change {
-                        Change::Grass(o) => {
-                            if let Some(was) = grass::set_in(props, o) {
-                                let what = format!("grass on material {}", o.material);
-                                note(what, was.as_ref().map(shown), Some(shown(o)));
-                                git_changed = true;
-                            }
-                        }
-                        Change::RemoveGrass(material) => {
-                            if let Some(was) = grass::remove_in(props, *material) {
-                                note(
-                                    format!("grass on material {material}"),
-                                    Some(shown(&was)),
-                                    None,
-                                );
-                                git_changed = true;
-                            }
-                        }
-                        Change::TilesetGrass(on) => {
-                            if grass::set_disabled_in(props, !on) {
-                                let text = |b: bool| Some(if b { "yes" } else { "no" }.to_string());
-                                note("tileset grass".into(), text(!on), text(*on));
-                                git_changed = true;
-                            }
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-                Change::LightingScheme(scheme) => {
-                    let was = are.root.get("LightingScheme").map(|v| shown(v, codepage));
-                    let mut fields_changed = false;
-                    for (label, value) in scheme.applied_fields() {
-                        if are.root.get(label) != Some(&value) {
-                            are.root.set(label, value);
-                            fields_changed = true;
-                        }
-                    }
-                    if fields_changed {
-                        are_changed = true;
-                        note("LightingScheme".into(), was, Some(scheme.row.to_string()));
-                    }
-                    let (mut n, mut lit) = (0, 0);
-                    for tile in are.root.list_mut("Tile_List").into_iter().flatten() {
-                        let mut changed = false;
-                        for (label, value) in scheme.tile_fields(&mut rng) {
-                            changed |= tile.get(label) != Some(&value);
-                            tile.set(label, value);
-                        }
-                        (n, lit) = (n + 1, lit + usize::from(changed));
-                    }
-                    if lit > 0 {
-                        are_changed = true;
-                        let what = format!("lights of {n} tile{}", if n == 1 { "" } else { "s" });
-                        note(
-                            what,
-                            Some("their own".into()),
-                            Some(format!("scheme {}'s", scheme.row)),
-                        );
-                    }
-                }
-                Change::Lighting(saved, name, relight) => {
-                    let (fields, lit) = (saved.give(&mut are.root, &mut rng, *relight))
-                        .map_err(|e| format!("{name}: {e}"))?;
-                    if fields {
-                        are_changed = true;
-                        note("lighting".into(), None, Some(name.clone()));
-                    }
-                    if lit > 0 {
-                        are_changed = true;
-                        let what =
-                            format!("lights of {lit} tile{}", if lit == 1 { "" } else { "s" });
-                        note(what, Some("their own".into()), Some(format!("{name}'s")));
-                    }
-                }
-                Change::RemoveVar(name) => {
-                    let Some(git) = git.as_mut() else { continue };
-                    let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
-                    let named = codepage.encode_lossy(name);
-                    let at = vars.iter().position(|v| v.string("Name") == Some(&named[..]));
-                    if let Some(i) = at {
-                        let from = vars.remove(i).get("Value").map(|v| shown(v, codepage));
-                        git.root.set("VarTable", Value::List(vars));
-                        git_changed = true;
-                        note(format!("var {name}"), from, None);
-                    }
-                }
-            }
-        }
-        // (As bytes: what can't be written is said before anything is set.)
-        if are_changed {
-            write.push((are_key, are.to_bytes().map_err(|e| format!("{are_key}: {e}"))?));
-        }
-        if let (true, Some(git)) = (git_changed, git) {
-            write.push((git_key, git.to_bytes().map_err(|e| format!("{git_key}: {e}"))?));
-        }
+        apply_area(
+            m,
+            area,
+            changes,
+            &rules,
+            wants_git,
+            vars_changed,
+            codepage,
+            &mut rng,
+            &mut done,
+            &mut write,
+        )?;
     }
     for (key, bytes) in write {
         m.set(key, bytes);
@@ -1576,5 +1695,57 @@ mod tests {
             assert_eq!(t.integer("Tile_MainLight1"), Some(4));
             assert_eq!(t.integer("Tile_SrcLight2"), Some(7));
         }
+    }
+
+    #[test]
+    fn holds_cache_keys_on_codepage_clears_and_areas_decode_windows_1252() {
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        let mut area_entry = Struct::new(0);
+        area_entry.set("Area_Name", Value::resref(r("cp_area")));
+        ifo.root.set("Mod_Area_list", Value::List(vec![area_entry]));
+        m.set_info(&ifo).unwrap();
+
+        let mut are = Gff::new(*b"ARE ");
+        // Byte 0xA3 is '£' in Windows-1252 and 'Ł' in Windows-1250.
+        are.root.set("Tag", Value::String(vec![b'K', b'i', b'n', b'g', 0xa3]));
+        m.set_gff(ResKey::new(r("cp_area"), ResType::ARE), &are).unwrap();
+
+        let mut p1 = Struct::new(0);
+        p1.set("Tag", Value::String(vec![b'K', b'E', b'E', b'P', 0xa3]));
+        let mut p2 = Struct::new(1);
+        p2.set("Tag", Value::String(b"plain".to_vec()));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Placeable List", Value::List(vec![p1, p2]));
+        m.set_gff(ResKey::new(r("cp_area"), ResType::GIT), &git).unwrap();
+
+        // HoldsCache re-decodes when Codepage changes and empties on clear().
+        let mut cache = HoldsCache::default();
+        let h_1252 = cache.of(&m, r("cp_area"), Codepage::WINDOWS_1252).unwrap().clone();
+        let h_1250 = cache.of(&m, r("cp_area"), Codepage::WINDOWS_1250).unwrap().clone();
+        fn field<'a>(h: &'a Holds, k: &str) -> Option<&'a str> {
+            h.fields.iter().find(|(name, _)| name == k).map(|(_, v)| v.as_str())
+        }
+        assert_eq!(field(&h_1252, "Tag"), Some("King\u{a3}"));
+        assert_eq!(field(&h_1250, "Tag"), Some("King\u{141}"));
+        cache.clear();
+        assert!(cache.parts.is_empty());
+
+        // info_of_in / list_named_in decode non-ASCII Tag in codepage.
+        let listed = list_named_in(&m, &|_| String::new(), Codepage::WINDOWS_1252);
+        assert_eq!(listed[0].tag, "King\u{a3}");
+
+        // static_plan_in and apply decode Tags and VarTable names using codepage.
+        let rules = StaticRules {
+            keep_tags: crate::project_file::Patterns::new(&["KEEP\u{a3}"]).unwrap(),
+            ..StaticRules::default()
+        };
+        let plan = static_plan_in(
+            &m.gff(&ResKey::new(r("cp_area"), ResType::GIT)).unwrap().unwrap().root,
+            &rules,
+            Codepage::WINDOWS_1252,
+        );
+        assert_eq!(plan.convert, [1]);
+        assert_eq!(plan.kept.len(), 1);
     }
 }

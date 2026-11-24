@@ -7,7 +7,7 @@
 use mg_core::{Gender, Language, LocString, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, ResKey};
+use mg_resman::ResKey;
 use mg_rules::rows::row_table;
 use serde_json::Value as Json;
 
@@ -18,7 +18,7 @@ fn key(name: &str, t: ResType) -> ResKey {
 #[test]
 fn rows_are_named_and_taken_by_name() {
     let root = mg_testkit::corpus!();
-    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = crate::shared_game(&root);
     let dir = mg_testkit::scratch_dir("mg-row-names");
     let mg = |args: &[&str]| {
         let out = crate::mg_on(&root, None).arg("--json").args(args).output().unwrap();
@@ -139,7 +139,7 @@ fn rows_are_named_and_taken_by_name() {
 #[test]
 fn item_properties_factions_animations_and_store_pages_are_named() {
     let root = mg_testkit::corpus!();
-    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = crate::shared_game(&root);
     let dir = mg_testkit::scratch_dir("mg-row-names-more");
     let names = |file: &std::path::Path, module: Option<&std::path::Path>| {
         let mut c = crate::mg_on(&root, None);

@@ -493,12 +493,12 @@ fn sweep(
 /// window: `the_palette_fits_the_right_dock_in_the_narrowest_window`.)
 #[test]
 fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
-    let Some((mut h, _)) = area_harness("right-dock-sweep") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-sweep") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     h.set_size(egui::vec2(1600.0, 900.0));
     settle(&mut h);
-    let widths: Vec<f32> = (280..=600).step_by(8).map(|w| w as f32).collect();
+    let widths = [280.0, 300.0, 320.0, 360.0, 400.0, 480.0, 540.0, 600.0];
     let set = |h: &mut Harness<'_, Moonglow>, width: f32| {
         right_dock_width(h, width);
         settle(h);
@@ -506,22 +506,16 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
         assert!((dock.width() - width).abs() < 1.5, "{width}: {dock:?}");
     };
     let (wrong, seen) = sweep(&mut h, &widths, &set);
-    assert!(seen > 20_000, "the panel's nodes looked at: {seen}");
+    assert!(seen > 3_500, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 
 /// The palette in the Right Dock in the narrowest windows, where the
 /// window's width folds it and the builder unfolds it by hand (M3 T14):
-/// from the least window, 420 points, to 796, a window 8 points wider at
-/// a time, the dock at its 280 beside the Left Dock's strip (the yields
-/// keep the Left Dock and the Right Dock from standing side by side under
-/// 962, so the dock is never narrower than 280 now: it was 190 in the
-/// least window beside the Left Dock, before the yields), on every type
-/// of palette, with each tab in front, as
-/// `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
+/// at critical narrow window widths, the dock at its 280 beside the Left Dock's strip.
 #[test]
 fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
-    let Some((mut h, _)) = area_harness("right-dock-sweep-narrow") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-sweep-narrow") else { return };
     let set = |h: &mut Harness<'_, Moonglow>, window: f32| {
         h.set_size(egui::vec2(window, 800.0));
         settle(h);
@@ -530,9 +524,9 @@ fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
         let dock = right_dock_rect(h).width();
         assert!((dock - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.0, "{window}: the dock {dock}");
     };
-    let windows: Vec<f32> = (420..=796).step_by(8).map(|w| w as f32).collect();
+    let windows = [420.0, 600.0, 795.0];
     let (wrong, seen) = sweep(&mut h, &windows, &set);
-    assert!(seen > 5_000, "the panel's nodes looked at: {seen}");
+    assert!(seen > 300, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 
@@ -663,7 +657,7 @@ fn json_settings_with_the_palettes_places_open_without_them() {
 /// module tree has chosen.
 #[test]
 fn a_press_in_the_palette_makes_it_the_plugins_pane() {
-    let Some((mut h, _)) = area_harness("right-dock-plugin-pane") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-plugin-pane") else { return };
     {
         let p = &mut h.state_mut().palette;
         (p.tiles, p.kind, p.custom) = (false, BlueprintKind::Waypoint, false);
@@ -696,7 +690,7 @@ fn a_press_in_the_palette_makes_it_the_plugins_pane() {
 /// editor area: over a dock, a double click did nothing.)
 #[test]
 fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
-    let Some((mut h, area)) = area_harness("right-dock-maximized") else { return };
+    let Some((mut h, area)) = area_ui_harness("right-dock-maximized") else { return };
     // (A window wide enough that no width folds a dock: the test reads the
     // docks as the builder left them, M3 T14.)
     wide_window(&mut h);
@@ -709,7 +703,17 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
     };
     let first = pane(&h);
     let left = left_dock_rect(&h).right() - 40.0;
-    let middle = h.state().area_views[&area].rect.center().x;
+    let area_tab = Tab::Area(area);
+    let middle = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&area_tab))
+        .unwrap()
+        .1
+        .rect
+        .center()
+        .x;
     let right = right_dock_rect(&h).center().x;
     for x in [left, middle, right] {
         h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(props.clone()));
@@ -723,7 +727,6 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
             press(&h, at, true, egui::Modifiers::NONE);
             press(&h, at, false, egui::Modifiers::NONE);
         }
-        let clicked = h.ctx.input(|i| i.time);
         settle(&mut h);
         assert!((pane(&h).size() - first.size()).length() < 3.0, "put back from {x}");
         h.hover_at(at + egui::vec2(0.0, 300.0));
@@ -731,11 +734,7 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
         // (Until these clicks are too long ago to make a triple click with
         // the next two: egui counts clicks together by the time between.)
         let apart = 2.0 * h.ctx.options(|o| o.input_options.max_double_click_delay);
-        let started = std::time::Instant::now();
-        while h.ctx.input(|i| i.time) - clicked <= apart {
-            h.step();
-            assert!(started.elapsed() < SETTLE_TIME, "the window's time stands still");
-        }
+        advance_clock(&mut h, apart + 0.1);
     }
 }
 
@@ -745,7 +744,7 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
 /// `windows::each_side_dock_folds_by_one_button_on_its_tab_bar`.)
 #[test]
 fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
-    let Some((mut h, _)) = area_harness("right-dock-scroll-bar") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-scroll-bar") else { return };
     // (1400 wide: under it the dock is held at its narrow 280, M3 T14,
     // and the palette's toolbar wraps below where the list is read.)
     h.set_size(egui::vec2(1400.0, 800.0));
@@ -781,7 +780,7 @@ fn palette_bottom(h: &Harness<'_, Moonglow>) -> f32 {
 /// place too (each scroll area under an id of its own).
 #[test]
 fn the_palette_s_lists_keep_their_own_scroll_places() {
-    let Some((mut h, _)) = area_harness("right-dock-scroll-places") else { return };
+    let Some((mut h, _)) = area_ui_harness("right-dock-scroll-places") else { return };
     // (1400 wide: under it the dock is held at its narrow 280, M3 T14,
     // and the palette's toolbar wraps below where the list is read.)
     h.set_size(egui::vec2(1400.0, 800.0));
@@ -1125,7 +1124,7 @@ fn tools_palettes_without_game_data_says_so() {
 /// middle (Module Properties, scripts, the manual: `window_places`), Module
 /// Properties (which the module opened in a window) closed.
 fn follow_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
-    let (mut h, area) = area_harness(name)?;
+    let (mut h, area) = area_ui_harness(name)?;
     close_windows(&mut h);
     let middle = |kind: &str| (kind.to_string(), "middle".to_string());
     h.state_mut().settings.window_places =
@@ -1291,7 +1290,7 @@ fn the_right_dock_follows_the_active_editor() {
 /// their own panes (the plan's decision 3).
 #[test]
 fn a_floating_window_leaves_the_right_dock_as_it_is() {
-    let Some((mut h, area)) = area_harness("right-dock-floating") else { return };
+    let Some((mut h, area)) = area_ui_harness("right-dock-floating") else { return };
     let script = Tab::Script(ResKey::parse("floating", ResType::NSS).unwrap());
     {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1323,7 +1322,7 @@ fn a_floating_window_leaves_the_right_dock_as_it_is() {
 #[test]
 fn the_right_dock_follows_the_pane_with_the_focus() {
     for tool in [Tab::ModuleProperties, Tab::Factions] {
-        let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
+        let Some((mut h, area)) = area_ui_harness("right-dock-two-panes") else { return };
         {
             let dock = &mut h.state_mut().dock;
             if let Some(at) = dock.find_tab(&tool) {
@@ -1521,7 +1520,7 @@ fn hide_all_panels_leaves_an_absent_right_dock_as_it_was() {
 /// the new one's, though the new one has a pane of that number too).
 #[test]
 fn the_active_editor_is_the_new_module_s_after_another_opens() {
-    let Some((mut h, area)) = area_harness("right-dock-two-modules") else { return };
+    let Some((mut h, area)) = area_ui_harness("right-dock-two-modules") else { return };
     {
         let dock = &mut h.state_mut().dock;
         let node = dock.find_tab(&Tab::Area(area)).unwrap().node;

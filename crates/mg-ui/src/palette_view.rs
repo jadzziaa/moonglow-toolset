@@ -65,6 +65,88 @@ type Tags = Arc<HashMap<ResRef, String>>;
 /// groupings as read, the grouping and whether by category within.
 type GroupedFor = (Arc<Palette>, u64, String, bool);
 
+/// Cached folded search strings for a palette's blueprints and tags.
+#[derive(Debug)]
+struct FoldCache {
+    palette: Arc<Palette>,
+    tags: Arc<HashMap<ResRef, String>>,
+    kind: BlueprintKind,
+    custom: bool,
+    revision: Option<u64>,
+    load_order: u64,
+    fields: Arc<Vec<(ResRef, [String; 3])>>,
+}
+
+/// Flattened pre-order metadata for a palette node slice so visibility and
+/// subtree counts run in O(1) per node during drawing.
+#[derive(Debug, Clone, Copy, Default)]
+struct NodeMeta {
+    total: u32,
+    shown: u32,
+    subtree_len: u32,
+}
+
+#[derive(Debug)]
+struct MetaCache {
+    palette: Arc<Palette>,
+    grouped: Option<Arc<Grouped>>,
+    found: Option<Arc<std::collections::HashSet<ResRef>>>,
+    meta: Arc<[NodeMeta]>,
+}
+
+/// Zero-allocation view over either a raw blueprint slice or a filtered subset.
+#[derive(Clone, Copy)]
+enum NodeRows<'a> {
+    Slice(&'a [PaletteBlueprint]),
+    Refs(&'a [&'a PaletteBlueprint]),
+}
+
+impl<'a> NodeRows<'a> {
+    fn len(self) -> usize {
+        match self {
+            NodeRows::Slice(s) => s.len(),
+            NodeRows::Refs(r) => r.len(),
+        }
+    }
+
+    fn get(self, i: usize) -> Option<&'a PaletteBlueprint> {
+        match self {
+            NodeRows::Slice(s) => s.get(i),
+            NodeRows::Refs(r) => r.get(i).copied(),
+        }
+    }
+
+    fn iter(self) -> NodeRowsIter<'a> {
+        match self {
+            NodeRows::Slice(s) => NodeRowsIter::Slice(s.iter()),
+            NodeRows::Refs(r) => NodeRowsIter::Refs(r.iter()),
+        }
+    }
+}
+
+enum NodeRowsIter<'a> {
+    Slice(std::slice::Iter<'a, PaletteBlueprint>),
+    Refs(std::slice::Iter<'a, &'a PaletteBlueprint>),
+}
+
+impl<'a> Iterator for NodeRowsIter<'a> {
+    type Item = &'a PaletteBlueprint;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            NodeRowsIter::Slice(it) => it.next(),
+            NodeRowsIter::Refs(it) => it.next().copied(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            NodeRowsIter::Slice(it) => it.size_hint(),
+            NodeRowsIter::Refs(it) => it.size_hint(),
+        }
+    }
+}
+
 /// The Palette panel's state (the Right Dock's).
 #[derive(Debug)]
 pub struct PaletteView {
@@ -188,6 +270,11 @@ pub struct PaletteView {
     reveal: bool,
     /// Blueprints and their names as the editors read them, kept.
     pub(crate) kept: crate::blueprint::picker::Kept,
+    fold_fields: Option<FoldCache>,
+    node_meta: Option<MetaCache>,
+    palette_total: Option<(Arc<Palette>, usize)>,
+    open_synced: Vec<String>,
+    open_set: std::collections::HashSet<String>,
 }
 
 /// A branch of a palette's tree: a category (by its place among the
@@ -678,6 +765,10 @@ impl PaletteView {
     #[doc(hidden)]
     pub fn set_standard(&mut self, kind: BlueprintKind, palette: Palette) {
         self.standard.insert(kind, Arc::new(palette));
+        self.fold_fields = None;
+        self.node_meta = None;
+        self.palette_total = None;
+        self.found = None;
     }
 
     /// Whether the arrow keys' cursor is at a category's own row (not at
@@ -717,6 +808,10 @@ impl PaletteView {
         self.tags.clear();
         self.tags_read.clear();
         self.made.clear();
+        self.fold_fields = None;
+        self.node_meta = None;
+        self.palette_total = None;
+        self.found = None;
     }
 }
 
@@ -763,6 +858,11 @@ impl Default for PaletteView {
             toggle: None,
             reveal: false,
             kept: Default::default(),
+            fold_fields: None,
+            node_meta: None,
+            palette_total: None,
+            open_synced: Vec::new(),
+            open_set: Default::default(),
         }
     }
 }
@@ -983,15 +1083,47 @@ pub(crate) fn remove_entry(app: &mut Moonglow, kind: BlueprintKind, resref: ResR
     }
 }
 
+/// Builds flat pre-order subtree metadata once per `(nodes, found)` pair.
+fn build_node_meta(
+    nodes: &[PaletteNode],
+    found: Option<&std::collections::HashSet<ResRef>>,
+) -> Arc<[NodeMeta]> {
+    fn push(
+        node: &PaletteNode,
+        found: Option<&std::collections::HashSet<ResRef>>,
+        out: &mut Vec<NodeMeta>,
+    ) -> (u32, u32) {
+        let idx = out.len();
+        out.push(NodeMeta::default());
+        let mut total = node.blueprints.len() as u32;
+        let mut shown = match found {
+            None => total,
+            Some(f) => node.blueprints.iter().filter(|b| f.contains(&b.resref)).count() as u32,
+        };
+        for child in &node.children {
+            let (ct, cs) = push(child, found, out);
+            total += ct;
+            shown += cs;
+        }
+        out[idx] = NodeMeta { total, shown, subtree_len: (out.len() - idx) as u32 };
+        (total, shown)
+    }
+    let mut out = Vec::with_capacity(nodes.len() * 2);
+    for node in nodes {
+        push(node, found, &mut out);
+    }
+    Arc::from(out)
+}
+
 /// What a search finds in a palette, kept until the search, the palette
 /// or the module changes: the blueprints, and how (by words, or by letters
 /// in order when nothing has every word).
 fn found(
     app: &mut Moonglow,
-    palette: &Palette,
+    palette: &Arc<Palette>,
     kind: BlueprintKind,
     custom: bool,
-    tags: &HashMap<ResRef, String>,
+    tags: &Arc<HashMap<ResRef, String>>,
 ) -> (Arc<std::collections::HashSet<ResRef>>, Needle) {
     let revision = app.ws.as_ref().map(|w| w.revision());
     let key = (kind, custom, app.palette.filter.clone(), revision);
@@ -1001,14 +1133,34 @@ fn found(
         return (f.clone(), find.clone());
     }
     let Some(game) = app.game.as_deref() else { return Default::default() };
-    let fields: Vec<(ResRef, [String; 3])> = palette
-        .blueprints()
-        .into_iter()
-        .map(|(_, b)| {
-            let tag = tags.get(&b.resref).map(|t| mg_core::text::fold(t)).unwrap_or_default();
-            (b.resref, [mg_core::text::fold(&b.name.text(game)), b.resref.to_string(), tag])
-        })
-        .collect();
+    let cached_fields = app.palette.fold_fields.as_ref().is_some_and(|c| {
+        Arc::ptr_eq(&c.palette, palette)
+            && Arc::ptr_eq(&c.tags, tags)
+            && c.kind == kind
+            && c.custom == custom
+            && c.revision == revision
+            && c.load_order == app.load_order
+    });
+    if !cached_fields {
+        let built: Vec<(ResRef, [String; 3])> = palette
+            .blueprints()
+            .into_iter()
+            .map(|(_, b)| {
+                let tag = tags.get(&b.resref).map(|t| mg_core::text::fold(t)).unwrap_or_default();
+                (b.resref, [mg_core::text::fold(&b.name.text(game)), b.resref.to_string(), tag])
+            })
+            .collect();
+        app.palette.fold_fields = Some(FoldCache {
+            palette: palette.clone(),
+            tags: tags.clone(),
+            kind,
+            custom,
+            revision,
+            load_order: app.load_order,
+            fields: Arc::new(built),
+        });
+    }
+    let fields = app.palette.fold_fields.as_ref().expect("built above").fields.clone();
     // Words, each in the name, the ResRef or the tag; or, when nothing has
     // every word, letters in order (`lngswd` finds Longsword).
     let mut find = Needle::new(&app.palette.filter);
@@ -1164,7 +1316,7 @@ fn tag_of(app: &mut Moonglow, key: ResKey) -> Option<String> {
 /// A blueprint's Tag: the module's as it is now (edits not yet saved in
 /// it), else the game's (the load order's).
 fn blueprint_tag(app: &mut Moonglow, key: ResKey) -> Option<String> {
-    let tag = |g: &Gff| g.root.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = |g: &Gff| g.root.string("Tag").map(crate::text::decode);
     if let Some(ws) = app.ws.as_mut()
         && ws.module.contains(&key)
     {
@@ -1408,18 +1560,30 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     }
     let custom_was = view.custom;
-    crate::trace::changed("palette", || {
-        format!(
-            "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
-            ui.max_rect(),
+    if crate::trace::on() {
+        let r = ui.max_rect();
+        let key = (
+            [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()],
             view.tiles,
             view.prefabs,
             view.kind,
             view.custom,
             view.area,
-            view.filter
-        )
-    });
+            view.filter.as_str(),
+        );
+        crate::trace::changed_key("palette", &key, || {
+            format!(
+                "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
+                ui.max_rect(),
+                view.tiles,
+                view.prefabs,
+                view.kind,
+                view.custom,
+                view.area,
+                view.filter
+            )
+        });
+    }
     // The header (GitHub issue 16), top down by what each row governs:
     // the type, its name and the source, the search, then the list's own
     // toolbar right over the list.
@@ -1745,10 +1909,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         {
             view.fold = fold_keys(ui, &app.keymap);
         }
-        fn count(nodes: &[mg_module::palette::PaletteNode]) -> usize {
-            nodes.iter().map(|n| n.blueprints.len() + count(&n.children)).sum()
-        }
-        let items = found.as_ref().map_or_else(|| count(&palette.nodes), |f| f.len());
+        let items = found.as_ref().map_or_else(
+            || match &view.palette_total {
+                Some((p, n)) if Arc::ptr_eq(p, &palette) => *n,
+                _ => {
+                    fn count(nodes: &[mg_module::palette::PaletteNode]) -> usize {
+                        nodes.iter().map(|n| n.blueprints.len() + count(&n.children)).sum()
+                    }
+                    let n = count(&palette.nodes);
+                    view.palette_total = Some((palette.clone(), n));
+                    n
+                }
+            },
+            |f| f.len(),
+        );
         ui.weak(format!("{items} item{}", if items == 1 { "" } else { "s" })).on_hover_text(
             if searching { "Blueprints found" } else { "Blueprints in this palette" },
         );
@@ -1967,8 +2141,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         && view.area.is_none_or(|a| crate::claims::read_only(app, a).is_none());
     let brush_id = egui::Id::new("palette-brush-height");
     let brush_room = brush.then(|| ui.data(|d| d.get_temp::<f32>(brush_id)).unwrap_or(120.0));
-    let favorites = app.settings.palette_favorites.clone();
-    let recent = app.settings.palette_recent.clone();
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
     let ext = kind.restype().extension().unwrap_or_default();
     // An arrow key pressed while the keys are the palette's, the pointer
@@ -1990,7 +2162,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // (Down out of the search: to the list's first row.)
         .or(entered.then_some(egui::Key::ArrowDown));
     let gallery = app.settings.palette_gallery && pictured(kind);
-    let menu_commands = app.plugin_menu_commands();
+    let menu_commands = app.plugin_menu_commands_cached();
     // (The custom palette's blueprints the module has: the others, a
     // hak's, the override folder's or none, are looked at, not edited.)
     // (Listed once a revision of the module, not every frame.)
@@ -2011,6 +2183,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         _ => Arc::default(),
     };
     let new_label = new_label(kind);
+    let meta = match &view.node_meta {
+        Some(c)
+            if Arc::ptr_eq(&c.palette, &palette)
+                && match (&c.grouped, &grouped) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                    _ => false,
+                }
+                && match (&c.found, &found) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                    _ => false,
+                } =>
+        {
+            c.meta.clone()
+        }
+        _ => {
+            let nodes = grouped.as_ref().map_or(&palette.nodes, |g| &g.palette.nodes);
+            let meta = build_node_meta(nodes, found.as_deref());
+            view.node_meta = Some(MetaCache {
+                palette: palette.clone(),
+                grouped: grouped.clone(),
+                found: found.clone(),
+                meta: meta.clone(),
+            });
+            meta
+        }
+    };
+    if view.open_synced != app.settings.palette_open {
+        view.open_synced.clone_from(&app.settings.palette_open);
+        view.open_set.clear();
+        view.open_set.extend(view.open_synced.iter().cloned());
+    }
+    let plugin_kind =
+        mg_area::ObjectKind::from_restype(kind.restype()).map(mg_plugin::Target::Blueprint);
+    let has_plugin_menu = plugin_kind.as_ref().is_some_and(|k| {
+        let kinds = std::slice::from_ref(k);
+        menu_commands.iter().any(|c| c.fits(kinds))
+    });
     let mut tree = Tree {
         game,
         kind,
@@ -2022,15 +2233,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         origin: grouped.as_ref().map(|g| &g.origin),
         own,
         fold: view.fold,
-        open: app.settings.palette_open.clone(),
+        open: &mut view.open_set,
         open_changed: false,
         new: app.ws.is_some().then_some(new_label.as_str()),
         found: found.as_deref(),
         arrived: std::mem::take(&mut view.arrived),
         tags: &tags,
-        favorites: favorites
+        favorites: app
+            .settings
+            .palette_favorites
             .iter()
-            .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
+            .filter_map(|f| {
+                let (pfx, rest) = f.split_once(':')?;
+                (pfx == ext).then(|| ResRef::from_str(rest).ok()).flatten()
+            })
             .collect(),
         thumb: view.thumb,
         gallery,
@@ -2058,6 +2274,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         clicked: false,
         range: None,
         commands: &menu_commands,
+        plugin_kind,
+        has_plugin_menu,
+        meta,
     };
     if find.is_in_order() {
         ui.weak("No exact matches: close ones");
@@ -2080,13 +2299,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             mg_uikit::list_rows(ui);
         }
         if find.is_empty() {
-            tree.remembered(ui, "Favorites", &favorites, &palette);
-            tree.remembered(ui, "Recent", &recent, &palette);
+            tree.remembered(ui, "Favorites", &app.settings.palette_favorites, &palette);
+            tree.remembered(ui, "Recent", &app.settings.palette_recent, &palette);
         }
         // (Grouped: a node for each group, Other last.)
         let nodes = grouped.as_ref().map_or(&palette.nodes, |g| &g.palette.nodes);
+        let mut meta_idx = 0;
         for (i, node) in nodes.iter().enumerate() {
-            tree.node(ui, node, &[i], None);
+            tree.node(ui, node, &[i], None, &mut meta_idx);
         }
         // The room under the list has the menu too.
         let below = if brush { 24.0 } else { ui.available_height().max(24.0) };
@@ -2128,7 +2348,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     }
     if tree.open_changed {
-        app.settings.palette_open = std::mem::take(&mut tree.open);
+        let mut list: Vec<String> = tree.open.iter().cloned().collect();
+        list.sort();
+        app.settings.palette_open = list;
     }
     let shown = std::mem::take(&mut tree.shown);
     // The arrow keys: the cursor moves through the rows as they were
@@ -2197,6 +2419,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     view.cursor = tree.cursor.take();
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     let enlarged = tree.enlarged.take();
+    if view.open_synced != app.settings.palette_open {
+        view.open_synced.clone_from(&app.settings.palette_open);
+    }
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
     }
@@ -2365,10 +2590,6 @@ impl Selection {
 }
 
 /// How many blueprints a palette node and those under it hold.
-fn count_under(node: &PaletteNode) -> usize {
-    node.blueprints.len() + node.children.iter().map(count_under).sum::<usize>()
-}
-
 /// Every blueprint under a palette node.
 fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     out.extend(node.blueprints.iter().map(|b| ResKey::new(b.resref, kind.restype())));
@@ -2417,7 +2638,7 @@ struct Tree<'a> {
     fold: Option<bool>,
     /// The categories left open (`Settings::palette_open`), and whether a
     /// category opened or closed changed them.
-    open: Vec<String>,
+    open: &'a mut std::collections::HashSet<String>,
     open_changed: bool,
     /// What a right click offers to make a new blueprint of the kind
     /// ("New Creature…"), where a module is open.
@@ -2472,6 +2693,9 @@ struct Tree<'a> {
     range: Option<(ResKey, bool)>,
     /// The plugins' commands for right-click menus.
     commands: &'a [crate::plugins::PluginCommand],
+    plugin_kind: Option<mg_plugin::Target>,
+    has_plugin_menu: bool,
+    meta: Arc<[NodeMeta]>,
 }
 
 /// Where a blueprint's row is: its branch, the branch's place in the
@@ -2525,9 +2749,9 @@ impl Tree<'_> {
             return;
         }
         if open {
-            self.open.push(key);
+            self.open.insert(key);
         } else {
-            self.open.retain(|k| *k != key);
+            self.open.remove(&key);
         }
         self.open_changed = true;
     }
@@ -2542,17 +2766,6 @@ impl Tree<'_> {
         !self.arrived.is_empty()
             && (node.blueprints.iter().any(|b| self.arrived.contains(&b.resref))
                 || node.children.iter().any(|c| self.arrives_in(c)))
-    }
-
-    /// Whether a node or anything under it passes the search.
-    fn any_shown(&self, node: &PaletteNode) -> bool {
-        // (Empty, under Hide empty categories: left out, searched or not.)
-        if self.hide_empty && count_under(node) == 0 {
-            return false;
-        }
-        self.found.is_none()
-            || node.blueprints.iter().any(|b| self.shown(b))
-            || node.children.iter().any(|c| self.any_shown(c))
     }
 
     /// Whether the arrow keys' cursor is in `branch`: at its own row, or
@@ -2606,10 +2819,17 @@ impl Tree<'_> {
         node: &PaletteNode,
         path: &[usize],
         parent: Option<usize>,
+        meta_idx: &mut usize,
     ) {
-        if !self.any_shown(node) {
+        let searching = self.found.is_some();
+        let node_meta = self.meta[*meta_idx];
+        let end = *meta_idx + node_meta.subtree_len as usize;
+        // (Empty, under Hide empty categories: left out, searched or not.)
+        if (self.hide_empty && node_meta.total == 0) || (searching && node_meta.shown == 0) {
+            *meta_idx = end;
             return;
         }
+        *meta_idx += 1;
         let (game, kind, custom) = (self.game, self.kind, self.custom);
         let branch = Branch::Category(path.to_vec());
         let top = ui.cursor().top();
@@ -2617,25 +2837,34 @@ impl Tree<'_> {
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
         // (A group counts every blueprint in it, in its categories too.)
-        let count = match self.grouping.is_some() && path.len() == 1 {
-            true => count_under(node),
-            false => node.blueprints.len(),
+        let count = if self.grouping.is_some() && path.len() == 1 {
+            node_meta.total as usize
+        } else {
+            node.blueprints.len()
         };
+        let header_rect = egui::Rect::from_min_size(
+            ui.cursor().min,
+            egui::vec2(ui.available_width().max(1.0), ui.spacing().interact_size.y),
+        );
+        let header_visible = ui.is_rect_visible(header_rect);
+        let font = egui::TextStyle::Body.resolve(ui.style());
         // (Its count at the row's end, as the Main board draws it; named
         // with it for a screen reader, "Battlefield (31)", as before.)
-        let name = shown_name(&node.name, game);
-        let said = if count > 0 { format!("{name} ({count})") } else { name.clone() };
-        let count_text = (count > 0).then(|| count.to_string());
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let count_width = count_text.as_ref().map_or(0.0, |c| {
-            let galley = ui.fonts_mut(|f| {
-                f.layout_no_wrap(c.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+        let count_text = (header_visible && count > 0).then(|| count.to_string());
+        let title = if header_visible {
+            let name = shown_name(&node.name, game);
+            let count_width = count_text.as_ref().map_or(0.0, |c| {
+                let galley = ui.fonts_mut(|f| {
+                    f.layout_no_wrap(c.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+                });
+                galley.size().x + 12.0
             });
-            galley.size().x + 12.0
-        });
-        // (Cut short with an ellipsis where the panel is too narrow for it:
-        // a header's words never wrap, and would widen the dock.)
-        let title = fitted_beside(ui, name, count_width);
+            // (Cut short with an ellipsis where the panel is too narrow for it:
+            // a header's words never wrap, and would widen the dock.)
+            fitted_beside(ui, name, count_width)
+        } else {
+            egui::WidgetText::from("")
+        };
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
         // (Open as it was left at the last start, until it is opened or
@@ -2643,23 +2872,29 @@ impl Tree<'_> {
         // (While a search is typed, the categories are open or closed on
         // their own, apart: the search cleared, each is again as it was
         // before it.)
-        let remembered = self.remembered_key(path);
-        let searching = self.found.is_some();
+        let remembered = (!searching).then(|| self.remembered_key(path));
+        let default_open = searching || remembered.as_ref().is_some_and(|k| self.open.contains(k));
         let shown = egui::CollapsingHeader::new(title)
             .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette", kind, custom, path, searching, &self.grouping))
-            .default_open(searching || self.open.contains(&remembered))
+            .default_open(default_open)
             .open(self.asked(&branch).or_else(|| self.arrives_in(node).then_some(true)))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
                     let mut p = path.to_vec();
                     p.push(i);
-                    self.node(ui, child, &p, listing);
+                    self.node(ui, child, &p, listing, meta_idx);
                 }
-                let rows: Vec<&PaletteBlueprint> =
-                    node.blueprints.iter().filter(|b| self.shown(b)).collect();
-                self.rows(ui, &rows, (&branch, listing, within));
+                if searching {
+                    let rows: Vec<&PaletteBlueprint> =
+                        node.blueprints.iter().filter(|b| self.shown(b)).collect();
+                    self.rows(ui, NodeRows::Refs(&rows), (&branch, listing, within));
+                } else {
+                    self.rows(ui, NodeRows::Slice(&node.blueprints), (&branch, listing, within));
+                }
             });
+        // Advance unconditionally past this subtree even when collapsed so sibling indices stay aligned.
+        *meta_idx = end;
         let row = shown.header_response.rect;
         if let Some(c) = count_text {
             let t = mg_uikit::tokens(ui.ctx());
@@ -2667,20 +2902,22 @@ impl Tree<'_> {
             ui.painter().text(at, egui::Align2::RIGHT_CENTER, c, font, t.text_3);
         }
         shown.header_response.widget_info(|| {
+            let name = shown_name(&node.name, game);
+            let said = if count > 0 { format!("{name} ({count})") } else { name };
             egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, &said)
         });
         self.header(ui, &branch, listing, &shown.header_response, behind);
-        self.remember(remembered, shown.openness > 0.5);
+        if let Some(remembered) = remembered {
+            self.remember(remembered, shown.openness > 0.5);
+        }
         // The plugins' commands for its kind, run on every blueprint of
         // the category (and those under it).
-        let object = mg_area::ObjectKind::from_restype(kind.restype());
-        let kinds: Vec<mg_plugin::Target> =
-            object.map(mg_plugin::Target::Blueprint).into_iter().collect();
-        let plugins = self.commands.iter().any(|c| c.fits(&kinds));
+        let plugins = self.has_plugin_menu;
+        let kinds = self.plugin_kind.as_slice();
         if !custom {
             if plugins {
                 mg_uikit::context_menu(&shown.header_response, |ui| {
-                    if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
+                    if let Some(i) = crate::plugins::menu_commands(ui, self.commands, kinds) {
                         let mut keys = Vec::new();
                         all_under(node, kind, &mut keys);
                         self.picks.push(Pick::Plugin(i, keys));
@@ -2717,7 +2954,7 @@ impl Tree<'_> {
                 self.picks.push(Pick::UpdateInstances(keys.clone()));
                 ui.close();
             }
-            if plugins && let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
+            if plugins && let Some(i) = crate::plugins::menu_commands(ui, self.commands, kinds) {
                 self.picks.push(Pick::Plugin(i, keys));
             }
         });
@@ -3047,8 +3284,7 @@ impl Tree<'_> {
         let kept = crate::blueprint::kept_for(ui.ctx(), id, palette, &list.to_vec(), || {
             Arc::new(remembered_in(palette, kind, list))
         });
-        let here: Vec<&PaletteBlueprint> = kept.iter().collect();
-        if here.is_empty() {
+        if kept.is_empty() {
             return;
         }
         let branch = Branch::Remembered(title);
@@ -3056,12 +3292,12 @@ impl Tree<'_> {
         let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), None, top));
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
-        let shown = egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
+        let shown = egui::CollapsingHeader::new(format!("{title} ({})", kept.len()))
             .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
             .open(self.asked(&branch))
-            .show(ui, |ui| self.rows(ui, &here, (&branch, listing, within)));
+            .show(ui, |ui| self.rows(ui, NodeRows::Slice(&kept), (&branch, listing, within)));
         self.header(ui, &branch, listing, &shown.header_response, behind);
     }
 
@@ -3077,7 +3313,7 @@ impl Tree<'_> {
     /// or, with Ctrl, as well. The one selected stays where a range
     /// starts; where it is in another branch, the row clicked is selected
     /// alone.
-    fn choose_range(&mut self, rows: &[&PaletteBlueprint]) {
+    fn choose_range(&mut self, rows: NodeRows<'_>) {
         let Some((to, adding)) = self.range else { return };
         let restype = self.kind.restype();
         let at = |key: ResKey| rows.iter().position(|b| ResKey::new(b.resref, restype) == key);
@@ -3088,9 +3324,12 @@ impl Tree<'_> {
             self.sel.chosen.clear();
             return;
         };
-        let span = &rows[start.min(end)..=start.max(end)];
-        let keys: Vec<ResKey> = span
+        let lo = start.min(end);
+        let hi = start.max(end);
+        let keys: Vec<ResKey> = rows
             .iter()
+            .skip(lo)
+            .take(hi - lo + 1)
             .filter(|b| self.several(b))
             .map(|b| ResKey::new(b.resref, restype))
             .filter(|k| Some(*k) != self.sel.selected)
@@ -3105,11 +3344,11 @@ impl Tree<'_> {
         }
     }
 
-    fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
+    fn rows(&mut self, ui: &mut egui::Ui, rows: NodeRows<'_>, within: Within<'_>) {
         if self.gallery {
             self.grid(ui, rows, within);
         } else {
-            for b in rows {
+            for b in rows.iter() {
                 self.row(ui, b, within, None);
             }
         }
@@ -3122,7 +3361,7 @@ impl Tree<'_> {
     /// and a row's ahead asked for; the rest are gone through only where
     /// the keys need every place (a key pressed, the cursor brought into
     /// sight, a Shift+click's range).
-    fn grid(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
+    fn grid(&mut self, ui: &mut egui::Ui, rows: NodeRows<'_>, within: Within<'_>) {
         use mg_uikit::gallery::{GridLayout, label_height};
         let seen = ui.clip_rect().right() - ui.cursor().left();
         let room = ui.available_width().min(seen).max(1.0);
@@ -3154,8 +3393,10 @@ impl Tree<'_> {
         // active one: `cell`'s id.)
         let kind = self.kind.restype();
         let on = rows.iter().position(|b| cursor == Some(ResKey::new(b.resref, kind)));
-        if let Some(i) = on.filter(|i| drawn.contains(i)) {
-            let key = ResKey::new(rows[i].resref, kind);
+        if let Some(i) = on.filter(|i| drawn.contains(i))
+            && let Some(b) = rows.get(i)
+        {
+            let key = ResKey::new(b.resref, kind);
             let cell = ui.id().with(("palette-cell", key)).accesskit_id();
             ui.ctx().accesskit_node_builder(grid.id, |n| n.set_active_descendant(cell));
         }

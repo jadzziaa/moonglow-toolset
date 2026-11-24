@@ -2,8 +2,7 @@
 //! `docs/plugins/examples` run, and the API reference and the editor's type
 //! file name everything a plugin can use.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -11,10 +10,11 @@ use mg_edit::{Command, Workspace};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::Module;
 use mg_plugin::{
-    Answer, Host, Input, Level, Plugin, Question, api_names, discover, inspect, run_check,
-    run_command,
+    Answer, Input, Plugin, Question, api_names, discover, inspect, run_check, run_command,
 };
 use mg_resman::ResKey;
+
+use crate::common::TestHost;
 
 fn docs() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs")
@@ -49,25 +49,6 @@ fn module() -> Module {
         m.set_gff(key(&format!("{name}.utm")), &g).unwrap();
     }
     m
-}
-
-/// A host that keeps the log and answers from a list.
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<String>>,
-    answers: RefCell<VecDeque<Option<Answer>>>,
-    asked: RefCell<Vec<Question>>,
-}
-
-impl Host for TestHost {
-    fn log(&self, _: Level, text: &str) {
-        self.log.borrow_mut().push(text.to_string());
-    }
-
-    fn ask(&self, question: &Question) -> Option<Answer> {
-        self.asked.borrow_mut().push(question.clone());
-        self.answers.borrow_mut().pop_front().flatten()
-    }
 }
 
 fn input(module: &Module) -> Input {
@@ -112,7 +93,7 @@ fn hello_is_the_plugin_of_the_manual() {
     let host = Rc::new(TestHost::default());
     let outcome = run_command(&plugin, "count", input(&module()), host.clone()).unwrap();
     assert!(outcome.edits.is_empty());
-    assert_eq!(host.log.borrow().as_slice(), ["The module has 2 creature blueprints"]);
+    assert_eq!(host.log_texts(), ["The module has 2 creature blueprints"]);
 
     // Asked, and answered no: nothing. Yes: every creature's comment.
     let outcome = run_command(&plugin, "stamp", input(&module()), host.clone()).unwrap();
@@ -156,7 +137,7 @@ fn tag_conventions_fixes_what_its_check_finds() {
 
     let outcome = run_command(&plugin, "fix-tags", input(&module()), host.clone()).unwrap();
     assert_eq!(outcome.label, "Upper-case creature tags");
-    assert_eq!(host.log.borrow().as_slice(), ["1 creature tags changed"]);
+    assert_eq!(host.log_texts(), ["1 creature tags changed"]);
     let mut ws = Workspace::new(module());
     ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();
     ws.flush().unwrap();
@@ -311,7 +292,7 @@ fn store_markup_sets_what_its_form_says() {
     };
     assert_eq!(prices("smith.utm"), (Some(Value::Int(200)), Some(Value::Int(40))));
     assert_eq!(prices("fence.utm"), (Some(Value::Int(120)), Some(Value::Int(60))));
-    assert_eq!(host.log.borrow().as_slice(), ["1 of 2 stores set to sell at 200% and buy at 40%"]);
+    assert_eq!(host.log_texts(), ["1 of 2 stores set to sell at 200% and buy at 40%"]);
 
     // The form closed: nothing changes.
     let host = Rc::new(TestHost::default());
@@ -481,7 +462,7 @@ fn ctx_values_is_what_the_command_is_run_with() {
         ("on".to_string(), serde_json::json!(true)),
     ]);
     run_command(&plugin, "go", Input { values, ..input(&module()) }, host.clone()).unwrap();
-    assert_eq!(host.log.borrow().as_slice(), ["0 nil nil nil", "3 #ff8000 3.5 true"]);
+    assert_eq!(host.log_texts(), ["0 nil nil nil", "3 #ff8000 3.5 true"]);
 }
 
 /// What a panel's field is held to: a `kind`, its `value` (not a form's
@@ -589,7 +570,7 @@ fn a_form_s_choice_may_have_swatches() {
             default: 1,
         }
     );
-    assert_eq!(host.log.borrow().as_slice(), ["Red"]);
+    assert_eq!(host.log_texts(), ["Red"]);
 }
 
 /// A color field's default is `"#rrggbb"`; anything else is said.
@@ -666,10 +647,7 @@ fn set_local_acts_on_the_selection() {
     let Question::Form { title, .. } = &host.asked.borrow()[0] else { panic!("no form") };
     assert_eq!(title, "A local variable on 2 objects", "not the game's blueprint");
     assert_eq!(outcome.label, "Set role");
-    assert_eq!(
-        host.log.borrow().as_slice(),
-        ["CHEST: role = workbench", "gate_guard: role = workbench"]
-    );
+    assert_eq!(host.log_texts(), ["CHEST: role = workbench", "gate_guard: role = workbench"]);
     let mut ws = Workspace::new(m.clone());
     ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();
     let vars = |ws: &mut Workspace, name: &str, at: Option<(&str, usize)>| {
@@ -701,7 +679,7 @@ fn set_local_acts_on_the_selection() {
     run_command(&plugin, "count-objects", Input { selection: opened, ..input(&m) }, host.clone())
         .unwrap();
     assert_eq!(
-        host.log.borrow().as_slice(),
+        host.log_texts(),
         ["TAVERN: 1 placeables, 2 waypoints", "TAVERN: 1 placeables, 2 waypoints"]
     );
     // Nothing selected, no area open: it says so.
@@ -717,19 +695,18 @@ fn set_local_acts_on_the_selection() {
 /// from `classes.2da` and the talk table.
 #[test]
 fn creature_report_names_the_classes() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = std::sync::Arc::new(mg_rules::GameData::open_tlk(&install).unwrap());
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let host = Rc::new(TestHost::default());
     let input = Input::new(module(), Some(game));
     let outcome =
         run_command(&example("creature-report"), "list-classes", input, host.clone()).unwrap();
     assert!(outcome.edits.is_empty());
     assert_eq!(
-        host.log.borrow().as_slice(),
+        host.log_texts(),
         [
             "captain.utc (CAPTAIN): Paladin 3",
             "guard.utc (gate_guard): Fighter 3",

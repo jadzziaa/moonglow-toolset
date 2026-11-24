@@ -124,21 +124,35 @@ pub(super) fn scripts(f: &mut Form<'_>, ui: &mut Ui, events: &[(&str, &str)]) {
     f.script_set_buttons(ui, events);
 }
 
+/// Cached module faction names (`repute.fac`, falling back to standard factions).
+pub(crate) fn faction_names_kept(
+    app: &mut crate::Moonglow,
+    ctx: &egui::Context,
+) -> std::sync::Arc<Vec<String>> {
+    let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
+    crate::blueprint::kept_for_key(ctx, egui::Id::new("repute-faction-names"), &ws_key, || {
+        let key = ResKey::parse("repute", ResType::FAC).expect("valid");
+        let names: Vec<String> = match app.ws.as_mut().map(|ws| ws.doc(&key)) {
+            Some(Ok(g)) => g
+                .root
+                .list("FactionList")
+                .unwrap_or(&[])
+                .iter()
+                .map(|s| decode(s.string("FactionName").unwrap_or_default()))
+                .collect(),
+            _ => mg_module::factions::STANDARD.iter().map(|n| n.to_string()).collect(),
+        };
+        std::sync::Arc::new(names)
+    })
+}
+
 /// The module's factions (repute.fac), as choices by index; without one,
 /// the standard factions every module starts with.
-pub(super) fn factions(f: &mut Form<'_>) -> Vec<Choice> {
-    let key = ResKey::parse("repute", ResType::FAC).expect("valid");
-    let names: Vec<String> = match f.app.ws.as_mut().map(|ws| ws.doc(&key)) {
-        Some(Ok(g)) => g
-            .root
-            .list("FactionList")
-            .unwrap_or(&[])
-            .iter()
-            .map(|s| decode(s.string("FactionName").unwrap_or_default()))
-            .collect(),
-        _ => mg_module::factions::STANDARD.iter().map(|n| n.to_string()).collect(),
-    };
-    object_factions(names)
+pub(super) fn factions(f: &mut Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
+    let names = faction_names_kept(f.app, ctx);
+    crate::blueprint::kept_for(ctx, egui::Id::new("object-factions"), &names, &(), || {
+        std::sync::Arc::new(object_factions(names.as_ref().clone()))
+    })
 }
 
 /// The factions an object may belong to, of the module's factions by row:
@@ -160,7 +174,7 @@ pub(crate) const PC_FACTION_SHOWN: &str = "PC (not for objects)";
 
 /// A faction field: the module's factions but the PC faction.
 pub(super) fn faction(f: &mut Form<'_>, ui: &mut Ui, what: &str, label: &str) {
-    let choices = factions(f);
+    let choices = factions(f, ui.ctx());
     f.mark_mixed(ui, label);
     let current = f.int(label);
     let mut list = crate::widgets::row_choice(f.id(label), &choices, current).width(220.0);
@@ -582,19 +596,18 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
     let each = unread.len().div_ceil(threads).max(1);
     let of = &of;
     let read: Vec<Vec<Destination>> = std::thread::scope(|s| {
-        let readers: Vec<_> = (unread.chunks(each))
-            .map(|some| {
-                s.spawn(move || {
-                    let mut out = Vec::new();
-                    for (key, data) in some {
-                        if let Ok(g) = mg_gff::Gff::read(data) {
-                            out.extend(of(key, &g.root));
-                        }
+        let mut readers = Vec::new();
+        for some in unread.chunks(each) {
+            readers.push(s.spawn(move || {
+                let mut out = Vec::new();
+                for (key, data) in some {
+                    if let Ok(g) = mg_gff::Gff::read(data) {
+                        out.extend(of(key, &g.root));
                     }
-                    out
-                })
-            })
-            .collect();
+                }
+                out
+            }));
+        }
         readers.into_iter().map(|r| r.join().unwrap_or_default()).collect()
     });
     out.extend(read.into_iter().flatten());
@@ -644,6 +657,10 @@ struct TransitionPick {
     worked: Option<Worked>,
     /// OK asked for by a double click before what it chose was worked out.
     confirm: bool,
+    /// Cached sorted target areas and area labels for the active dialog.
+    cached_areas_for: Option<(u64, usize)>,
+    cached_areas: std::sync::Arc<Vec<mg_core::ResRef>>,
+    cached_area_names: std::sync::Arc<std::collections::HashMap<mg_core::ResRef, String>>,
 }
 
 /// The side of Setup Area Transition's map, points.
@@ -794,14 +811,22 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
     }
     let current = current_of(f);
     let current_tag = f.root.string("Tag").unwrap_or_default().to_vec();
-    let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
-    areas.dedup();
-    let names: std::collections::HashMap<mg_core::ResRef, String> =
-        areas.iter().map(|a| (*a, crate::tabs::area_label(f.app, *a))).collect();
-    // (By name, as the module tree lists them: a builder's report, they
-    // were by ResRef.)
-    areas.sort_by_cached_key(|a| names.get(a).map(|n| n.to_lowercase()));
-    let name = |a: &Option<mg_core::ResRef>| {
+    let ws_rev = f.app.ws.as_ref().map_or(0, |ws| ws.revision());
+    if state.cached_areas_for != Some((ws_rev, state.destinations.len())) {
+        let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
+        areas.dedup();
+        let names: std::collections::HashMap<mg_core::ResRef, String> =
+            areas.iter().map(|a| (*a, crate::tabs::area_label(f.app, *a))).collect();
+        // (By name, as the module tree lists them: a builder's report, they
+        // were by ResRef.)
+        areas.sort_by_cached_key(|a| names.get(a).map(|n| n.to_lowercase()));
+        state.cached_areas = std::sync::Arc::new(areas);
+        state.cached_area_names = std::sync::Arc::new(names);
+        state.cached_areas_for = Some((ws_rev, state.destinations.len()));
+    }
+    let areas = state.cached_areas.clone();
+    let names = state.cached_area_names.clone();
+    let name = move |a: &Option<mg_core::ResRef>| {
         a.map_or_else(String::new, |a| names.get(&a).cloned().unwrap_or_else(|| a.to_string()))
     };
     let chosen_kind = state.chosen.map(|p| p.kind);
@@ -942,10 +967,13 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             ui.weak(refused_text(Refused::NoCurrentTag));
         }
         let showing = state.showing;
-        let here: Vec<Destination> = (state.destinations.iter())
-            .filter(|d| Some(d.area) == state.area && showing.is_none_or(|k| d.object.kind == k))
-            .filter(|d| !state.editing.contains(&d.object))
-            .cloned()
+        let here: Vec<usize> = (state.destinations.iter().enumerate())
+            .filter(|(_, d)| {
+                Some(d.area) == state.area
+                    && showing.is_none_or(|k| d.object.kind == k)
+                    && !state.editing.contains(&d.object)
+            })
+            .map(|(i, _)| i)
             .collect();
         let is = |d: &Destination, chosen: &Option<Placed>| *chosen == Some(d.object);
         // (The map smaller where the window is: the lines under it keep
@@ -970,12 +998,14 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                 let painter = ui.painter_at(rect.expand(6.0));
                 map.draw(&painter, rect);
                 let near = r.hover_pos().and_then(|p| {
-                    let d = |x: &Destination| map.to_map(rect, x.at).distance(p);
+                    let dist = |x: &Destination| map.to_map(rect, x.at).distance(p);
                     here.iter()
-                        .filter(|x| d(x) <= MARKER_REACH)
-                        .min_by(|a, b| d(a).total_cmp(&d(b)))
+                        .map(|&i| &state.destinations[i])
+                        .filter(|x| dist(x) <= MARKER_REACH)
+                        .min_by(|a, b| dist(a).total_cmp(&dist(b)))
                 });
-                for d in &here {
+                for &idx in &here {
+                    let d = &state.destinations[idx];
                     let at = map.to_map(rect, d.at);
                     let lit = is(d, &state.chosen) || near == Some(d);
                     let fill = match d.object.kind {
@@ -1023,7 +1053,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                                 continue;
                             }
                             ui.strong(title);
-                            for d in here.iter().filter(|d| d.object.kind == kind) {
+                            for d in here.iter().map(|&i| &state.destinations[i]).filter(|d| d.object.kind == kind) {
                                 // (Its tag, which the transition names,
                                 // and its name beside.)
                                 let mut text = egui::text::LayoutJob::default();

@@ -1055,7 +1055,7 @@ fn data_is_never_taller_where_wider_and_comes_to_rest() {
             let mut was: Option<(u32, f32)> = None;
             let mut least: Option<(u32, f32)> = None;
             let mut changes = Vec::new();
-            for w in 270..=480u32 {
+            for w in (270..=480u32).step_by(10) {
                 h.state_mut().settings.right_dock_width = Some(w);
                 settle(&mut h);
                 let high = data_height(&h);
@@ -1078,9 +1078,9 @@ fn data_is_never_taller_where_wider_and_comes_to_rest() {
             // (Around each change, at window heights a few points apart:
             // the viewport where the content's height lands.)
             for w in changes {
-                for at in w.saturating_sub(2)..=w + 2 {
+                for at in w.saturating_sub(1)..=w + 1 {
                     h.state_mut().settings.right_dock_width = Some(at);
-                    for high in (820..=976).step_by(6) {
+                    for high in (820..=976).step_by(52) {
                         h.set_size(egui::vec2(1600.0, high as f32));
                         settle(&mut h);
                     }

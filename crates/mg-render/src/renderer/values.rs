@@ -29,7 +29,7 @@ pub(super) struct ValueSets {
     by_hash: HashMap<u64, Vec<u32>>,
     /// How many sets were compared, value for value (tests).
     #[cfg(test)]
-    pub(super) compared: usize,
+    pub(super) compared: std::cell::Cell<usize>,
 }
 
 fn hash_of(values: &[MaterialValue]) -> u64 {
@@ -59,8 +59,11 @@ impl ValueSets {
             return id;
         }
         let hash = hash_of(values);
-        let known = self.by_hash.get(&hash).into_iter().flatten().copied();
-        let id = match known.collect::<Vec<u32>>().into_iter().find(|&id| self.same(id, values)) {
+        let id = match self
+            .by_hash
+            .get(&hash)
+            .and_then(|known| known.iter().copied().find(|&id| self.same(id, values)))
+        {
             Some(id) => id,
             None => {
                 self.sets.push(values.clone());
@@ -78,14 +81,14 @@ impl ValueSets {
 
     /// Whether the set numbered `id` is `values`: the same `Arc`, or the
     /// same values.
-    fn same(&mut self, id: u32, values: &Arc<[MaterialValue]>) -> bool {
+    fn same(&self, id: u32, values: &Arc<[MaterialValue]>) -> bool {
         let Some(set) = self.sets.get(id as usize - 1) else { return false };
         if Arc::ptr_eq(set, values) {
             return true;
         }
         #[cfg(test)]
         {
-            self.compared += 1;
+            self.compared.set(self.compared.get() + 1);
         }
         set == values
     }
@@ -134,20 +137,20 @@ mod tests {
         assert_eq!(ids, (1..=1000).collect::<Vec<u32>>());
         assert_eq!(sets.len(), 1000);
         // (None of the same hash among them: nothing compared.)
-        assert!(sets.compared <= 4, "{} compared as they were numbered", sets.compared);
+        assert!(sets.compared.get() <= 4, "{} compared as they were numbered", sets.compared.get());
         // The same `Arc` again: by where it points, nothing compared.
-        sets.compared = 0;
+        sets.compared.set(0);
         assert_eq!(sets.id(&all[999]), 1000);
         assert_eq!(sets.id(&all[0]), 1);
-        assert_eq!(sets.compared, 0);
+        assert_eq!(sets.compared.get(), 0);
         // The same values held elsewhere (another placeable of the same
         // colorway): compared once, with the set of its hash; then by
         // where it points, and once to see that it is still that set.
         let other = set(999);
         assert_eq!(sets.id(&other), 1000);
-        assert_eq!(sets.compared, 1);
+        assert_eq!(sets.compared.get(), 1);
         assert_eq!(sets.id(&other), 1000);
-        assert_eq!(sets.compared, 2);
+        assert_eq!(sets.compared.get(), 2);
         assert_eq!(sets.len(), 1000, "no set added");
         assert_eq!(sets.get(1000), Some(&all[999]));
         assert_eq!((sets.get(0), sets.get(1001)), (None, None));

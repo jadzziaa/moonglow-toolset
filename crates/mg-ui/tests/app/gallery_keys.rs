@@ -383,7 +383,7 @@ fn select_portrait_takes_no_keys_with_a_menu_or_its_race_open() {
 
 /// The Creature Wizard's Appearance page, all portraits listed.
 fn wizard_portraits(name: &str) -> Option<Harness<'static, Moonglow>> {
-    let (mut h, _) = area_harness(name)?;
+    let (mut h, _) = area_ui_harness(name)?;
     h.set_size(egui::vec2(1600.0, 900.0));
     let mut w = mg_ui::creature_wizard::CreatureWizard::default();
     (w.page, w.race, w.appearance, w.all_portraits) = (3, Some(6), 6, true);

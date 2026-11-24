@@ -13,13 +13,16 @@ use crate::common::*;
 /// Chapter1 open in a window `width` by `height`, its tree as it opens
 /// (`None` without the game).
 fn chapter1(width: f32, height: f32) -> Option<Harness<'static, Moonglow>> {
+    static CH1: mg_testkit::Shared<std::path::PathBuf, Module> = mg_testkit::Shared::new();
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return None;
     };
     let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
-    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let m = CH1.get(&root, || Module::open(&root.join("data/nwm/Chapter1.nwm")).unwrap());
+    app.use_module(m);
+    app.log.info("Opened Chapter1.nwm");
     let mut h = harness(app, width, height);
     settle(&mut h);
     // (The builder unfolds the Left Dock where the width folds it: M3 T14.)
@@ -180,7 +183,7 @@ fn drawn_shapes_text(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
 fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
     // (With the game and an area: the palette and its own Expand All and
     // Collapse All.)
-    let Some((mut h, _)) = area_harness("module-panel-header") else { return };
+    let Some((mut h, _)) = area_ui_harness("module-panel-header") else { return };
     // (A window wide enough that no width folds a dock: the test reads the
     // docks as the builder left them, M3 T14.)
     wide_window(&mut h);

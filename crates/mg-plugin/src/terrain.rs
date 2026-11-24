@@ -173,8 +173,9 @@ impl Area {
     /// Runs `f` as one batch of strokes: the area's tiles read once, the
     /// strokes made on them as `f` goes (what it reads of the area is what
     /// they left), and the tiles that changed put into the area when it
-    /// returns, all at once; if it fails, none. Within another batch, part
-    /// of that one.
+    /// returns, all at once; if it fails, buffered strokes are rolled back
+    /// (`set_tile` settles prior strokes immediately onto the workspace).
+    /// Within another batch, part of that one.
     fn batch(&self, sh: &Shared, f: Function) -> mlua::Result<MultiValue> {
         if self.batch.borrow().is_some() {
             return f.call(());

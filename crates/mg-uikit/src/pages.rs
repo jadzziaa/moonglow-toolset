@@ -168,30 +168,31 @@ impl PageRail {
         if in_sight {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
         }
-        // (Up and Down on the page that has the keyboard: the page before or
-        // after, the keyboard going with it; not egui's move to the widget
-        // above or below, which left the panel.)
-        if let Some(k) = pages.iter().position(Response::has_focus) {
-            let filter = egui::EventFilter { vertical_arrows: true, ..Default::default() };
-            ui.memory_mut(|m| m.set_focus_lock_filter(pages[k].id, filter));
-            let none = egui::Modifiers::NONE;
-            let down = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowDown));
-            let up = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowUp));
-            let to = match (up, down) {
-                (true, false) => k.checked_sub(1),
-                (false, true) => (k + 1 < pages.len()).then_some(k + 1),
-                _ => None,
-            };
-            if let Some(to) = to {
-                *page = to;
-                changed = true;
-                pages[to].request_focus();
-                pages[to].scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
-            }
-        }
+        changed |= move_focus_with_arrows(ui, &pages, page);
         ui.advance_cursor_after_rect(rect);
         RailOutput { response, changed, pages }
     }
+}
+
+/// Moves focus and selection with `ArrowUp`/`ArrowDown` while keeping focus
+/// inside a vertical page selector (`PageRail` or `PageList`).
+fn move_focus_with_arrows(ui: &Ui, pages: &[Response], page: &mut usize) -> bool {
+    let Some(k) = pages.iter().position(Response::has_focus) else { return false };
+    let filter = egui::EventFilter { vertical_arrows: true, ..Default::default() };
+    ui.memory_mut(|m| m.set_focus_lock_filter(pages[k].id, filter));
+    let none = egui::Modifiers::NONE;
+    let down = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowDown));
+    let up = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowUp));
+    let to = match (up, down) {
+        (true, false) => k.checked_sub(1),
+        (false, true) => (k + 1 < pages.len()).then_some(k + 1),
+        _ => None,
+    };
+    let Some(to) = to else { return false };
+    *page = to;
+    pages[to].request_focus();
+    pages[to].scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
+    true
 }
 
 /// A [`PageList`]'s width, its line included (the Creature board's
@@ -360,26 +361,7 @@ impl PageList {
         if brought {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
         }
-        // (Up and Down on the row that has the keyboard, as the rail has
-        // them.)
-        if let Some(k) = pages.iter().position(Response::has_focus) {
-            let filter = egui::EventFilter { vertical_arrows: true, ..Default::default() };
-            ui.memory_mut(|m| m.set_focus_lock_filter(pages[k].id, filter));
-            let none = egui::Modifiers::NONE;
-            let down = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowDown));
-            let up = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowUp));
-            let to = match (up, down) {
-                (true, false) => k.checked_sub(1),
-                (false, true) => (k + 1 < pages.len()).then_some(k + 1),
-                _ => None,
-            };
-            if let Some(to) = to {
-                *page = to;
-                changed = true;
-                pages[to].request_focus();
-                pages[to].scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
-            }
-        }
+        changed |= move_focus_with_arrows(ui, &pages, page);
         ui.advance_cursor_after_rect(rect);
         ListOutput { response, changed, pages }
     }

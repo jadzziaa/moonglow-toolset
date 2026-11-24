@@ -24,8 +24,8 @@ pub struct FieldTarget {
     pub label: String,
     /// More structs that take the same value (several objects or
     /// blueprints edited at once): each document and path. Shared, not
-    /// copied, by each field of a form (M4's U29: three thousand areas
-    /// edited together were copied for each field, each frame).
+    /// copied, by each field of a form so editing thousands of objects
+    /// together does not clone them per field every frame.
     pub also: Also,
 }
 
@@ -560,6 +560,8 @@ impl VarTableEdit {
 
     /// Why the table cannot be saved, if it cannot.
     pub fn problem(&self) -> Option<String> {
+        let mut seen = (self.rows.len() > 16)
+            .then(|| std::collections::HashSet::with_capacity(self.rows.len()));
         for (i, r) in self.rows.iter().enumerate() {
             if r.name.trim().is_empty() {
                 return Some(format!("Variable {} has no name", i + 1));
@@ -569,7 +571,11 @@ impl VarTableEdit {
             {
                 return Some(format!("{}: {e}", r.name));
             }
-            if self.rows[..i].iter().any(|o| o.name == r.name) {
+            let duplicate = match seen.as_mut() {
+                Some(set) => !set.insert(r.name.as_str()),
+                None => self.rows[..i].iter().any(|o| o.name == r.name),
+            };
+            if duplicate {
                 return Some(format!("{} is defined twice", r.name));
             }
         }
@@ -607,10 +613,17 @@ impl VarTableEdit {
     }
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// A described variable's tip: what it is, and its help.
 fn description_tip(d: &Described) -> String {
-    let what = d.words();
-    let what = format!("{}{}", what[..1].to_uppercase(), &what[1..]);
+    let what = capitalize_first(&d.words());
     match &d.help {
         Some(h) => format!("{what}.\n{h}"),
         None => format!("{what}."),
@@ -729,7 +742,7 @@ fn value_choice(
     offered: &Offered,
     value: &mut String,
     width: f32,
-) {
+) -> bool {
     let at = offered.at.get(value.as_str()).copied();
     let current = at.map(|a| a as i64);
     let chosen = |picked: Option<i64>, value: &mut String| {
@@ -739,20 +752,23 @@ fn value_choice(
         }
     };
     if other {
-        ui.horizontal(|ui| {
-            ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
-            // (Its values to choose from, the arrow keys stepping through
-            // them as every dropdown's do.)
-            let picked =
-                row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
-                    .shown("")
-                    .width(24.0)
-                    .ordered()
-                    .hover_text("Its values (variables.toml)")
-                    .show(ui);
-            chosen(picked, value);
-        });
-        return;
+        let focused = ui
+            .horizontal(|ui| {
+                let r = ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
+                // (Its values to choose from, the arrow keys stepping through
+                // them as every dropdown's do.)
+                let picked =
+                    row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
+                        .shown("")
+                        .width(24.0)
+                        .ordered()
+                        .hover_text("Its values (variables.toml)")
+                        .show(ui);
+                chosen(picked, value);
+                r.has_focus()
+            })
+            .inner;
+        return focused;
     }
     let text = match at {
         Some(a) => egui::RichText::new(&offered.rows[a].text),
@@ -766,6 +782,7 @@ fn value_choice(
         .ordered()
         .show(ui);
     chosen(picked, value);
+    false
 }
 
 /// A variable's type as the window names it.
@@ -872,8 +889,7 @@ pub(crate) const PARAMETER_SETS: SetKind<crate::param_sets::ParamSet> = SetKind 
 impl<T: Clone + Send + Sync + 'static> SetKind<T> {
     /// What one is called at the beginning of a message ("Variable set").
     fn what(&self) -> String {
-        let what = self.shelf.what;
-        what[..1].to_uppercase() + &what[1..]
+        capitalize_first(self.shelf.what)
     }
 
     /// The sets saved in `dir`, each read ([`crate::saved::Shelf::read_all`],
@@ -1377,7 +1393,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .min_size([520.0, 220.0])
             .show_foot(&ctx, |ui| {
                 ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
-                let problem = var_body(app, ui, &mut edit, &mut help, (described, false));
+                let (problem, _) = var_body(app, ui, &mut edit, &mut help, (described, false));
                 // (A color being picked: the area views draw it, as the
                 // page has them; OK sets it, Cancel leaves it as it was.)
                 let picked = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
@@ -1573,7 +1589,7 @@ fn var_body(
     edit: &mut VarTableEdit,
     help: &mut VarHelp,
     (described, fit): (bool, bool),
-) -> Option<String> {
+) -> (Option<String>, bool) {
     // What the project's descriptions say is wrong (not of the
     // name being typed), a line each under the list.
     let notes: Vec<String> = if described {
@@ -1592,9 +1608,19 @@ fn var_body(
     let together_tall = together.as_ref().map_or(0.0, |t| {
         let wrap = ui.available_width();
         let font = egui::TextStyle::Body.resolve(ui.style());
-        let color = ui.visuals().weak_text_color();
-        ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
-            + ui.spacing().item_spacing.y
+        let ppp = ui.ctx().pixels_per_point().to_bits();
+        let id = ui.id().with("together-tall");
+        let key = (edit.target.also.len(), wrap.to_bits(), font.size.to_bits(), ppp);
+        ui.data(|d| d.get_temp::<((usize, u32, u32, u32), f32)>(id))
+            .filter(|(k, _)| *k == key)
+            .map(|(_, h)| h)
+            .unwrap_or_else(|| {
+                let color = ui.visuals().weak_text_color();
+                let h = ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
+                    + ui.spacing().item_spacing.y;
+                ui.data_mut(|d| d.insert_temp(id, (key, h)));
+                h
+            })
     });
     // (The list scrolls, over the buttons kept in reach below it. In the
     // Properties panel's all-pages scroll, cap and shrink vertically so an
@@ -1614,6 +1640,7 @@ fn var_body(
         let part = (room / (VAR_NAME_WIDTH + VAR_VALUE_WIDTH)).max(0.4);
         (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
     };
+    let mut editing = false;
     egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, in_panel_scroll]).show(
         ui,
         |ui| {
@@ -1642,17 +1669,23 @@ fn var_body(
                     let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
                     let field = wide(&mut edit.rows[i].name, name_width);
                     let name = ui.add(field.hint_text("Name"));
+                    editing |= name.has_focus();
                     let r = &edit.rows[i];
                     let desc = help.variables.describe(r.name.trim());
                     let name = match desc {
-                        Some(d) => name.on_hover_text(description_tip(d)),
+                        Some(d) => name.on_hover_ui(|ui| {
+                            ui.label(description_tip(d));
+                        }),
                         None => name,
                     };
                     // The described names, offered as one is typed.
                     if described {
                         // (Escape closes the offer, until the name
                         // changes; the name is still being typed.)
-                        let dismissed = help.dismissed.as_ref() == Some(&(i, r.name.clone()));
+                        let dismissed = help
+                            .dismissed
+                            .as_ref()
+                            .is_some_and(|(di, dn)| *di == i && dn == &r.name);
                         if closed {
                             help.completing = None;
                             help.dismissed = Some((i, r.name.clone()));
@@ -1714,19 +1747,22 @@ fn var_body(
                         desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
                     match (desc, choices) {
                         (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
-                            value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
+                            editing |=
+                                value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
                         }
                         _ if edits && colored(r) => {
                             // A color's swatch beside its text.
                             ui.horizontal(|ui| {
                                 let swatch =
                                     ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
-                                ui.add(wide(&mut r.value, value_width - swatch));
+                                let vr = ui.add(wide(&mut r.value, value_width - swatch));
+                                editing |= vr.has_focus();
                                 color_swatch(ui, &mut r.value);
                             });
                         }
                         _ => {
-                            ui.add_enabled(edits, wide(&mut r.value, value_width));
+                            let vr = ui.add_enabled(edits, wide(&mut r.value, value_width));
+                            editing |= vr.has_focus();
                         }
                     }
                     if ui.small_button("Delete").clicked() {
@@ -1752,15 +1788,16 @@ fn var_body(
                     help.completing = None;
                 }
                 // A name changed to a described one: its type.
-                let names: Vec<String> = edit.rows.iter().map(|r| r.name.clone()).collect();
-                if names.len() == help.names.len() {
-                    for (r, was) in edit.rows.iter_mut().zip(&help.names) {
+                if edit.rows.len() == help.names.len() {
+                    for (r, was) in edit.rows.iter_mut().zip(&mut help.names) {
                         if r.name != *was {
+                            *was = r.name.clone();
                             take_described_type(&help.variables, r);
                         }
                     }
+                } else {
+                    help.names = edit.rows.iter().map(|r| r.name.clone()).collect();
                 }
-                help.names = names;
             });
         },
     );
@@ -1889,7 +1926,7 @@ fn var_body(
     if let Some(t) = together {
         ui.weak(t);
     }
-    problem
+    (problem, editing)
 }
 
 /// The note under a Variables list edited for several at once.
@@ -1910,8 +1947,12 @@ fn together_note(edit: &VarTableEdit) -> Option<String> {
 pub struct VarPage {
     edit: VarTableEdit,
     read: Vec<Struct>,
-    /// The pass it was last drawn in: one not drawn since is forgotten.
+    as_read: Vec<Struct>,
+    clean_rows: Vec<VarRow>,
+    /// The frame it was last drawn in: one not drawn since is forgotten.
     drawn: u64,
+    /// Whether one of this page's own variable fields currently holds keyboard focus.
+    editing: bool,
 }
 
 /// A Properties window's Variables page (Carcerian's ask: variables are
@@ -1930,23 +1971,23 @@ pub(crate) fn variables_page(
     locked: Option<String>,
 ) {
     let id = (target.key, target.path.clone());
-    // (Read anew where the list changed, but not under the fields typed in.)
-    let typing = ui.ctx().memory(|m| m.focused().is_some());
-    // (A page not drawn in the pass before is another showing of it: a
+    // (A page not drawn in the frame before is another showing of it: a
     // row added and not yet named, or a value that is no number, kept past
     // its window's Cancel, came back when the window was next opened, and
-    // was set then.)
-    let pass = ui.ctx().cumulative_pass_nr();
-    app.var_pages.retain(|_, p| p.drawn + 1 >= pass);
+    // was set then. Pruned by frame rather than pass so multi-pass
+    // layout discards keep the active page.)
+    let frame = ui.ctx().cumulative_frame_nr();
+    app.var_pages.retain(|_, p| p.drawn + 1 >= frame);
     let mut page = match app.var_pages.remove(&id) {
-        Some(p) if p.edit.target == target && (p.read == list || typing) => p,
-        _ => VarPage {
-            edit: VarTableEdit::new(target.clone(), list),
-            read: list.to_vec(),
-            drawn: pass,
-        },
+        Some(p) if p.edit.target == target && (p.read == list || p.editing) => p,
+        _ => {
+            let edit = VarTableEdit::new(target.clone(), list);
+            let as_read = edit.list();
+            let clean_rows = edit.rows.clone();
+            VarPage { edit, read: list.to_vec(), as_read, clean_rows, drawn: frame, editing: false }
+        }
     };
-    page.drawn = pass;
+    page.drawn = frame;
     let edit = &mut page.edit;
     if edit.described.is_none() {
         edit.described = Some(VarHelp::of(app, &edit.target));
@@ -1958,7 +1999,7 @@ pub(crate) fn variables_page(
         ui.colored_label(ui.visuals().warn_fg_color, format!("{why}: read-only here"));
     }
     ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
-    let problem = ui
+    let (problem, editing) = ui
         .add_enabled_ui(locked.is_none(), |ui| {
             ui.push_id(("variables-page", target.key, &target.path), |ui| {
                 var_body(app, ui, edit, &mut help, (described, true))
@@ -1966,29 +2007,39 @@ pub(crate) fn variables_page(
             .inner
         })
         .inner;
+    page.editing = editing;
     edit.described = Some(help);
     let dir = app.var_set_dir.clone();
     let ctx = ui.ctx().clone();
     sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
-    // Set, once nothing is being typed and it can be: read anew after.
-    // While a color is being picked, not yet: the area views show the
-    // object with it (`var_preview`), and it is set, one command, as the
-    // picker closes. (Dragged across the picker, a command a frame: as
-    // many steps of Undo, and the object read again at each, a builder's
-    // report.)
-    let as_read = VarTableEdit::new(target, list).list();
+    // Set, once none of this page's fields is being typed in and it can be:
+    // read anew after. While a color is being picked, not yet: the area views
+    // show the object with it (`var_preview`), and it is set, one command, as
+    // the picker closes.
+    let modified = page.edit.rows != page.clean_rows || page.read != list;
+    let dirty = if !modified {
+        false
+    } else if locked.is_none() && problem.is_none() {
+        if page.read != list {
+            page.as_read = VarTableEdit::new(target.clone(), list).list();
+            page.read = list.to_vec();
+        }
+        page.edit.list() != page.as_read
+    } else {
+        false
+    };
     let picking = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
-    if picking && locked.is_none() && problem.is_none() && edit.list() != as_read {
-        let each = edit.each_merged(app);
+    if picking && locked.is_none() && problem.is_none() && dirty {
+        let each = page.edit.each_merged(app);
         app.var_preview_next.extend(each);
         app.var_pages.insert(id, page);
         return;
     }
-    if locked.is_none() && !typing && problem.is_none() && edit.list() != as_read {
-        let action = if edit.target.also.is_empty() {
-            edit.target.command("Edit variables", Value::List(edit.list()))
+    if locked.is_none() && !editing && problem.is_none() && dirty {
+        let action = if page.edit.target.also.is_empty() {
+            page.edit.target.command("Edit variables", Value::List(page.edit.list()))
         } else {
-            edit.merged(app)
+            page.edit.merged(app)
         };
         app.actions.push(action);
         return;
@@ -2468,15 +2519,17 @@ pub(crate) fn spin_draft<T: egui::emath::Numeric>(
 const SPIN_DELAY: f64 = 0.4;
 const SPIN_RATE: f64 = 0.05;
 
-/// A run of steps not yet made a change: the number reached, the arrow
-/// held (1 up, -1 down, 0 none: keys), since when, and how many steps it
-/// has made.
+/// A run of steps not yet made a change: the baseline value it started
+/// from, the number reached, the arrow held (1 up, -1 down, 0 none: keys),
+/// since when, how many steps it has made, and the last frame it was drawn.
 #[derive(Clone, Copy)]
 struct SpinRun {
+    base: f64,
     value: f64,
     arrow: i8,
     since: f64,
     done: u32,
+    frame: u64,
 }
 
 /// `v` one step `by` on, within `lo` to `hi`. A step from a number outside
@@ -2554,9 +2607,13 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         // (The field's own id: the next widget is the field.)
         let field = ui.next_auto_id();
         let run_id = field.with("spin-run");
-        let mut run: Option<SpinRun> = ui.data(|d| d.get_temp(run_id));
+        let frame = ui.ctx().cumulative_frame_nr();
+        let base = current.to_f64();
+        let mut run: Option<SpinRun> = ui
+            .data(|d| d.get_temp::<SpinRun>(run_id))
+            .filter(|r| r.base == base && r.frame + 1 >= frame);
         let now = ui.input(|i| i.time);
-        let shown = run.map_or(current.to_f64(), |r| r.value);
+        let shown = run.map_or(base, |r| r.value);
         // Up and Down in the field (before it takes them as it would).
         let keys = [egui::Key::ArrowUp, egui::Key::ArrowDown];
         let focused = ui.memory(|m| m.has_focus(field));
@@ -2568,12 +2625,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
             if n != 0 {
                 let value = stepped(shown, n as f64 * step);
                 run = Some(match run {
-                    Some(r) => SpinRun { value, ..r },
-                    None => SpinRun { value, arrow: 0, since: now, done: 0 },
+                    Some(r) => SpinRun { value, frame, ..r },
+                    None => SpinRun { base, value, arrow: 0, since: now, done: 0, frame },
                 });
             }
         }
-        let shown = run.map_or(current.to_f64(), |r| r.value);
+        let shown = run.map_or(base, |r| r.value);
         let (typed, _, _) =
             drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
         // (A number typed is set as it is, the arrows still drawn.)
@@ -2617,10 +2674,17 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
                             r.value = stepped(r.value, by);
                         }
                         r.done = r.done.max(due);
+                        r.frame = frame;
                     }
                     _ => {
-                        run =
-                            Some(SpinRun { value: stepped(shown, by), arrow, since: now, done: 1 });
+                        run = Some(SpinRun {
+                            base,
+                            value: stepped(shown, by),
+                            arrow,
+                            since: now,
+                            done: 1,
+                            frame,
+                        });
                     }
                 }
                 ui.ctx().request_repaint();
@@ -2628,18 +2692,22 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         });
         if let Some(v) = typed {
             ui.data_mut(|d| d.remove::<SpinRun>(run_id));
-            return (v.to_f64() != current.to_f64()).then_some(v);
+            return (v.to_f64() != base).then_some(v);
         }
         match run {
             Some(r) if !held => {
                 ui.data_mut(|d| d.remove::<SpinRun>(run_id));
-                (r.value != current.to_f64()).then(|| T::from_f64(r.value))
+                (r.value != base).then(|| T::from_f64(r.value))
             }
-            Some(r) => {
+            Some(mut r) => {
+                r.frame = frame;
                 ui.data_mut(|d| d.insert_temp(run_id, r));
                 None
             }
-            None => None,
+            None => {
+                ui.data_mut(|d| d.remove::<SpinRun>(run_id));
+                None
+            }
         }
     })
     .inner
@@ -4522,7 +4590,7 @@ impl<'a> Dialog<'a> {
             ctx.data_mut(|d| d.insert_temp(natural_id, took));
         }
         // (A dialog shown with no footer, noted as such for the tests.)
-        if !footed && !folded && shown.is_some() {
+        if !footed && !folded && shown.is_some() && is_recording_footers(ctx) {
             let seen = FooterSeen {
                 title: title.clone(),
                 rect: None,
@@ -5191,7 +5259,25 @@ fn footers_id() -> egui::Id {
     egui::Id::new("mg-dialog-footers")
 }
 
+fn footers_record_id() -> egui::Id {
+    egui::Id::new("mg-dialog-footers-record")
+}
+
+/// Starts recording [`FooterSeen`] snapshots on `ctx` (enabled by test
+/// harnesses so the app does not build footer snapshots in normal runs).
+#[doc(hidden)]
+pub fn record_footers(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(footers_record_id(), true));
+}
+
+fn is_recording_footers(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(footers_record_id()).unwrap_or(false))
+}
+
 fn record_footer(ctx: &egui::Context, seen: FooterSeen) {
+    if !is_recording_footers(ctx) {
+        return;
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
@@ -5204,6 +5290,9 @@ fn record_footer(ctx: &egui::Context, seen: FooterSeen) {
 
 /// Notes the window of the dialog `title` drawn this pass in its record.
 fn window_seen(ctx: &egui::Context, title: &str, window: egui::Rect, margin: f32) {
+    if !is_recording_footers(ctx) {
+        return;
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
@@ -5387,26 +5476,28 @@ fn place_foot(ui: &mut Ui, foot: Foot, title: &str) -> Pressed {
             note_press(ui.ctx(), title, &b.words, how);
         }
     }
-    let seen = FooterSeen {
-        title: title.to_string(),
-        rect: Some(shown.rect),
-        window: egui::Rect::NOTHING,
-        note,
-        check: check.map(|(w, _, _)| w),
-        buttons: (buttons.iter().zip(&shown.buttons))
-            .map(|(b, r)| ButtonSeen {
-                words: b.words.clone(),
-                main: b.role == FootRole::Main,
-                leaves: b.role == FootRole::Cancel,
-                enabled: b.enabled,
-                rect: r.rect,
-            })
-            .collect(),
-        enter_withheld: no_enter,
-        layer: ui.layer_id(),
-        margin: 0.0,
-    };
-    record_footer(ui.ctx(), seen);
+    if is_recording_footers(ui.ctx()) {
+        let seen = FooterSeen {
+            title: title.to_string(),
+            rect: Some(shown.rect),
+            window: egui::Rect::NOTHING,
+            note,
+            check: check.map(|(w, _, _)| w),
+            buttons: (buttons.iter().zip(&shown.buttons))
+                .map(|(b, r)| ButtonSeen {
+                    words: b.words.clone(),
+                    main: b.role == FootRole::Main,
+                    leaves: b.role == FootRole::Cancel,
+                    enabled: b.enabled,
+                    rect: r.rect,
+                })
+                .collect(),
+            enter_withheld: no_enter,
+            layer: ui.layer_id(),
+            margin: 0.0,
+        };
+        record_footer(ui.ctx(), seen);
+    }
     Pressed {
         words: buttons.into_iter().map(|b| b.words).collect(),
         clicked,
@@ -5728,10 +5819,10 @@ impl<'a> RowChoice<'a> {
                     let pad = 2.0 * ui.spacing().button_padding.x;
                     let bar = ui.spacing().scroll.allocated_width();
                     // (Measured: the longest rows by their characters, not
-                    // every row of a table of thousands.)
+                    // every row of a table of thousands; order-independent.)
                     let mut texts: Vec<std::borrow::Cow<'_, str>> =
                         (none.map(std::borrow::Cow::from).into_iter())
-                            .chain(in_order().iter().map(|c| text(c, numbered)))
+                            .chain(choices.iter().map(|c| text(c, numbered)))
                             .collect();
                     let measured = texts.len().min(MEASURED_ROWS);
                     if measured < texts.len() {
@@ -5784,39 +5875,6 @@ impl<'a> RowChoice<'a> {
                 let matches = |c: &mg_rules::Choice| {
                     filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
                 };
-                // The rows shown: the row of none (`None`) first, then those
-                // the filter finds.
-                // (Of a long list, found once while it is open and kept until
-                // the filter changes: not sorted and searched every frame.)
-                let found: Vec<&mg_rules::Choice> = if long {
-                    // (Where in `choices` each row shown is, by the list it was
-                    // found in and the filter.)
-                    type Kept = (usize, usize, String, std::sync::Arc<Vec<usize>>);
-                    let kept_id = open_id.with("found");
-                    let made_for = (choices.as_ptr() as usize, choices.len(), filter.as_str());
-                    let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
-                    let at = match kept {
-                        Some((p, n, f, at)) if !opened && (p, n, f.as_str()) == made_for => at,
-                        _ => {
-                            let order = match by_name {
-                                true => mg_rules::name_order(choices),
-                                false => (0..choices.len()).collect(),
-                            };
-                            let at: Vec<usize> =
-                                order.into_iter().filter(|&i| matches(&choices[i])).collect();
-                            let at = std::sync::Arc::new(at);
-                            let kept: Kept =
-                                (made_for.0, made_for.1, made_for.2.into(), at.clone());
-                            ui.data_mut(|d| d.insert_temp(kept_id, kept));
-                            at
-                        }
-                    };
-                    at.iter().map(|&i| &choices[i]).collect()
-                } else {
-                    in_order().iter().filter(|c| matches(c)).collect()
-                };
-                let shown: Vec<Option<&mg_rules::Choice>> =
-                    (none.map(|_| None).into_iter()).chain(found.into_iter().map(Some)).collect();
                 let chosen = |c: Option<&mg_rules::Choice>| match c {
                     Some(c) => current == Some(c.row as i64),
                     None => current.is_none(),
@@ -5839,6 +5897,43 @@ impl<'a> RowChoice<'a> {
                     }
                 };
                 if long {
+                    // (Of a long list, found once while it is open and kept until
+                    // the filter changes: not sorted and searched every frame.)
+                    type Kept = (ChoicesSig, bool, String, std::sync::Arc<Vec<usize>>);
+                    let kept_id = open_id.with("found");
+                    let sig = choices_sig(choices);
+                    let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
+                    let at = match kept {
+                        Some((s, ordered_name, f, at))
+                            if !opened
+                                && s == sig
+                                && ordered_name == by_name
+                                && f.as_str() == filter.as_str() =>
+                        {
+                            at
+                        }
+                        _ => {
+                            let at: Vec<usize> = if by_name {
+                                let order = cached_name_order(ui, choices);
+                                order.iter().copied().filter(|&i| matches(&choices[i])).collect()
+                            } else {
+                                (0..choices.len()).filter(|&i| matches(&choices[i])).collect()
+                            };
+                            let at = std::sync::Arc::new(at);
+                            let kept: Kept = (sig, by_name, filter.as_str().to_owned(), at.clone());
+                            ui.data_mut(|d| d.insert_temp(kept_id, kept));
+                            at
+                        }
+                    };
+                    let none_off = usize::from(none.is_some());
+                    let shown_len = none_off + at.len();
+                    let shown_at = |idx: usize| -> Option<&mg_rules::Choice> {
+                        if none.is_some() {
+                            (idx > 0).then(|| &choices[at[idx - 1]])
+                        } else {
+                            Some(&choices[at[idx]])
+                        }
+                    };
                     // (The rows scroll under the Filter field, which stays;
                     // only those in sight are laid out, of a table of tens of
                     // thousands too. Opened, the chosen one is in the middle.)
@@ -5850,18 +5945,32 @@ impl<'a> RowChoice<'a> {
                     let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
                     if narrowed {
                         area = area.vertical_scroll_offset(0.0);
-                    } else if go && let Some(at) = shown.iter().position(|c| chosen(*c)) {
-                        let offset = at as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
-                        area = area.vertical_scroll_offset(offset.max(0.0));
+                    } else if go {
+                        let target = if let Some(cur) = current {
+                            at.iter()
+                                .position(|&i| choices[i].row as i64 == cur)
+                                .map(|p| p + none_off)
+                        } else if none.is_some() {
+                            Some(0)
+                        } else {
+                            None
+                        };
+                        if let Some(pos) = target {
+                            let offset = pos as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
+                            area = area.vertical_scroll_offset(offset.max(0.0));
+                        }
                     }
-                    area.show_rows(ui, height, shown.len(), |ui, range| {
-                        for c in &shown[range] {
-                            row(ui, *c, false);
+                    area.show_rows(ui, height, shown_len, |ui, range| {
+                        for idx in range {
+                            row(ui, shown_at(idx), false);
                         }
                     });
                 } else {
-                    for c in &shown {
-                        row(ui, *c, true);
+                    if none.is_some() {
+                        row(ui, None, true);
+                    }
+                    for c in in_order().iter().filter(|c| matches(c)) {
+                        row(ui, Some(c), true);
                     }
                 }
             })
@@ -5880,30 +5989,55 @@ impl<'a> RowChoice<'a> {
         // shown), and the wheel where asked.
         let stepping = r.clicked() || r.has_focus() || (wheel && r.hovered());
         if pick.is_none() && stepping {
-            // (Put in order only for a key or the wheel: a box with the
-            // keys is drawn every frame, its list of thousands too.)
-            let asked = ui.input(|i| {
-                (i.events.iter()).any(|e| {
-                    matches!(
-                        e,
-                        egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
-                    )
-                })
-            });
-            let rows: Vec<i64> = match asked {
-                true => (none.map(|_| NO_ROW).into_iter())
-                    .chain(in_order().iter().map(|c| c.row as i64))
-                    .collect(),
-                false => Vec::new(),
-            };
-            let at = current.unwrap_or(NO_ROW);
-            let stepped = arrow_pick(ui, r, &rows, at)
-                .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
-            pick = stepped.map(|row| (row != NO_ROW).then_some(row));
+            let nav_key = (r.clicked() || r.has_focus())
+                && ui.input(|i| {
+                    i.modifiers.is_none()
+                        && [
+                            egui::Key::ArrowDown,
+                            egui::Key::ArrowUp,
+                            egui::Key::PageDown,
+                            egui::Key::PageUp,
+                            egui::Key::Home,
+                            egui::Key::End,
+                        ]
+                        .iter()
+                        .any(|k| i.key_pressed(*k))
+                });
+            let wheel_moved = wheel
+                && r.hovered()
+                && ui.input(|i| {
+                    i.events.iter().any(|e| matches!(e, egui::Event::MouseWheel { .. }))
+                });
+            if nav_key || wheel_moved {
+                let rows: Vec<i64> = if by_name {
+                    let order = cached_name_order(ui, choices);
+                    (none.map(|_| NO_ROW).into_iter())
+                        .chain(order.iter().map(|&i| choices[i].row as i64))
+                        .collect()
+                } else {
+                    (none.map(|_| NO_ROW).into_iter())
+                        .chain(choices.iter().map(|c| c.row as i64))
+                        .collect()
+                };
+                let at = current.unwrap_or(NO_ROW);
+                let stepped = arrow_pick(ui, r, &rows, at)
+                    .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
+                pick = stepped.map(|row| (row != NO_ROW).then_some(row));
+            } else if r.clicked() || r.has_focus() {
+                let _ = hold_arrows(ui, r);
+            }
         }
         // Letters typed to a short list (a long one types into its Filter):
         // the first row whose name begins with them.
-        if pick.is_none() && !long {
+        if pick.is_none()
+            && !long
+            && (open || r.has_focus())
+            && ui.input(|i| {
+                i.events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Text(t) if !t.chars().any(char::is_control)))
+            })
+        {
             let rows: Vec<Option<&mg_rules::Choice>> =
                 none.map(|_| None).into_iter().chain(in_order().iter().map(Some)).collect();
             let names = |i: usize| match rows[i] {
@@ -5926,6 +6060,57 @@ impl<'a> RowChoice<'a> {
         }
         pick.filter(|&p| p != current)
     }
+}
+
+type ChoicesSig = (usize, u64);
+
+fn choices_sig(choices: &[mg_rules::Choice]) -> ChoicesSig {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let len = choices.len();
+    len.hash(&mut h);
+    if len <= 16 {
+        for c in choices {
+            c.row.hash(&mut h);
+            c.text.hash(&mut h);
+        }
+    } else {
+        for step in 0..8 {
+            let idx = (step * (len - 1)) / 7;
+            let c = &choices[idx];
+            c.row.hash(&mut h);
+            c.text.hash(&mut h);
+        }
+    }
+    (len, h.finish())
+}
+
+fn cached_name_order(ui: &Ui, choices: &[mg_rules::Choice]) -> std::sync::Arc<Vec<usize>> {
+    type Entry = (ChoicesSig, std::sync::Arc<Vec<usize>>);
+    let sig = choices_sig(choices);
+    let cache_id = egui::Id::new("mg-row-choice-name-order");
+    if let Some(hit) = ui.data_mut(|d| {
+        let lru = d.get_temp_mut_or_default::<Vec<Entry>>(cache_id);
+        if let Some(pos) = lru.iter().position(|(s, _)| *s == sig) {
+            let entry = lru.remove(pos);
+            let order = entry.1.clone();
+            lru.push(entry);
+            Some(order)
+        } else {
+            None
+        }
+    }) {
+        return hit;
+    }
+    let order = std::sync::Arc::new(mg_rules::name_order(choices));
+    ui.data_mut(|d| {
+        let lru = d.get_temp_mut_or_default::<Vec<Entry>>(cache_id);
+        if lru.len() >= 8 {
+            lru.remove(0);
+        }
+        lru.push((sig, order.clone()));
+    });
+    order
 }
 
 /// The arrow keys on a list of choices, as in Aurora: with the list's
@@ -6937,6 +7122,47 @@ pub(crate) fn edit_script_button(
     r.clicked().then_some(name)
 }
 
+/// Width required for a row of header trailing [`KitButton`](mg_uikit::KitButton)s
+/// separated by [`HEADER_GAP`](mg_uikit::header::HEADER_GAP).
+pub(crate) fn buttons_end_width(ui: &Ui, buttons: &[mg_uikit::KitButton]) -> f32 {
+    let gap = mg_uikit::header::HEADER_GAP;
+    buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len().saturating_sub(1)) as f32
+}
+
+/// Shows `header` with trailing OK and Cancel (or Close when `close_tip` is
+/// `Some`) buttons, returning any [`Pressed`](crate::blueprint::Pressed) click.
+pub(crate) fn header_with_ok_cancel<'a>(
+    ui: &mut Ui,
+    header: mg_uikit::header::EditorHeader<'a>,
+    close_tip: Option<&str>,
+    tips: [&str; 2],
+) -> mg_uikit::header::HeaderOutput<Option<crate::blueprint::Pressed>> {
+    let buttons: Vec<mg_uikit::KitButton> = match close_tip {
+        Some(tip) => vec![mg_uikit::KitButton::new(None, "Close").tip(tip)],
+        None => vec![
+            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
+            mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
+        ],
+    };
+    let end_width = buttons_end_width(ui, &buttons);
+    let gap = mg_uikit::header::HEADER_GAP;
+    header.show_with_end(ui, end_width, |ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let mut pressed = None;
+        for b in buttons {
+            let words = b.accessible_name().to_string();
+            if ui.add(b).clicked() {
+                pressed = Some(match words.as_str() {
+                    "Cancel" => crate::blueprint::Pressed::Cancel,
+                    _ => crate::blueprint::Pressed::Ok,
+                });
+            }
+        }
+        pressed
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7166,6 +7392,180 @@ mod tests {
         let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
+    }
+
+    #[test]
+    fn variables_page_commits_when_unrelated_field_has_focus_and_survives_multi_pass() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        let key = ResKey::parse("inn", ResType::GIT).unwrap();
+        let target = FieldTarget::new(key, GffPath::root(), "VarTable");
+        let mut m = mg_module::Module::new();
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        git.root.set("VarTable", Value::List(Vec::new()));
+        m.set(key, git.to_bytes().unwrap());
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(m));
+
+        struct State {
+            app: Moonglow,
+            target: FieldTarget,
+            other: String,
+            discard_once: bool,
+        }
+
+        let id = (key, GffPath::root());
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                ui.text_edit_singleline(&mut s.other);
+                let actions = std::mem::take(&mut s.app.actions);
+                for action in actions {
+                    if let crate::Action::Apply(cmd) = action {
+                        let _ = s.app.apply(cmd);
+                    }
+                }
+                let list = s
+                    .app
+                    .ws
+                    .as_mut()
+                    .and_then(|w| w.doc(&s.target.key).ok())
+                    .and_then(|g| g.root.list("VarTable"))
+                    .map(<[Struct]>::to_vec)
+                    .unwrap_or_default();
+                super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
+                if s.discard_once {
+                    s.discard_once = false;
+                    ui.ctx().request_discard("multi-pass test");
+                }
+            },
+            State { app, target, other: String::from("external"), discard_once: false },
+        );
+        h.run();
+
+        // Add an incomplete draft row (empty name -> does not commit yet).
+        h.get_by_label("Add").click();
+        h.run();
+        assert_eq!(h.state().app.var_pages.get(&id).map(|p| p.edit.rows.len()), Some(1));
+
+        // Simulate a multi-pass layout discard within the same frame: page must remain.
+        h.state_mut().discard_once = true;
+        h.run();
+        assert_eq!(
+            h.state().app.var_pages.get(&id).map(|p| p.edit.rows.len()),
+            Some(1),
+            "multi-pass discard must not prune active VarPage"
+        );
+
+        // Give the row a valid name while focus lives in the unrelated TextEdit.
+        h.state_mut().app.var_pages.get_mut(&id).unwrap().edit.rows[0].name = "nFlag".into();
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+        h.run();
+
+        let committed = h
+            .state_mut()
+            .app
+            .ws
+            .as_mut()
+            .unwrap()
+            .doc(&key)
+            .unwrap()
+            .root
+            .list("VarTable")
+            .map(<[Struct]>::to_vec)
+            .unwrap_or_default();
+        assert_eq!(
+            committed.len(),
+            1,
+            "expected VarTable commit while unrelated TextEdit had focus"
+        );
+        assert_eq!(committed[0].string("Name"), Some(&b"nFlag"[..]));
+    }
+
+    #[test]
+    fn spin_with_cancels_stale_run_on_external_value_change_or_frame_gap() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        struct State {
+            value: i32,
+            show_spin: bool,
+        }
+
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
+            |ui, s: &mut State| {
+                if s.show_spin
+                    && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
+                {
+                    s.value = next;
+                }
+            },
+            State { value: 10, show_spin: true },
+        );
+        h.run();
+
+        let up_pos = h.get_by_label("One More").rect().center();
+        let hold_up = |h: &mut Harness<'_, State>, start: f64| {
+            h.hover_at(up_pos);
+            h.input_mut().time = Some(start);
+            h.event(egui::Event::PointerButton {
+                pos: up_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+            h.input_mut().time = Some(start + 0.5);
+            h.step();
+            h.input_mut().time = Some(start + 0.6);
+            h.step();
+        };
+        let release_up = |h: &mut Harness<'_, State>, at: f64| {
+            h.input_mut().time = Some(at);
+            h.event(egui::Event::PointerButton {
+                pos: up_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+        };
+
+        // Normal hold across SPIN_DELAY commits >= 12 upon release.
+        hold_up(&mut h, 1.0);
+        assert_eq!(h.state().value, 10, "value commits on release, not mid-hold");
+        release_up(&mut h, 1.7);
+        assert!(
+            h.state().value >= 12,
+            "expected normal spin hold to commit >= 12, got {}",
+            h.state().value
+        );
+
+        // External update while held must cancel stale run rather than overwriting 50 on release.
+        h.state_mut().value = 10;
+        h.step();
+        hold_up(&mut h, 2.0);
+        h.state_mut().value = 50;
+        release_up(&mut h, 2.7);
+        assert_eq!(
+            h.state().value,
+            50,
+            "external value change must cancel stale SpinRun rather than overwriting on release"
+        );
+
+        // Frame gap while spin is hidden must also cancel SpinRun so re-showing doesn't resume.
+        hold_up(&mut h, 3.0);
+        h.state_mut().value = 80;
+        h.state_mut().show_spin = false;
+        h.input_mut().time = Some(3.7);
+        h.step();
+        h.step();
+        h.state_mut().show_spin = true;
+        release_up(&mut h, 3.8);
+        assert_eq!(h.state().value, 80, "frame gap must cancel stale SpinRun");
+
+        h.input_mut().time = None;
+        h.step();
     }
 }
 
@@ -7555,6 +7955,13 @@ mod row_choice_tests {
         // (A frame of it in a debug build, with a margin: it took 93 ms
         // in a release build when every row was laid out.)
         assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn capitalize_first_handles_empty_ascii_and_multibyte_chars() {
+        assert_eq!(super::capitalize_first(""), "");
+        assert_eq!(super::capitalize_first("variable set"), "Variable set");
+        assert_eq!(super::capitalize_first("éclair"), "Éclair");
     }
 }
 

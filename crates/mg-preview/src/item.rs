@@ -228,9 +228,7 @@ pub(crate) fn item_parts(
             };
             if lk.has_model(&model) {
                 let mut p = part(model);
-                let texture = format!("cloak_{:03}", cell_int(&cloaks, r, "TEXTURE").unwrap_or(1));
-                p.textures =
-                    lk.bitmaps(&p.model).into_iter().map(|b| (b, texture.clone())).collect();
+                p.textures = crate::creature::cloak_textures(&lk, &cloaks, r, &p.model);
                 p.colors = Some(it.colors_over(colors));
                 p.env_map = env_map(cell(&cloaks, r, "ENVMAP"));
                 vec![p]

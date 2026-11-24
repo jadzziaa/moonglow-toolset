@@ -266,15 +266,50 @@ fn page_body(app: &mut Moonglow, ui: &mut Ui, page: &str, on: Shared<'_>) {
             return;
         }
         if page == "Grass" {
-            let kept = grass.map(|cell| {
-                cell.get_or_init(|| {
-                    app.tools.walks += 1;
-                    let areas: Vec<ResRef> =
-                        std::iter::once(area).chain(others.iter().copied()).collect();
-                    crate::area_grass::properties(app, &areas)
-                })
-            });
-            crate::area_grass::page(app, ui, area, others, kept.map(Vec::as_slice));
+            let cached = match grass {
+                Some(cell) => {
+                    cell.get_or_init(|| {
+                        app.tools.walks += 1;
+                        let areas: Vec<ResRef> =
+                            std::iter::once(area).chain(others.iter().copied()).collect();
+                        crate::area_grass::properties(app, &areas)
+                    });
+                    None
+                }
+                None => {
+                    type GrassCache = (
+                        (Option<(u64, u64)>, u64, ResRef, Vec<ResRef>),
+                        std::sync::Arc<Vec<(ResKey, mg_gff::Struct)>>,
+                    );
+                    let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
+                    let load_order = app.load_order;
+                    let id = egui::Id::new("area-props-grass-cache");
+                    let hit = ui.data(|d| d.get_temp::<GrassCache>(id)).and_then(|(k, v)| {
+                        (k.0 == ws_key
+                            && k.1 == load_order
+                            && k.2 == area
+                            && k.3.as_slice() == others)
+                            .then_some(v)
+                    });
+                    Some(hit.unwrap_or_else(|| {
+                        app.tools.walks += 1;
+                        let areas: Vec<ResRef> =
+                            std::iter::once(area).chain(others.iter().copied()).collect();
+                        let props = std::sync::Arc::new(crate::area_grass::properties(app, &areas));
+                        ui.data_mut(|d| {
+                            d.insert_temp::<GrassCache>(
+                                id,
+                                ((ws_key, load_order, area, others.to_vec()), props.clone()),
+                            );
+                        });
+                        props
+                    }))
+                }
+            };
+            let kept = grass
+                .and_then(|c| c.get().map(Vec::as_slice))
+                .or(cached.as_deref().map(Vec::as_slice));
+            crate::area_grass::page(app, ui, area, others, kept);
             return;
         }
         let mut f = Form {
@@ -476,10 +511,29 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     // them shown (Heed's ask: one column, scrolled, left the width unused).
     let mut picked = None;
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let widest = (schemes.iter())
-        .map(|c| ui.painter().layout_no_wrap(c.text.clone(), font.clone(), egui::Color32::WHITE))
-        .map(|g| g.size().x)
-        .fold(0.0, f32::max);
+    let widest_key = (
+        f.app.game.is_some(),
+        f.app.load_order,
+        schemes.len(),
+        ui.ctx().pixels_per_point().to_bits(),
+        font.size.to_bits(),
+    );
+    let widest_id = egui::Id::new("area-props-scheme-widest");
+    let widest = if let Some((was, cached)) =
+        ui.data(|d| d.get_temp::<((bool, u64, usize, u32, u32), f32)>(widest_id))
+        && was == widest_key
+    {
+        cached
+    } else {
+        let w = (schemes.iter())
+            .map(|c| {
+                ui.painter().layout_no_wrap(c.text.clone(), font.clone(), egui::Color32::WHITE)
+            })
+            .map(|g| g.size().x)
+            .fold(0.0, f32::max);
+        ui.data_mut(|d| d.insert_temp(widest_id, (widest_key, w)));
+        w
+    };
     let column = widest + 2.0 * ui.spacing().button_padding.x + 16.0;
     let columns = ((ui.available_width() / column) as usize).clamp(1, schemes.len().max(1));
     let rows = schemes.len().div_ceil(columns);
@@ -968,7 +1022,25 @@ fn audio(
     let path = GffPath::root().field("AreaProperties");
     let also = match kept {
         Some(kept) => kept.clone(),
-        None => audio_also(app, others),
+        None => {
+            type AudioAlsoCache = ((Option<(u64, u64)>, u64, Vec<ResRef>), crate::widgets::Also);
+            let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
+            let load_order = app.load_order;
+            let id = egui::Id::new("area-props-audio-also-cache");
+            let hit = ui.data(|d| d.get_temp::<AudioAlsoCache>(id)).and_then(|(k, v)| {
+                (k.0 == ws_key && k.1 == load_order && k.2.as_slice() == others).then_some(v)
+            });
+            hit.unwrap_or_else(|| {
+                let also = audio_also(app, others);
+                ui.data_mut(|d| {
+                    d.insert_temp::<AudioAlsoCache>(
+                        id,
+                        ((ws_key, load_order, others.to_vec()), also.clone()),
+                    );
+                });
+                also
+            })
+        }
     };
     let Some(root) =
         app.ws.as_mut().and_then(|ws| ws.doc(&git).ok()).and_then(|g| path.get(&g.root)).cloned()
@@ -1211,45 +1283,71 @@ fn advanced_fields(f: &mut Form<'_>, ui: &mut Ui, grid: bool) {
 /// 1.34.3 are moved to the GIT, one step to undo, when the window opens
 /// (one of the same name in the GIT keeps its value there).
 fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
-    let Some((target, moved)) = variables_moved(f) else { return };
-    let shown = moved[0].1.clone();
-    if !crate::claims::variables_button(f.app, ui, &f.key, shown.len()) {
+    let cached = variables_moved(f, ui);
+    let Some((target, moved)) = cached.1.as_ref() else { return };
+    if !crate::claims::variables_button(f.app, ui, &f.key, moved[0].1.len()) {
         return;
     }
+    let target = target.clone();
+    let moved = moved.clone();
+    drop(cached);
     move_variables(f, &moved);
-    f.app.var_edit = Some(crate::widgets::VarTableEdit::new(target, &shown));
+    f.app.var_edit = Some(crate::widgets::VarTableEdit::new(target, &moved[0].1));
 }
+
+#[allow(clippy::type_complexity)]
+type VarsMovedValue =
+    Option<(crate::widgets::FieldTarget, Vec<(ResRef, Vec<mg_gff::Struct>, bool)>)>;
+#[allow(clippy::type_complexity)]
+type VarsMovedCache = ((Option<(u64, u64)>, u64, ResKey, crate::widgets::Also), VarsMovedValue);
 
 /// Each area's variables (this one's, and those edited with it) as they
 /// are once moved from the ARE to the GIT (the GIT's, then the ARE's it
 /// lacks, as Verify's fix moves them), and whether any were in the ARE;
 /// and their GIT roots' VarTable, the first's with the others'.
-#[allow(clippy::type_complexity)]
-fn variables_moved(
-    f: &mut Form<'_>,
-) -> Option<(crate::widgets::FieldTarget, Vec<(ResRef, Vec<mg_gff::Struct>, bool)>)> {
+fn variables_moved(f: &mut Form<'_>, ui: &Ui) -> std::sync::Arc<VarsMovedCache> {
+    let ws_key = f.app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
+    let load_order = f.app.load_order;
+    let id = egui::Id::new("area-props-variables-moved-cache");
+    if let Some(cached) = ui.data(|d| d.get_temp::<std::sync::Arc<VarsMovedCache>>(id))
+        && cached.0.0 == ws_key
+        && cached.0.1 == load_order
+        && cached.0.2 == f.key
+        && cached.0.3 == f.also
+    {
+        return cached;
+    }
     let areas: Vec<ResRef> =
         std::iter::once(f.key.resref).chain(f.also.iter().map(|(k, _)| k.resref)).collect();
-    let ws = f.app.ws.as_mut()?;
-    let mut lists = Vec::new();
-    for &area in &areas {
-        let read = |t: ResType, ws: &mut mg_edit::Workspace| -> Vec<mg_gff::Struct> {
-            ws.doc(&ResKey::new(area, t))
-                .ok()
-                .and_then(|d| d.root.list("VarTable").map(<[_]>::to_vec))
-                .unwrap_or_default()
-        };
-        lists.push((area, read(ResType::GIT, ws), read(ResType::ARE, ws)));
-    }
-    let moved = lists
-        .into_iter()
-        .map(|(area, git, are)| (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty()))
-        .collect();
-    let git = |a: ResRef| (ResKey::new(a, ResType::GIT), GffPath::root());
-    let (key, path) = git(areas[0]);
-    let mut target = crate::widgets::FieldTarget::new(key, path, "VarTable");
-    target.also = std::sync::Arc::new(areas[1..].iter().map(|&a| git(a)).collect());
-    Some((target, moved))
+    let computed = match f.app.ws.as_mut() {
+        Some(ws) => {
+            let mut lists = Vec::new();
+            for &area in &areas {
+                let read = |t: ResType, ws: &mut mg_edit::Workspace| -> Vec<mg_gff::Struct> {
+                    ws.doc(&ResKey::new(area, t))
+                        .ok()
+                        .and_then(|d| d.root.list("VarTable").map(<[_]>::to_vec))
+                        .unwrap_or_default()
+                };
+                lists.push((area, read(ResType::GIT, ws), read(ResType::ARE, ws)));
+            }
+            let moved = lists
+                .into_iter()
+                .map(|(area, git, are)| {
+                    (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty())
+                })
+                .collect();
+            let git = |a: ResRef| (ResKey::new(a, ResType::GIT), GffPath::root());
+            let (key, path) = git(areas[0]);
+            let mut target = crate::widgets::FieldTarget::new(key, path, "VarTable");
+            target.also = std::sync::Arc::new(areas[1..].iter().map(|&a| git(a)).collect());
+            Some((target, moved))
+        }
+        None => None,
+    };
+    let entry = std::sync::Arc::new(((ws_key, load_order, f.key, f.also.clone()), computed));
+    ui.data_mut(|d| d.insert_temp(id, entry.clone()));
+    entry
 }
 
 /// Moves the variables still in an area's ARE to its GIT (`moved`, as
@@ -1289,13 +1387,14 @@ fn move_variables(f: &mut Form<'_>, moved: &[(ResRef, Vec<mg_gff::Struct>, bool)
 /// ([`crate::widgets::variables_page`]), those still in an ARE moved to
 /// the GIT first, as the Variables… button moves them.
 fn variables_page(f: &mut Form<'_>, ui: &mut Ui) {
-    let Some((target, moved)) = variables_moved(f) else { return };
-    if move_variables(f, &moved) {
+    let cached = variables_moved(f, ui);
+    let Some((target, moved)) = cached.1.as_ref() else { return };
+    if move_variables(f, moved) {
         ui.weak("Moving the variables from the ARE to the GIT…");
         return;
     }
     let locked = crate::claims::read_only(f.app, f.key.resref);
-    crate::widgets::variables_page(f.app, ui, target, &moved[0].1, locked);
+    crate::widgets::variables_page(f.app, ui, target.clone(), &moved[0].1, locked);
 }
 
 /// What [`AreaChooser::run`]'s length was worked out for: the step on top
@@ -1623,9 +1722,10 @@ impl AreaChooser {
             return shown.clone();
         }
         let filters = self.filters();
+        let compiled = filters.compiled();
         let holds = |a: &ResRef| holding.is_none_or(|h| h.contains(a));
         let shown: Vec<usize> = (areas.iter().enumerate())
-            .filter(|(_, (a, i, _))| filters.matches(i) && holds(a))
+            .filter(|(_, (a, i, _))| compiled.matches(i) && holds(a))
             .map(|(n, _)| n)
             .collect();
         let shown = std::sync::Arc::new(shown);

@@ -535,12 +535,27 @@ pub(super) fn item_list(
     // Each row's height as it was last drawn (0: not yet), for the rows
     // out of sight, which take their room only; one never drawn takes
     // the middle height of those that were.
+    #[derive(Clone)]
+    struct ItemHeights {
+        heights: Vec<f32>,
+        guess: f32,
+    }
     let heights_id = egui::Id::new(("item-heights", key, path.to_string()));
-    let mut heights: Vec<f32> = ui.data(|d| d.get_temp(heights_id)).unwrap_or_default();
-    heights.resize(items.len(), 0.0);
-    let mut drawn: Vec<f32> = heights.iter().copied().filter(|h| *h > 0.0).collect();
-    drawn.sort_by(f32::total_cmp);
-    let guess = drawn.get(drawn.len() / 2).copied().unwrap_or(ICON_MAX.y / 2.0 + 4.0);
+    let mut stored =
+        ui.data(|d| d.get_temp::<std::sync::Arc<ItemHeights>>(heights_id)).unwrap_or_else(|| {
+            std::sync::Arc::new(ItemHeights { heights: Vec::new(), guess: ICON_MAX.y / 2.0 + 4.0 })
+        });
+    let mut modified = stored.heights.len() != items.len();
+    if modified {
+        let mut next = stored.heights.clone();
+        next.resize(items.len(), 0.0);
+        let mut drawn: Vec<f32> = next.iter().copied().filter(|h| *h > 0.0).collect();
+        drawn.sort_by(f32::total_cmp);
+        let guess = drawn.get(drawn.len() / 2).copied().unwrap_or(ICON_MAX.y / 2.0 + 4.0);
+        stored = std::sync::Arc::new(ItemHeights { heights: next, guess });
+    }
+    let guess = stored.guess;
+    let mut updated: Vec<(usize, f32)> = Vec::new();
     let list = egui::ScrollArea::vertical()
         .id_salt(("items", key, path.to_string()))
         .max_height(height)
@@ -551,13 +566,33 @@ pub(super) fn item_list(
             ui.set_min_height(48.0);
             // (Rows that meet: each as tall as its icon, at least a row.)
             mg_uikit::list_rows(ui);
+            let width = ui.available_width() - gutter;
+            let clip_top = ui.clip_rect().top();
+            let clip_bottom = ui.clip_rect().bottom();
+            let spacing_y = ui.spacing().item_spacing.y;
+            let x_vis = ui
+                .clip_rect()
+                .x_range()
+                .intersects(egui::Rangef::new(ui.cursor().min.x, ui.cursor().min.x + width));
+            let mut y = ui.cursor().top();
+            let mut skipped_h = 0.0f32;
+            let mut skipped_n = 0usize;
             for (i, it) in items.iter().enumerate() {
-                let width = ui.available_width() - gutter;
-                let known = if heights[i] > 0.0 { heights[i] } else { guess };
-                let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(width, known));
-                if !ui.is_rect_visible(room) {
-                    ui.allocate_space(egui::vec2(width, known));
+                let known = if stored.heights[i] > 0.0 { stored.heights[i] } else { guess };
+                let visible = x_vis && y + known >= clip_top && y <= clip_bottom;
+                if !visible {
+                    skipped_h += known;
+                    skipped_n += 1;
+                    y += known + spacing_y;
                     continue;
+                }
+                if skipped_n > 0 {
+                    ui.allocate_space(egui::vec2(
+                        width,
+                        skipped_h + (skipped_n - 1) as f32 * spacing_y,
+                    ));
+                    skipped_h = 0.0;
+                    skipped_n = 0;
                 }
                 let resref = entry_resref(it);
                 let (layers, n) = make(i, it);
@@ -566,8 +601,11 @@ pub(super) fn item_list(
                 // and potions compact.
                 let height = crate::images::icon_size(layers, ICON_MAX).y + 4.0;
                 let row = egui::vec2(width, height.max(ui.spacing().interact_size.y));
-                heights[i] = row.y;
+                if (stored.heights[i] - row.y).abs() > f32::EPSILON {
+                    updated.push((i, row.y));
+                }
                 let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
+                y = ui.cursor().top();
                 if ui.rect_contains_pointer(rect) {
                     hovered = Some(i);
                     // One of the list's own rows let go here takes this
@@ -679,8 +717,26 @@ pub(super) fn item_list(
                     });
                 });
             }
+            if skipped_n > 0 {
+                ui.allocate_space(egui::vec2(
+                    width,
+                    skipped_h + (skipped_n - 1) as f32 * spacing_y,
+                ));
+            }
         });
-    ui.data_mut(|d| d.insert_temp(heights_id, heights));
+    if !updated.is_empty() {
+        modified = true;
+        let inner = std::sync::Arc::make_mut(&mut stored);
+        for (i, h) in updated {
+            inner.heights[i] = h;
+        }
+        let mut drawn: Vec<f32> = inner.heights.iter().copied().filter(|h| *h > 0.0).collect();
+        drawn.sort_by(f32::total_cmp);
+        inner.guess = drawn.get(drawn.len() / 2).copied().unwrap_or(ICON_MAX.y / 2.0 + 4.0);
+    }
+    if modified {
+        ui.data_mut(|d| d.insert_temp(heights_id, stored));
+    }
     // A row moved within the list: out of its place and in before the row
     // it was let go on.
     if let Some((from, to)) = reorder

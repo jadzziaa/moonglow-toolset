@@ -444,7 +444,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         return;
     }
     let shown = crate::area_view::kinds_shown(app, area);
-    let menu_commands = app.plugin_menu_commands();
+    let menu_commands = app.plugin_menu_commands_cached();
     let in_hand = last.map(|(kind, index)| (kind, index, app.outliner.reveal));
     let mut keys = tree::ContentKeys {
         cursor: app.outliner.cursor,
@@ -816,11 +816,11 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
         };
         // Letters go to the bookmark whose line's text begins with them,
         // as the Outliner's rows of an area go by their names.
-        let texts: Vec<String> = (rows.iter())
-            .map(|(_, words)| words.split_once(": ").map_or(words.as_str(), |w| w.1))
-            .map(mg_core::text::fold)
-            .collect();
         let seek = |from: Option<usize>, typed: &str| {
+            let texts: Vec<String> = (rows.iter())
+                .map(|(_, words)| words.split_once(": ").map_or(words.as_str(), |w| w.1))
+                .map(mg_core::text::fold)
+                .collect();
             // (Its rows' places from 1, after the group's own row.)
             // (From the group's own row, or none: from the first, itself
             // first.)
@@ -1210,8 +1210,14 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
         return;
     }
     let types = &facts.types;
-    let found = mg_core::text::Needle::new(&app.haks[at].filter).as_str().to_string();
-    let current = types.iter().position(|(t, _)| found == format!(".{t}"));
+    let needle = mg_core::text::Needle::new(&app.haks[at].filter);
+    let found = needle.as_str();
+    let current = found.strip_prefix('.').and_then(|ext| {
+        types.iter().position(|(t, _)| match t.extension() {
+            Some(e) => ext == e,
+            None => ext.strip_prefix('#').is_some_and(|n| n.parse::<u16>().ok() == Some(t.0)),
+        })
+    });
     let mut cursor = match app.outliner.marks_cursor {
         Some((k, at)) if k == owner => Some(at.min(types.len().saturating_sub(1))),
         _ => None,
@@ -1315,8 +1321,8 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
             _ => None,
         };
         // Letters go to the type whose extension begins with them.
-        let texts: Vec<String> = types.iter().map(|(t, _)| t.to_string()).collect();
         let seek = |from: Option<usize>, typed: &str| {
+            let texts: Vec<String> = types.iter().map(|(t, _)| t.to_string()).collect();
             let from = from.unwrap_or(texts.len().saturating_sub(1));
             crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
         };
@@ -1334,12 +1340,16 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
     // (the review's ruling: typed over meanwhile, Find is the builder's own,
     // `hak_view::follow_all`).
     if let Some((t, _)) = go.and_then(|n| types.get(n)) {
-        let words = format!(".{t}");
+        let same = found.strip_prefix('.').is_some_and(|ext| match t.extension() {
+            Some(e) => ext == e,
+            None => ext.strip_prefix('#').is_some_and(|n| n.parse::<u16>().ok() == Some(t.0)),
+        });
         let d = &mut app.haks[at];
-        if found == words {
+        if same {
             d.filter = d.find_before.take().unwrap_or_default();
             d.type_find = None;
         } else {
+            let words = format!(".{t}");
             if d.type_find.is_none() {
                 d.find_before = Some(std::mem::take(&mut d.filter));
             }
@@ -1550,7 +1560,11 @@ fn columns(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
     }
     let doc = &app.tables[at];
     let current = doc.selected.map(|s| s.1);
-    let shown: Vec<bool> = names.iter().map(|c| !doc.hidden.contains(&c.to_lowercase())).collect();
+    let shown: Vec<bool> = if doc.hidden.is_empty() {
+        vec![true; names.len()]
+    } else {
+        names.iter().map(|c| !doc.hidden.contains(&c.to_lowercase())).collect()
+    };
     let mut cursor = match app.outliner.marks_cursor {
         Some((k, at)) if k == owner => Some(at.min(names.len().saturating_sub(1))),
         _ => None,
@@ -1658,8 +1672,8 @@ fn columns(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
             _ => None,
         };
         // Letters go to the column whose name begins with them.
-        let texts: Vec<String> = names.iter().map(|n| mg_core::text::fold(n)).collect();
         let seek = |from: Option<usize>, typed: &str| {
+            let texts: Vec<String> = names.iter().map(|n| mg_core::text::fold(n)).collect();
             let from = from.unwrap_or(texts.len().saturating_sub(1));
             crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
         };

@@ -11,16 +11,6 @@ use crate::common::*;
 use egui::accesskit::Toggled;
 use mg_area::ObjectKind;
 
-/// Frames until `done`, for ten seconds at most (an area's view asks for
-/// frames as it draws, so `settle` may not end beside one).
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 10, "never: {what}");
-        h.step();
-    }
-}
-
 /// Frames until the Outliner's rows stop moving (a row brought into sight
 /// scrolls there over a few frames): the last kind's row in the same place
 /// three frames running.
@@ -85,11 +75,11 @@ fn outliner_app_with(
             other.set(Some(b));
         }
     };
-    let (mut app, rs, area) = area_app(name, "ttr01", None, 4, None, &place)?;
+    let (mut app, area) = area_ui_app(name, "ttr01", None, 4, None, &place)?;
     put_in(&mut app, mode);
     // (1000 high: the Outliner under the Module panel's 496 points has
     // room for its kinds and some rows.)
-    let mut h = area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, HEIGHT);
+    let mut h = harness(app, AREA_HARNESS_WIDTH, HEIGHT);
     until(&mut h, "the area in front", |h| h.state().area_views.contains_key(&area));
     // (The builder unfolds the Left Dock, folded at this width.)
     unfold_left_dock(&mut h);
@@ -523,7 +513,7 @@ fn the_outliner_s_keys() {
 /// object selected still and its row marked.
 #[test]
 fn a_read_only_area_s_outliner_hides_and_deletes_nothing() {
-    let Some((mut h, area)) = read_only_area_harness("outliner-read-only") else { return };
+    let Some((mut h, area)) = read_only_area_ui_harness("outliner-read-only") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     until(&mut h, "the Outliner", |h| h.query_by_label(mg_ui::OUTLINER).is_some());

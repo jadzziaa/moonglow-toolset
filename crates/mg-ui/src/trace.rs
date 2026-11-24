@@ -11,16 +11,19 @@
 //! set aside before) and a new one begun, so a session takes two files'
 //! room at most.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 static ON: AtomicBool = AtomicBool::new(false);
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+static GEN: AtomicU64 = AtomicU64::new(1);
 
 /// How large the debug log's file grows before it is set aside, in bytes.
 pub const LIMIT: u64 = 4 << 20;
@@ -140,6 +143,7 @@ pub fn set(on: bool) {
         }
     }
     ON.store(on, Ordering::Relaxed);
+    GEN.fetch_add(1, Ordering::Relaxed);
     if on {
         note(format!(
             "Moonglow Toolset {} on {} {}, {} UTC",
@@ -237,6 +241,74 @@ pub fn changed(topic: &str, text: impl FnOnce() -> String) {
     }
     state.last.insert(topic.to_string(), text.clone());
     write(state, &format!("{topic}: {text}"));
+}
+
+fn hash_of<H: Hash + ?Sized>(value: &H) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut h);
+    h.finish()
+}
+
+fn changed_hashed(
+    id_hash: (u64, u64),
+    key_hash: u64,
+    make_topic: impl FnOnce() -> String,
+    make_text: impl FnOnce() -> String,
+) {
+    let trace_gen = GEN.load(Ordering::Relaxed);
+    type TraceKeys = (u64, HashMap<(u64, u64), u64>);
+    thread_local! {
+        static KEYS: RefCell<TraceKeys> = RefCell::new((0, HashMap::new()));
+    }
+    let unchanged = KEYS.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        if guard.0 != trace_gen {
+            guard.0 = trace_gen;
+            guard.1.clear();
+        }
+        guard.1.get(&id_hash) == Some(&key_hash)
+    });
+    if unchanged {
+        return;
+    }
+    let topic = make_topic();
+    let text = make_text();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(state) = state.as_mut() else { return };
+    if state.last.get(&topic).is_none_or(|last| *last != text) {
+        state.last.insert(topic.clone(), text.clone());
+        write(state, &format!("{topic}: {text}"));
+    }
+    KEYS.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        if guard.0 == trace_gen {
+            guard.1.insert(id_hash, key_hash);
+        }
+    });
+}
+
+/// Fast path for [`changed`] when a cheap scalar/hash key identifies all inputs to `text`.
+pub fn changed_key<K: Hash>(topic: &str, key: &K, text: impl FnOnce() -> String) {
+    if !on() {
+        return;
+    }
+    let id = (hash_of(topic), topic.len() as u64);
+    changed_hashed(id, hash_of(key), || topic.to_string(), text);
+}
+
+/// Fast path for [`changed`] when both the topic label and value derive from cheap keys.
+pub fn changed_for<I: Hash, K: Hash>(
+    tag: &str,
+    id: &I,
+    key: &K,
+    topic: impl FnOnce() -> String,
+    text: impl FnOnce() -> String,
+) {
+    if !on() {
+        return;
+    }
+    let id_hash = (hash_of(tag), hash_of(id));
+    changed_hashed(id_hash, hash_of(key), topic, text);
 }
 
 /// The graphics libraries' messages (wgpu, eframe): warnings and errors,

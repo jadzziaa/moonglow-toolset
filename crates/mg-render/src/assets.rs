@@ -152,11 +152,10 @@ impl Assets for ResMan {
             let read = |palette: &'static str| read_palette(self, palette);
             Some(plt_colored(&Plt::read(&data).ok()?, colors.unwrap_or([0; 10]), kept, read))
         };
-        let found = self.texture(image);
-        let gray = found.as_ref().is_some_and(|(t, d)| is_gray(*t, d));
-        let plain = || {
-            let (t, data) = found.as_ref()?;
-            mg_image::read(*t, data).ok()
+        let mut loaded = None;
+        let mut plain = || {
+            let (t, d) = loaded.get_or_insert_with(|| self.texture(image)).as_ref()?;
+            mg_image::read(*t, d).ok()
         };
         // Asked for in colors (a creature's or an item's part) and not
         // through an MTR, a DDS or a true-color TGA of the name first, over
@@ -165,8 +164,17 @@ impl Assets for ResMan {
         // dwarf's head, pmd0_head001, is both). Seen in the client: `part_textures_look` in
         // mg-corpus-tests' `client_render.rs`. Otherwise, and through an
         // MTR, the DDS or TGA first.
-        let texture = if colors.is_some() && mtr.is_none() && gray {
-            plt().or_else(plain)?
+        let texture = if colors.is_some()
+            && mtr.is_none()
+            && self.contains(&ResKey::new(image, ResType::PLT))
+        {
+            let prefer_plt = match self.texture_type(image) {
+                None => true,
+                Some(t) => {
+                    self.get_start(&ResKey::new(image, t), 128).is_ok_and(|d| is_gray(t, &d))
+                }
+            };
+            if prefer_plt { plt().or_else(&mut plain)? } else { plain().or_else(plt)? }
         } else {
             plain().or_else(plt)?
         };

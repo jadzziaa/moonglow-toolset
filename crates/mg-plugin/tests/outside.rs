@@ -2,8 +2,7 @@
 //! a file and a folder the user chose, resources for a hak they agreed
 //! to, pictures, and areas made and painted as the area editor does it.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,29 +11,12 @@ use mg_edit::{Command, Workspace};
 use mg_gff::Gff;
 use mg_module::Module;
 use mg_plugin::{
-    Answer, HakData, Host, Input, Level, Outcome, Plugin, PluginError, Question, run_command,
-    run_console,
+    Answer, HakData, Input, Outcome, Plugin, PluginError, Question, run_command, run_console,
 };
 use mg_resman::ResKey;
 use mg_rules::GameData;
 
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<String>>,
-    answers: RefCell<VecDeque<Option<Answer>>>,
-    asked: RefCell<Vec<Question>>,
-}
-
-impl Host for TestHost {
-    fn log(&self, _: Level, text: &str) {
-        self.log.borrow_mut().push(text.to_string());
-    }
-
-    fn ask(&self, question: &Question) -> Option<Answer> {
-        self.asked.borrow_mut().push(question.clone());
-        self.answers.borrow_mut().pop_front().flatten()
-    }
-}
+use crate::common::TestHost;
 
 fn host(answers: impl IntoIterator<Item = Option<Answer>>) -> Rc<TestHost> {
     let host = TestHost::default();
@@ -52,16 +34,9 @@ fn console(code: &str, host: &Rc<TestHost>) -> Result<Outcome, PluginError> {
     run_console(code, Input::new(bare(), None), host.clone())
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 #[test]
 fn a_file_the_user_chose_is_read() {
-    let dir = scratch("file");
+    let dir = mg_testkit::scratch_dir("mg-plugin-file");
     std::fs::write(dir.join("notes.txt"), "from outside").unwrap();
     let h = host([Some(Answer::Path(dir.join("notes.txt")))]);
     let code = r#"
@@ -69,17 +44,16 @@ fn a_file_the_user_chose_is_read() {
         return file.name, file.bytes, ctx.ui:open_file()
     "#;
     console(code, &h).unwrap();
-    assert_eq!(h.log.borrow().as_slice(), ["\"notes.txt\"", "\"from outside\"", "nil"]);
+    assert_eq!(h.log_texts(), ["\"notes.txt\"", "\"from outside\"", "nil"]);
     assert_eq!(
         h.asked.borrow()[0],
         Question::File { title: "Notes".into(), extensions: vec!["txt".into()] }
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn a_folder_the_user_chose_is_read_and_nothing_outside_it() {
-    let dir = scratch("folder");
+    let dir = mg_testkit::scratch_dir("mg-plugin-folder");
     std::fs::create_dir_all(dir.join("export/sub")).unwrap();
     std::fs::write(dir.join("export/tiles.set"), "[GENERAL]\n").unwrap();
     std::fs::write(dir.join("export/sub/deep.txt"), "deep").unwrap();
@@ -91,20 +65,16 @@ fn a_folder_the_user_chose_is_read_and_nothing_outside_it() {
         return folder.name, table.concat(folder:files(), " "), folder:text("sub/deep.txt"), out
     "#;
     console(code, &h).unwrap();
-    assert_eq!(
-        h.log.borrow().as_slice(),
-        ["\"export\"", "\"sub/deep.txt tiles.set\"", "\"deep\"", "false"]
-    );
+    assert_eq!(h.log_texts(), ["\"export\"", "\"sub/deep.txt tiles.set\"", "\"deep\"", "false"]);
     // Nobody to ask (a check, the command line without --file): nothing.
     let h = host([]);
     console("return ctx.ui:open_folder()", &h).unwrap();
-    assert_eq!(h.log.borrow().as_slice(), ["nil"]);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(h.log_texts(), ["nil"]);
 }
 
 #[test]
 fn a_hak_takes_resources_with_the_user_s_leave() {
-    let dir = scratch("hak");
+    let dir = mg_testkit::scratch_dir("mg-plugin-hak");
     std::fs::write(dir.join("big.tga"), "pixels").unwrap();
     let code = r#"
         ctx.hak:write("My_Tiles", "tiles.set", "[GENERAL]")
@@ -126,7 +96,7 @@ fn a_hak_takes_resources_with_the_user_s_leave() {
     let h = host([Some(Answer::Yes), Some(Answer::Path(dir.clone()))]);
     let outcome = console(code, &h).unwrap();
     assert_eq!(h.asked.borrow().len(), 2);
-    assert_eq!(h.log.borrow().as_slice(), ["true", "\"pixels\""]);
+    assert_eq!(h.log_texts(), ["true", "\"pixels\""]);
     assert_eq!(outcome.haks.len(), 1);
     let hak = &outcome.haks[0];
     assert_eq!(hak.name, "my_tiles");
@@ -152,7 +122,6 @@ fn a_hak_takes_resources_with_the_user_s_leave() {
         let h = host([Some(Answer::Yes)]);
         assert!(console(bad, &h).is_err(), "{bad}");
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A hak a job wrote is kept as it was and as it was written, so that the
@@ -166,7 +135,7 @@ fn a_hak_takes_resources_with_the_user_s_leave() {
 /// and too large to read.
 #[test]
 fn a_file_put_into_a_hak_is_not_read_to_say_it_is_there() {
-    let dir = scratch("hak-large");
+    let dir = mg_testkit::scratch_dir("mg-plugin-hak-large");
     let big = std::fs::File::create(dir.join("big.tga")).unwrap();
     big.set_len(65 << 20).unwrap();
     drop(big);
@@ -181,19 +150,18 @@ fn a_file_put_into_a_hak_is_not_read_to_say_it_is_there() {
     let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
     let started = std::time::Instant::now();
     console(code, &h).unwrap();
-    let log = h.log.borrow();
+    let log = h.log_texts();
     assert_eq!(
         (log[0].as_str(), log[1].as_str(), log[3].as_str()),
         ("true", "false", "\"pixels\"")
     );
     assert!(log[2].contains("big.tga has 65 MB; a plugin reads files of up to 64"), "{}", log[2]);
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn a_hak_written_is_taken_back_and_written_again() {
-    let dir = scratch("hak-undo");
+    let dir = mg_testkit::scratch_dir("mg-plugin-hak-undo");
     let haks = dir.join("hak");
     std::fs::create_dir_all(&haks).unwrap();
     let job = |code: &str| {
@@ -232,7 +200,6 @@ fn a_hak_written_is_taken_back_and_written_again() {
     assert!(copies.is_dir());
     drop((done, made));
     assert!(!copies.exists(), "the copies go");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// What a job puts into haks past what it holds in memory waits in
@@ -240,7 +207,7 @@ fn a_hak_written_is_taken_back_and_written_again() {
 /// into the hak, and taken away with the job's haks.
 #[test]
 fn a_job_s_haks_past_its_memory_wait_in_scratch_files() {
-    let dir = scratch("hak-held");
+    let dir = mg_testkit::scratch_dir("mg-plugin-hak-held");
     let mb = 1 << 20;
     let n = mg_plugin::HELD_IN_MEMORY / mb + 3;
     let code = format!(
@@ -263,7 +230,6 @@ fn a_job_s_haks_past_its_memory_wait_in_scratch_files() {
     assert_eq!(last.len(), mb + format!("{n}").len());
     drop(outcome);
     assert!(!scratch_dir.exists(), "the scratch files go with the job's haks");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -275,7 +241,7 @@ fn a_picture_is_decoded() {
         enc.set_depth(png::BitDepth::Eight);
         enc.write_header().unwrap().write_image_data(&[10, 200]).unwrap();
     }
-    let dir = scratch("picture");
+    let dir = mg_testkit::scratch_dir("mg-plugin-picture");
     std::fs::write(dir.join("heights.png"), &png_bytes).unwrap();
     let h = host([Some(Answer::Path(dir.join("heights.png")))]);
     let code = r#"
@@ -285,18 +251,25 @@ fn a_picture_is_decoded() {
         return image.width, image.height, r + g + b, a, outside
     "#;
     console(code, &h).unwrap();
-    assert_eq!(h.log.borrow().as_slice(), ["2", "1", "600", "255", "false"]);
+    assert_eq!(h.log_texts(), ["2", "1", "600", "255", "false"]);
     assert!(console(r#"return mg.image("no picture")"#, &host([])).is_err());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn game() -> Option<Arc<GameData>> {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return None;
+    let root = match mg_testkit::nwn_root() {
+        Some(r) => r,
+        None if mg_testkit::corpus_required() => {
+            panic!("MOONGLOW_REQUIRE_CORPUS is set but no game install was found (set NWN_ROOT)")
+        }
+        None => {
+            eprintln!("skipped: no game install");
+            return None;
+        }
     };
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    Some(Arc::new(GameData::open(&install).unwrap()))
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = Arc::new(GameData::open_tlk(&install).unwrap());
+    Some(Arc::new(GameData::with_shared_tlk(rm, tlk)))
 }
 
 fn applied(outcome: &Outcome) -> Module {
@@ -340,9 +313,9 @@ fn an_area_is_made_and_painted() {
             #area.terrains > 2, area.step
     "#;
     let outcome = run_console(code, Input::new(bare(), Some(game)), h.clone()).unwrap();
-    assert_eq!(h.log.borrow_mut().remove(0), "true true true true false true");
+    assert_eq!(h.take_log_text(0), "true true true true false true");
     assert_eq!(
-        h.log.borrow().as_slice(),
+        h.log_texts(),
         [
             "\"Rural\"",
             "\"highfield\"",
@@ -418,7 +391,7 @@ fn a_batch_of_strokes_goes_in_at_once() {
         let h = host([]);
         let outcome = run_console(&code, Input::new(bare(), Some(game.clone())), h.clone())
             .unwrap_or_else(|e| panic!("{e}"));
-        let painted: usize = h.log.borrow()[0].parse().unwrap();
+        let painted: usize = h.log.borrow()[0].1.parse().unwrap();
         (outcome, painted)
     };
     let (one_by_one, painted) = paint(false);
@@ -447,11 +420,7 @@ fn a_batch_of_strokes_goes_in_at_once() {
     "#;
     let h = host([]);
     run_console(check, Input::new(module, Some(game)), h.clone()).unwrap();
-    assert_eq!(
-        h.log.borrow().as_slice(),
-        ["\"Water\"", "\"Grass\""],
-        "the failed batch left nothing"
-    );
+    assert_eq!(h.log_texts(), ["\"Water\"", "\"Grass\""], "the failed batch left nothing");
 }
 
 /// The example that imports a tileset's folder: its files go into a hak,
@@ -462,7 +431,7 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
     let Some(game) = game() else { return };
     // A tileset's folder: the game's rural set under another name, a
     // texture, and a file no hak takes.
-    let dir = scratch("tileset");
+    let dir = mg_testkit::scratch_dir("mg-plugin-tileset");
     let folder = dir.join("export");
     std::fs::create_dir_all(&folder).unwrap();
     let set = game.resman.get(&ResKey::from_filename("ttr01.set").unwrap()).unwrap().into_owned();
@@ -486,7 +455,7 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
     let h = host([Some(Answer::Path(folder)), Some(Answer::Values(form)), Some(Answer::Yes)]);
     let input = Input::new(bare(), Some(game));
     let outcome = run_command(&plugin, "import", input, h.clone()).unwrap();
-    let log = h.log.borrow().join("\n");
+    let log = h.log_texts().join("\n");
     assert!(log.contains("2 files into mytiles.hak, 1 left out"), "{log}");
     assert!(log.contains("made the area imported with the group"), "{log}");
     assert_eq!(outcome.haks.len(), 1);
@@ -505,7 +474,6 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
             assert_eq!(tiles[i].integer("Tile_ID"), Some(i64::from(*id)), "tile {i}");
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A module whose hak has an `encoding.2da` (byte 0xF0 is "ğ"): a
@@ -550,7 +518,7 @@ fn a_plugin_s_text_is_read_and_written_by_the_module_s_encoding_table() {
     let code = code.replace("ığ", "ğ");
     let input = Input::new(module(), Some(game(true)));
     let outcome = run_console(&code, input, h.clone()).unwrap();
-    assert_eq!(h.log.borrow_mut().remove(0), "\"// dağ\"");
+    assert_eq!(h.take_log_text(0), "\"// dağ\"");
     assert_eq!(written(&outcome).unwrap(), b"// \xf0");
     // Without the table: Windows-1252, where "ğ" has no byte.
     let input = Input::new(module(), Some(game(false)));
@@ -559,13 +527,13 @@ fn a_plugin_s_text_is_read_and_written_by_the_module_s_encoding_table() {
     let code = code.replace("ğ", "ð");
     let input = Input::new(module(), Some(game(false)));
     let outcome = run_console(&code, input, h.clone()).unwrap();
-    assert_eq!(h.log.borrow_mut().remove(0), "\"// dað\"");
+    assert_eq!(h.take_log_text(0), "\"// dað\"");
     assert_eq!(written(&outcome).unwrap(), b"// \xf0");
 }
 
 /// A plugin in a scratch folder, with `sections` after its `[plugin]`.
 fn written(name: &str, sections: &str, code: &str) -> Plugin {
-    let dir = scratch(name);
+    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-{name}"));
     let cfg = format!(
         "[plugin]\nid = \"test.{name}\"\nname = \"Writer\"\nversion = \"1\"\napi = \"0.3\"\n\
          license = \"GPL-3.0-or-later\"\n{sections}"
@@ -579,7 +547,7 @@ fn written(name: &str, sections: &str, code: &str) -> Plugin {
 /// handler has returned; nothing that leads out of the folder.
 #[test]
 fn a_folder_the_user_chose_is_written_into_with_their_leave() {
-    let dir = scratch("folder-write");
+    let dir = mg_testkit::scratch_dir("mg-plugin-folder-write");
     std::fs::create_dir_all(dir.join("out/sub")).unwrap();
     std::fs::write(dir.join("out/old.2da"), "old").unwrap();
     std::fs::write(dir.join("secret.txt"), "secret").unwrap();
@@ -627,7 +595,6 @@ fn a_folder_the_user_chose_is_written_into_with_their_leave() {
         assert!(sneaky.write().is_err());
         assert_eq!(std::fs::read(dir.join("secret.txt")).unwrap(), b"secret");
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// What a plugin does on an event is declared, registered with `mg.on`,
@@ -635,7 +602,7 @@ fn a_folder_the_user_chose_is_written_into_with_their_leave() {
 #[test]
 fn an_event_s_handler_gets_what_happened() {
     use mg_plugin::{Event, EventKind, run_check, run_event};
-    let dir = scratch("event-out");
+    let dir = mg_testkit::scratch_dir("mg-plugin-event-out");
     let plugin = written(
         "events",
         "[event]\nid = \"emit\"\non = \"module-saved\"\n[check]\nid = \"writes\"\ntitle = \"Writes\"\n",
@@ -659,7 +626,7 @@ fn an_event_s_handler_gets_what_happened() {
     let input = || Input::new(bare(), None);
     let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
     let outcome = run_event(&plugin, "emit", &happened, input(), h.clone()).unwrap();
-    assert_eq!(h.log.borrow().as_slice(), ["module-saved: guard.utc"]);
+    assert_eq!(h.log_texts(), ["module-saved: guard.utc"]);
     assert_eq!((outcome.label.as_str(), outcome.edits.len()), ("Emit", 1));
     outcome.folders[0].write().unwrap();
     assert_eq!(std::fs::read(dir.join("saved.txt")).unwrap(), b"guard.utc");
@@ -673,7 +640,6 @@ fn an_event_s_handler_gets_what_happened() {
         written("bad-event", "[event]\nid = \"x\"\non = \"midnight\"\n", "")
     });
     assert!(bad.is_err());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A folder's files are written whole, each in the place of the one of
@@ -681,7 +647,7 @@ fn an_event_s_handler_gets_what_happened() {
 /// file of the folder) is replaced, not written through.
 #[test]
 fn a_folder_s_files_are_written_whole() {
-    let dir = scratch("folder-whole");
+    let dir = mg_testkit::scratch_dir("mg-plugin-folder-whole");
     std::fs::write(dir.join("a.txt"), "old").unwrap();
     let files = vec![("a.txt".to_string(), b"new".to_vec()), ("b.txt".to_string(), b"b".to_vec())];
     let write = mg_plugin::FolderWrite { dir: dir.clone(), files };
@@ -706,5 +672,4 @@ fn a_folder_s_files_are_written_whole() {
         assert_eq!(std::fs::read(dir.join("link.txt")).unwrap(), b"mine");
         assert_eq!(names(), ["a.txt", "b.txt", "link.txt"]);
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -2,6 +2,8 @@
 //! applied (`mg_module::tags::clashes`): the window's Duplicate Tags and
 //! `mg set`/`mg apply`'s warnings read them here.
 
+use std::collections::HashMap;
+
 use mg_core::{ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
@@ -35,8 +37,8 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
         Was(usize),
         /// The item this edit (by its number) places.
         New(usize),
-        /// One of a list set whole: nothing is known of it.
-        Other,
+        /// An item at `(edit_index, item_index)` of a list set whole.
+        Replaced(usize, usize),
     }
     type ListAt = (ResKey, String);
     let placed = |key: &ResKey, list: &str| {
@@ -60,24 +62,25 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
     // What the edits take out, tags they set (the edit's number, its
     // list and the slot), and the area tags set.
     let mut taken: Vec<(usize, Slot)> = Vec::new();
-    let mut retagged: Vec<(usize, usize, Slot, &[u8])> = Vec::new();
-    let mut areas: Vec<(usize, Made)> = Vec::new();
+    let mut retagged: Vec<(usize, usize, Slot, Option<&[u8]>)> = Vec::new();
+    let mut areas: HashMap<ResKey, (usize, Option<&[u8]>)> = HashMap::new();
     for (n, e) in edits.iter().enumerate() {
         match e {
-            Edit::SetField { key, path, label, value: Some(Value::String(new)) }
-                if label == "Tag" =>
+            Edit::SetField { key, path, label, value }
+                if label == "Tag" && matches!(value, Some(Value::String(_)) | None) =>
             {
+                let new = match value {
+                    Some(Value::String(bytes)) => Some(bytes.as_slice()),
+                    _ => None,
+                };
                 match path.0.as_slice() {
                     [] if key.restype == ResType::ARE => {
-                        let was = ws.doc(key).ok().and_then(|d| d.root.string("Tag"));
-                        if was != Some(new.as_slice()) {
-                            areas.push((n, Made { key: *key, path: path.clone() }));
-                        }
+                        areas.insert(*key, (n, new));
                     }
                     [Step::Item(list, i)] if placed(key, list) => {
                         let at = slots_of(&mut lists, ws, key, list);
                         if let Some(slot) = lists[at].1.get(*i) {
-                            retagged.push((n, at, *slot, new.as_slice()));
+                            retagged.push((n, at, *slot, new));
                         }
                     }
                     _ => {}
@@ -87,11 +90,14 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
                 if path.0.is_empty() && placed(key, label) =>
             {
                 let at = slots_of(&mut lists, ws, key, label);
+                for prev in std::mem::take(&mut lists[at].1) {
+                    taken.push((at, prev));
+                }
                 let len = match value {
                     Some(Value::List(items)) => items.len(),
                     _ => 0,
                 };
-                lists[at].1 = vec![Slot::Other; len];
+                lists[at].1 = (0..len).map(|i| Slot::Replaced(n, i)).collect();
             }
             Edit::InsertItem { key, path, list, index, .. }
                 if path.0.is_empty() && placed(key, list) =>
@@ -123,7 +129,10 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
                 Edit::InsertItem { item, .. } => Some(of(item)),
                 _ => None,
             },
-            Slot::Other => None,
+            Slot::Replaced(n, i) => match edits.get(n)? {
+                Edit::SetField { value: Some(Value::List(items)), .. } => items.get(i).map(of),
+                _ => None,
+            },
         }
     };
     // The objects that were there and are taken out: one of them stands
@@ -136,15 +145,27 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
             gone.push((at, t));
         }
     }
-    let mut made: Vec<(usize, Made)> = areas;
+    let mut made: Vec<(usize, Made)> = areas
+        .into_iter()
+        .filter_map(|(key, (n, new))| {
+            let new = new?;
+            let was = ws.doc(&key).ok().and_then(|d| d.root.string("Tag"));
+            (was != Some(new)).then_some((n, Made { key, path: GffPath::root() }))
+        })
+        .collect();
     for (at, ((key, list), slots)) in lists.iter().enumerate() {
         for (place, slot) in slots.iter().copied().enumerate() {
             let here = || Made { key: *key, path: GffPath::root().item(list, place) };
-            // The first edit that set its tag to another than it had.
+            // The final edit in this command that set its tag (comparing against what it had).
             let was = told(ws, at, slot).map(|(tag, _)| tag);
-            let set = (retagged.iter())
-                .find(|(_, l, s, new)| *l == at && *s == slot && was.as_deref() != Some(*new));
-            let Slot::New(n) = slot else {
+            let set = (retagged.iter().rev())
+                .find(|(_, l, s, _)| *l == at && *s == slot)
+                .filter(|(_, _, _, new)| new.is_some() && was.as_deref() != *new);
+            let new_edit = match slot {
+                Slot::New(n) | Slot::Replaced(n, _) => Some(n),
+                Slot::Was(_) => None,
+            };
+            let Some(n) = new_edit else {
                 made.extend(set.map(|(n, ..)| (*n, here())));
                 continue;
             };
@@ -301,5 +322,86 @@ mod tests {
         assert_eq!((w.tag.as_slice(), w.custom, w.area), (&b"WP_A"[..], false, area));
         let w = weigh(&mut ws, &Made { key: git, path: wp }, &blueprint).unwrap();
         assert_eq!((w.tag.as_slice(), w.custom), (&b"WP_B"[..], true));
+    }
+
+    #[test]
+    fn replaced_lists_and_reverted_tags_are_tracked_per_item_and_by_final_tag() {
+        let rr = |s: &str| ResRef::from_str(s).unwrap();
+        let tagged = |tag: &str, template: &str| {
+            let mut s = Struct::new(9);
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s.set("TemplateResRef", Value::resref(rr(template)));
+            s
+        };
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tag", Value::String(b"AREA_A".to_vec()));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![tagged("BARREL", "plc_barrel"), tagged("CHEST", "plc_chest")]),
+        );
+        let mut m = Module::new();
+        let are_key = ResKey::new(rr("area"), ResType::ARE);
+        let git_key = ResKey::new(rr("area"), ResType::GIT);
+        m.set_gff(are_key, &are).unwrap();
+        m.set_gff(git_key, &git).unwrap();
+        let mut ws = Workspace::new(m);
+
+        // Whole-list SetField: BARREL kept unchanged (skipped), NEW_CRATE is made,
+        // and retagging CHEST flags only index 2 (not all Replaced slots).
+        let edits = vec![
+            Edit::SetField {
+                key: git_key,
+                path: GffPath::root(),
+                label: "Placeable List".into(),
+                value: Some(Value::List(vec![
+                    tagged("BARREL", "plc_barrel"),
+                    tagged("NEW_CRATE", "plc_crate"),
+                    tagged("CHEST", "plc_chest"),
+                ])),
+            },
+            Edit::SetField {
+                key: git_key,
+                path: GffPath::root().item("Placeable List", 2),
+                label: "Tag".into(),
+                value: Some(Value::String(b"CHEST_RENAMED".to_vec())),
+            },
+        ];
+        assert_eq!(
+            made_by(&mut ws, &edits),
+            vec![
+                Made { key: git_key, path: GffPath::root().item("Placeable List", 1) },
+                Made { key: git_key, path: GffPath::root().item("Placeable List", 2) },
+            ]
+        );
+
+        // A -> B -> A reverts on both ARE and placed GIT item emit nothing.
+        let revert = vec![
+            Edit::SetField {
+                key: are_key,
+                path: GffPath::root(),
+                label: "Tag".into(),
+                value: Some(Value::String(b"AREA_B".to_vec())),
+            },
+            Edit::SetField {
+                key: are_key,
+                path: GffPath::root(),
+                label: "Tag".into(),
+                value: Some(Value::String(b"AREA_A".to_vec())),
+            },
+            Edit::SetField {
+                key: git_key,
+                path: GffPath::root().item("Placeable List", 0),
+                label: "Tag".into(),
+                value: Some(Value::String(b"TEMP".to_vec())),
+            },
+            Edit::SetField {
+                key: git_key,
+                path: GffPath::root().item("Placeable List", 0),
+                label: "Tag".into(),
+                value: Some(Value::String(b"BARREL".to_vec())),
+            },
+        ];
+        assert!(made_by(&mut ws, &revert).is_empty());
     }
 }

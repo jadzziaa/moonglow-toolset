@@ -316,6 +316,19 @@ pub fn of_object(
     of_object_with(game, kind, object, items, shown, None)
 }
 
+/// [`of_object`], reusing `remembered`'s part-model texture caches across a
+/// batch of objects (such as loading an entire area).
+pub fn of_object_remembered(
+    game: &GameData,
+    kind: mg_rules::ObjectKind,
+    object: &Struct,
+    items: &dyn Fn(ResRef) -> Option<mg_gff::Gff>,
+    shown: Shown,
+    remembered: &Remembered,
+) -> Option<Result<Preview, PreviewError>> {
+    of_object_with(game, kind, object, items, shown, Some(remembered))
+}
+
 /// [`of_object`], with what a walk over many objects remembers of the
 /// models it has read ([`Remembered`]).
 pub(crate) fn of_object_with(
@@ -433,7 +446,7 @@ fn env_map(value: Option<&str>) -> Option<String> {
 /// are the same few models on every creature, and each was read and
 /// parsed again for each. Good for one game's load order as it is.
 #[derive(Debug, Default)]
-pub(crate) struct Remembered {
+pub struct Remembered {
     /// [`creature::plt_fallbacks`]' answers.
     fallbacks: std::cell::RefCell<std::collections::HashMap<String, BTreeMap<String, String>>>,
     /// [`creature::helmet_textures`]' answers.

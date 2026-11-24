@@ -171,17 +171,30 @@ fn hit_triangle(ray: &Ray, [a, b, c]: [Vec3; 3]) -> Option<f32> {
     mg_preview::compose::ray_triangle(ray.origin, ray.dir, a, b, c)
 }
 
+/// Per-tile cached world inverse and world-space AABB for [`Ground`].
+#[derive(Debug, Clone)]
+struct GroundTile {
+    walk: Arc<Walkmesh>,
+    to: Mat4,
+    inv: Mat4,
+    min: Vec3,
+    max: Vec3,
+}
+
 /// An area's ground: its tiles' walkmeshes, each read once per model.
 #[derive(Debug, Default)]
 pub struct Ground {
-    /// By tile index, with the tile's transform.
-    tiles: Vec<Option<(Arc<Walkmesh>, Mat4)>>,
+    /// By tile index, with precomputed inverse transform and world AABB.
+    tiles: Vec<Option<GroundTile>>,
     cache: HashMap<String, Option<Arc<Walkmesh>>>,
     /// By tile index, its ground level ([`Ground::tile_level`]).
     levels: Vec<Option<f32>>,
     /// Each model's level, measured once.
     level_cache: HashMap<String, Option<f32>>,
     width: u32,
+    area_bounds: Option<(Vec3, Vec3)>,
+    /// Tiles whose world AABB extends beyond their grid cell (or when `width == 0`).
+    overhangs: Vec<usize>,
 }
 
 impl Ground {
@@ -191,34 +204,80 @@ impl Ground {
         g
     }
 
+    /// Builds a [`GroundTile`] and folds its bounds/overhang status into the area summary.
+    fn place_tile(
+        i: usize,
+        width: u32,
+        walk: Arc<Walkmesh>,
+        to: Mat4,
+        area_bounds: &mut Option<(Vec3, Vec3)>,
+        overhangs: &mut Vec<usize>,
+    ) -> GroundTile {
+        let inv = to.inverse();
+        let (min, max) = world_aabb(walk.min, walk.max, to);
+        *area_bounds = Some(match *area_bounds {
+            Some((amin, amax)) => (amin.min(min), amax.max(max)),
+            None => (min, max),
+        });
+        let in_cell = width > 0 && {
+            let col = (i as u32 % width) as f32 * crate::TILE_SIZE;
+            let row = (i as u32 / width) as f32 * crate::TILE_SIZE;
+            let eps = 1e-3;
+            min.x >= col - eps
+                && max.x <= col + crate::TILE_SIZE + eps
+                && min.y >= row - eps
+                && max.y <= row + crate::TILE_SIZE + eps
+        };
+        if !in_cell {
+            overhangs.push(i);
+        }
+        GroundTile { walk, to, inv, min, max }
+    }
+
     /// Follows `area` after an edit (reading walkmeshes not seen before).
     pub fn update(&mut self, game: &GameData, area: &AreaModel) {
         let cache = &mut self.cache;
+        let mut area_bounds: Option<(Vec3, Vec3)> = None;
+        let mut overhangs = Vec::new();
+        self.width = area.width;
         self.tiles = area
             .tiles
             .iter()
-            .map(|t| {
+            .enumerate()
+            .map(|(i, t)| {
                 let name = t.model.as_ref()?;
-                let w = cache
+                let walk = cache
                     .entry(name.clone())
                     .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new))
                     .clone()?;
-                Some((w, t.transform()))
+                Some(Self::place_tile(
+                    i,
+                    area.width,
+                    walk,
+                    t.transform(),
+                    &mut area_bounds,
+                    &mut overhangs,
+                ))
             })
             .collect();
+        self.area_bounds = area_bounds;
+        self.overhangs = overhangs;
         let levels = &mut self.level_cache;
         self.levels = area
             .tiles
             .iter()
             .zip(&self.tiles)
             .map(|(t, w)| {
-                let (w, to) = w.as_ref()?;
+                let tile = w.as_ref()?;
                 let name = t.model.as_ref()?;
-                let level = *levels.entry(name.clone()).or_insert_with(|| w.level());
-                Some(level? + to.transform_point3(Vec3::ZERO).z)
+                let level = *levels.entry(name.clone()).or_insert_with(|| tile.walk.level());
+                Some(level? + tile.to.transform_point3(Vec3::ZERO).z)
             })
             .collect();
-        self.width = area.width;
+        let active: std::collections::HashSet<&str> =
+            area.tiles.iter().filter_map(|t| t.model.as_deref()).collect();
+        self.cache.retain(|k, _| active.contains(k.as_str()));
+        self.level_cache.retain(|k, _| active.contains(k.as_str()));
     }
 
     /// The tile index at a point, if it is inside the area.
@@ -241,10 +300,11 @@ impl Ground {
     /// The ground's height at `p` nearest to `near` (bridges and floors
     /// above others have several).
     pub fn height(&self, p: Vec2, near: f32) -> Option<f32> {
-        let (w, to) = self.tiles.get(self.tile_at(p)?)?.as_ref()?;
-        let local = to.inverse().transform_point3(p.extend(0.0));
-        let base = to.transform_point3(Vec3::ZERO).z;
-        w.heights(local.truncate())
+        let tile = self.tiles.get(self.tile_at(p)?)?.as_ref()?;
+        let local = tile.inv.transform_point3(p.extend(0.0));
+        let base = tile.to.transform_point3(Vec3::ZERO).z;
+        tile.walk
+            .heights(local.truncate())
             .map(|z| z + base)
             .min_by(|a, b| (a - near).abs().total_cmp(&(b - near).abs()))
     }
@@ -253,12 +313,12 @@ impl Ground {
     /// walkmesh faces there that face up within [`FLAT`] (a bridge over
     /// the ground, a floor over another: several; a cliff's face, none).
     pub fn flat_heights(&self, p: Vec2) -> Vec<f32> {
-        let Some((w, to)) = self.tile_at(p).and_then(|i| self.tiles.get(i)?.as_ref()) else {
+        let Some(tile) = self.tile_at(p).and_then(|i| self.tiles.get(i)?.as_ref()) else {
             return Vec::new();
         };
-        let local = to.inverse().transform_point3(p.extend(0.0)).truncate();
-        let base = to.transform_point3(Vec3::ZERO).z;
-        let mut out: Vec<f32> = (w.faces.iter())
+        let local = tile.inv.transform_point3(p.extend(0.0)).truncate();
+        let base = tile.to.transform_point3(Vec3::ZERO).z;
+        let mut out: Vec<f32> = (tile.walk.faces.iter())
             .filter(|f| is_flat(f.corners))
             .filter_map(|f| height_on(f, local))
             .map(|z| z + base)
@@ -271,10 +331,11 @@ impl Ground {
     /// [`height`](Self::height), on the faces whose surface material
     /// (surfacemat.2da row) `keep` keeps.
     pub fn height_on(&self, p: Vec2, near: f32, keep: impl Fn(u32) -> bool) -> Option<f32> {
-        let (w, to) = self.tiles.get(self.tile_at(p)?)?.as_ref()?;
-        let local = to.inverse().transform_point3(p.extend(0.0));
-        let base = to.transform_point3(Vec3::ZERO).z;
-        w.surfaces(local.truncate())
+        let tile = self.tiles.get(self.tile_at(p)?)?.as_ref()?;
+        let local = tile.inv.transform_point3(p.extend(0.0));
+        let base = tile.to.transform_point3(Vec3::ZERO).z;
+        tile.walk
+            .surfaces(local.truncate())
             .filter(|(_, m)| keep(*m))
             .map(|(z, _)| z + base)
             .min_by(|a, b| (a - near).abs().total_cmp(&(b - near).abs()))
@@ -292,26 +353,221 @@ impl Ground {
     /// in the area's space by `transform_point3`), in the order of
     /// [`Ground::faces`].
     pub fn tiles(&self) -> impl Iterator<Item = (&Walkmesh, Mat4)> + '_ {
-        self.tiles.iter().flatten().map(|(w, to)| (&**w, *to))
+        self.tiles.iter().flatten().map(|tile| (&*tile.walk, tile.to))
     }
 
     /// Where `ray` first meets the ground.
     pub fn hit(&self, ray: &Ray) -> Option<Vec3> {
+        let (area_min, area_max) = self.area_bounds?;
+        let (t_enter, t_exit) = ray_box_range(ray.origin, ray.dir, area_min, area_max)?;
         let mut best: Option<f32> = None;
-        for (w, to) in self.tiles.iter().flatten() {
-            let inverse = to.inverse();
-            let local = Ray {
-                origin: inverse.transform_point3(ray.origin),
-                dir: inverse.transform_vector3(ray.dir),
-            };
-            if let Some(t) = w.hit(&local)
-                && best.is_none_or(|b| t < b)
+        let try_tile = |tile: &GroundTile, best: &mut Option<f32>| {
+            if let Some(t_box) =
+                mg_preview::compose::ray_box(ray.origin, ray.dir, tile.min, tile.max)
+                && best.is_none_or(|b| t_box <= b)
             {
-                best = Some(t);
+                let local = Ray {
+                    origin: tile.inv.transform_point3(ray.origin),
+                    dir: tile.inv.transform_vector3(ray.dir),
+                };
+                if let Some(t) = tile.walk.hit(&local)
+                    && best.is_none_or(|b| t < b)
+                {
+                    *best = Some(t);
+                }
+            }
+        };
+        for &idx in &self.overhangs {
+            if let Some(tile) = self.tiles.get(idx).and_then(Option::as_ref) {
+                try_tile(tile, &mut best);
+            }
+        }
+        if self.width == 0 || self.tiles.is_empty() {
+            return best.map(|t| ray.at(t));
+        }
+        let w = self.width as i32;
+        let h = self.tiles.len().div_ceil(self.width as usize) as i32;
+        let side = crate::TILE_SIZE;
+        let eps = 1e-3;
+        let t_end = best.map_or(t_exit, |b| t_exit.min(b));
+        if t_end < t_enter {
+            return best.map(|t| ray.at(t));
+        }
+        let p0 = ray.at(t_enter);
+        let p1 = ray.at(t_end);
+        let (min_x, max_x) = (p0.x.min(p1.x), p0.x.max(p1.x));
+        let (min_y, max_y) = (p0.y.min(p1.y), p0.y.max(p1.y));
+        if max_x + eps < 0.0
+            || min_x - eps > w as f32 * side
+            || max_y + eps < 0.0
+            || min_y - eps > h as f32 * side
+        {
+            return best.map(|t| ray.at(t));
+        }
+        let c0 = ((min_x - eps) / side).floor().clamp(0.0, (w - 1) as f32) as i32;
+        let c1 = ((max_x + eps) / side).floor().clamp(0.0, (w - 1) as f32) as i32;
+        let r0 = ((min_y - eps) / side).floor().clamp(0.0, (h - 1) as f32) as i32;
+        let r1 = ((max_y + eps) / side).floor().clamp(0.0, (h - 1) as f32) as i32;
+
+        let visit = |col: i32, row: i32, best: &mut Option<f32>| {
+            if col >= 0 && col < w && row >= 0 && row < h {
+                let idx = (row as usize) * self.width as usize + (col as usize);
+                if let Some(Some(tile)) = self.tiles.get(idx) {
+                    try_tile(tile, best);
+                }
+            }
+        };
+
+        if c1 - c0 <= 1 || r1 - r0 <= 1 {
+            let dr = if ray.dir.y >= 0.0 { 1 } else { -1 };
+            let dc = if ray.dir.x >= 0.0 { 1 } else { -1 };
+            let mut r = if dr > 0 { r0 } else { r1 };
+            loop {
+                let mut c = if dc > 0 { c0 } else { c1 };
+                loop {
+                    visit(c, r, &mut best);
+                    if (dc > 0 && c >= c1) || (dc < 0 && c <= c0) {
+                        break;
+                    }
+                    c += dc;
+                }
+                if (dr > 0 && r >= r1) || (dr < 0 && r <= r0) {
+                    break;
+                }
+                r += dr;
+            }
+            return best.map(|t| ray.at(t));
+        }
+
+        // 2D Amanatides-Woo DDA across grid cells intersecting `[t_enter, t_end]`,
+        // visiting immediate `1e-3`-margin neighbors around each cell so grid-tolerant
+        // tiles near cell boundaries cannot be skipped.
+        let grid_min = Vec3::new(-eps, -eps, area_min.z);
+        let grid_max = Vec3::new(w as f32 * side + eps, h as f32 * side + eps, area_max.z);
+        let Some((g_enter, g_exit)) = ray_box_range(ray.origin, ray.dir, grid_min, grid_max) else {
+            return best.map(|t| ray.at(t));
+        };
+        let mut t = t_enter.max(g_enter);
+        let mut t_limit = best.map_or(g_exit.min(t_end), |b| g_exit.min(t_end).min(b));
+        if t > t_limit {
+            return best.map(|t| ray.at(t));
+        }
+        let start = ray.at(t);
+        let step_x: i32 = if ray.dir.x >= 0.0 { 1 } else { -1 };
+        let step_y: i32 = if ray.dir.y >= 0.0 { 1 } else { -1 };
+        let mut col = ((start.x / side).floor() as i32).clamp(0, w - 1);
+        let mut row = ((start.y / side).floor() as i32).clamp(0, h - 1);
+        let next_bx = ((col + if step_x > 0 { 1 } else { 0 }) as f32) * side;
+        let next_by = ((row + if step_y > 0 { 1 } else { 0 }) as f32) * side;
+        let mut t_max_x = (next_bx - ray.origin.x) / ray.dir.x;
+        let mut t_max_y = (next_by - ray.origin.y) / ray.dir.y;
+        if t_max_x < t {
+            t_max_x = t;
+        }
+        if t_max_y < t {
+            t_max_y = t;
+        }
+        let t_delta_x = side / ray.dir.x.abs();
+        let t_delta_y = side / ray.dir.y.abs();
+        let margin_x = eps / ray.dir.x.abs();
+        let margin_y = eps / ray.dir.y.abs();
+        let stop_exit = g_exit.min(t_end);
+
+        loop {
+            visit(col, row, &mut best);
+            let p = ray.at(t);
+            let near_lo_x = (p.x - (col as f32) * side).abs() <= eps;
+            let near_hi_x = (((col + 1) as f32) * side - p.x).abs() <= eps;
+            let near_lo_y = (p.y - (row as f32) * side).abs() <= eps;
+            let near_hi_y = (((row + 1) as f32) * side - p.y).abs() <= eps;
+            if near_lo_x {
+                visit(col - 1, row, &mut best);
+                if near_lo_y {
+                    visit(col - 1, row - 1, &mut best);
+                }
+                if near_hi_y {
+                    visit(col - 1, row + 1, &mut best);
+                }
+            }
+            if near_hi_x {
+                visit(col + 1, row, &mut best);
+                if near_lo_y {
+                    visit(col + 1, row - 1, &mut best);
+                }
+                if near_hi_y {
+                    visit(col + 1, row + 1, &mut best);
+                }
+            }
+            if near_lo_y {
+                visit(col, row - 1, &mut best);
+            }
+            if near_hi_y {
+                visit(col, row + 1, &mut best);
+            }
+            if let Some(b) = best {
+                t_limit = t_limit.min(b);
+            }
+            if t_max_x < t_max_y {
+                t = t_max_x;
+                if t > stop_exit
+                    || (best.is_some()
+                        && t_max_x > t_limit + margin_x
+                        && t_max_y > t_limit + margin_y)
+                {
+                    break;
+                }
+                col += step_x;
+                t_max_x += t_delta_x;
+            } else {
+                t = t_max_y;
+                if t > stop_exit
+                    || (best.is_some()
+                        && t_max_x > t_limit + margin_x
+                        && t_max_y > t_limit + margin_y)
+                {
+                    break;
+                }
+                row += step_y;
+                t_max_y += t_delta_y;
+            }
+            if col < -1 || col > w || row < -1 || row > h {
+                break;
             }
         }
         best.map(|t| ray.at(t))
     }
+}
+
+fn world_aabb(min: Vec3, max: Vec3, to: Mat4) -> (Vec3, Vec3) {
+    let mut wmin = Vec3::splat(f32::INFINITY);
+    let mut wmax = Vec3::splat(f32::NEG_INFINITY);
+    for sx in [min.x, max.x] {
+        for sy in [min.y, max.y] {
+            for sz in [min.z, max.z] {
+                let p = to.transform_point3(Vec3::new(sx, sy, sz));
+                wmin = wmin.min(p);
+                wmax = wmax.max(p);
+            }
+        }
+    }
+    (wmin, wmax)
+}
+
+fn ray_box_range(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<(f32, f32)> {
+    let (mut near, mut far) = (f32::MIN, f32::MAX);
+    for axis in 0..3 {
+        if dir[axis].abs() < 1e-9 {
+            if origin[axis] < min[axis] || origin[axis] > max[axis] {
+                return None;
+            }
+            continue;
+        }
+        let a = (min[axis] - origin[axis]) / dir[axis];
+        let b = (max[axis] - origin[axis]) / dir[axis];
+        near = near.max(a.min(b));
+        far = far.min(a.max(b));
+    }
+    (near <= far && far >= 0.0).then_some((near.max(0.0), far))
 }
 
 #[cfg(test)]
@@ -447,23 +703,42 @@ mod tests {
         faces.extend(square(3.0, true));
         faces.push(wall);
         let w = Walkmesh { faces, min: Vec3::splat(-5.0), max: Vec3::new(5.0, 5.0, 10.0) };
-        let g = Ground {
-            tiles: vec![Some((Arc::new(w), Mat4::from_translation(Vec3::new(5.0, 5.0, 1.0))))],
-            cache: HashMap::new(),
-            levels: Vec::new(),
-            level_cache: HashMap::new(),
-            width: 1,
-        };
+        let g = ground_from(
+            1,
+            vec![Some((Arc::new(w), Mat4::from_translation(Vec3::new(5.0, 5.0, 1.0))))],
+        );
         assert_eq!(g.flat_heights(Vec2::new(5.5, 5.2)), [1.0, 4.0]);
         assert!(g.flat_heights(Vec2::new(25.0, 5.0)).is_empty(), "outside the area");
         // (The ramp, 15 m up over 10: steeper than flat.)
         let mut r = ramp();
         r.faces.iter_mut().for_each(|f| f.corners.iter_mut().for_each(|c| c.z *= 3.0));
-        let g = Ground {
-            tiles: vec![Some((Arc::new(r), Mat4::from_translation(Vec3::new(5.0, 5.0, 0.0))))],
-            ..g
-        };
+        let g = ground_from(
+            1,
+            vec![Some((Arc::new(r), Mat4::from_translation(Vec3::new(5.0, 5.0, 0.0))))],
+        );
         assert!(g.flat_heights(Vec2::new(5.0, 5.0)).is_empty(), "a slope of 56°");
+    }
+
+    fn ground_from(width: u32, raw: Vec<Option<(Arc<Walkmesh>, Mat4)>>) -> Ground {
+        let mut area_bounds: Option<(Vec3, Vec3)> = None;
+        let mut overhangs = Vec::new();
+        let tiles = raw
+            .into_iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let (walk, to) = entry?;
+                Some(Ground::place_tile(i, width, walk, to, &mut area_bounds, &mut overhangs))
+            })
+            .collect();
+        Ground {
+            tiles,
+            cache: HashMap::new(),
+            levels: Vec::new(),
+            level_cache: HashMap::new(),
+            width,
+            area_bounds,
+            overhangs,
+        }
     }
 
     #[test]
@@ -477,19 +752,177 @@ mod tests {
                 Vec3::new(x, 5.0, z),
             )
         };
-        let g = Ground {
-            tiles: vec![Some((w.clone(), at(5.0, 0.0, 0.0))), Some((w, at(15.0, 2.0, 2.0)))],
-            cache: HashMap::new(),
-            levels: Vec::new(),
-            level_cache: HashMap::new(),
-            width: 2,
-        };
+        let g = ground_from(
+            2,
+            vec![Some((w.clone(), at(5.0, 0.0, 0.0))), Some((w, at(15.0, 2.0, 2.0)))],
+        );
         assert!((g.height(Vec2::new(7.5, 5.0), 0.0).unwrap() - 3.75).abs() < 1e-4);
         assert!((g.height(Vec2::new(17.5, 5.0), 0.0).unwrap() - 3.25).abs() < 1e-4);
         assert!(g.height(Vec2::new(25.0, 5.0), 0.0).is_none(), "outside the area");
         let down = Ray { origin: Vec3::new(12.5, 5.0, 50.0), dir: Vec3::NEG_Z };
         let hit = g.hit(&down).unwrap();
         assert!((hit - Vec3::new(12.5, 5.0, 5.75)).length() < 1e-4, "{hit}");
+    }
+
+    #[test]
+    fn ground_update_evicts_removed_tile_caches() {
+        let empty =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut g = Ground::default();
+        g.cache.insert("keep".into(), None);
+        g.cache.insert("old".into(), None);
+        g.level_cache.insert("keep".into(), Some(1.0));
+        g.level_cache.insert("old".into(), Some(2.0));
+        let area = AreaModel {
+            tileset: None,
+            width: 1,
+            height: 1,
+            height_step: 5.0,
+            tiles: vec![crate::AreaTile {
+                index: 0,
+                column: 0,
+                row: 0,
+                id: 0,
+                model: Some("keep".into()),
+                height: 0,
+                orientation: 0,
+                main_lights: [0; 2],
+                source_lights: [0; 2],
+                anim_loops: [false; 3],
+                replace_texture: None,
+                position: glam::Vec3::ZERO,
+            }],
+            objects: Vec::new(),
+            hooks: Vec::new(),
+            lighting: crate::Lighting {
+                sun: crate::Sky::default(),
+                moon: crate::Sky::default(),
+                is_night: false,
+                day_night_cycle: false,
+                fog_clip: 45.0,
+                sky_box: 0,
+                env_map: None,
+                shadow_opacity: 0,
+                flags: 0,
+                wind_power: 0,
+                sun_direction: None,
+                moon_direction: None,
+                wallpaper: None,
+            },
+            grass: Vec::new(),
+            border: Vec::new(),
+            problems: Vec::new(),
+        };
+        g.update(&empty, &area);
+        assert!(g.cache.contains_key("keep") && !g.cache.contains_key("old"));
+        assert!(g.level_cache.contains_key("keep") && !g.level_cache.contains_key("old"));
+    }
+
+    #[test]
+    fn ground_hit_dda_matches_brute_force() {
+        let face = |corners: [Vec3; 3]| WalkFace { corners, material: 1 };
+        let grid_tile = |z: f32| {
+            let faces = vec![
+                face([Vec3::new(0.0, 0.0, z), Vec3::new(10.0, 0.0, z), Vec3::new(10.0, 10.0, z)]),
+                face([Vec3::new(0.0, 0.0, z), Vec3::new(10.0, 10.0, z), Vec3::new(0.0, 10.0, z)]),
+            ];
+            let (min, max) = mg_render::box_of(faces.iter().flat_map(|f| f.corners)).unwrap();
+            Arc::new(Walkmesh { faces, min, max })
+        };
+        let overhang_tile = || {
+            // Protrudes 3 m beyond its 10x10 tile cell.
+            let faces = vec![face([
+                Vec3::new(-3.0, 2.0, 2.0),
+                Vec3::new(13.0, 2.0, 2.0),
+                Vec3::new(5.0, 13.0, 2.0),
+            ])];
+            let (min, max) = mg_render::box_of(faces.iter().flat_map(|f| f.corners)).unwrap();
+            Arc::new(Walkmesh { faces, min, max })
+        };
+
+        let mut g = Ground { width: 4, ..Default::default() };
+        for row in 0..4 {
+            for col in 0..4 {
+                let to = Mat4::from_translation(Vec3::new(
+                    col as f32 * crate::TILE_SIZE,
+                    row as f32 * crate::TILE_SIZE,
+                    0.0,
+                ));
+                let walk = if col == 2 && row == 1 {
+                    overhang_tile()
+                } else {
+                    grid_tile((col + row) as f32 * 0.25)
+                };
+                let (min, max) = world_aabb(walk.min, walk.max, to);
+                let in_cell = min.x >= col as f32 * crate::TILE_SIZE - 1e-3
+                    && max.x <= (col + 1) as f32 * crate::TILE_SIZE + 1e-3
+                    && min.y >= row as f32 * crate::TILE_SIZE - 1e-3
+                    && max.y <= (row + 1) as f32 * crate::TILE_SIZE + 1e-3;
+                if !in_cell {
+                    g.overhangs.push(row * 4 + col);
+                }
+                g.area_bounds = Some(match g.area_bounds {
+                    Some((amin, amax)) => (amin.min(min), amax.max(max)),
+                    None => (min, max),
+                });
+                g.tiles.push(Some(GroundTile { walk, to, inv: to.inverse(), min, max }));
+            }
+        }
+        assert_eq!(g.overhangs, vec![6]);
+
+        let brute = |ray: &Ray| -> Option<Vec3> {
+            let mut best: Option<f32> = None;
+            for (w, to) in g.tiles() {
+                let inv = to.inverse();
+                let local = Ray {
+                    origin: inv.transform_point3(ray.origin),
+                    dir: inv.transform_vector3(ray.dir),
+                };
+                if let Some(t) = w.hit(&local)
+                    && best.is_none_or(|b| t < b)
+                {
+                    best = Some(t);
+                }
+            }
+            best.map(|t| ray.at(t))
+        };
+
+        let mut rays = vec![
+            // Vertical straight down & up.
+            Ray { origin: Vec3::new(15.0, 15.0, 20.0), dir: Vec3::NEG_Z },
+            Ray { origin: Vec3::new(15.0, 15.0, -5.0), dir: Vec3::Z },
+            // Seam along tile boundary x = 10.0 and y = 20.0.
+            Ray { origin: Vec3::new(10.0, 5.0, 10.0), dir: Vec3::new(0.0, 1.0, -0.5).normalize() },
+            Ray { origin: Vec3::new(5.0, 20.0, 10.0), dir: Vec3::new(1.0, 0.0, -0.4).normalize() },
+            // Corner crossing through (10, 10) -> (20, 20) -> (30, 30).
+            Ray { origin: Vec3::new(0.0, 0.0, 8.0), dir: Vec3::new(1.0, 1.0, -0.35).normalize() },
+            // Outside start missing and pointing away.
+            Ray {
+                origin: Vec3::new(-10.0, -10.0, 10.0),
+                dir: Vec3::new(-1.0, -1.0, 0.0).normalize(),
+            },
+            Ray { origin: Vec3::new(15.0, 15.0, 20.0), dir: Vec3::Z },
+        ];
+        let mut seed = 0x1234_5678_9ABC_DEF0u64;
+        let mut next_f = || -> f32 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            ((seed >> 40) as f32) / ((1u64 << 24) as f32)
+        };
+        for _ in 0..300 {
+            let origin =
+                Vec3::new(next_f() * 60.0 - 10.0, next_f() * 60.0 - 10.0, next_f() * 15.0 - 2.0);
+            let target =
+                Vec3::new(next_f() * 45.0 - 2.0, next_f() * 45.0 - 2.0, next_f() * 3.0 - 0.5);
+            let dir = (target - origin).normalize_or(Vec3::NEG_Z);
+            rays.push(Ray { origin, dir });
+        }
+        for (idx, ray) in rays.iter().enumerate() {
+            match (g.hit(ray), brute(ray)) {
+                (Some(a), Some(b)) => assert!(a.distance(b) < 1e-4, "ray {idx}: {a:?} vs {b:?}"),
+                (None, None) => {}
+                (a, b) => panic!("ray {idx} mismatch: dda={a:?} vs brute={b:?} ({ray:?})"),
+            }
+        }
     }
 }
 

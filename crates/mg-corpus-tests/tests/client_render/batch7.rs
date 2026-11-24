@@ -37,10 +37,9 @@ const BUCKET_ROWS: [(&str, &str, bool); 4] = [
     ("tile, see-through first", "mgu", true),
 ];
 
-/// A texture name of a set, for a model's `bitmap` (they live as long
-/// as the test).
-fn set_texture(set: &str, texture: &str) -> &'static str {
-    Box::leak(format!("{set}_{texture}").into_boxed_str())
+/// A texture name of a set, for a model's `bitmap`.
+fn set_texture(set: &str, texture: &str) -> std::borrow::Cow<'static, str> {
+    std::borrow::Cow::Owned(format!("{set}_{texture}"))
 }
 
 /// Row `row`'s cards as quads, in the model's order (the pairs' order
@@ -163,7 +162,7 @@ fn batch7_bucket_order() {
         name: "floor".into(),
         at: [-5.0, -5.0, 0.0],
         corners: [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 10.0, 0.0], [0.0, 10.0, 0.0]],
-        bitmap: "mgp_nrm",
+        bitmap: "mgp_nrm".into(),
         extra: "",
         tverts: true,
         colors: false,
@@ -574,7 +573,7 @@ fn batch7_wall_sides() {
         name: name.into(),
         at,
         corners,
-        bitmap: "mgwhite",
+        bitmap: "mgwhite".into(),
         extra: "",
         tverts: true,
         colors: false,

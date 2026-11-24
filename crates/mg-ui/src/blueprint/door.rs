@@ -1,5 +1,5 @@
 //! Door Properties (`TdlgDoorEdit`): Basic, Lock, Trap, Area Transition,
-//! Scripts, Advanced, Description, Comments.
+//! Scripts, Advanced, Variables, Visuals, Description, Comments.
 
 use egui::Ui;
 use mg_gff::FieldType;
@@ -77,7 +77,7 @@ fn door_types(f: &Form<'_>, ui: &Ui) -> std::sync::Arc<Vec<Choice>> {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let types = door_types(f, ui);
-    let types = f.appearance_rows(mg_rules::ObjectKind::Door, &types);
+    let types = f.appearance_rows(ui.ctx(), mg_rules::ObjectKind::Door, &types);
     let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
     super::form_grid(ui, ("utd-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocName");

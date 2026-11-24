@@ -15,10 +15,10 @@
 //! the one whose copy the game reads, or above it ([`plan`] refuses
 //! another). Two lights of the same settings share a model and a row.
 //!
-//! What the client has yet to say (the next client batch): whether such a
-//! light lights creatures and placeables or only tiles, and how many
-//! dynamic lights the game draws at one place. The node says it lights
-//! dynamic objects (`affectdynamic`, [`LightSpec::lights_objects`]) and
+//! In the client (`model_light_uniforms`), placeable model light nodes light
+//! dynamic draws when `affectdynamic` is set ([`LightSpec::lights_objects`]),
+//! and each draw keeps at most 32 lights sorted by `lightpriority`, then
+//! distance. The node marks whether it casts shadows ([`LightSpec::shadows`]);
 //! its priority ([`LightSpec::priority`]): either answer changes a
 //! default, not what is written.
 
@@ -93,8 +93,8 @@ impl LightSpec {
         let text = format!(
             "{:?} {} {} {} {} {}",
             s.color,
-            (s.radius * 100.0) as u32,
-            (s.multiplier * 100.0) as u32,
+            (s.radius * 100.0).round() as u32,
+            (s.multiplier * 100.0).round() as u32,
             s.shadows,
             s.lights_objects,
             s.priority
@@ -581,5 +581,18 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn model_name_rounds_hundredths_without_float_truncation_collisions() {
+        for (a, b) in [(0.52_f32, 0.53_f32), (0.28_f32, 0.29_f32), (0.57_f32, 0.58_f32)] {
+            let r_a = LightSpec { radius: a, ..LightSpec::default() };
+            let r_b = LightSpec { radius: b, ..LightSpec::default() };
+            assert_ne!(r_a.model_name(), r_b.model_name(), "radius {a} vs {b}");
+
+            let m_a = LightSpec { multiplier: a, ..LightSpec::default() };
+            let m_b = LightSpec { multiplier: b, ..LightSpec::default() };
+            assert_ne!(m_a.model_name(), m_b.model_name(), "multiplier {a} vs {b}");
+        }
     }
 }

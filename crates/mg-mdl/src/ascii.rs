@@ -373,7 +373,7 @@ fn vec2s(rows: &[Vec<&str>]) -> Vec<Vec2> {
 fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     let orientation = name == "orientation";
     let width = rows.iter().map(|r| r.len().saturating_sub(1)).max().unwrap_or(0);
-    let bezier = bezier && width >= 3 && width % 3 == 0;
+    let bezier = bezier && if orientation { width == 12 } else { width >= 3 && width % 3 == 0 };
     let columns = if bezier { width / 3 } else { width };
     let mut c = Controller {
         name: ctrl::canonical(name).into(),
@@ -519,42 +519,66 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) -> SourceM
     // merges only through an earlier face with two corners equal to its
     // own (MDL-MESH-012).
     let flat = |x: f32| if x == 0.0 { 0 } else { x.to_bits() };
-    let weights = raw.list("weights");
-    let constraints = raw.list("constraints");
-    let extra = |v: usize| -> String {
-        match raw.ty.as_str() {
-            "skin" => weights.get(v).map(|r| r.join(" ").to_ascii_lowercase()).unwrap_or_default(),
-            "danglymesh" => constraints
-                .get(v)
-                .and_then(|r| r.first())
-                .map(|w| w.to_string())
-                .unwrap_or_default(),
-            "animmesh" => v.to_string(),
-            _ => String::new(),
+    let extra_ids: Vec<u32> = match raw.ty.as_str() {
+        "skin" => {
+            let weights = raw.list("weights");
+            let mut intern: HashMap<String, u32> = HashMap::with_capacity(verts.len());
+            (0..verts.len())
+                .map(|v| {
+                    let s = weights
+                        .get(v)
+                        .map(|r| r.join(" ").to_ascii_lowercase())
+                        .unwrap_or_default();
+                    let next = intern.len() as u32 + 1;
+                    *intern.entry(s).or_insert(next)
+                })
+                .collect()
         }
+        "danglymesh" => {
+            let constraints = raw.list("constraints");
+            let mut intern: HashMap<&str, u32> = HashMap::with_capacity(verts.len());
+            (0..verts.len())
+                .map(|v| {
+                    let s = constraints.get(v).and_then(|r| r.first()).copied().unwrap_or("");
+                    let next = intern.len() as u32 + 1;
+                    *intern.entry(s).or_insert(next)
+                })
+                .collect()
+        }
+        _ => Vec::new(),
     };
+    let uvs_empty: [bool; 4] = std::array::from_fn(|s| tverts[s].is_empty());
+    let has_tangents = tangents.len() >= verts.len();
+    let has_colors = !colors.is_empty();
     // (A face's `mirrorlist` value, its low byte, is a vertex's too.)
     let mirror: Vec<u8> = raw
         .list("mirrorlist")
         .iter()
         .map(|r| r.first().and_then(|w| w.parse::<i64>().ok()).unwrap_or(0) as u8)
         .collect();
-    type Key = (u8, [u32; 3], [u32; 3], Vec<u32>, Option<[u8; 4]>, Option<[u32; 4]>, String);
+    type Key = (u8, [u32; 3], [u32; 3], [[u32; 2]; 4], Option<[u8; 4]>, Option<[u32; 4]>, u32);
+    let animmesh = raw.ty == "animmesh";
     let key = |fi: usize, v: usize, t: usize, n: Vec3| -> Key {
-        let uvs: Vec<u32> = tverts
-            .iter()
-            .filter(|l| !l.is_empty())
-            .flat_map(|l| l.get(t).copied().unwrap_or([0.0, 0.0]))
-            .map(flat)
-            .collect();
-        let tangent = (tangents.len() >= verts.len()).then(|| tangents[v].map(flat));
-        let color = (!colors.is_empty()).then(|| colors.get(v).copied().unwrap_or([255; 4]));
+        let uvs: [[u32; 2]; 4] = std::array::from_fn(|set| {
+            if uvs_empty[set] {
+                [0, 0]
+            } else {
+                let uv = tverts[set].get(t).copied().unwrap_or([0.0, 0.0]);
+                [flat(uv[0]), flat(uv[1])]
+            }
+        });
+        let tangent = has_tangents.then(|| tangents[v].map(flat));
+        let color = has_colors.then(|| colors.get(v).copied().unwrap_or([255; 4]));
         let mirrored = mirror.get(fi).copied().unwrap_or(0);
-        (mirrored, verts[v].map(flat), n.map(flat), uvs, color, tangent, extra(v))
+        let extra = if animmesh { v as u32 } else { extra_ids.get(v).copied().unwrap_or(0) };
+        (mirrored, verts[v].map(flat), n.map(flat), uvs, color, tangent, extra)
     };
     let walkmesh = raw.ty == "aabb";
-    let mut index: HashMap<Key, u32> = HashMap::new();
-    let mut face_keys: Vec<[Key; 3]> = Vec::with_capacity(faces.len());
+    let mut index: HashMap<Key, u32> =
+        if walkmesh { HashMap::new() } else { HashMap::with_capacity(verts.len()) };
+    let mut face_keys: Vec<[Key; 3]> =
+        if walkmesh { Vec::with_capacity(faces.len()) } else { Vec::new() };
+    let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
     for (fi, f) in faces.iter().enumerate() {
         let keys: [Key; 3] = std::array::from_fn(|c| key(fi, f.v[c], f.t[c], normals[fi][c]));
         let mut out = [0u32; 3];
@@ -562,7 +586,12 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) -> SourceM
         // corners equal to this one's.)
         let beside = walkmesh
             .then(|| {
-                (0..fi).find(|&g| face_keys[g].iter().filter(|k| keys.contains(k)).count() >= 2)
+                keys.iter()
+                    .filter_map(|k| by_key.get(k))
+                    .flatten()
+                    .copied()
+                    .filter(|&g| face_keys[g].iter().filter(|k| keys.contains(k)).count() >= 2)
+                    .min()
             })
             .flatten();
         for c in 0..3 {
@@ -584,22 +613,29 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) -> SourceM
                         m.uvs[set].push(list.get(t).copied().unwrap_or([0.0, 0.0]));
                     }
                 }
-                if !colors.is_empty() {
+                if has_colors {
                     m.colors.push(colors.get(v).copied().unwrap_or([255; 4]));
                 }
-                if tangents.len() >= verts.len() {
+                if has_tangents {
                     m.tangents.push(tangents[v]);
                 }
                 m.source.push(v as u32);
                 m.source_uv.push(t as u32);
                 if !walkmesh {
-                    index.insert(keys[c].clone(), i);
+                    index.insert(keys[c], i);
                 }
                 i
             });
         }
         m.faces.push(Face { vertices: out, material: f.material });
-        face_keys.push(keys);
+        if walkmesh {
+            for c in 0..3 {
+                if !keys[..c].contains(&keys[c]) {
+                    by_key.entry(keys[c]).or_default().push(fi);
+                }
+            }
+            face_keys.push(keys);
+        }
     }
     // A face with two corners on one vertex is left out, last to first;
     // its vertices stay (MDL-MESH-020). Not on a walkmesh, whose tree
@@ -1666,5 +1702,22 @@ donemodel u
     fn preorder_follows_file_order_of_children() {
         let (order, _) = preorder(&[None, Some(0), Some(0), Some(1)]);
         assert_eq!(order, [0, 1, 3, 2]);
+    }
+
+    #[test]
+    fn orientation_bezier_requires_12_floats_else_falls_back_to_linear() {
+        let short = key_controller("orientation", &[vec![0.0, 0.0, 0.0, 1.0, 0.5, 0.1, 0.2]], true);
+        assert_eq!(short.columns, 4);
+        assert_eq!(short.values.len(), 4);
+        assert!(short.handles.is_empty());
+
+        let full = key_controller(
+            "orientation",
+            &[vec![0.0, 0.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 0.2, 1.0, 0.0, 0.0, 0.3]],
+            true,
+        );
+        assert_eq!(full.columns, 4);
+        assert_eq!(full.values.len(), 4);
+        assert_eq!(full.handles.len(), 8);
     }
 }

@@ -8,7 +8,7 @@
 
 use mg_module::Module;
 use mg_module::doctor::{Severity, TalkTables, examine};
-use mg_resman::{GameInstall, ResMan};
+use mg_resman::GameInstall;
 use mg_testkit::{bundled_modules, corpus};
 
 /// Findings in shipped content, checked by hand and real, counted by
@@ -83,7 +83,7 @@ fn shipped_modules_have_only_known_findings() {
     let mut total = 0;
     for path in bundled_modules(&root) {
         let m = Module::open(&path).unwrap();
-        let mut rm = ResMan::for_game(&gi).unwrap();
+        let mut rm = mg_testkit::shared_resman(&gi).unwrap();
         let (missing, wrong) = m.stack_onto(&mut rm, &gi);
         for hak in missing {
             eprintln!("{}: hak {hak} not found", path.display());
@@ -131,7 +131,7 @@ fn row_columns_hold_for_the_game_s_tables() {
     // appearance.FOOTSTEPTYPE, which the game breaks in seven rows.)
     use mg_module::doctor::{ColumnKind, column_kinds, column_kinds_as_named, row_named};
     let root = corpus!();
-    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
     let table = |name: &str| {
         let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap();
         mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap()
@@ -273,7 +273,7 @@ fn row_columns_hold_for_the_game_s_tables() {
 fn script_columns_name_the_game_s_scripts() {
     use mg_module::doctor::{ColumnKind, SCRIPT_COLUMNS, column_kinds};
     let root = corpus!();
-    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let rm = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
     for (name, column) in SCRIPT_COLUMNS {
         let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap();
         let t = mg_2da::TwoDa::parse(&rm.get(&key).unwrap(), mg_core::Codepage::default()).unwrap();
@@ -310,7 +310,7 @@ fn the_game_s_own_tables_have_only_their_known_cell_faults() {
     use mg_module::doctor::{TalkTables, column_kinds_as_named, table_faults};
     let root = corpus!();
     let gi = GameInstall::new(&root, None, "en");
-    let rm = ResMan::for_game(&gi).unwrap();
+    let rm = mg_testkit::shared_resman(&gi).unwrap();
     let base = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).unwrap()).unwrap().entries.len();
     let read = |name: &str| {
         let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA)?;

@@ -388,63 +388,128 @@ fn pick_list(
 
 /// Two lists with -> and <- between them (Feats, Skills, Race): moves rows
 /// between `chosen` and the rest of `all`.
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone)]
+struct CachedMoveLists {
+    key: (usize, u64, String),
+    left: Vec<usize>,
+    right: Vec<usize>,
+}
+
+struct MoveLists<'a> {
+    id: &'a str,
+    all: &'a [Entry],
+    titles: [&'a str; 2],
+    lists: [u8; 2],
+    filter: Option<&'a str>,
+    height: f32,
+}
+
 fn move_lists(
     ui: &mut Ui,
-    id: &str,
-    all: &[Entry],
+    spec: MoveLists<'_>,
     chosen: &mut Vec<usize>,
-    titles: [&str; 2],
     selected: &mut Option<(u8, usize)>,
-    lists: [u8; 2],
-    filter: Option<&str>,
-    height: f32,
 ) {
-    let filter = mg_core::text::Needle::new(filter.unwrap_or_default());
-    let left: Vec<(usize, &str)> = all
-        .iter()
-        .filter(|e| !chosen.contains(&e.row))
-        .filter(|e| filter.finds(&e.name))
-        .map(|e| (e.row, e.name.as_str()))
-        .collect();
+    let filter_str = spec.filter.unwrap_or_default();
+    let cache_id = egui::Id::new(("wizard-move-lists", spec.id));
+    let key = (spec.all.len(), egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
+    let cached = ui.ctx().data_mut(|d| {
+        let slot = d.get_temp_mut_or_insert_with(cache_id, || CachedMoveLists {
+            key: (usize::MAX, 0, String::new()),
+            left: Vec::new(),
+            right: Vec::new(),
+        });
+        if slot.key != key {
+            let needle = mg_core::text::Needle::new(filter_str);
+            let chosen_set: std::collections::HashSet<usize> = chosen.iter().copied().collect();
+            slot.left.clear();
+            slot.right.clear();
+            for (i, e) in spec.all.iter().enumerate() {
+                if chosen_set.contains(&e.row) {
+                    slot.right.push(i);
+                } else if needle.finds(&e.name) {
+                    slot.left.push(i);
+                }
+            }
+            slot.key = key;
+        }
+        slot.clone()
+    });
+    let left: Vec<(usize, &str)> =
+        cached.left.iter().map(|&i| (spec.all[i].row, spec.all[i].name.as_str())).collect();
     let right: Vec<(usize, &str)> =
-        all.iter().filter(|e| chosen.contains(&e.row)).map(|e| (e.row, e.name.as_str())).collect();
+        cached.right.iter().map(|&i| (spec.all[i].row, spec.all[i].name.as_str())).collect();
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.label(titles[0]);
-            if let Some(row) =
-                pick_list(ui, &format!("{id}-l"), &left, lists[0], selected, [200.0, height])
-            {
+            ui.label(spec.titles[0]);
+            if let Some(row) = pick_list(
+                ui,
+                &format!("{}-l", spec.id),
+                &left,
+                spec.lists[0],
+                selected,
+                [200.0, spec.height],
+            ) {
                 chosen.push(row);
             }
         });
         ui.vertical(|ui| {
             ui.add_space(40.0);
-            let to = format!("Move to {}", titles[1]);
+            let to = format!("Move to {}", spec.titles[1]);
             if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronRight, &to, "").clicked()
                 && let Some((l, row)) = *selected
-                && l == lists[0]
+                && l == spec.lists[0]
                 && !chosen.contains(&row)
             {
                 chosen.push(row);
             }
-            let to = format!("Move to {}", titles[0]);
+            let to = format!("Move to {}", spec.titles[0]);
             if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronLeft, &to, "").clicked()
                 && let Some((l, row)) = *selected
-                && l == lists[1]
+                && l == spec.lists[1]
             {
                 chosen.retain(|&r| r != row);
             }
         });
         ui.vertical(|ui| {
-            ui.label(titles[1]);
-            if let Some(row) =
-                pick_list(ui, &format!("{id}-r"), &right, lists[1], selected, [200.0, height])
-            {
+            ui.label(spec.titles[1]);
+            if let Some(row) = pick_list(
+                ui,
+                &format!("{}-r", spec.id),
+                &right,
+                spec.lists[1],
+                selected,
+                [200.0, spec.height],
+            ) {
                 chosen.retain(|&r| r != row);
             }
         });
     });
+}
+
+/// Inserts `tag` into `items` (if absent), sorting when `sorted` is set while
+/// preserving which item `selected` points to in list `0`.
+fn insert_list_item(
+    items: &mut Vec<String>,
+    tag: String,
+    sorted: bool,
+    selected: &mut Option<(u8, usize)>,
+) {
+    if items.contains(&tag) {
+        return;
+    }
+    let keep = if sorted {
+        selected.and_then(|(l, i)| (l == 0).then(|| items.get(i).cloned()).flatten())
+    } else {
+        None
+    };
+    items.push(tag);
+    if sorted {
+        items.sort_by_cached_key(|s| (s.to_lowercase(), s.clone()));
+        if let Some(keep) = keep {
+            *selected = items.iter().position(|s| *s == keep).map(|i| (0, i));
+        }
+    }
 }
 
 /// A text field with Add (and "…" for the item picker), and the list it
@@ -465,13 +530,8 @@ fn add_list(
             pick = ui.small_button("…").on_hover_text("Select an item blueprint").clicked();
         }
         let tag = entry.trim().to_string();
-        if ui.add_enabled(!tag.is_empty(), egui::Button::new("Add")).clicked()
-            && !items.contains(&tag)
-        {
-            items.push(tag);
-            if sorted {
-                items.sort_by_cached_key(|s| (s.to_lowercase(), s.clone()));
-            }
+        if ui.add_enabled(!tag.is_empty(), egui::Button::new("Add")).clicked() {
+            insert_list_item(items, tag, sorted, selected);
         }
     });
     let rows: Vec<(usize, &str)> = items.iter().enumerate().map(|(i, s)| (i, s.as_str())).collect();
@@ -657,14 +717,16 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 let titles = ["Rejected", "Accepted"];
                 move_lists(
                     ui,
-                    &format!("wiz-race-{title}"),
-                    list,
+                    MoveLists {
+                        id: &format!("wiz-race-{title}"),
+                        all: list,
+                        titles,
+                        lists: ids,
+                        filter: None,
+                        height: 95.0,
+                    },
                     &mut w.races,
-                    titles,
                     &mut w.selected,
-                    ids,
-                    None,
-                    95.0,
                 );
             }
         }
@@ -691,27 +753,31 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             });
             move_lists(
                 ui,
-                "wiz-feats",
-                &lists.feats,
+                MoveLists {
+                    id: "wiz-feats",
+                    all: &lists.feats,
+                    titles: ["All Feats", "Required Feats"],
+                    lists: [0, 1],
+                    filter: Some(&w.filter),
+                    height: 200.0,
+                },
                 &mut w.feats,
-                ["All Feats", "Required Feats"],
                 &mut w.selected,
-                [0, 1],
-                Some(&w.filter),
-                200.0,
             );
         }
         6 => {
             move_lists(
                 ui,
-                "wiz-skills",
-                &lists.skills_by_name(),
+                MoveLists {
+                    id: "wiz-skills",
+                    all: &lists.skills_by_name(),
+                    titles: ["All Skills", "Required Skills"],
+                    lists: [0, 1],
+                    filter: None,
+                    height: 220.0,
+                },
                 &mut w.skills,
-                ["All Skills", "Required Skills"],
                 &mut w.selected,
-                [0, 1],
-                None,
-                220.0,
             );
         }
         7 => {
@@ -1295,5 +1361,20 @@ mod tests {
         assert_eq!(w.back(), Step::Page(2));
         w.step = Step::Name;
         assert_eq!(w.back(), Step::Page(8));
+    }
+
+    #[test]
+    fn insert_list_item_preserves_selected_item_across_sorted_insert() {
+        let mut items = vec!["beta".to_string(), "gamma".to_string()];
+        let mut selected = Some((0u8, 0usize));
+        insert_list_item(&mut items, "alpha".into(), true, &mut selected);
+        assert_eq!(items, ["alpha", "beta", "gamma"]);
+        assert_eq!(selected, Some((0, 1)));
+
+        let mut unsorted = vec!["beta".to_string(), "gamma".to_string()];
+        let mut unsorted_sel = Some((0u8, 0usize));
+        insert_list_item(&mut unsorted, "alpha".into(), false, &mut unsorted_sel);
+        assert_eq!(unsorted, ["beta", "gamma", "alpha"]);
+        assert_eq!(unsorted_sel, Some((0, 0)));
     }
 }

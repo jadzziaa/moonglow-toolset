@@ -22,6 +22,142 @@ use crate::{Action, Moonglow, Tab};
 /// stopped on it, End went past it, and a copy took it along (Jasperre's
 /// report: what looked like a trailing space on every line). The file's
 /// line ends are put back as it is written ([`ScriptBuffer::bytes`]).
+/// Incremental, byte-range undo/redo history for [`ScriptBuffer`], avoiding
+/// full-file clones on every frame and keystroke.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ScriptUndo {
+    undo: Vec<UndoStep>,
+    redo: Vec<UndoStep>,
+    total_bytes: usize,
+    break_next: bool,
+}
+
+#[derive(Debug, Clone)]
+struct UndoStep {
+    at_byte: usize,
+    removed: String,
+    inserted: String,
+    before: egui::text::CCursorRange,
+    after: egui::text::CCursorRange,
+    time: f64,
+    mergeable: bool,
+}
+
+impl ScriptUndo {
+    const MAX_STEPS: usize = 256;
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    const MIN_STEPS: usize = 16;
+
+    pub(crate) fn clear(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+        self.total_bytes = 0;
+        self.break_next = false;
+    }
+
+    pub(crate) fn mark_break(&mut self) {
+        self.break_next = true;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_edit(
+        &mut self,
+        at_byte: usize,
+        removed: String,
+        inserted: String,
+        before: egui::text::CCursorRange,
+        after: egui::text::CCursorRange,
+        time: f64,
+        mergeable: bool,
+    ) {
+        for s in self.redo.drain(..) {
+            self.total_bytes = self.total_bytes.saturating_sub(s.removed.len() + s.inserted.len());
+        }
+        let coalesced = !self.break_next
+            && mergeable
+            && self.undo.last_mut().is_some_and(|prev| {
+                if !prev.mergeable || (time - prev.time).abs() >= 1.0 {
+                    return false;
+                }
+                if removed.is_empty()
+                    && !inserted.contains('\n')
+                    && prev.removed.is_empty()
+                    && !prev.inserted.contains('\n')
+                    && at_byte == prev.at_byte + prev.inserted.len()
+                {
+                    self.total_bytes += inserted.len();
+                    prev.inserted.push_str(&inserted);
+                    prev.after = after;
+                    prev.time = time;
+                    true
+                } else if inserted.is_empty()
+                    && !removed.contains('\n')
+                    && prev.inserted.is_empty()
+                    && !prev.removed.contains('\n')
+                    && at_byte + removed.len() == prev.at_byte
+                {
+                    self.total_bytes += removed.len();
+                    let mut merged = removed.clone();
+                    merged.push_str(&prev.removed);
+                    prev.removed = merged;
+                    prev.at_byte = at_byte;
+                    prev.after = after;
+                    prev.time = time;
+                    true
+                } else {
+                    false
+                }
+            });
+        if coalesced {
+            return;
+        }
+        self.break_next = false;
+        self.total_bytes += removed.len() + inserted.len();
+        self.undo.push(UndoStep { at_byte, removed, inserted, before, after, time, mergeable });
+        while self.undo.len() > Self::MAX_STEPS
+            || (self.total_bytes > Self::MAX_BYTES && self.undo.len() > Self::MIN_STEPS)
+        {
+            let dropped = self.undo.remove(0);
+            self.total_bytes =
+                self.total_bytes.saturating_sub(dropped.removed.len() + dropped.inserted.len());
+        }
+    }
+
+    pub(crate) fn step(
+        &mut self,
+        text: &mut String,
+        redo: bool,
+    ) -> Option<(egui::text::CCursorRange, usize, usize, usize)> {
+        self.break_next = true;
+        if redo {
+            let s = self.redo.pop()?;
+            let old_end = s.at_byte + s.removed.len();
+            let new_end = s.at_byte + s.inserted.len();
+            text.replace_range(s.at_byte..old_end, &s.inserted);
+            let cursor = s.after;
+            let at = s.at_byte;
+            self.undo.push(s);
+            Some((cursor, at, old_end, new_end))
+        } else {
+            let s = self.undo.pop()?;
+            let old_end = s.at_byte + s.inserted.len();
+            let new_end = s.at_byte + s.removed.len();
+            text.replace_range(s.at_byte..old_end, &s.removed);
+            let cursor = s.before;
+            let at = s.at_byte;
+            self.redo.push(s);
+            Some((cursor, at, old_end, new_end))
+        }
+    }
+
+    /// Whether there is a step back (or, `redo`, again) to take: each one
+    /// changes the text (the history keeps edits alone, not the cursor's
+    /// moves), for the editor's menu's Undo and Redo.
+    pub(crate) fn can_step(&self, redo: bool) -> bool {
+        if redo { !self.redo.is_empty() } else { !self.undo.is_empty() }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ScriptBuffer {
     pub(crate) text: String,
@@ -70,6 +206,13 @@ pub(crate) struct ScriptBuffer {
     /// its first that is not a space to after its last; none for a line
     /// of spaces), and the text's hash and the line it was found for.
     error_span: Option<(u64, u64, Option<Underline>)>,
+    /// Delta undo/redo stack for the editor.
+    pub(crate) undo: ScriptUndo,
+    /// Cached `(text.len(), text.as_ptr(), hash)` to detect both explicit
+    /// invalidation and direct mutations to `text`.
+    cached_hash: std::cell::Cell<Option<(usize, usize, u64)>>,
+    /// Cached `(text_hash, is_dirty)` pair to avoid comparing 650 KB buffers on idle frames.
+    cached_dirty: std::cell::Cell<Option<(u64, bool)>>,
 }
 
 /// The line the live error's underline is under and its span there.
@@ -206,27 +349,35 @@ pub(crate) fn underlined_line(
     }
 }
 
-/// Paints the live error's wavy underline under `line` of the editor's
-/// `galley` (laid out at `at`), the span [`error_span`] gives in
-/// characters, in the theme's `error` token (`.code .tx.err`: `underline
-/// wavy var(--error)`, 3 points under the baseline); the span's
-/// rectangle, for its tip.
+/// Paints the live error's wavy underline under `line` of the editor's laid-out
+/// text (laid out at `at`), the span [`error_span`] gives in characters, in the
+/// theme's `error` token; returns the wave's rectangle for its hover tip.
 fn paint_error_underline(
     ui: &Ui,
-    galley: &egui::Galley,
+    laid: &mut crate::script_layout::LaidOut,
+    text: &str,
     at: egui::Pos2,
     (from, to): (usize, usize),
-    size: f32,
+    palette: &Palette,
 ) -> egui::Rect {
-    let start = galley.pos_from_cursor(egui::text::CCursor::new(from)).translate(at.to_vec2());
-    let end = galley.pos_from_cursor(egui::text::CCursor::new(to)).translate(at.to_vec2());
+    let (li, _) = laid.line_col(from);
+    let ppp = ui.ctx().pixels_per_point();
+    let row_y = at.y + laid.row_y(li, ppp);
+    let row_h = laid.row_height();
+    if !ui.clip_rect().y_range().intersects(egui::Rangef::new(row_y, row_y + row_h)) {
+        return egui::Rect::NOTHING;
+    }
+    let start = laid
+        .cursor_local_rect(ui, text, palette, egui::text::CCursor::new(from))
+        .translate(at.to_vec2());
+    let end = laid
+        .cursor_local_rect(ui, text, palette, egui::text::CCursor::new(to))
+        .translate(at.to_vec2());
     let t = mg_uikit::tokens(ui.ctx());
-    // (Under the text, 3 points under its baseline, `text-underline-offset:
-    // 3px`, wherever the line's height puts the text: a glyph's place is
-    // its baseline.)
-    let row = galley.rows.get(galley.layout_from_cursor(egui::text::CCursor::new(from)).row);
-    let baseline = row.and_then(|r| r.glyphs.first().map(|g| at.y + r.pos.y + g.pos.y));
-    let y = baseline.map_or(start.bottom() - 0.5, |b| wave_y(b, start.bottom(), size));
+    let g = laid.ensure_line(ui, text, li, palette);
+    let baseline =
+        g.rows.first().and_then(|r| r.glyphs.first().map(|gl| row_y + r.pos.y + gl.pos.y));
+    let y = baseline.map_or(start.bottom() - 0.5, |b| wave_y(b, start.bottom(), palette.size));
     let x = egui::Rangef::new(start.left(), end.left().max(start.left() + 2.0));
     // (Only what is in sight: a line of thousands of characters is not
     // made into a wave a few points at a time all along it.)
@@ -284,7 +435,107 @@ impl ScriptBuffer {
             conversion: None,
             place: None,
             error_span: None,
+            undo: ScriptUndo::default(),
+            cached_hash: std::cell::Cell::new(None),
+            cached_dirty: std::cell::Cell::new(None),
         }
+    }
+
+    pub(crate) fn text_hash(&self) -> u64 {
+        let key = (self.text.len(), self.text.as_ptr() as usize);
+        if let Some((len, ptr, h)) = self.cached_hash.get()
+            && len == key.0
+            && ptr == key.1
+        {
+            return h;
+        }
+        let h = tools::hash(&self.text);
+        self.cached_hash.set(Some((key.0, key.1, h)));
+        h
+    }
+
+    pub(crate) fn invalidate_hash(&self) {
+        self.cached_hash.set(None);
+        self.cached_dirty.set(None);
+    }
+
+    pub(crate) fn set_text(&mut self, text: String) {
+        self.text = text;
+        self.undo.clear();
+        self.invalidate_hash();
+    }
+
+    pub(crate) fn replace_range_undo(
+        &mut self,
+        bytes: std::ops::Range<usize>,
+        replacement: &str,
+        before: egui::text::CCursorRange,
+        after: egui::text::CCursorRange,
+        time: f64,
+        mergeable: bool,
+    ) -> (usize, usize, usize) {
+        let removed = self.text[bytes.clone()].to_string();
+        let at_byte = bytes.start;
+        let old_end = bytes.end;
+        self.text.replace_range(bytes, replacement);
+        let new_end = at_byte + replacement.len();
+        self.invalidate_hash();
+        self.undo.record_edit(
+            at_byte,
+            removed,
+            replacement.to_string(),
+            before,
+            after,
+            time,
+            mergeable,
+        );
+        (at_byte, old_end, new_end)
+    }
+
+    pub(crate) fn replace_diff_undo(
+        &mut self,
+        next: String,
+        before: egui::text::CCursorRange,
+        after: egui::text::CCursorRange,
+        time: f64,
+    ) -> (usize, usize, usize) {
+        let a = self.text.as_bytes();
+        let b = next.as_bytes();
+        let n = a.len().min(b.len());
+        let mut p = 0;
+        while p + 64 <= n && a[p..p + 64] == b[p..p + 64] {
+            p += 64;
+        }
+        while p < n && a[p] == b[p] {
+            p += 1;
+        }
+        while p > 0 && (!self.text.is_char_boundary(p) || !next.is_char_boundary(p)) {
+            p -= 1;
+        }
+        let room = a.len().min(b.len()) - p;
+        let (sa, sb) = (&a[a.len() - room..], &b[b.len() - room..]);
+        let mut s = 0;
+        while s + 64 <= room && sa[room - s - 64..room - s] == sb[room - s - 64..room - s] {
+            s += 64;
+        }
+        while s < room && sa[room - s - 1] == sb[room - s - 1] {
+            s += 1;
+        }
+        let mut old_end = a.len() - s;
+        let mut new_end = b.len() - s;
+        while old_end < a.len()
+            && new_end < b.len()
+            && (!self.text.is_char_boundary(old_end) || !next.is_char_boundary(new_end))
+        {
+            old_end += 1;
+            new_end += 1;
+        }
+        let removed = self.text[p..old_end].to_string();
+        let inserted = next[p..new_end].to_string();
+        self.text = next;
+        self.invalidate_hash();
+        self.undo.record_edit(p, removed, inserted, before, after, time, false);
+        (p, old_end, new_end)
     }
 
     /// After the editor's Undo or Redo: where the text (`hash`) is as it
@@ -305,6 +556,8 @@ impl ScriptBuffer {
         self.text = text.clone();
         self.saved = text;
         self.raw = raw;
+        self.undo.clear();
+        self.invalidate_hash();
     }
 
     /// Follows the module's script (`bytes`) where it changed underneath
@@ -328,13 +581,21 @@ impl ScriptBuffer {
     }
 
     pub(crate) fn is_dirty(&self) -> bool {
-        self.text != self.saved
+        let h = self.text_hash();
+        if let Some((was, dirty)) = self.cached_dirty.get()
+            && was == h
+        {
+            return dirty;
+        }
+        let dirty = self.text != self.saved;
+        self.cached_dirty.set(Some((h, dirty)));
+        dirty
     }
 
     /// The text as the file has it: with the file's line ends (an
     /// untouched text, the file's own text).
     fn file_text(&self) -> std::borrow::Cow<'_, str> {
-        if self.text == self.saved {
+        if !self.is_dirty() {
             std::borrow::Cow::Borrowed(&self.raw)
         } else {
             std::borrow::Cow::Owned(crate::text::with_line_ends(&self.text, &self.raw))
@@ -353,6 +614,7 @@ impl ScriptBuffer {
         let bytes = self.codepage.encode_lossy(&raw);
         self.raw = raw;
         self.saved = self.text.clone();
+        self.cached_dirty.set(None);
         bytes
     }
 
@@ -364,7 +626,7 @@ impl ScriptBuffer {
 
 /// Whether a ground of the builder's own is dark (its relative luminance
 /// under a fifth: white text reads better on it than black).
-fn ground_is_dark([r, g, b]: [u8; 3]) -> bool {
+pub(crate) fn ground_is_dark([r, g, b]: [u8; 3]) -> bool {
     let c = |v: u8| {
         let v = f32::from(v) / 255.0;
         if v <= 0.040_45 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
@@ -592,6 +854,7 @@ pub(crate) fn file_url(path: &std::path::Path) -> String {
 /// its first character to its last, and on the rows between to each row's
 /// last character (a row with none: a sliver, so that an empty line in a
 /// selection is seen to be in it).
+#[cfg(test)]
 pub(crate) fn selection_rects(
     galley: &egui::Galley,
     range: &egui::text::CCursorRange,
@@ -619,7 +882,7 @@ pub(crate) fn selection_rects(
     out
 }
 
-fn editor_id(key: ResKey) -> egui::Id {
+pub(crate) fn editor_id(key: ResKey) -> egui::Id {
     egui::Id::new(("script", key))
 }
 
@@ -673,55 +936,27 @@ pub(crate) fn undo(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, redo: b
 }
 
 /// A step of the editor's own history taken, back or (`redo`) again, as
-/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is). A step that
-/// only moves the cursor (the history keeps the cursor with the text: the
-/// same text a second on, the selection let go by the click on the menu)
-/// is passed over to the one that changes the text: Undo from a menu
-/// takes something back.
-fn step_history(buf: &mut ScriptBuffer, ctx: &egui::Context, key: ResKey, redo: bool) {
-    let id = editor_id(key);
-    let Some(mut state) = egui::text_edit::TextEditState::load(ctx, id) else { return };
-    let end = egui::text::CCursorRange::one(egui::text::CCursor::new(buf.text.chars().count()));
-    let mut now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
-    let mut undoer = state.undoer();
-    let mut step = None;
-    for _ in 0..8 {
-        let to = if redo { undoer.redo(&now) } else { undoer.undo(&now) };
-        let Some(to) = to.cloned() else { break };
-        let moved_only = to.1 == buf.text;
-        step = Some(to.clone());
-        if !moved_only {
-            break;
-        }
-        now = to;
-    }
-    let Some((range, text)) = step else { return };
-    buf.text = text;
-    state.cursor.set_char_range(Some(range));
-    state.set_undoer(undoer);
-    state.store(ctx, id);
-}
-
-/// Whether the editor's history has a step back (or, `redo`, again) that
-/// changes its text, as [`step_history`] takes one: one that only moves
-/// the cursor is passed over. (For its menu's Undo and Redo, worked out
-/// while the menu is open.)
-fn has_step(
-    undoer: &egui::util::undoer::Undoer<(egui::text::CCursorRange, String)>,
-    now: &(egui::text::CCursorRange, String),
+/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is). Each step
+/// changes the text ([`ScriptUndo`] keeps edits alone, not the cursor's
+/// moves), so Undo from a menu takes something back.
+fn step_history(
+    buf: &mut ScriptBuffer,
+    laid: Option<&mut crate::script_layout::LaidOut>,
+    ctx: &egui::Context,
+    key: ResKey,
     redo: bool,
-) -> bool {
-    let mut undoer = undoer.clone();
-    let mut now = now.clone();
-    for _ in 0..8 {
-        let to = if redo { undoer.redo(&now) } else { undoer.undo(&now) };
-        let Some(to) = to.cloned() else { return false };
-        if to.1 != now.1 {
-            return true;
-        }
-        now = to;
+) {
+    let Some((range, at, old_end, new_end)) = buf.undo.step(&mut buf.text, redo) else { return };
+    buf.invalidate_hash();
+    let h = buf.text_hash();
+    buf.follow_conversion(h);
+    if let Some(laid) = laid {
+        laid.apply_edit(&buf.text, at, old_end, new_end, h);
     }
-    false
+    let id = editor_id(key);
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(range));
+    state.store(ctx, id);
 }
 
 /// Moves an editor's cursor (and selection) and focuses it.
@@ -740,38 +975,45 @@ fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
 fn cursor(ctx: &egui::Context, key: ResKey) -> Option<(usize, usize)> {
     let state = egui::text_edit::TextEditState::load(ctx, editor_id(key))?;
     let r = state.cursor.char_range()?;
-    let (a, b) = (r.primary.index, r.secondary.index);
-    let (a, b): (usize, usize) = (a.into(), b.into());
+    let (a, b) = (usize::from(r.primary.index), usize::from(r.secondary.index));
     Some((a.min(b), a.max(b)))
 }
 
 /// Replaces a character range of the buffer and puts the cursor after it.
+#[allow(clippy::too_many_arguments)]
 fn insert(
     buf: &mut ScriptBuffer,
+    laid: Option<&mut crate::script_layout::LaidOut>,
     ctx: &egui::Context,
     key: ResKey,
     from: usize,
     to: usize,
     text: &str,
 ) {
-    let (bf, bt) = (tools::byte_index(&buf.text, from), tools::byte_index(&buf.text, to));
-    buf.text.replace_range(bf..bt, text);
-    let at = from + text.chars().count();
-    set_cursor(ctx, key, at, at);
+    let (a, b) = (from.min(to), from.max(to));
+    let (bf, bt) = match laid.as_deref() {
+        Some(l) if l.line_count() > 0 => {
+            (l.byte_of_char(&buf.text, a), l.byte_of_char(&buf.text, b))
+        }
+        _ => (tools::byte_index(&buf.text, a), tools::byte_index(&buf.text, b)),
+    };
+    let at_chars = a + text.chars().count();
+    let before =
+        egui::text::CCursorRange::two(egui::text::CCursor::new(from), egui::text::CCursor::new(to));
+    let after = egui::text::CCursorRange::one(egui::text::CCursor::new(at_chars));
+    let now = ctx.input(|i| i.time);
+    let (at, old_end, new_end) = buf.replace_range_undo(bf..bt, text, before, after, now, false);
+    if let Some(laid) = laid {
+        let h = buf.text_hash();
+        laid.apply_edit(&buf.text, at, old_end, new_end, h);
+    }
+    set_cursor(ctx, key, at_chars, at_chars);
 }
 
-/// Makes the text as it is a point for the editor's own Undo to go back
-/// to, before something other than typing changes it (Replace, Replace
-/// All): the field makes points of what is typed in it while it has the
-/// keys, and an editor never clicked in has none.
-fn undo_point(buf: &ScriptBuffer, ctx: &egui::Context, key: ResKey) {
-    let id = editor_id(key);
-    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
-    let at = state.cursor.char_range().unwrap_or_default();
-    let mut undoer = state.undoer();
-    undoer.add_undo(&(at, buf.text.clone()));
-    state.set_undoer(undoer);
-    state.store(ctx, id);
+/// Breaks contiguous typing merge in the editor's undo stack before a bulk or
+/// replace step (`Replace`, `Replace All`, `Convert Indentation`).
+fn undo_point(buf: &mut ScriptBuffer, _ctx: &egui::Context, _key: ResKey) {
+    buf.undo.mark_break();
 }
 
 /// The editor's context menu's conversions (Edit › Convert Indentation
@@ -787,6 +1029,7 @@ const INDENT_CONVERSIONS: [(bool, &str); 2] =
 /// The cursor stays on its line, at its start.
 fn convert_indentation(
     buf: &mut ScriptBuffer,
+    laid: Option<&mut crate::script_layout::LaidOut>,
     ctx: &egui::Context,
     key: ResKey,
     tabs: bool,
@@ -797,7 +1040,7 @@ fn convert_indentation(
     let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     let before = state.cursor.char_range().unwrap_or_default();
     let (a, b) = match selected {
-        true => (before.primary.index.into(), before.secondary.index.into()),
+        true => (usize::from(before.primary.index), usize::from(before.secondary.index)),
         false => (0, 0),
     };
     let converted = tools::convert_indentation_in(&buf.text, tabs, width, a, b);
@@ -809,19 +1052,20 @@ fn convert_indentation(
         buf.indent = made;
         return;
     }
-    buf.conversion = Some([(tools::hash(&buf.text), buf.indent), (tools::hash(&converted), made)]);
+    buf.conversion = Some([(buf.text_hash(), buf.indent), (tools::hash(&converted), made)]);
     buf.indent = made;
-    let line = buf.text.chars().take(before.primary.index.into()).filter(|c| *c == '\n').count();
-    let at = egui::text::CCursorRange::one(egui::text::CCursor::new(tools::line_start(
+    let line =
+        buf.text.chars().take(usize::from(before.primary.index)).filter(|c| *c == '\n').count();
+    let at_c = egui::text::CCursorRange::one(egui::text::CCursor::new(tools::line_start(
         &converted, line,
     )));
-    // (The text before is a point for the editor's Undo to go back to,
-    // in one, however soon it is asked: the field makes the text after
-    // one itself once it is left as it is.)
-    let mut undoer = state.undoer();
-    undoer.add_undo(&(before, std::mem::replace(&mut buf.text, converted)));
-    state.set_undoer(undoer);
-    state.cursor.set_char_range(Some(at));
+    let now = ctx.input(|i| i.time);
+    let (at, old_end, new_end) = buf.replace_diff_undo(converted, before, at_c, now);
+    if let Some(laid) = laid {
+        let h = buf.text_hash();
+        laid.apply_edit(&buf.text, at, old_end, new_end, h);
+    }
+    state.cursor.set_char_range(Some(at_c));
     state.store(ctx, id);
 }
 
@@ -878,7 +1122,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // text alone).
     // (The text's hash, once a frame: the symbols and the live check
     // go by it too, and a script may be some 600 KB.)
-    let h = tools::hash(&app.scripts[&key].text);
+    let h = app.scripts[&key].text_hash();
     // (A conversion taken back by the editor's Undo: Tab as before it.)
     app.scripts.get_mut(&key).expect("just inserted").follow_conversion(h);
     {
@@ -887,10 +1131,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let edited = t.seen.insert(key, h).is_some_and(|was| was != h);
         if t.revision != revision {
             t.revision = revision;
-            t.symbols.clear();
+            t.clear_symbols();
             app.script_nav.check_again(None);
         } else if edited {
-            t.symbols.retain(|k, _| *k == key);
+            t.invalidate_dependents(key);
             app.script_nav.check_again(Some(key));
         }
     }
@@ -923,7 +1167,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if typing {
             ctx.request_repaint();
         }
-        app.script_tools.symbols_for(
+        app.script_tools.symbols_for_ui(
             key,
             h,
             typing,
@@ -934,6 +1178,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 Some(mg_script::spec::Spec::parse(&data))
             },
             &mut source,
+            &ctx,
+            app.background_jobs,
         )
     };
 
@@ -1071,7 +1317,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     if complete && let Some((at, _)) = cursor(&ctx, key) {
         let (start, prefix) = tools::word_before(&app.scripts[&key].text, at);
-        let items = tools::completions(&symbols, &prefix);
+        let items = symbols.completions(&prefix);
         if !items.is_empty() {
             app.script_tools.completion =
                 Some(Completion { script: key, start, items, selected: 0 });
@@ -1097,7 +1343,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let live_include = app.live_include(key).cloned();
     let mut ctrl_click = None;
     // (The plugins' commands for scripts, for its right-click menu.)
-    let commands = app.plugin_menu_commands();
+    let commands = app.plugin_menu_commands_cached();
     let script = [mg_plugin::Selected::Resource(key)];
     let script_kinds = crate::plugins::kinds_of(&script);
     let mut plugin_chosen = None;
@@ -1108,11 +1354,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         menu_wanted.then(|| (app.keymap.label_of("undo", &ctx), app.keymap.label_of("redo", &ctx)));
     let Moonglow { scripts, laid_out, script_tools, open_tabs, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
+    let cached = laid_out.entry(key).or_default();
+    cached.sync_full(ui, &buf.text, h, &palette);
     // Tab indents as the script is indented (Jasperre's report), else as
     // Options › Script Editor says.
     let mut indent = tools::Indent::of_script(buf.indent, style_indent);
     if let Some((_, tabs, selected)) = script_tools.convert_indent.take_if(|(k, ..)| *k == key) {
-        convert_indentation(buf, &ctx, key, tabs, selected, indent.width);
+        convert_indentation(buf, Some(cached), &ctx, key, tabs, selected, indent.width);
         indent = tools::Indent::of_script(buf.indent, style_indent);
     }
     // Edit › Undo or Redo, or the Top Bar's: the editor's step, and the
@@ -1121,7 +1369,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // module's.
     let stepped = script_tools.undo.take_if(|(k, _)| *k == key);
     if let Some((_, redo)) = stepped {
-        step_history(buf, &ctx, key, redo);
+        step_history(buf, Some(cached), &ctx, key, redo);
         // (As typing closes it.)
         script_tools.completion = None;
     }
@@ -1131,22 +1379,21 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let (kept_scroll, kept_cursor) = kept.as_ref().map(|v| v.script()).unwrap_or_default();
     // Its bookmarks as they were (those its text still has lines for).
     if let Some(v) = &kept {
-        (buf.bookmarks, buf.numbered) = v.script_marks(buf.text.lines().count().max(1));
+        (buf.bookmarks, buf.numbered) = v.script_marks(cached.line_count());
         // (Bookmarks, drawn before it, shows them.)
         script_tools.made += 1;
     }
     if let Some((a, b)) = kept_cursor {
         let id = editor_id(key);
-        let end = buf.text.chars().count();
+        let end = cached.total_chars();
         let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
         let at = |n: usize| egui::text::CCursor::new(n.min(end));
         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(at(a), at(b))));
         state.store(&ctx, id);
     }
     if let Some(text) = insert_text {
-        let (a, b) =
-            cursor(&ctx, key).unwrap_or((buf.text.chars().count(), buf.text.chars().count()));
-        insert(buf, &ctx, key, a, b, &text);
+        let (a, b) = cursor(&ctx, key).unwrap_or((cached.total_chars(), cached.total_chars()));
+        insert(buf, Some(cached), &ctx, key, a, b, &text);
     }
     // The cursor gone from the word the list completes (Home, a click
     // elsewhere) closes it: what it would replace is no longer that word.
@@ -1184,7 +1431,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let text =
             if s.kind == SymbolKind::Function { format!("{}(", s.name) } else { s.name.clone() };
         let at = cursor(&ctx, key).map_or(c.start, |x| x.0);
-        insert(buf, &ctx, key, c.start, at, &text);
+        insert(buf, Some(cached), &ctx, key, c.start, at, &text);
     }
     // Text pasted has the editor's line ends, plain newlines (a copy from
     // a Windows program has CRLF).
@@ -1216,16 +1463,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let lines = tab && tools::spans_lines(&buf.text, a, b);
         if outdent || (tab && lines) {
             let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent, indent);
-            buf.text = text;
+            let before = egui::text::CCursorRange::two(
+                egui::text::CCursor::new(a),
+                egui::text::CCursor::new(b),
+            );
+            let after = egui::text::CCursorRange::two(
+                egui::text::CCursor::new(from),
+                egui::text::CCursor::new(to),
+            );
+            let now = ctx.input(|i| i.time);
+            let (at, old_end, new_end) = buf.replace_diff_undo(text, before, after, now);
+            let nh = buf.text_hash();
+            cached.apply_edit(&buf.text, at, old_end, new_end, nh);
             set_cursor(&ctx, key, from, to);
         } else if tab {
-            insert(buf, &ctx, key, a, b, &indent.at(&buf.text, a));
+            insert(buf, Some(cached), &ctx, key, a, b, &indent.at(&buf.text, a));
         }
         // Enter begins the new line as far in as the line it is started
         // from (Aurora does; the field alone begins it at the margin).
         if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
             let start = format!("\n{}", tools::new_line_indent(&buf.text, a));
-            insert(buf, &ctx, key, a, b, &start);
+            insert(buf, Some(cached), &ctx, key, a, b, &start);
             script_tools.scroll = Some(key);
         }
         // Page Down and Page Up move the cursor by the lines in sight, and
@@ -1241,7 +1499,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let id = editor_id(key);
             let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
             let Some(r) = state.cursor.char_range() else { continue };
-            let to = tools::line_moved(&buf.text, r.primary.index.into(), lines);
+            let to = cached.line_moved_char(usize::from(r.primary.index), lines);
             let anchor = if select { r.secondary } else { egui::text::CCursor::new(to) };
             state.cursor.set_char_range(Some(egui::text::CCursorRange {
                 primary: egui::text::CCursor::new(to),
@@ -1257,12 +1515,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         set_cursor(&ctx, key, at, at);
         script_tools.scroll = Some(key);
     }
-    // (A line at a time, kept between frames: `script_layout`.)
-    let cached = laid_out.entry(key).or_default();
-    cached.begin(ui, &palette);
-    let lines = buf.text.bytes().filter(|b| *b == b'\n').count() + 1;
-    cached.numbers(ui, lines, &palette);
-    let gutter_width = cached.gutter_width();
+    let h = buf.text_hash();
+    cached.sync_full(ui, &buf.text, h, &palette);
     let mut completion_at = None;
     let mut area = egui::ScrollArea::both().id_salt(("script-scroll", key));
     if let Some(at) = kept_scroll {
@@ -1286,77 +1540,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // between them: `script_layout::GUTTER_RIGHT` and the text's
             // frame, nothing more.)
             ui.spacing_mut().item_spacing.x = 0.0;
-            // The selection is drawn here, not by the field: to each
-            // line's last character, where the field draws a line end
-            // that is selected as half a character more (which reads
-            // as a space the line does not have). The field's own is
-            // not drawn (no color), and the field's ground, the current
-            // line's band and the selection go under its text and the
-            // line numbers.
-            let under = ui.painter().add(egui::Shape::Noop);
-            let (gutter, numbers) =
-                ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
-            crate::script_layout::name_gutter(&numbers, lines);
-            // (Options › Script Editor's, else the theme's.)
-            let ground = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
-            let selected = std::mem::replace(
-                &mut ui.visuals_mut().selection.bg_fill,
-                egui::Color32::TRANSPARENT,
-            );
-            let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
-                cached.text(ui, text.as_str(), &palette)
-            };
-            let mut out = egui::TextEdit::multiline(&mut buf.text)
-                .code_editor()
-                .desired_width(f32::INFINITY)
-                .desired_rows(1)
-                .min_size(egui::vec2(0.0, room))
-                .id(editor_id(key))
-                // (No frame: the mock's code has no border, with the
-                // keys or not; the ground is drawn under it.)
-                .frame(crate::script_layout::text_frame())
-                .layouter(&mut layouter)
-                .show(ui);
+            // (The editor draws the selection itself, to each line's last
+            // character, under its text and the line numbers, with the
+            // ground and the current line's band: `script_layout::code_edit`.)
+            let out = crate::script_layout::code_edit(ui, key, buf, cached, &palette, room);
             // (A right click in the selection keeps it, for the menu's Cut,
             // Copy and Convert Indentation of its lines; outside it, the
-            // caret goes where it was pressed: `widgets::keep_selection`.)
+            // caret goes where it was pressed: `code_edit`.)
             crate::widgets::own_text_menu(&ctx, editor_id(key));
-            if let Some(range) = crate::widgets::keep_selection(&ctx, editor_id(key)) {
-                out.state.cursor.set_char_range(Some(range));
-                out.cursor_range = Some(range);
-            }
-            cursor_now = out.state.cursor.char_range();
-            // (Its row of the galley, not the text gone through from its
-            // start: a page's keys move the cursor every frame.)
-            let at = cursor_now.map_or(egui::text::CCursor::default(), |r| r.primary);
-            let found = out.galley.layout_from_cursor(at);
-            place_now = Some((found.row + 1, usize::from(found.column) + 1));
-            crate::script_layout::describe_line(&out.response.response, found.row + 1, lines);
-            ui.visuals_mut().selection.bg_fill = selected;
+            cursor_now = out.cursor_range;
+            place_now = Some((out.cursor_line_col.0 + 1, out.cursor_line_col.1 + 1));
             // Its right-click menu: the editor's Undo and Redo, Cut, Copy,
             // Paste and Select All (the text fields' menu), then Convert
             // Indentation and the plugins' commands for scripts.
             if let Some((undo_keys, redo_keys)) = undo_keys.filter(|_| menu_wanted) {
-                // (Worked out on the frame the menu is asked for, and kept
-                // while it is open, when its keys are its own and the text
-                // does not change: not the history and the text copied
-                // each frame; kept with the text's hash, so a pair of
-                // another text is never taken.)
-                let slot = editor_id(key).with("menu-steps");
-                let kept = (crate::widgets::text_menu_open(&ctx))
-                    .then(|| ctx.data(|d| d.get_temp::<(u64, (bool, bool))>(slot)))
-                    .flatten()
-                    .filter(|(was, _)| *was == h)
-                    .map(|(_, steps)| steps);
-                let (can_undo, can_redo) = kept.unwrap_or_else(|| {
-                    let undoer = out.state.undoer();
-                    let end = egui::text::CCursor::new(buf.text.chars().count());
-                    let range = cursor_now.unwrap_or(egui::text::CCursorRange::one(end));
-                    let now = (range, buf.text.clone());
-                    let steps = (has_step(&undoer, &now, false), has_step(&undoer, &now, true));
-                    ctx.data_mut(|d| d.insert_temp(slot, (h, steps)));
-                    steps
-                });
+                // (The editor's own history: each of its steps changes the
+                // text, so whether there is one is all the menu asks.)
+                let (can_undo, can_redo) = (buf.undo.can_step(false), buf.undo.can_step(true));
                 let undo = crate::widgets::TextUndo { can_undo, can_redo, undo_keys, redo_keys };
                 let (step, _) =
                     crate::widgets::text_menu(&ctx, editor_id(key), Some(undo), |ui, rows| {
@@ -1374,51 +1574,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     ctx.request_repaint();
                 }
             }
-            let field = out.response.response.rect;
-            let radius = ui.style().interact(&out.response.response).corner_radius;
-            // (The gutter on the text's ground: the board's `.code`.)
-            let mut shapes = vec![egui::Shape::rect_filled(field.union(gutter), radius, ground)];
-            // The cursor's line (with nothing selected): its band across
-            // the view, the gutter's part and the text's, and the text's
-            // part between two hairlines (`.ln.cur`, `.tx.cur`).
-            let current =
-                cursor_now.filter(|r| r.is_empty()).map(|_| place_now.map_or(0, |p| p.0 - 1));
-            let band = current.and_then(|line| {
-                let row = out.galley.rows.get(line)?;
-                let y = out.galley_pos.y + row.pos.y;
-                Some(egui::Rangef::new(y, y + row.size.y))
+            ctx.data_mut(|d| {
+                d.insert_temp(gutter_id(key), (out.gutter_rect.x_range(), out.current_band))
             });
-            ctx.data_mut(|d| d.insert_temp(gutter_id(key), (gutter.x_range(), band)));
-            if let Some(y) = band {
-                let t = match palette.background {
-                    Some(g) if ground_is_dark([g.r(), g.g(), g.b()]) => mg_uikit::Tokens::DARK,
-                    Some(_) => mg_uikit::Tokens::LIGHT,
-                    None => mg_uikit::tokens(&ctx),
-                };
-                let sight = ui.clip_rect().x_range();
-                let whole = egui::Rect::from_x_y_ranges(sight, y);
-                shapes.push(egui::Shape::rect_filled(whole, 0.0, t.current_line));
-                let text = egui::Rangef::new(gutter.right().max(sight.min), sight.max);
-                for edge in hairlines(y, ui.ctx().pixels_per_point()) {
-                    let line = egui::Rect::from_x_y_ranges(text, edge);
-                    shapes.push(egui::Shape::rect_filled(line, 0.0, t.current_line_edge));
-                }
-            }
-            let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
-            for rect in rows.unwrap_or_default() {
-                let rect = rect.translate(out.galley_pos.to_vec2());
-                shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
-            }
-            ui.painter().set(under, egui::Shape::Vec(shapes));
-            cached.paint_gutter(
-                ui,
-                gutter.left(),
-                &out.galley,
-                out.galley_pos,
-                band.and(current),
-                palette.colors[0],
-                crate::script_layout::Marks { bookmarks: &buf.bookmarks, numbered: &buf.numbered },
-            );
             // The live error's wavy underline on its line, and the error
             // in its tip: in either host (a floating script has no Status
             // Bar of its own).
@@ -1427,15 +1585,22 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // (`underlined_line`).
             let mut error_tip = false;
             if let Some((line, said)) = &live_error {
-                let asked = egui::epaint::util::hash((line, said, &live_include));
                 let under = match &buf.error_span {
-                    Some((hash, of, under)) if *hash == h && *of == asked => *under,
+                    Some((hash, of, under))
+                        if *hash == h
+                            && *of == egui::epaint::util::hash((line, said, &live_include)) =>
+                    {
+                        *under
+                    }
                     _ => {
+                        let asked = egui::epaint::util::hash((line, said, &live_include));
                         let include = live_include.as_ref().map(|(n, _)| n.as_str());
                         let under = underlined_line(&buf.text, *line, include).and_then(|l| {
                             let (a, b) = error_span(&buf.text, l)?;
-                            let chars =
-                                (tools::char_index(&buf.text, a), tools::char_index(&buf.text, b));
+                            let chars = (
+                                cached.char_of_byte(&buf.text, a),
+                                cached.char_of_byte(&buf.text, b),
+                            );
                             Some((l, chars))
                         });
                         buf.error_span = Some((h, asked, under));
@@ -1443,8 +1608,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     }
                 };
                 if let Some((_, span)) = under {
-                    let wave =
-                        paint_error_underline(ui, &out.galley, out.galley_pos, span, palette.size);
+                    let wave = paint_error_underline(
+                        ui,
+                        cached,
+                        &buf.text,
+                        out.text_origin,
+                        span,
+                        &palette,
+                    );
                     if ui.rect_contains_pointer(wave.expand2(egui::vec2(0.0, 2.0))) {
                         let said = said.replace(['\r', '\n'], " ");
                         let tip = match &live_include {
@@ -1453,7 +1624,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                             None => format!("{said}\nFound as you type."),
                         };
-                        out.response.response.clone().on_hover_text_at_pointer(tip);
+                        out.response.clone().on_hover_text_at_pointer(tip);
                         error_tip = true;
                     }
                 }
@@ -1468,29 +1639,31 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // keys that would close it.)
             let menu_up = menu_wanted || crate::widgets::text_menu_open(&ctx);
             if symbol_tips && script_tools.completion.is_none() {
-                let origin = out.galley_pos.to_vec2();
-                let pointer = (out.response.response.hover_pos())
-                    .filter(|_| !error_tip && !menu_up)
-                    .and_then(|p| {
+                let origin = out.text_origin.to_vec2();
+                let pointer =
+                    (out.response.hover_pos()).filter(|_| !error_tip && !menu_up).and_then(|p| {
                         let slot = egui::Id::new(("name-at-pointer", key));
-                        name_at(&ctx, slot, h, &symbols, &out.galley, (p - origin).to_vec2())
+                        let at = (p - origin).to_vec2();
+                        name_at(ui, slot, h, &symbols, cached, &buf.text, &palette, at)
                     });
                 if let Some(s) = pointer {
                     let detail =
                         symbol_detail(&ctx, egui::Id::new(("symbol-tip", key)), s, &palette);
-                    out.response.response.clone().on_hover_ui_at_pointer(|ui| {
+                    out.response.clone().on_hover_ui_at_pointer(|ui| {
                         detail_ui(ui, &detail, TIP_MOST);
                     });
                 } else if let Some(r) = out.cursor_range
                     && caret_tip(&ctx, key, r.primary.index.into(), menu_up)
-                    && let caret = out.galley.pos_from_cursor(r.primary)
+                    && let caret = cached.cursor_local_rect(ui, &buf.text, &palette, r.primary)
                     // (Only while the cursor is in sight: not over the
                     // menus or another panel where the text is scrolled.)
                     && ui.clip_rect().contains_rect(caret.translate(origin))
                 {
                     let at = caret.center_bottom() - egui::vec2(0.0, 1.0);
                     let slot = egui::Id::new(("name-at-caret", key));
-                    if let Some(s) = name_at(&ctx, slot, h, &symbols, &out.galley, at.to_vec2()) {
+                    let found =
+                        name_at(ui, slot, h, &symbols, cached, &buf.text, &palette, at.to_vec2());
+                    if let Some(s) = found {
                         let slot = egui::Id::new(("symbol-tip", key));
                         let detail = symbol_detail(&ctx, slot, s, &palette);
                         let id = editor_id(key).with("caret-tip");
@@ -1501,33 +1674,34 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 }
             }
             if let Some(r) = out.cursor_range {
-                let rect =
-                    out.galley.pos_from_cursor(r.primary).translate(out.galley_pos.to_vec2());
+                let rect = cached
+                    .cursor_local_rect(ui, &buf.text, &palette, r.primary)
+                    .translate(out.text_origin.to_vec2());
                 if script_tools.scroll == Some(key) {
                     ui.scroll_to_rect(rect.expand(40.0), Some(egui::Align::Center));
                     script_tools.scroll = None;
                 }
                 completion_at = Some(rect.left_bottom());
                 // Help follows the identifier under the cursor.
-                if out.response.response.changed() || out.response.response.clicked() {
-                    let word = tools::word_at(&buf.text, r.primary.index.into());
-                    if let Some(s) = word.and_then(|w| symbols.iter().find(|s| s.name == w)) {
+                if out.response.changed() || out.response.clicked() {
+                    let word = tools::word_at(&buf.text, usize::from(r.primary.index));
+                    if let Some(s) = word.and_then(|w| symbols.find_by_name(&w)) {
                         script_tools.help = Some(s.clone());
                         // A double click on it brings its Help forward
                         // (to the front of the panels under the text), as
                         // in Aurora.
-                        if out.response.response.double_clicked() {
+                        if out.response.double_clicked() {
                             script_tools.help_forward = Some(key);
                             ctx.request_repaint();
                         }
                     }
                 }
-                if out.response.response.changed() {
+                if out.response.changed() {
                     script_tools.completion = None;
                 }
                 // Ctrl+click goes to the definition.
-                if out.response.response.clicked() && ctx.input(|i| i.modifiers.command) {
-                    ctrl_click = Some(usize::from(r.primary.index));
+                if out.response.clicked() && ctx.input(|i| i.modifiers.command) {
+                    ctrl_click = Some(r.primary.index);
                 }
             }
         });
@@ -1633,12 +1807,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             script_tools.completion = None;
             let text = if s.kind == SymbolKind::Function { format!("{}(", s.name) } else { s.name };
             let at = cursor(&ctx, key).map_or(start, |x| x.0);
-            insert(buf, &ctx, key, start, at, &text);
+            insert(buf, Some(cached), &ctx, key, start, at, &text);
         }
     }
 
     if let Some(at) = ctrl_click
-        && let Some(d) = app.declaration_at(key, at)
+        && let Some(d) = app.declaration_at(key, usize::from(at))
     {
         app.go_to_declaration(&d);
         ask_help_forward(app, &ctx, key);
@@ -1883,47 +2057,63 @@ fn completion_detail(ctx: &egui::Context, key: ResKey, list: egui::Rect, detail:
         });
 }
 
-/// The name of the script's symbols under `at` (in the text's galley,
-/// from its top left): the identifier whose glyphs `at` is over, if one
+/// The name of the script's symbols under `at` (in the editor's laid-out
+/// text, from its top left): the identifier whose glyphs `at` is over, if one
 /// of `symbols` has its name. Found again only where `at` is over
 /// another character or the text changed (`h`), kept in the context's data
-/// meanwhile (at `slot`): the symbols are not looked through each frame.
+/// meanwhile (at `slot`): the line is not looked through each frame. (Only
+/// the line under `at` is laid out for it: the editor lays out its lines
+/// one at a time, `script_layout::LaidOut`.)
+#[allow(clippy::too_many_arguments)]
 fn name_at<'a>(
-    ctx: &egui::Context,
+    ui: &Ui,
     slot: egui::Id,
     h: u64,
-    symbols: &'a [crate::script_tools::Symbol],
-    galley: &egui::Galley,
+    symbols: &'a crate::script_tools::SymbolSet,
+    laid: &mut crate::script_layout::LaidOut,
+    text: &str,
+    palette: &Palette,
     at: egui::Vec2,
 ) -> Option<&'a crate::script_tools::Symbol> {
-    let cursor = galley.cursor_from_pos(at);
-    let asked = (h, usize::from(cursor.index), symbols.as_ptr() as usize, symbols.len());
-    // (The symbol's index, and where the name's glyphs are across and
-    // down its row.)
-    type Found = Option<(usize, egui::Rangef, egui::Rangef)>;
+    let row_h = laid.row_height();
+    if at.y < 0.0 || at.x < 0.0 {
+        return None;
+    }
+    let line = (at.y / row_h).floor() as usize;
+    if line >= laid.line_count() || laid.total_chars() == 0 {
+        return None;
+    }
+    let galley = laid.ensure_line(ui, text, line, palette);
+    let column = usize::from(galley.rows.first()?.char_at(at.x));
+    let asked = (h, line, column, symbols.ptr_id());
+    // (The symbol's name, and where its glyphs are across its line.)
+    type Found = Option<(String, egui::Rangef)>;
+    let ctx = ui.ctx();
     let kept = ctx.data(|d| d.get_temp::<((u64, usize, usize, usize), Found)>(slot));
     let found = match kept {
         Some((was, found)) if was == asked => found,
         _ => {
-            let found = find_name(symbols, galley, cursor);
-            ctx.data_mut(|d| d.insert_temp(slot, (asked, found)));
+            let found = find_name(symbols, &galley, column);
+            ctx.data_mut(|d| d.insert_temp(slot, (asked, found.clone())));
             found
         }
     };
-    let (i, across, down) = found?;
-    (across.contains(at.x) && down.contains(at.y)).then(|| &symbols[i])
+    let (name, across) = found?;
+    let top = laid.row_y(line, ctx.pixels_per_point());
+    let down = egui::Rangef::new(top, top + row_h);
+    (across.contains(at.x) && down.contains(at.y)).then(|| symbols.find_by_name(&name)).flatten()
 }
 
-/// [`name_at`]'s search: the identifier at `cursor` from its row's glyphs.
+/// [`name_at`]'s search: the identifier at `column` of a line's galley
+/// (one row), from its glyphs.
 fn find_name(
-    symbols: &[crate::script_tools::Symbol],
+    symbols: &crate::script_tools::SymbolSet,
     galley: &egui::Galley,
-    cursor: egui::text::CCursor,
-) -> Option<(usize, egui::Rangef, egui::Rangef)> {
-    let place = galley.layout_from_cursor(cursor);
-    let row = galley.rows.get(place.row)?;
+    column: usize,
+) -> Option<(String, egui::Rangef)> {
+    let row = galley.rows.first()?;
     let glyphs = &row.row.glyphs;
-    let column = usize::from(place.column).min(glyphs.len());
+    let column = column.min(glyphs.len());
     let ident = |g: &egui::epaint::text::Glyph| g.chr.is_ascii_alphanumeric() || g.chr == '_';
     let start = glyphs[..column].iter().rposition(|g| !ident(g)).map_or(0, |i| i + 1);
     let end = glyphs[column..].iter().position(|g| !ident(g)).map_or(glyphs.len(), |i| column + i);
@@ -1931,11 +2121,11 @@ fn find_name(
         return None;
     }
     let name: String = glyphs[start..end].iter().map(|g| g.chr).collect();
-    let i = symbols.iter().position(|s| s.name == name)?;
+    symbols.find_by_name(&name)?;
     let x0 = row.pos.x + glyphs[start].pos.x;
     let last = &glyphs[end - 1];
     let x1 = row.pos.x + last.pos.x + last.advance_width;
-    Some((i, egui::Rangef::new(x0, x1), egui::Rangef::new(row.min_y(), row.max_y())))
+    Some((name, egui::Rangef::new(x0, x1)))
 }
 
 /// Whether the cursor, at `at` (a character index), is where the arrow keys
@@ -2007,8 +2197,7 @@ fn ask_help_forward(app: &mut Moonglow, ctx: &egui::Context, key: ResKey) {
 }
 
 fn follow_panels(app: &mut Moonglow, ctx: &egui::Context, key: ResKey) {
-    let made =
-        app.script_tools.symbols.get(&key).map_or(0, |(_, s)| std::sync::Arc::as_ptr(s) as usize);
+    let made = app.script_tools.symbols.get(&key).map_or(0, |(_, s)| s.ptr_id());
     let shown = app.script_tools.help.as_ref().map(|h| h.name.clone());
     let pass = ctx.cumulative_pass_nr();
     // (Only where they were drawn this pass, for this script: one not
@@ -2082,7 +2271,6 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
     let width = words.size().x.ceil() + 2.0;
     let t3 = mg_uikit::tokens(&ctx).text_3;
     let shown = {
-        let small = small.clone();
         let codepage = codepage.clone();
         move |ui: &mut Ui| {
             let words = egui::RichText::new(codepage).font(small.clone()).color(t3);
@@ -2094,16 +2282,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
         next if next.is_empty() => tip("Find text in the script", Cmd::Find),
         next => format!("{}, the next match ({next})", tip("Find text in the script", Cmd::Find)),
     };
-    let name = codepage.clone();
-    // OK and Cancel at the end, with the tips they had at the foot.
-    let tips = crate::side_doc::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(SCRIPT_HEADER)
+    let name = codepage;
+    let header = EditorHeader::new(SCRIPT_HEADER)
         .left(
             Item::button(icon::SAVE, "Save")
                 .primary()
@@ -2156,21 +2336,9 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
         )
         .left(Item::icon(crate::icons::TO_SCRATCH, "To Scratch").tip(scratch).in_more())
         .right(Item::custom(name, width, shown).more(width, shown_more))
-        .right(Item::separator())
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        .right(Item::separator());
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::side_doc::OK_CANCEL_TIPS);
     if out.clicked("Print…") {
         let text = app.scripts[&key].text.clone();
         let html = print_html(&format!("{}.nss", key.resref), &text, &app.settings.script_style);
@@ -2469,7 +2637,7 @@ pub(crate) fn reload_external(app: &mut Moonglow, key: ResKey) {
     if let Ok(bytes) = std::fs::read(&*path) {
         let text = crate::text::to_editor(&buf.codepage.decode(&bytes)).0;
         if text != buf.text {
-            buf.text = text;
+            buf.set_text(text);
             app.log.info(format!("{key}: changed in the external editor"));
         }
     }
@@ -3525,17 +3693,23 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 let buf = app.scripts.get_mut(&k).expect("open");
                 if tools::is_match_at(&buf.text, &s.find, a, b, &s.options) {
                     undo_point(buf, &ctx, k);
-                    insert(buf, &ctx, k, a, b, &s.replace);
+                    insert(buf, app.laid_out.get_mut(&k), &ctx, k, a, b, &s.replace);
                 }
             }
             find_in_script(app, &ctx, k);
         }
         if replace_all && let Some(k) = target {
+            let now = ctx.input(|i| i.time);
+            let cur = egui::text::CCursorRange::default();
             let buf = app.scripts.get_mut(&k).expect("open");
             let (text, n) = tools::replace_all(&buf.text, &s.find, &s.replace, &s.options);
             if text != buf.text {
                 undo_point(buf, &ctx, k);
-                buf.text = text;
+                let (at, old_end, new_end) = buf.replace_diff_undo(text, cur, cur, now);
+                if let Some(laid) = app.laid_out.get_mut(&k) {
+                    let h = buf.text_hash();
+                    laid.apply_edit(&buf.text, at, old_end, new_end, h);
+                }
             }
             app.log.info(format!("Replaced {n} in {k}"));
         }

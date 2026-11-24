@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use mg_plugin::{
-    Answer, Existing, Host, Level, MARKER, MAX_FILES, Package, Plugin, PluginError, Question,
-    discover, from_archive, inspect, pack, remove,
+    Existing, MARKER, MAX_FILES, Package, Plugin, PluginError, discover, from_archive, inspect,
+    pack, remove,
 };
 use zip::write::SimpleFileOptions;
+
+use crate::common::TestHost;
 
 fn fixture(file: &str) -> Vec<u8> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tag-conventions");
@@ -51,15 +53,6 @@ fn refusal(bytes: &[u8]) -> String {
     match Package::read(bytes) {
         Ok(p) => panic!("read as {}", p.manifest.id),
         Err(e) => e.to_string(),
-    }
-}
-
-struct Quiet;
-
-impl Host for Quiet {
-    fn log(&self, _: Level, _: &str) {}
-    fn ask(&self, _: &Question) -> Option<Answer> {
-        None
     }
 }
 
@@ -145,7 +138,7 @@ fn a_plugin_installs_from_its_archive_and_again_over_itself() {
             "example.tag-conventions/rules.luau".to_string(),
         ]
     );
-    assert_eq!(inspect(&installed, Rc::new(Quiet)).unwrap(), Vec::<String>::new());
+    assert_eq!(inspect(&installed, Rc::new(TestHost::default())).unwrap(), Vec::<String>::new());
     assert_eq!(discover(&plugins).len(), 1);
 
     // Again: only when told to replace it, and then all of it (a file
@@ -399,7 +392,7 @@ fn a_packed_plugin_installs_as_itself() {
     );
     let plugins = dir.join("plugins");
     let installed = package.install(&plugins, false).unwrap();
-    assert_eq!(inspect(&installed, Rc::new(Quiet)).unwrap(), Vec::<String>::new());
+    assert_eq!(inspect(&installed, Rc::new(TestHost::default())).unwrap(), Vec::<String>::new());
     for file in ["plugin.cfg", "main.luau", "rules.luau"] {
         assert_eq!(std::fs::read(installed.dir.join(file)).unwrap(), fixture(file), "{file}");
     }
@@ -416,7 +409,7 @@ fn a_packed_plugin_installs_as_itself() {
 fn an_archive_s_code_is_checked_without_unpacking() {
     // (Its main.luau requires rules.luau: from the archive too.)
     let good = Package::read(&zipped(&plugin_under("", &fixture("plugin.cfg")))).unwrap();
-    assert_eq!(good.inspect(Rc::new(Quiet)).unwrap(), Vec::<String>::new());
+    assert_eq!(good.inspect(Rc::new(TestHost::default())).unwrap(), Vec::<String>::new());
 
     let broken = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/broken");
     let files: Vec<(String, Vec<u8>)> = ["plugin.cfg", "main.luau"]
@@ -424,14 +417,16 @@ fn an_archive_s_code_is_checked_without_unpacking() {
         .map(|f| (format!("broken/{f}"), std::fs::read(broken.join(f)).unwrap()))
         .collect();
     let package = Package::read(&zipped(&files)).unwrap();
-    let from_folder = inspect(&Plugin::load(&broken).unwrap(), Rc::new(Quiet)).unwrap();
+    let from_folder =
+        inspect(&Plugin::load(&broken).unwrap(), Rc::new(TestHost::default())).unwrap();
     assert_eq!(from_folder.len(), 4);
-    assert_eq!(package.inspect(Rc::new(Quiet)).unwrap(), from_folder);
+    assert_eq!(package.inspect(Rc::new(TestHost::default())).unwrap(), from_folder);
 
     // Code that does not load is an error that names the script.
     let mut files = plugin_under("", &fixture("plugin.cfg"));
     files[2].1 = b"this is not Luau".to_vec();
-    let e = Package::read(&zipped(&files)).unwrap().inspect(Rc::new(Quiet)).unwrap_err();
+    let e =
+        Package::read(&zipped(&files)).unwrap().inspect(Rc::new(TestHost::default())).unwrap_err();
     assert!(e.to_string().contains("rules.luau"), "{e}");
 }
 

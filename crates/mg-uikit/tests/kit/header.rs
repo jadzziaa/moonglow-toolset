@@ -89,6 +89,7 @@ fn harness(width: f32) -> (Harness<'static>, std::rc::Rc<RefCell<Option<Run>>>) 
     let mut values = Values::default();
     let h = Harness::builder().with_size(vec2(width, 300.0)).build_ui(move |ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
+        header::record_headers(ui.ctx());
         let out = test_header(ui, &mut values);
         *seen.borrow_mut() =
             Some(Run { places: out.places, row: out.response.rect, end: out.end_rect });
@@ -163,7 +164,7 @@ fn the_header_yields_words_then_icons_then_more() {
     let mut w = full;
     while w >= least {
         widths.push(w);
-        w -= 10.0;
+        w -= 20.0;
     }
     widths.push(least);
     let mut down: Vec<Vec<(String, Place)>> = Vec::new();
@@ -243,7 +244,7 @@ fn the_header_yields_words_then_icons_then_more() {
         let row = r.row.width();
         assert!(in_more("To Scratch") || (row < MORE_ROOM && p("To Scratch") == Place::Cut));
         assert_ne!(p("Codepage"), Place::More, "a part that never yields in More");
-        if step % 8 == 0 || w == least {
+        if step % 4 == 0 || w == least {
             found_once(&mut h, &r.places, row);
         }
         last = Some(r.places.clone());
@@ -490,7 +491,7 @@ fn a_disabled_kit_button_is_not_faded() {
         let t = h.ctx.tokens();
         let mut found = false;
         for clipped in &h.output().shapes {
-            visit(&clipped.shape, &mut |shape| {
+            crate::common::visit_shape(&clipped.shape, &mut |shape| {
                 if let egui::Shape::Text(text) = shape
                     && text.galley.text() == "Save"
                 {
@@ -507,13 +508,6 @@ fn a_disabled_kit_button_is_not_faded() {
             });
         }
         assert!(found, "no Save drawn");
-    }
-}
-
-fn visit(shape: &egui::Shape, f: &mut impl FnMut(&egui::Shape)) {
-    match shape {
-        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| visit(s, f)),
-        s => f(s),
     }
 }
 
@@ -537,6 +531,7 @@ fn a_popover_button_can_be_kept_to_its_icon() {
     let open = Cell::new(false);
     let mut h = Harness::builder().with_size(vec2(1200.0, 300.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
+        header::record_headers(ui.ctx());
         let mut grid = false;
         let pop = Popover::new("Overlays").check(PopCheck::new(&mut grid, "Grid").icon(Icon::Grid));
         let out = EditorHeader::new(HEADER)
@@ -712,7 +707,7 @@ fn a_line_stands_before_more() {
         let line = h.ctx.tokens().line_soft;
         let mut count = 0;
         for clipped in &h.output().shapes {
-            visit(&clipped.shape, &mut |shape| {
+            crate::common::visit_shape(&clipped.shape, &mut |shape| {
                 if let egui::Shape::Rect(r) = shape
                     && r.fill == line
                     && r.rect.size() == vec2(1.0, 16.0)

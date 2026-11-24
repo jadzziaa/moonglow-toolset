@@ -481,10 +481,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         match w.page() {
             Step::ItemType => {
                 ui.label("Please choose the type of item you wish to create");
-                let types = item_types(app.game.as_deref().expect("checked"));
+                let game = app.game.as_deref().expect("checked");
+                let types = crate::blueprint::kept_for_key(
+                    ui.ctx(),
+                    egui::Id::new("blueprint-wizard-item-types"),
+                    &app.load_order,
+                    || std::sync::Arc::new(item_types(game)),
+                );
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     mg_uikit::list_rows(ui);
-                    for (row, name) in types {
+                    for &(row, ref name) in types.iter() {
                         if ui.selectable_label(w.base_item == Some(row), name).clicked() {
                             w.base_item = Some(row);
                         }
@@ -607,15 +613,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             Step::Category => {
                 ui.label("Choose the palette category that this new blueprint should appear under");
-                let game_arc = app.game.clone().expect("checked");
-                let game = &*game_arc;
-                // (Read and sorted once for the game data, the module as it
+                let game = app.game.as_deref().expect("checked");
+                // (Read and sorted once for the load order, the module as it
                 // is and the type: it was every frame the page showed.)
                 let module = app.ws.as_ref().map(|ws| &ws.module);
-                let mark = (w.kind.label(), app.ws.as_ref().map(|ws| ws.revision()));
+                let mark = (
+                    app.load_order,
+                    w.kind.label(),
+                    app.ws.as_ref().map(|ws| (ws.identity(), ws.revision())),
+                );
                 let id = egui::Id::new("blueprint-wizard-categories");
                 let nodes: std::sync::Arc<Vec<PaletteNode>> =
-                    crate::blueprint::kept_for(ui.ctx(), id, &game_arc, &mark, || {
+                    crate::blueprint::kept_for_key(ui.ctx(), id, &mark, || {
                         std::sync::Arc::new(categories(game, module, w.kind))
                     });
                 let before = w.category;

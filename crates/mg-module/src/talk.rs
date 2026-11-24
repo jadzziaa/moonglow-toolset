@@ -332,16 +332,33 @@ fn next_revision() -> u64 {
 struct Sought {
     number: Option<u64>,
     words: Vec<String>,
+    ascii: bool,
 }
 
 impl Sought {
     fn new(query: &str) -> Sought {
         let query = query.trim();
-        Sought {
-            number: query.parse().ok(),
-            words: query.split_whitespace().map(str::to_lowercase).collect(),
+        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        let ascii = words.iter().all(|w| w.is_ascii());
+        Sought { number: query.parse().ok(), words, ascii }
+    }
+}
+
+fn contains_ascii_ci(haystack: &[u8], needle_lower: &[u8]) -> bool {
+    let Some((&first, rest)) = needle_lower.split_first() else {
+        return true;
+    };
+    let Some(limit) = haystack.len().checked_sub(needle_lower.len()) else {
+        return false;
+    };
+    for i in 0..=limit {
+        if haystack[i].to_ascii_lowercase() == first
+            && haystack[i + 1..i + 1 + rest.len()].eq_ignore_ascii_case(rest)
+        {
+            return true;
         }
     }
+    false
 }
 
 /// A line put in the table for a field's text typed
@@ -1096,9 +1113,36 @@ impl Table {
         {
             return true;
         }
-        let l = self.line(row);
-        let text = format!("{}\n{}", l.text, l.feminine.unwrap_or_default()).to_lowercase();
-        sought.words.iter().all(|w| text.contains(w.as_str()))
+        if sought.words.is_empty() {
+            return true;
+        }
+        let m =
+            self.tlk.entries.get(row).filter(|e| e.flags & FLAG_TEXT != 0 && !e.text.is_empty());
+        let f = self
+            .feminine
+            .as_ref()
+            .and_then(|(_, f)| f.entries.get(row))
+            .filter(|e| e.flags & FLAG_TEXT != 0 && !e.text.is_empty());
+        if m.is_none() && f.is_none() {
+            return false;
+        }
+        if sought.ascii
+            && m.is_none_or(|e| e.text.is_ascii())
+            && f.is_none_or(|e| e.text.is_ascii())
+        {
+            return sought.words.iter().all(|w| {
+                let wb = w.as_bytes();
+                m.is_some_and(|e| contains_ascii_ci(&e.text, wb))
+                    || f.is_some_and(|e| contains_ascii_ci(&e.text, wb))
+            });
+        }
+        let cp = self.codepage();
+        let m_low = m.map(|e| cp.decode(&e.text).to_lowercase());
+        let f_low = f.map(|e| cp.decode(&e.text).to_lowercase());
+        sought.words.iter().all(|w| {
+            m_low.as_deref().is_some_and(|s| s.contains(w.as_str()))
+                || f_low.as_deref().is_some_and(|s| s.contains(w.as_str()))
+        })
     }
 
     /// Writes the table (and the feminine table) to their files: a
@@ -1613,5 +1657,34 @@ mod tests {
         assert!(t.is_dirty(), "the typed line is still to be saved");
         assert!(t.take_back(&again));
         assert_eq!(t.len(), 11);
+    }
+
+    #[test]
+    fn find_in_matches_ascii_non_ascii_feminine_and_numbers() {
+        let dir = mg_testkit::scratch_dir("talk-find-in");
+        let mut t = Table::create("findtest", &dir, Language::ENGLISH, true);
+        t.add_line(&Line {
+            text: "Hello Brave World".into(),
+            feminine: Some("Hello Brave Heroine".into()),
+            sound: "vo_hello".into(),
+            sound_length: 1.0,
+        })
+        .unwrap();
+        t.add_line(&Line {
+            text: "Café à la carte".into(),
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        })
+        .unwrap();
+        t.add_line(&text_line("")).unwrap();
+
+        assert_eq!(t.find_in(0..t.len(), "brave world"), vec![0]);
+        assert_eq!(t.find_in(0..t.len(), "world heroine"), vec![0]);
+        assert_eq!(t.find_in(0..t.len(), "heroine cafe"), Vec::<usize>::new());
+        assert_eq!(t.find_in(0..t.len(), "café"), vec![1]);
+        assert_eq!(t.find_in(0..t.len(), "1"), vec![1]);
+        assert_eq!(t.find_in(0..t.len(), &CUSTOM.to_string()), vec![0]);
+        assert_eq!(t.find_in(0..t.len(), "vo_hello"), Vec::<usize>::new());
     }
 }

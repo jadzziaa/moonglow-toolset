@@ -113,6 +113,9 @@ fn asked() -> egui::Id {
 pub(super) fn from_disk(ui: &mut Ui) -> Option<String> {
     let field = ui.make_persistent_id("from-disk");
     let picked = ui.ctx().data_mut(|d| d.remove_temp::<String>(field));
+    if picked.is_some() {
+        super::mark_mutated(ui.ctx());
+    }
     if ui
         .button("From Disk…")
         .on_hover_text("Add a picture file to the module and use it")
@@ -171,14 +174,18 @@ pub(crate) fn pictures_left_behind(
     })
 }
 
+fn is_background(layer: &Value) -> bool {
+    layer["type"] == 5 && layer["order"] == -1
+}
+
 /// The picture the root's first draw layer stretches under the controls.
 fn current_background(doc: &Value) -> Option<&str> {
     let first = doc["root"]["draw_list"].get(0)?;
-    (first["type"] == 5 && first["order"] == -1).then(|| first["image"].as_str()).flatten()
+    is_background(first).then(|| first["image"].as_str()).flatten()
 }
 
 /// A stretched picture under the window's controls: a draw layer of the
-/// root column, painted before it.
+/// root column, painted before it (replacing any existing background layer).
 pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     let geometry = resolved(&doc["geometry"], s);
     let title = doc["title"] != json!(false);
@@ -192,7 +199,11 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
         root["draw_list"] = json!([]);
     }
     if let Some(layers) = root["draw_list"].as_array_mut() {
-        layers.insert(0, item);
+        if layers.first().is_some_and(is_background) {
+            layers[0] = item;
+        } else {
+            layers.insert(0, item);
+        }
     }
 }
 
@@ -356,13 +367,30 @@ pub(super) fn page(
     let names = used(doc, s);
     let module_images: Vec<ResKey> = names.iter().flat_map(|n| in_module(&ws.module, n)).collect();
     let haks = crate::listed_haks(ws);
-    // Pictures added to the module that no control shows yet.
-    let unused: BTreeSet<String> = TYPES
-        .iter()
-        .flat_map(|ty| ws.module.keys_of(*ty))
-        .map(|k| k.resref.to_string().to_lowercase())
-        .filter(|n| !names.contains(n))
-        .collect();
+    // Pictures added to the module that no control shows yet (cached per revision & used set).
+    let names_hash = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        names.hash(&mut h);
+        h.finish()
+    };
+    let unused_id = egui::Id::new("nui-images-unused");
+    let unused_key = (ws.identity(), ws.revision(), names_hash);
+    let unused: std::sync::Arc<BTreeSet<String>> = ui
+        .data(|d| d.get_temp::<((u64, u64, u64), std::sync::Arc<BTreeSet<String>>)>(unused_id))
+        .filter(|(k, _)| *k == unused_key)
+        .map(|(_, u)| u)
+        .unwrap_or_else(|| {
+            let u: BTreeSet<String> = TYPES
+                .iter()
+                .flat_map(|ty| ws.module.keys_of(*ty))
+                .map(|k| k.resref.to_string().to_lowercase())
+                .filter(|n| !names.contains(n))
+                .collect();
+            let u = std::sync::Arc::new(u);
+            ui.data_mut(|d| d.insert_temp(unused_id, (unused_key, u.clone())));
+            u
+        });
     egui::ScrollArea::vertical().id_salt("nui-images-page").show(ui, |ui| {
         widgets::section_heading(ui, "Images");
         ui.label(
@@ -387,14 +415,9 @@ pub(super) fn page(
                         ui.label("");
                         ui.end_row();
                     }
-                    for picture in names.iter().chain(&unused) {
+                    for picture in names.iter().chain(unused.iter()) {
                         ui.label(picture);
-                        let origin = app
-                            .nui_assets
-                            .origins
-                            .iter()
-                            .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
-                            .map(|(_, o)| o.clone());
+                        let origin = app.nui_assets.origin_stems.get(picture).cloned();
                         let in_module = module_names.contains(picture);
                         let missing = origin.is_none() && !in_module && !unused.contains(picture);
                         match origin {
@@ -582,5 +605,35 @@ mod tests {
             assert!(in_folder(&game.join("data/../data/new.hak"), &game));
         }
         assert!(mg_resman::named_file("../../Documents/other/pack", "hak").is_none());
+    }
+
+    #[test]
+    fn background_replaces_existing_background_layer() {
+        let s = Settings::default();
+        let mut empty = json!({
+            "title": "Test",
+            "geometry": {"x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0},
+            "root": {"type": "col", "children": []}
+        });
+        background(&mut empty, &s, "bg1");
+        background(&mut empty, &s, "bg2");
+        assert_eq!(current_background(&empty), Some("bg2"));
+        assert_eq!(empty["root"]["draw_list"].as_array().unwrap().len(), 1);
+
+        let mut with_other = json!({
+            "title": "Test",
+            "geometry": {"x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0},
+            "root": {
+                "type": "col",
+                "draw_list": [{"type": 1, "order": 0}],
+                "children": []
+            }
+        });
+        background(&mut with_other, &s, "bg1");
+        background(&mut with_other, &s, "bg2");
+        let layers = with_other["root"]["draw_list"].as_array().unwrap();
+        assert_eq!(layers.len(), 2);
+        assert_eq!(current_background(&with_other), Some("bg2"));
+        assert_eq!(layers[1], json!({"type": 1, "order": 0}));
     }
 }

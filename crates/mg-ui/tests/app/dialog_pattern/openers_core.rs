@@ -16,7 +16,7 @@ fn game() -> Option<Harness<'static, Moonglow>> {
 
 /// A module with an area open.
 fn area() -> Option<Harness<'static, Moonglow>> {
-    area_harness(&super::scratch("u27-pattern-area")).map(|(h, _)| h)
+    area_ui_harness(&super::scratch("u27-pattern-area")).map(|(h, _)| h)
 }
 
 fn creature() -> Option<Harness<'static, Moonglow>> {

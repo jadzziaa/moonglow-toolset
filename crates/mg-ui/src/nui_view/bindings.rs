@@ -80,7 +80,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     let Some(object) = node.as_object() else { return };
     let keys: Vec<_> = object
         .keys()
-        .filter(|k| bindable(&ty, k) && (!node[*k].is_null() || property_default(&ty, k).is_some()))
+        .filter(|k| bindable(&ty, k) && (!node[*k].is_null() || has_property_default(&ty, k)))
         .cloned()
         .collect();
     if keys.is_empty() {
@@ -119,8 +119,11 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         .labelled_by(lead.id);
                 });
                 let key = state.binding_property.clone();
-                let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
-                let bound = current["bind"].as_str().map(str::to_owned);
+                let Some(bound) =
+                    doc.pointer(&path).map(|n| n[&key]["bind"].as_str().map(str::to_owned))
+                else {
+                    return;
+                };
                 let rows = row_count(doc, &path, settings);
                 ui.push_id((&path, &key), |ui| {
                 let draft_id = ui.make_persistent_id("property-bind-draft");
@@ -202,7 +205,8 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 );
                 }
                 if new_bind {
-                    let source = resolved(&current, settings).clone();
+                    let current = doc.pointer(&path).map_or(&Value::Null, |n| &n[&key]);
+                    let source = resolved(current, settings).clone();
                     let source = if source.is_null() {
                         property_default(&ty, &key).unwrap_or(json!(""))
                     } else {

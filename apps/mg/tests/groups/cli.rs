@@ -95,11 +95,31 @@ mod written_whole;
 /// on every system (`MOONGLOW_DATA_DIR`, `MOONGLOW_CACHE_DIR`: on macOS
 /// the folders otherwise follow `HOME`, which also finds the game).
 fn mg() -> std::process::Command {
-    let home = mg_testkit::output_dir("mg-home");
+    let current = std::thread::current();
+    let name: String = current
+        .name()
+        .unwrap_or("main")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let home = mg_testkit::output_dir("mg-home").join(format!("{}-{name}", std::process::id()));
     let mut mg = std::process::Command::new(env!("CARGO_BIN_EXE_mg"));
     mg.env("MOONGLOW_DATA_DIR", home.join("data/moonglow"))
         .env("MOONGLOW_CACHE_DIR", home.join("cache/moonglow"));
     mg
+}
+
+/// `GameData` for `root` without user overrides, sharing the base KEY/BIF
+/// archives and `dialog.tlk` across tests in this binary.
+pub(crate) fn shared_game(root: &std::path::Path) -> mg_rules::GameData {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), std::sync::Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let install = mg_resman::GameInstall::new(root, None, "en");
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let key = (install.root.clone(), install.language.clone());
+    let tlk =
+        TLK.get(&key, || std::sync::Arc::new(mg_rules::GameData::open_tlk(&install).unwrap()));
+    mg_rules::GameData::with_shared_tlk(rm, tlk)
 }
 
 /// [`mg`] on the game installed at `root`, with `user` as the game's

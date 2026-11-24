@@ -779,10 +779,12 @@ fn import_resources_chooses_every_overwrite_at_once_and_resizes() {
     let pointer = corner + egui::vec2(60.0, 150.0);
     assert!((now.right_bottom() - pointer).length() < 12.0, "its corner at the pointer: {now:?}");
     // (A picture to look at, where there is a GPU.)
-    if adapter() {
+    if let Some(dir) = shot_dir("ui-import-overwrites")
+        && adapter()
+    {
         mg_testkit::gpu::hold();
         let img = h.render().expect("render");
-        img.save(mg_testkit::output_dir("ui-import-overwrites").join("resized.png")).unwrap();
+        img.save(dir.join("resized.png")).unwrap();
     }
     // Imported with every one ticked: the archive's scripts in the module.
     h.get_by_label("Select All").click();
@@ -1804,7 +1806,7 @@ fn text_without_an_encoding_table_is_windows_1252() {
 #[test]
 fn build_module_compiles_and_reports() {
     use mg_edit::{Command, Edit, GffPath};
-    let Some((mut h, area)) = area_harness("build") else { return };
+    let Some((mut h, area)) = area_ui_harness("build") else { return };
     // A script that does not compile, an encounter blueprint whose creature
     // entry has a stale CR, and a waypoint naming a missing script.
     let mut ute = Gff::new(*b"UTE ");
@@ -2286,7 +2288,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
 /// with what it compiles to now, not with the older compiled script.
 #[test]
 fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
-    let Some((mut h, _)) = area_harness("stale-ncs") else { return };
+    let Some((mut h, _)) = area_ui_harness("stale-ncs") else { return };
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     let ncs = ResKey::parse("hello", ResType::NCS).unwrap();
     let scratch = mg_testkit::scratch_dir("ui-stale-ncs").join("scratch");
@@ -2390,7 +2392,7 @@ fn an_area_goes_to_the_scratch_folder() {
         // (One the area doesn't use stays behind.)
         m.set(ResKey::parse("mg_other", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
     };
-    let Some((mut h, area)) = area_harness_with("area-scratch", "ttr01", None, 4, None, &enter)
+    let Some((mut h, area)) = area_ui_harness_with("area-scratch", "ttr01", None, 4, None, &enter)
     else {
         return;
     };

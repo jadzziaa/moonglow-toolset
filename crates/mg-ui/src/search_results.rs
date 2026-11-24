@@ -942,8 +942,8 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                 // on its tick or link, puts the keys on it.)
                 let (rect, row) = ui.allocate_exact_size(size, egui::Sense::click());
                 let is = current == Some(i);
-                let said = format!("{}: {}", hit.place, hit.text);
                 row.widget_info(|| {
+                    let said = format!("{}: {}", hit.place, hit.text);
                     egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is, &said)
                 });
                 if row.clicked() || row.secondary_clicked() {
@@ -973,8 +973,8 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                 }
                 inner.horizontal(|ui| {
                     let r = ui.add(mg_uikit::Checkbox::without_text(&mut ticked));
-                    let said = format!("Replace in {}", hit.place);
                     r.widget_info(|| {
+                        let said = format!("Replace in {}", hit.place);
                         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, ticked, &said)
                     });
                     if r.changed() {
@@ -984,7 +984,8 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                         go = Some(i);
                     }
                 });
-                let text: String = hit.text.chars().take(160).collect();
+                let end = hit.text.char_indices().nth(160).map_or(hit.text.len(), |(b, _)| b);
+                let text = &hit.text[..end];
                 // (Not selectable: a click on the string chooses its row.
                 // Whole in its tip, the row's words cut.)
                 inner.indent(("hit", i), |ui| {

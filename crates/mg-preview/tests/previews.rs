@@ -17,9 +17,39 @@ use mg_resman::GameInstall;
 use mg_rules::GameData;
 use mg_rules::items::{ArmorChannel, set_armor_part_color};
 
+fn gpu() -> Option<Gpu> {
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<(wgpu::Device, wgpu::Queue)>> =
+        std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g.map(|g| (g.device, g.queue))
+    });
+    base.as_ref().map(|(d, q)| Gpu::new(d.clone(), q.clone()))
+}
+
+fn shared_game(root: &std::path::Path, user: Option<std::path::PathBuf>) -> GameData {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let install = GameInstall::new(root, user, "en");
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let key = (install.root.clone(), install.language.clone());
+    let tlk = TLK.get(&key, || Arc::new(GameData::open_tlk(&install).unwrap()));
+    GameData::with_shared_tlk(rm, tlk)
+}
+
 fn game() -> Option<GameData> {
-    let root = mg_testkit::nwn_root()?;
-    GameData::open(&GameInstall::new(&root, None, "en")).ok()
+    let root = match mg_testkit::nwn_root() {
+        Some(r) => r,
+        None if mg_testkit::corpus_required() => {
+            panic!("MOONGLOW_REQUIRE_CORPUS is set but no game install was found (set NWN_ROOT)")
+        }
+        None => return None,
+    };
+    Some(shared_game(&root, None))
 }
 
 fn blueprint(game: &GameData, name: &str, t: ResType) -> Gff {
@@ -73,11 +103,8 @@ fn creatures_by_appearance() {
 /// Vault hak's robes that hid the head in Moonglow alone).
 #[test]
 fn a_robe_s_hidehead_leaves_the_head_on() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
-    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let root = mg_testkit::corpus!();
+    let base = shared_game(&root, None);
     let table = base.resman.get_named("parts_robe", ResType::TWODA).unwrap();
     let mut lines: Vec<String> =
         String::from_utf8_lossy(&table).lines().map(str::to_owned).collect();
@@ -89,7 +116,7 @@ fn a_robe_s_hidehead_leaves_the_head_on() {
     let user = mg_testkit::scratch_dir("preview-hidehead");
     std::fs::create_dir_all(user.join("override")).unwrap();
     std::fs::write(user.join("override/parts_robe.2da"), lines.join("\n") + "\n").unwrap();
-    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let game = shared_game(&root, Some(user));
     let hidehead = game.table("parts_robe").unwrap();
     assert_eq!(hidehead.get(4, "HIDEHEAD").map(str::trim), Some("1"));
     // A gnome in robe 4.
@@ -249,11 +276,7 @@ fn what_a_creature_may_not_wear_is_not_drawn() {
     let plate = blueprint(&game, "nw_aarcl007", ResType::UTI).root;
     assert!(item(&game, &plate).unwrap().parts.iter().any(|x| x.model.contains("chest")));
 
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -327,11 +350,7 @@ fn a_part_whose_node_the_base_lacks_is_not_drawn() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -352,11 +371,7 @@ fn previews_render() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -450,11 +465,7 @@ fn previews_draw_with_the_game_s_shaders() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -492,8 +503,8 @@ fn previews_draw_with_the_game_s_shaders() {
             ..Default::default()
         };
         let mut pictures = Vec::new();
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         for on in [false, true] {
-            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
             r.game_shaders = on;
             let img = r.render_image(&gpu, rm, &scene, &camera, 256, 256);
             if on {
@@ -640,11 +651,7 @@ fn a_cloak_sits_on_a_smaller_body_s_shoulders() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
@@ -681,11 +688,7 @@ fn a_dragon_s_box_is_around_its_pause_not_its_rest() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -744,11 +747,7 @@ fn a_ray_down_through_a_table_meets_its_top_facing_up() {
         eprintln!("skipped: no game install");
         return;
     };
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         let data = rm.get_named(name, ResType::MDL).ok()?;
@@ -786,12 +785,11 @@ fn probe_custom_creatures() {
         return;
     };
     let install = GameInstall::new(&root, Some(std::path::PathBuf::from(user)), "en");
-    let mut game = GameData::open(&install).unwrap();
+    let mut game = shared_game(&install.root, install.user_dir.clone());
     let haks = std::env::var("MG_PROBE_HAKS").unwrap_or_default();
     let haks: Vec<&str> = haks.split(',').filter(|h| !h.is_empty()).collect();
     game.resman.add_haks(&install, &haks).unwrap();
-    mg_testkit::gpu::hold();
-    let gpu = Gpu::headless().unwrap();
+    let gpu = gpu().unwrap();
     let dir = mg_testkit::scratch_dir("probe-creatures");
     let files = std::env::var("MG_PROBE_UTC").unwrap_or_default();
     let folder =
@@ -866,11 +864,8 @@ fn probe_custom_creatures() {
 /// and one the bag.
 #[test]
 fn a_cloak_of_a_base_item_of_its_own_lies_as_its_model() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
-    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let root = mg_testkit::corpus!();
+    let base = shared_game(&root, None);
     let table = base.resman.get_named("baseitems", ResType::TWODA).unwrap();
     let mut table = String::from_utf8_lossy(&table).into_owned();
     let row: Vec<String> = table
@@ -895,7 +890,7 @@ fn a_cloak_of_a_base_item_of_its_own_lies_as_its_model() {
     let user = mg_testkit::scratch_dir("preview_custom_cloak");
     std::fs::create_dir_all(user.join("override")).unwrap();
     std::fs::write(user.join("override/baseitems.2da"), table).unwrap();
-    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let game = shared_game(&root, Some(user));
     let mut cloak = blueprint(&game, "nw_maarcl055", ResType::UTI).root;
     let mut lying = |base_item: usize| {
         cloak.set("BaseItem", mg_gff::Value::Int(base_item as i32));
@@ -1085,10 +1080,7 @@ fn a_race_s_body_part_wears_the_human_s_texture_of_its_name() {
 /// own material.
 #[test]
 fn a_part_s_material_without_texture0_takes_the_human_s_plt() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let user = mg_testkit::scratch_dir("preview_part_material");
     let over = user.join("override");
     std::fs::create_dir_all(&over).unwrap();
@@ -1111,7 +1103,7 @@ fn a_part_s_material_without_texture0_takes_the_human_s_plt() {
         ),
     )
     .unwrap();
-    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let game = shared_game(&root, Some(user));
     let mut utc = CreatureLook::new(1).to_utc();
     for side in ["LBicep", "RBicep"] {
         utc.set(&format!("BodyPart_{side}"), mg_gff::Value::Byte(1));
@@ -1154,10 +1146,7 @@ fn part_model(name: &str, bitmaps: &[&str]) -> String {
 /// `only_a_plt_takes_an_instance_s_colors`.)
 #[test]
 fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let user = mg_testkit::scratch_dir("preview_part_textures");
     let over = user.join("override");
     std::fs::create_dir_all(&over).unwrap();
@@ -1212,7 +1201,7 @@ fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
             }
         }
     }
-    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let game = shared_game(&root, Some(user));
     // What each mesh of the creature's chest and head is drawn with.
     let drawn = |appearance: u16, gender: u8, phenotype: u8, n: u16| -> [Vec<String>; 2] {
         let look = CreatureLook { gender, phenotype, ..CreatureLook::new(appearance) };
@@ -1312,10 +1301,7 @@ fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
 /// the PLT.
 #[test]
 fn a_helmet_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let user = mg_testkit::scratch_dir("preview_helmet_textures");
     let over = user.join("override");
     std::fs::create_dir_all(&over).unwrap();
@@ -1347,7 +1333,7 @@ fn a_helmet_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
             put(&format!("{name}.{ext}"), ext.as_bytes());
         }
     }
-    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let game = shared_game(&root, Some(user));
     // What the helmet's meshes are drawn with, as an item and worn by a
     // man (`NULL`: a mesh that names none).
     let meshes = |n: u8| -> [Vec<String>; 2] {
@@ -1455,11 +1441,7 @@ fn lamp_model(
 /// where the base's node holds it; `row_lights` is the appearance's alone.
 #[test]
 fn an_object_casts_its_models_lights() {
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let base = Arc::new(lamp_model(
         "mg_lampbase",
         &[("hand", [0.5, 0.0, 1.0])],
@@ -1509,11 +1491,7 @@ fn an_object_casts_its_models_lights() {
 /// and a mesh's self-illumination keyed in its idle animation plays.
 #[test]
 fn a_light_node_s_keys_play_with_its_animation() {
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let text = "newmodel mg_flicker\nsetsupermodel mg_flicker NULL\nclassification placeable\n\
                 beginmodelgeom mg_flicker\nnode dummy mg_flicker\n  parent NULL\nendnode\n\
                 node trimesh square\n  parent mg_flicker\n  bitmap NULL\n  verts 3\n    0 0 0\n    \
@@ -1636,11 +1614,7 @@ fn an_item_s_part_scopes_transform_its_parts() {
 /// about the origin, whatever its emitters.
 #[test]
 fn a_model_of_emitters_alone_is_boxed_by_its_particles() {
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let text = "newmodel mg_fog\nsetsupermodel mg_fog NULL\nclassification EFFECT\n\
                 beginmodelgeom mg_fog\nnode dummy mg_fog\n  parent NULL\nendnode\n\
                 node emitter fog\n  parent mg_fog\n  position 2 0 1\n  xsize 300\n  \
@@ -1686,11 +1660,7 @@ fn a_builder_s_custom_skeleton_body_draws_as_the_client_does() {
         mg_resman::DirContainer::open(&files),
     );
     game.invalidate();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let rm = &game.resman;
     let load = |name: &str| -> Option<Arc<Model>> {
         Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
@@ -1768,10 +1738,7 @@ fn a_builder_s_custom_skeleton_body_draws_as_the_client_does() {
 #[test]
 #[ignore]
 fn models_with_a_plt_of_their_own_name() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let user = mg_testkit::scratch_dir("models_with_own_plt");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     let mut haks = Vec::new();
@@ -1783,7 +1750,7 @@ fn models_with_a_plt_of_their_own_name() {
         }
     }
     let install = GameInstall::new(&root, Some(user), "en");
-    let mut game = GameData::open(&install).unwrap();
+    let mut game = shared_game(&install.root, install.user_dir.clone());
     let missing = game.resman.add_haks(&install, &haks).unwrap();
     assert!(missing.is_empty(), "{missing:?}");
     let rm = &game.resman;

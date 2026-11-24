@@ -23,6 +23,7 @@ thiserror.workspace = true
 [dev-dependencies]
 mg-schema.workspace = true
 mg-testkit.workspace = true
+mg-tlk.workspace = true
 proptest.workspace = true
 
 [lints]

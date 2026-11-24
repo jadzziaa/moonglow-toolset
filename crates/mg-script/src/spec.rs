@@ -197,7 +197,7 @@ impl Spec {
 /// `type name [= default], ...` from the tokens between the parentheses.
 fn parse_params(words: &[&str]) -> Vec<Param> {
     let mut params = Vec::new();
-    let mut depth = 0;
+    let mut depth: usize = 0;
     let mut current: Vec<&str> = Vec::new();
     let mut flush = |current: &mut Vec<&str>| {
         if let [ty, name, rest @ ..] = current.as_slice() {
@@ -212,7 +212,7 @@ fn parse_params(words: &[&str]) -> Vec<Param> {
     for &w in words {
         match w {
             "[" | "(" => depth += 1,
-            "]" | ")" => depth -= 1,
+            "]" | ")" => depth = depth.saturating_sub(1),
             "," if depth == 0 => {
                 flush(&mut current);
                 continue;
@@ -435,5 +435,13 @@ int D = 4; // d\n\nint E = 5;\n";
             s.constant("ABILITY_STRENGTH").unwrap().doc,
             "should be the same as in nwseffectlist.cpp"
         );
+    }
+
+    #[test]
+    fn parse_params_does_not_go_negative_on_stray_closing_brackets() {
+        let p = parse_params(&["int", "a", "=", ")", ",", "float", "b"]);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "a");
+        assert_eq!(p[1].name, "b");
     }
 }

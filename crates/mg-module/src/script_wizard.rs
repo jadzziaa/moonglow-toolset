@@ -247,45 +247,94 @@ pub struct Lists {
 impl Lists {
     /// Reads the lists from the game's (and the module's haks') 2DAs.
     pub fn load(game: &GameData) -> Lists {
+        use std::collections::HashMap;
         let spec = game
             .resman
             .get_named("nwscript", ResType::NSS)
             .map(|d| Spec::parse(&d))
             .unwrap_or_default();
-        let rows = |table: &str, name: &str, prefix: &str, keep: &dyn Fn(usize) -> bool| {
-            let Ok(t) = game.table(table) else { return Vec::new() };
-            let (Some(name_col), constant_col) = (t.column(name), t.column("Constant")) else {
-                return Vec::new();
+        const PREFIXES: [&str; 5] = ["CLASS_TYPE_", "GENDER_", "RACIAL_TYPE_", "FEAT_", "SKILL_"];
+        let mut by_name: HashMap<&str, Option<i64>> = HashMap::with_capacity(spec.constants.len());
+        let mut by_prefix: HashMap<(&'static str, i64), &str> = HashMap::new();
+        for c in &spec.constants {
+            let parsed = c.value.trim().parse::<i64>().ok();
+            by_name.entry(c.name.as_str()).or_insert(parsed);
+            if c.ty == "int"
+                && let Some(val) = parsed
+            {
+                for prefix in PREFIXES {
+                    if c.name.starts_with(prefix) {
+                        by_prefix.entry((prefix, val)).or_insert(c.name.as_str());
+                        break;
+                    }
+                }
+            }
+        }
+        let lookup_constant =
+            |prefix: &'static str, row: usize, declared: Option<&str>| -> String {
+                let target = row as i64;
+                if let Some(d) = declared
+                    && by_name.get(d).copied().flatten() == Some(target)
+                {
+                    return d.to_string();
+                }
+                by_prefix
+                    .get(&(prefix, target))
+                    .map(|s| (*s).to_string())
+                    .unwrap_or_else(|| row.to_string())
             };
+        let entry_of = |t: &mg_2da::TwoDa,
+                        row: usize,
+                        name_col: usize,
+                        const_col: Option<usize>,
+                        prefix: &'static str| {
+            let name = game.cell_string(t, row, name_col)?;
+            let declared = const_col.and_then(|c| t.cell(row, c));
+            Some(Entry { row, name, constant: lookup_constant(prefix, row, declared) })
+        };
+        let rows = |table: &str, name: &str, prefix: &'static str, flag_col: Option<&str>| {
+            let Ok(t) = game.table(table) else { return Vec::new() };
+            let Some(name_col) = t.column(name) else { return Vec::new() };
+            let const_col = t.column("Constant");
+            let flag_col = flag_col.and_then(|c| t.column(c));
             (0..t.len())
-                .filter(|&row| keep(row))
-                .filter_map(|row| {
-                    let name = game.cell_string(&t, row, name_col)?;
-                    let declared = constant_col.and_then(|c| t.cell(row, c));
-                    Some(Entry { row, name, constant: constant(&spec, prefix, row, declared) })
+                .filter(|&row| {
+                    flag_col.is_none_or(|c| t.cell(row, c).and_then(mg_2da::parse_int) == Some(1))
                 })
+                .filter_map(|row| entry_of(&t, row, name_col, const_col, prefix))
                 .collect::<Vec<_>>()
         };
-        let flag = |table: &str, column: &'static str| {
-            let t = game.table(table).ok();
-            move |row: usize| {
-                t.as_ref().and_then(|t| t.get(row, column)).and_then(mg_2da::parse_int).unwrap_or(0)
-                    == 1
+        let mut player_races = Vec::new();
+        let mut other_races = Vec::new();
+        if let Ok(t) = game.table("racialtypes")
+            && let Some(name_col) = t.column("Name")
+        {
+            let const_col = t.column("Constant");
+            let flag_col = t.column("PlayerRace");
+            for row in 0..t.len() {
+                if let Some(entry) = entry_of(&t, row, name_col, const_col, "RACIAL_TYPE_") {
+                    let is_player = flag_col
+                        .and_then(|c| t.cell(row, c).and_then(mg_2da::parse_int))
+                        == Some(1);
+                    if is_player {
+                        player_races.push(entry);
+                    } else {
+                        other_races.push(entry);
+                    }
+                }
             }
-        };
-        let player_class = flag("classes", "PlayerClass");
-        let player_race = flag("racialtypes", "PlayerRace");
-        let by_name = |mut v: Vec<Entry>| {
+        }
+        let by_name_sort = |mut v: Vec<Entry>| {
             v.sort_by_cached_key(|e| word_sort_key(&e.name));
             v
         };
         Lists {
-            classes: by_name(rows("classes", "Name", "CLASS_TYPE_", &player_class)),
-            genders: by_name(rows("gender", "NAME", "GENDER_", &|_| true)),
-            player_races: by_name(rows("racialtypes", "Name", "RACIAL_TYPE_", &player_race)),
-            other_races: by_name(rows("racialtypes", "Name", "RACIAL_TYPE_", &|r| !player_race(r))),
-            feats: by_name(rows("feat", "FEAT", "FEAT_", &|_| true)),
-            skills: rows("skills", "Name", "SKILL_", &|_| true),
+            classes: by_name_sort(rows("classes", "Name", "CLASS_TYPE_", Some("PlayerClass"))),
+            genders: by_name_sort(rows("gender", "NAME", "GENDER_", None)),
+            player_races: by_name_sort(player_races),
+            other_races: by_name_sort(other_races),
+            feats: by_name_sort(rows("feat", "FEAT", "FEAT_", None)),
+            skills: rows("skills", "Name", "SKILL_", None),
         }
     }
 
@@ -295,22 +344,6 @@ impl Lists {
         v.sort_by_cached_key(|e| word_sort_key(&e.name));
         v
     }
-}
-
-/// The constant naming a row: the 2DA's `Constant` if `nwscript.nss`
-/// defines it with the row's value, else any constant with the prefix and
-/// that value, else the number.
-fn constant(spec: &Spec, prefix: &str, row: usize, declared: Option<&str>) -> String {
-    let value_is_row =
-        |c: &mg_script::spec::Constant| c.value.trim().parse::<i64>().ok() == Some(row as i64);
-    if let Some(c) = declared.and_then(|d| spec.constant(d)).filter(|c| value_is_row(c)) {
-        return c.name.clone();
-    }
-    spec.constants
-        .iter()
-        .find(|c| c.ty == "int" && c.name.starts_with(prefix) && value_is_row(c))
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|| row.to_string())
 }
 
 /// A class restriction: a class (or any, by hit dice) and a minimum level.

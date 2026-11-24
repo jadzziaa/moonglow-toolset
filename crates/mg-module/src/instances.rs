@@ -695,35 +695,53 @@ fn renew(s: &mut Struct, old: &str, new: &str) {
     }
 }
 
-/// Puts a struct's fields in `order` (`#parts` stands for `parts`, each
-/// followed by its EE twin); fields not named follow in their own order.
-fn arrange(s: &mut Struct, order: &[&str], parts: &[&str]) {
-    let mut labels: Vec<String> = Vec::new();
-    for label in order {
-        if *label == "#parts" {
-            for part in parts {
-                labels.push(part.to_string());
-                labels.push(mg_rules::items::wide_label(part));
+type RankTable = std::collections::HashMap<Vec<u8>, usize>;
+
+fn build_ranks(order: &[&str], parts: &[&str], extra_after_parts: &[&str]) -> RankTable {
+    let mut table = RankTable::new();
+    let mut rank = 0usize;
+    let mut push = |bytes: &[u8]| {
+        table.entry(bytes.to_vec()).or_insert_with(|| {
+            let r = rank;
+            rank += 1;
+            r
+        });
+    };
+    for &label in order {
+        if label == "#parts" {
+            for &part in parts {
+                push(part.as_bytes());
+                push(mg_rules::items::wide_label(part).as_bytes());
+            }
+            for &extra in extra_after_parts {
+                push(extra.as_bytes());
             }
         } else {
-            labels.push(label.to_string());
+            push(label.as_bytes());
         }
     }
-    let rank = |f: &mg_gff::Field| {
-        let l = f.label.to_string_lossy();
-        labels.iter().position(|x| *x == l).unwrap_or(labels.len())
-    };
-    s.fields.sort_by_key(rank);
+    table
+}
+
+/// Puts a struct's fields in `ranks` order; fields not named follow in their own order.
+fn arrange_by_ranks(s: &mut Struct, ranks: &RankTable) {
+    s.fields.sort_by_cached_key(|f| ranks.get(f.label.as_bytes()).copied().unwrap_or(usize::MAX));
+}
+
+fn property_ranks() -> &'static RankTable {
+    static RANKS: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+    RANKS.get_or_init(|| build_ranks(PROPERTY_ORDER, &[], &[]))
 }
 
 /// An item's fields in Aurora's order: its parts and then its colors where
 /// the order has `#parts`.
 fn arrange_item(s: &mut Struct) {
-    let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
-    let mut order: Vec<&str> = ITEM_ORDER.to_vec();
-    let after_parts = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
-    order.splice(after_parts..after_parts, ITEM_COLORS);
-    arrange(s, &order, &parts);
+    static RANKS: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+    let ranks = RANKS.get_or_init(|| {
+        let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
+        build_ranks(ITEM_ORDER, &parts, &ITEM_COLORS)
+    });
+    arrange_by_ranks(s, ranks);
 }
 
 /// An item as a placed object holds it (in its inventory, a store page or
@@ -849,7 +867,7 @@ fn item_fields(p: &Placing<'_>, bp: &Struct, depth: u32) -> Struct {
         // Aurora writes every property's struct id as 0 (a few game
         // blueprints have others: nw_storgenral003's items).
         property.id = 0;
-        arrange(property, PROPERTY_ORDER, &[]);
+        arrange_by_ranks(property, property_ranks());
     }
     s.set("PropertiesList", Value::List(properties));
     // (Its fields are put in Aurora's order by who asked, once the fields
@@ -1076,23 +1094,42 @@ fn situated_order(own: &[&'static str]) -> Vec<&'static str> {
 /// Puts a placed object's fields in the order Aurora writes its type
 /// (items are written in order).
 fn arrange_as(restype: ResType, s: &mut Struct) {
-    let order: Vec<&str> = match restype {
+    let ranks: &'static RankTable = match restype {
         ResType::UTC => {
-            let mut order = CREATURE_ORDER.to_vec();
-            let after = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
-            order.splice(after..after, CREATURE_COLORS);
-            order
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(CREATURE_ORDER, &creature_parts(), &CREATURE_COLORS))
         }
-        ResType::UTP => situated_order(PLACEABLE_OWN_ORDER),
-        ResType::UTM => STORE_ORDER.to_vec(),
-        ResType::UTS => SOUND_ORDER.to_vec(),
-        ResType::UTW => WAYPOINT_ORDER.to_vec(),
-        ResType::UTT => TRIGGER_ORDER.to_vec(),
-        ResType::UTE => ENCOUNTER_ORDER.to_vec(),
-        ResType::UTD => situated_order(DOOR_OWN_ORDER),
+        ResType::UTP => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(&situated_order(PLACEABLE_OWN_ORDER), &[], &[]))
+        }
+        ResType::UTM => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(STORE_ORDER, &[], &[]))
+        }
+        ResType::UTS => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(SOUND_ORDER, &[], &[]))
+        }
+        ResType::UTW => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(WAYPOINT_ORDER, &[], &[]))
+        }
+        ResType::UTT => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(TRIGGER_ORDER, &[], &[]))
+        }
+        ResType::UTE => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(ENCOUNTER_ORDER, &[], &[]))
+        }
+        ResType::UTD => {
+            static R: std::sync::OnceLock<RankTable> = std::sync::OnceLock::new();
+            R.get_or_init(|| build_ranks(&situated_order(DOOR_OWN_ORDER), &[], &[]))
+        }
         _ => return,
     };
-    arrange(s, &order, &creature_parts());
+    arrange_by_ranks(s, ranks);
 }
 
 /// Where a placed object stands, as [`instance`] writes it (the inverse
@@ -1105,12 +1142,13 @@ pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) 
 
 /// What Update Instances keeps of a placed object besides where it
 /// stands: its visual transform (EE's list, or the older struct), an
-/// encounter's spawn points and an outline's own color (Moonglow's,
-/// [`mg_rules::placement::OUTLINE_COLOR`]: a mark of the placed object,
-/// as its spawn points are, which no blueprint has).
-const KEPT: [&str; 4] = {
+/// encounter's spawn points, its lock ([`mg_rules::placement::LOCKED`]),
+/// and an outline's own color (Moonglow's,
+/// [`mg_rules::placement::OUTLINE_COLOR`]: marks of the placed object
+/// that no blueprint has).
+const KEPT: [&str; 5] = {
     let [list, older] = crate::placement::VISUAL_TRANSFORM_FIELDS;
-    [list, older, "SpawnPointList", mg_rules::placement::OUTLINE_COLOR]
+    [list, older, "SpawnPointList", mg_rules::placement::LOCKED, mg_rules::placement::OUTLINE_COLOR]
 };
 
 /// Update Instances (Aurora's palette › Update Instances, with every area
@@ -1129,12 +1167,12 @@ pub fn update(
     blueprint: &dyn Fn(ResType, ResRef) -> Option<Struct>,
     which: &dyn Fn(&str, usize) -> bool,
 ) -> Option<(Struct, usize)> {
-    let mut out = git.clone();
+    let mut out: Option<Struct> = None;
     let mut count = 0;
     for kind in ObjectKind::ALL {
         let (list, restype, field) = (kind.list(), kind.restype(), kind.resref_field());
-        let Some(items) = out.list_mut(list) else { continue };
-        for (i, s) in items.iter_mut().enumerate() {
+        let Some(items) = git.list(list) else { continue };
+        for (i, s) in items.iter().enumerate() {
             if !which(list, i) {
                 continue;
             }
@@ -1144,11 +1182,12 @@ pub fn update(
                 continue;
             };
             let Some(made) = remade(p, restype, s, &bp) else { continue };
-            *s = made;
+            let dest = out.get_or_insert_with(|| git.clone());
+            dest.list_mut(list).expect("list checked")[i] = made;
             count += 1;
         }
     }
-    (count > 0).then_some((out, count))
+    out.map(|out| (out, count))
 }
 
 /// Placed object `old` (of blueprint type `restype`) made again from
@@ -1329,26 +1368,48 @@ pub fn update_held(
     blueprint: &dyn Fn(ResRef) -> Option<Struct>,
     which: WhichHeld<'_>,
 ) -> Option<(Struct, usize)> {
+    fn set_at(root: &mut Struct, at: &[(&'static str, usize)], made: Struct) {
+        let mut cur = root;
+        for &(list, idx) in &at[..at.len() - 1] {
+            cur = &mut cur.list_mut(list).expect("list exists")[idx];
+        }
+        let &(list, idx) = at.last().expect("non-empty path");
+        cur.list_mut(list).expect("list exists")[idx] = made;
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn remake(
         p: &Placing<'_>,
-        s: &mut Struct,
+        git: &Struct,
+        s: &Struct,
         list: &'static str,
         at: &mut Held,
         depth: u32,
         blueprint: &dyn Fn(ResRef) -> Option<Struct>,
         which: WhichHeld<'_>,
+        out: &mut Option<Struct>,
         count: &mut usize,
     ) {
         if depth > 6 {
             return;
         }
         for &inner in held_lists(list) {
-            let Some(items) = s.list_mut(inner) else { continue };
-            for (i, held) in items.iter_mut().enumerate() {
+            let Some(items) = s.list(inner) else { continue };
+            for (i, held) in items.iter().enumerate() {
                 at.push((inner, i));
                 if !holds_items(list, inner) {
-                    remake(p, held, "Placeable List", at, depth + 1, blueprint, which, count);
+                    remake(
+                        p,
+                        git,
+                        held,
+                        "Placeable List",
+                        at,
+                        depth + 1,
+                        blueprint,
+                        which,
+                        out,
+                        count,
+                    );
                 } else if which(at)
                     && let Some(bp) = held.resref("TemplateResRef").and_then(blueprint)
                 {
@@ -1360,25 +1421,26 @@ pub fn update_held(
                             made.set(&label, f.value.clone());
                         }
                     }
-                    *held = made;
+                    let root = out.get_or_insert_with(|| git.clone());
+                    set_at(root, at, made);
                     *count += 1;
                 } else {
-                    remake(p, held, "ItemList", at, depth + 1, blueprint, which, count);
+                    remake(p, git, held, "ItemList", at, depth + 1, blueprint, which, out, count);
                 }
                 at.pop();
             }
         }
     }
-    let mut out = git.clone();
+    let mut out: Option<Struct> = None;
     let mut count = 0;
     for list in ObjectKind::ALL.map(ObjectKind::list) {
-        let Some(objects) = out.list_mut(list) else { continue };
-        for (i, s) in objects.iter_mut().enumerate() {
+        let Some(objects) = git.list(list) else { continue };
+        for (i, s) in objects.iter().enumerate() {
             let mut at: Held = vec![(list, i)];
-            remake(p, s, list, &mut at, 0, blueprint, which, &mut count);
+            remake(p, git, s, list, &mut at, 0, blueprint, which, &mut out, &mut count);
         }
     }
-    (count > 0).then_some((out, count))
+    out.map(|out| (out, count))
 }
 
 /// The waypoint Aurora's Create Waypoint makes for a creature (one of its
@@ -1991,5 +2053,34 @@ mod tests {
         whole.set("Pickpocketable", Value::Byte(1));
         let worn = equipped_item(&listed_item(&whole, 0, 0, 0), 0x80);
         assert_eq!((worn.id, labels(&worn)), (0x80, labels(&whole)));
+    }
+
+    #[test]
+    fn remade_and_update_preserve_placed_object_lock() {
+        let game = game();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let resref = ResRef::from_str("chair01").unwrap();
+        let mut bp = Struct::new(0);
+        bp.set("TemplateResRef", Value::resref(resref));
+        bp.set("LocName", Value::LocString(mg_core::LocString::default()));
+        bp.set("Appearance", Value::Dword(1));
+
+        let at = Placement { position: [1.0, 2.0, 0.0], rotation: 0.0 };
+        let mut old = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        old.set(mg_rules::placement::LOCKED, Value::Byte(1));
+
+        let one = remade(&placing, ResType::UTP, &old, &bp).unwrap();
+        assert_eq!(one.integer(mg_rules::placement::LOCKED), Some(1));
+
+        let mut git = Struct::new(u32::MAX);
+        git.set("Placeable List", Value::List(vec![old]));
+        let (updated, count) =
+            update(&placing, &git, &|_, _| Some(bp.clone()), &|_, _| true).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            updated.list("Placeable List").unwrap()[0].integer(mg_rules::placement::LOCKED),
+            Some(1)
+        );
     }
 }

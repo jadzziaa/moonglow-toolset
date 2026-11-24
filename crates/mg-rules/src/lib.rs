@@ -8,7 +8,10 @@
 //! [`GameData::table`] and [`GameData::choices`].
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+
+static NEXT_GAME_DATA_ID: AtomicU64 = AtomicU64::new(1);
 
 use mg_2da::TwoDa;
 use mg_core::{Codepage, Gender, Language, LocString, ResRef, ResType, StrRef};
@@ -161,7 +164,7 @@ enum Looked {
 pub struct GameData {
     pub resman: ResMan,
     pub language: Language,
-    tlk: Tlk,
+    tlk: Arc<Tlk>,
     custom_tlk: Option<Tlk>,
     /// Tables looked up so far, found or not: a missing table is asked for
     /// again and again (per candidate feat in a level-up).
@@ -176,7 +179,7 @@ pub struct GameData {
     /// Objects' appearances judged so far
     /// ([`appearance_problems`](Self::appearance_problems)), by the kind
     /// of object and the fields that bear on it.
-    judged: RwLock<HashMap<appearance::JudgedKey, Arc<Vec<appearance::ModelProblem>>>>,
+    judged: RwLock<appearance::JudgedCache>,
     /// The item property lists made so far (`items.rs`): a table's named
     /// rows, by the table and by which of them and in what order; and the
     /// property types of each itemprops.2da column.
@@ -185,6 +188,8 @@ pub struct GameData {
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
+    id: u64,
+    revision: AtomicU64,
 }
 
 /// The codepage of an `encoding.2da`: its `Codepoint` column is the
@@ -263,20 +268,30 @@ impl GameData {
     /// Opens the base stack of an install and its `dialog.tlk`.
     pub fn open(install: &GameInstall) -> Result<GameData, RulesError> {
         let resman = ResMan::for_game(install)?;
+        let tlk = Self::open_tlk(install)?;
+        Ok(GameData::new(resman, tlk))
+    }
+
+    /// Reads an install's `dialog.tlk`.
+    pub fn open_tlk(install: &GameInstall) -> Result<Tlk, RulesError> {
         let path = install.talk_table();
         let bytes = std::fs::read(&path).map_err(|e| RulesError::Tlk {
             path: path.display().to_string(),
             message: e.to_string(),
         })?;
-        let tlk = Tlk::read(&bytes).map_err(|e| RulesError::Tlk {
+        Tlk::read(&bytes).map_err(|e| RulesError::Tlk {
             path: path.display().to_string(),
             message: e.to_string(),
-        })?;
-        Ok(GameData::new(resman, tlk))
+        })
     }
 
     /// Wraps an existing resource stack and talk table.
     pub fn new(resman: ResMan, tlk: Tlk) -> GameData {
+        Self::with_shared_tlk(resman, Arc::new(tlk))
+    }
+
+    /// Wraps an existing resource stack and a shared read-only `dialog.tlk`.
+    pub fn with_shared_tlk(resman: ResMan, tlk: Arc<Tlk>) -> GameData {
         GameData {
             resman,
             language: tlk.language,
@@ -285,11 +300,18 @@ impl GameData {
             tables: RwLock::new(HashMap::new()),
             choices: RwLock::new(HashMap::new()),
             marked: RwLock::new(HashMap::new()),
-            judged: RwLock::new(HashMap::new()),
+            judged: RwLock::default(),
             named: RwLock::new(HashMap::new()),
             property_types: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
+            id: NEXT_GAME_DATA_ID.fetch_add(1, Ordering::Relaxed),
+            revision: AtomicU64::new(0),
         }
+    }
+
+    /// Unique instance identity and mutation counter for external cache invalidation.
+    pub fn generation(&self) -> (u64, u64) {
+        (self.id, self.revision.load(Ordering::Relaxed))
     }
 
     /// Sets (or clears) the module's custom talk table.
@@ -300,6 +322,7 @@ impl GameData {
         self.marked.get_mut().expect("marked cache poisoned").clear();
         self.named.get_mut().expect("named cache poisoned").clear();
         self.property_types.get_mut().expect("property type cache poisoned").clear();
+        self.revision.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Brings the module's custom talk table up to `tlk`, the table as
@@ -332,6 +355,7 @@ impl GameData {
             self.marked.get_mut().expect("marked cache poisoned").clear();
             self.named.get_mut().expect("named cache poisoned").clear();
             self.property_types.get_mut().expect("property type cache poisoned").clear();
+            self.revision.fetch_add(1, Ordering::Relaxed);
         }
         changed
     }
@@ -344,13 +368,19 @@ impl GameData {
     /// test brings its own), the language its own.
     pub fn set_tlk(&mut self, tlk: Tlk) {
         self.language = tlk.language;
-        self.tlk = tlk;
+        self.tlk = Arc::new(tlk);
         self.invalidate();
     }
 
     /// `dialog.tlk`.
     pub fn tlk(&self) -> &Tlk {
         &self.tlk
+    }
+
+    /// Shared handle to `dialog.tlk` so tests can build fresh [`GameData`]
+    /// instances without re-parsing all 112k talk-table entries.
+    pub fn tlk_arc(&self) -> Arc<Tlk> {
+        Arc::clone(&self.tlk)
     }
 
     /// Forgets cached tables (call after the resource stack changes, e.g.
@@ -363,6 +393,7 @@ impl GameData {
         self.named.write().expect("named cache poisoned").clear();
         self.property_types.write().expect("property type cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
+        self.revision.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The codepage of the game's text: the language's, or the table of a

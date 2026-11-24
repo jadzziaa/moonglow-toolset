@@ -14,7 +14,6 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use mg_core::{ResRef, ResType};
 use mg_resman::ResKey;
@@ -348,11 +347,9 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Result<Scratch, String> {
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("moonglow-compile-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let base = crate::build::own_scratch_dir().map_err(|e| e.to_string())?;
+        let dir =
+            crate::build::new_private_dir(&base).map_err(|e| format!("{}: {e}", base.display()))?;
         Ok(Scratch(dir))
     }
 }
@@ -507,5 +504,25 @@ mod tests {
             missing.compile(&sources, &["good".into()]).unwrap_err().contains("could not be run")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scratch_uses_unique_private_directory_and_cleans_up_on_drop() {
+        let first = Scratch::new().unwrap();
+        let second = Scratch::new().unwrap();
+        let p1 = first.0.clone();
+        let p2 = second.0.clone();
+        assert_ne!(p1, p2);
+        assert!(p1.is_dir() && p2.is_dir());
+        assert_eq!(p1.parent(), Some(crate::build::own_scratch_dir().unwrap().as_path()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&p1).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+        drop(first);
+        drop(second);
+        assert!(!p1.exists() && !p2.exists());
     }
 }

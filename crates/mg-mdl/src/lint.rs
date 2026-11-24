@@ -99,7 +99,7 @@ pub const MAX_FACES: usize = 32_767;
 /// A mesh's vertices: their indices are 16 bits.
 pub const MAX_VERTICES: usize = 65_535;
 pub const MAX_RESREF: usize = 16;
-pub const MAX_NODE_NAME: usize = 32;
+pub const MAX_NODE_NAME: usize = 31;
 pub const MAX_LIGHTNING_SEGMENTS: f32 = 9.0;
 
 #[derive(Default)]
@@ -943,5 +943,20 @@ donemodel box\n";
         assert!(long("\t"));
         assert!(long("\u{a0}"), "a no-break space");
         assert!(long("\u{3000}"), "an ideographic space");
+    }
+
+    #[test]
+    fn node_name_limit_matches_binary_compiler_31_bytes() {
+        let with_name = |len: usize| {
+            let name = "n".repeat(len);
+            format!(
+                "newmodel w\nbeginmodelgeom w\nnode dummy w\n  parent NULL\nendnode\n\
+                 node dummy {name}\n  parent w\nendnode\nendmodelgeom w\ndonemodel w\n"
+            )
+        };
+        assert!(messages(&with_name(31)).is_empty());
+        let msgs = messages(&with_name(32));
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].2.contains("31"), "{:?}", msgs);
     }
 }

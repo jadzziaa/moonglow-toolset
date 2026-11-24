@@ -774,8 +774,8 @@ fn the_top_bar_draws_icons_with_tips_and_options_has_no_toolbar_buttons() {
     // A tip named for the button, with its key.
     let new = tool(&h, "New").rect().center();
     h.hover_at(new);
-    // (A tooltip waits a moment.)
-    h.run_steps(60);
+    h.step();
+    advance_clock(&mut h, 1.5);
     // (The tip, not the Status Bar's hint of the same command.)
     let tips = h.query_all_by_label_contains("New module").map(|n| n.accesskit_node());
     let tip = (tips.map(|n| n.label().or(n.value()).unwrap_or_default()))
@@ -785,7 +785,8 @@ fn the_top_bar_draws_icons_with_tips_and_options_has_no_toolbar_buttons() {
     // Save (disabled without a module): its tip too, with its key.
     let save = tool(&h, "Save").rect().center();
     h.hover_at(save);
-    h.run_steps(60);
+    h.step();
+    advance_clock(&mut h, 1.5);
     let tip = h.get_by_label_contains("Save module").accesskit_node();
     let tip = tip.label().or(tip.value()).unwrap_or_default();
     assert!(tip.starts_with("Save module ("), "named, with its key: {tip}");
@@ -910,8 +911,8 @@ fn the_editors_headers_show_named_icons() {
     assert!(used_by.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{used_by:?}");
     assert!(icon_drawn(&h, mg_uikit::Icon::UsedBy, used_by), "Used By's icon");
     h.get_by_label("Used By").hover();
-    // (A tooltip waits a moment.)
-    h.run_steps(60);
+    h.step();
+    advance_clock(&mut h, 1.5);
     h.get_by_label("Where the module runs or includes this script");
     h.hover_at(egui::pos2(5.0, 790.0));
     h.run_steps(3);

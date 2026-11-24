@@ -39,16 +39,16 @@ impl Diff {
     }
 }
 
-fn cell(t: &TwoDa, row: usize, column: &str) -> Option<String> {
-    t.get(row, column).map(str::to_string)
-}
-
 /// The columns of both, the newer table's first (in its order and
 /// spelling), then those only the older has.
 fn all_columns(from: &TwoDa, to: &TwoDa) -> Vec<String> {
     let mut out: Vec<String> = to.columns().to_vec();
     out.extend(from.columns().iter().filter(|c| to.column(c).is_none()).cloned());
     out
+}
+
+fn cell_at(t: &TwoDa, col: Option<usize>, row: usize) -> Option<&str> {
+    col.and_then(|c| t.cell(row, c))
 }
 
 /// What differs from `from` to `to`.
@@ -70,11 +70,18 @@ pub fn diff(from: &TwoDa, to: &TwoDa) -> Diff {
         d.rows_removed = 0..0;
     }
     let columns = all_columns(from, to);
+    let col_map: Vec<(&str, Option<usize>, Option<usize>)> =
+        columns.iter().map(|c| (c.as_str(), from.column(c), to.column(c))).collect();
     for row in 0..from.len().max(to.len()) {
-        for column in &columns {
-            let (a, b) = (cell(from, row, column), cell(to, row, column));
+        for &(column, fc, tc) in &col_map {
+            let (a, b) = (cell_at(from, fc, row), cell_at(to, tc, row));
             if a != b {
-                d.cells.push(CellChange { row, column: column.clone(), from: a, to: b });
+                d.cells.push(CellChange {
+                    row,
+                    column: column.to_string(),
+                    from: a.map(str::to_string),
+                    to: b.map(str::to_string),
+                });
             }
         }
     }
@@ -140,33 +147,58 @@ pub fn merge(base: &TwoDa, ours: &TwoDa, theirs: &TwoDa, prefer: Prefer) -> Merg
         (_, true) => ours.len(),
         _ => ours.len().max(theirs.len()),
     };
-    let mut table = TwoDa::new(columns.clone()).expect("columns of tables that were read");
+    type ColMap<'a> = (&'a str, Option<usize>, Option<usize>, Option<usize>);
+    let col_map: Vec<ColMap<'_>> = columns
+        .iter()
+        .map(|c| (c.as_str(), base.column(c), ours.column(c), theirs.column(c)))
+        .collect();
+    let mut rows = Vec::with_capacity(len);
     let mut conflicts = Vec::new();
-    let pick = |b: Option<String>, o: Option<String>, t: Option<String>| match () {
-        _ if o == b => (t, false),
-        _ if t == b || o == t => (o, false),
-        _ => (if prefer == Prefer::Ours { o } else { t }, true),
-    };
+    fn pick_borrow<'a>(
+        b: Option<&'a str>,
+        o: Option<&'a str>,
+        t: Option<&'a str>,
+        prefer: Prefer,
+    ) -> (Option<&'a str>, bool) {
+        if o == b {
+            (t, false)
+        } else if t == b || o == t {
+            (o, false)
+        } else {
+            (if prefer == Prefer::Ours { o } else { t }, true)
+        }
+    }
     for row in 0..len {
-        let mut cells = Vec::with_capacity(columns.len());
-        for column in &columns {
+        let mut cells = Vec::with_capacity(col_map.len());
+        for &(column, bc, oc, tc) in &col_map {
             let (b, o, t) =
-                (cell(base, row, column), cell(ours, row, column), cell(theirs, row, column));
-            let (taken, conflict) = pick(b.clone(), o.clone(), t.clone());
+                (cell_at(base, bc, row), cell_at(ours, oc, row), cell_at(theirs, tc, row));
+            let (taken, conflict) = pick_borrow(b, o, t, prefer);
             if conflict {
                 conflicts.push(Conflict {
                     row,
-                    column: column.clone(),
-                    base: b,
-                    ours: o,
-                    theirs: t,
+                    column: column.to_string(),
+                    base: b.map(str::to_string),
+                    ours: o.map(str::to_string),
+                    theirs: t.map(str::to_string),
                 });
             }
-            cells.push(taken);
+            cells.push(taken.map(str::to_string));
         }
-        table.rows.push(cells);
+        rows.push(cells);
     }
-    table.default = pick(base.default.clone(), ours.default.clone(), theirs.default.clone()).0;
+    let mut table = TwoDa::new(columns).expect("columns of tables that were read");
+    table.rows = rows;
+    table.default = if ours.default == base.default {
+        theirs.default.clone()
+    } else if theirs.default == base.default
+        || ours.default == theirs.default
+        || prefer == Prefer::Ours
+    {
+        ours.default.clone()
+    } else {
+        theirs.default.clone()
+    };
     Merged { table, conflicts }
 }
 

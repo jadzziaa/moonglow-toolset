@@ -5,89 +5,9 @@
 //! question where baked models are no longer used.
 
 use crate::common::*;
+use crate::dialog_pattern::openers_world::{RULES, bake_harness, bake_harness_with};
 use glam::Vec3;
 use mg_area::ObjectKind;
-
-const RULES: &str = "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
-
-/// The area's two armoires (`plc_armoire`, model `plc_a01`): at (15, 15)
-/// at Scale 0.5 turned 40 (dynamic), and plain at (27, 15); and at
-/// (21, 25), scaled as the first, a placeable of the first row of the
-/// game's whose model has no walkmesh.
-fn armoires(m: &mut Module, game: &mg_rules::GameData, area: ResRef) {
-    use mg_module::instances::{Placement, Placing, instance};
-    let key = ResKey::parse("plc_armoire", ResType::UTP).unwrap();
-    let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
-    let none = |_: ResRef| None;
-    let placing = Placing { game, item: &none };
-    let table = game.table("placeables").unwrap();
-    let bare = (0..table.len())
-        .find(|&r| {
-            table.get(r, "ModelName").is_some_and(|m| {
-                game.resman.get_named(m, ResType::MDL).is_ok()
-                    && game.resman.get_named(m, ResType::PWK).is_err()
-            })
-        })
-        .expect("a placeable without a walkmesh");
-    let mut placed = Vec::new();
-    for (x, y, scaled, row) in
-        [(15.0, 15.0, true, None), (27.0, 15.0, false, None), (21.0, 25.0, true, Some(bare))]
-    {
-        let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
-        let mut p = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
-        p.set("Static", mg_gff::Value::Byte(0));
-        if let Some(row) = row {
-            p.set("Appearance", mg_gff::Value::Dword(row as u32));
-        }
-        if scaled {
-            let v = mg_area::VisualTransform {
-                scale: Vec3::splat(0.5),
-                rotate: Vec3::new(40.0, 0.0, 0.0),
-                translate: Vec3::ZERO,
-            };
-            p.set("VisTransformList", mg_area::edit::visual_transform_list(v));
-        }
-        placed.push(p);
-    }
-    let git_key = ResKey::new(area, ResType::GIT);
-    let mut git = m.gff(&git_key).unwrap().unwrap();
-    git.root.set("Placeable List", mg_gff::Value::List(placed));
-    m.set_gff(git_key, &git).unwrap();
-}
-
-/// The area of [`armoires`] in a module folder whose moonglow.toml is
-/// `rules` (none: no project file), the game's user folder `user`: the
-/// harness, the area and the folder.
-fn bake_harness(
-    name: &str,
-    rules: Option<&str>,
-) -> Option<(Harness<'static, Moonglow>, ResRef, std::path::PathBuf, std::path::PathBuf)> {
-    bake_harness_with(name, rules, &|_, _| {})
-}
-
-/// [`bake_harness`], `more` done in the project's folder (given the area)
-/// before it opens.
-fn bake_harness_with(
-    name: &str,
-    rules: Option<&str>,
-    more: &dyn Fn(&std::path::Path, ResRef),
-) -> Option<(Harness<'static, Moonglow>, ResRef, std::path::PathBuf, std::path::PathBuf)> {
-    let user = mg_testkit::scratch_dir(&format!("ui-bake-{name}-user"));
-    let (mut app, rs, area) = area_app(name, "ttr01", None, 4, Some(user.clone()), &armoires)?;
-    let mut m = app.ws.as_ref()?.module.clone();
-    let dir = mg_testkit::scratch_dir(&format!("ui-bake-{name}-project"));
-    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
-    if let Some(rules) = rules {
-        std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
-    }
-    more(&dir, area);
-    app.open_module(&dir);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = area_gpu_harness(app, rs, 1300.0, 900.0);
-    h.run_steps(3);
-    settle(&mut h);
-    Some((h, area, dir, user))
-}
 
 fn right_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     h.hover_at(at);
@@ -164,9 +84,11 @@ fn bake_walkmesh_is_offered_with_bake_rules_and_a_transform() {
 #[test]
 fn a_bake_is_one_step_of_undo_and_tidied_when_unused() {
     let Some((mut h, area, dir, user)) = bake_harness("bake", Some(RULES)) else { return };
-    let out = mg_testkit::output_dir("ui-bake-pictures");
-    for f in ["before.png", "window.png", "baked.png"] {
-        let _ = std::fs::remove_file(out.join(f));
+    let out = shot_dir("ui-bake");
+    if let Some(ref out) = out {
+        for f in ["before.png", "window.png", "baked.png"] {
+            let _ = std::fs::remove_file(out.join(f));
+        }
     }
     let original = appearance(&mut h, area, 0);
     {
@@ -177,7 +99,9 @@ fn a_bake_is_one_step_of_undo_and_tidied_when_unused() {
         (o.target, o.pitch, o.distance) = (Vec3::new(15.0, 15.0, 0.0), 1.1, 7.0);
     }
     settle(&mut h);
-    h.render().expect("render").save(out.join("before.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("before.png")).unwrap();
+    }
     position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
     h.get_by_label("Bake Walkmesh to Transform…").click();
     h.run_steps(4);
@@ -187,7 +111,9 @@ fn a_bake_is_one_step_of_undo_and_tidied_when_unused() {
     let hak = user.join("hak/mg_baked.hak");
     let rows = dir.join("baked_rows.toml");
     assert!(!hak.exists() && !rows.exists(), "nothing written yet");
-    h.render().expect("render").save(out.join("window.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("window.png")).unwrap();
+    }
     h.get_by_label("Bake").click();
     h.run_steps(4);
     settle(&mut h);
@@ -205,7 +131,9 @@ fn a_bake_is_one_step_of_undo_and_tidied_when_unused() {
     let o = view.model.as_ref().unwrap().objects.iter().find(|o| o.kind == ObjectKind::Placeable);
     let model = o.and_then(|o| o.preview.as_ref()).map(|p| p.base.model.clone());
     assert_eq!(model.as_deref(), Some("mgbk_0001"));
-    h.render().expect("render").save(out.join("baked.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("baked.png")).unwrap();
+    }
 
     // Undo: the Appearance, the hak (it was made) and the rows file go.
     h.state_mut().actions.push(mg_ui::Action::Undo);

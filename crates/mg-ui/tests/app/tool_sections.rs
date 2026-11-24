@@ -14,12 +14,11 @@ use egui::Key;
 
 /// A module of `count` areas, `area0000` on (named "Area 0" on), their
 /// flags by threes: none, interior, interior and underground.
-pub(crate) fn areas_module(dir: &std::path::Path, count: usize) -> std::path::PathBuf {
+fn write_areas_module(path: &std::path::Path, count: usize) {
     use mg_gff::{Struct, Value};
-    let path = dir.join("areas.mod");
     let mut m = Module::new();
     let mut info = Gff::new(*b"IFO ");
-    let mut list = Vec::new();
+    let mut list = Vec::with_capacity(count);
     for n in 0..count {
         let name = format!("area{n:04}");
         let r = ResRef::from_str(&name).unwrap();
@@ -41,7 +40,22 @@ pub(crate) fn areas_module(dir: &std::path::Path, count: usize) -> std::path::Pa
     }
     info.root.set("Mod_Area_list", Value::List(list));
     m.set_info(&info).unwrap();
-    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.to_path_buf())).unwrap();
+}
+
+pub(crate) fn areas_module(dir: &std::path::Path, count: usize) -> std::path::PathBuf {
+    let path = dir.join("areas.mod");
+    if count == 3000 {
+        static BIG: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+        let bytes = BIG.get_or_init(|| {
+            let scratch = mg_testkit::scratch_dir("u29-areas-3000-cache").join("areas.mod");
+            write_areas_module(&scratch, 3000);
+            std::fs::read(&scratch).unwrap()
+        });
+        std::fs::write(&path, bytes).unwrap();
+    } else {
+        write_areas_module(&path, count);
+    }
     path
 }
 
@@ -1185,8 +1199,8 @@ fn cancel_all_is_the_module_s_undo_over_a_hak_editor() {
 fn cancel_reason(h: &mut Harness<'_, Moonglow>) -> &'static str {
     let at = h.get_by_label("Cancel All").rect().center();
     h.hover_at(at);
-    // (A tooltip waits a moment.)
-    h.run_steps(60);
+    h.step();
+    advance_clock(h, 1.5);
     let shows = |h: &Harness<'_, Moonglow>, words: &str| h.query_by_label_contains(words).is_some();
     let reason = match (
         shows(h, "Nothing has been edited here since the areas were ticked"),

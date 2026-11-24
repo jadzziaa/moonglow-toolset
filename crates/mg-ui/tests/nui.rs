@@ -10,6 +10,32 @@ use mg_resman::ResKey;
 use mg_ui::{Action, Moonglow, NoDialogs, Tab};
 use serde_json::{Value, json};
 
+/// `Moonglow` on `install` sharing immutable base KEY/BIF archives and
+/// `dialog.tlk` via `mg_testkit::shared_resman`.
+fn game_app(install: mg_resman::GameInstall, dialogs: NoDialogs) -> Moonglow {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), std::sync::Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let resman = mg_testkit::shared_resman(&install).expect("shared game resman");
+    let key = (install.root.clone(), install.language.clone());
+    let tlk = TLK.get(&key, || {
+        std::sync::Arc::new(mg_rules::GameData::open_tlk(&install).expect("open dialog.tlk"))
+    });
+    let game = mg_rules::GameData::with_shared_tlk(resman, tlk);
+    Moonglow::new_with_game(Some(install), Some(game), Box::new(dialogs))
+}
+
+fn shared_gpu() -> Option<&'static mg_render::Gpu> {
+    static GPU: std::sync::OnceLock<Option<mg_render::Gpu>> = std::sync::OnceLock::new();
+    GPU.get_or_init(|| {
+        let g = mg_render::Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g
+    })
+    .as_ref()
+}
+
 /// A module with the window `name` in it, new, and its tab opening.
 fn app_with(name: &str, dialogs: NoDialogs) -> Moonglow {
     let mut app = Moonglow::new(None, Box::new(dialogs));
@@ -66,9 +92,19 @@ fn undo(h: &mut Harness<'_, Moonglow>) {
 fn creator(mut app: Moonglow, size: [u32; 2]) -> Harness<'static, Moonglow> {
     app.settings.window_sizes.retain(|(kind, _)| kind != "nui");
     app.settings.window_sizes.push(("nui".into(), size));
+    let mut recorded = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(size[0] as f32 + 100.0, size[1] as f32 + 150.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(
+            move |ui, app: &mut Moonglow| {
+                if !recorded {
+                    recorded = true;
+                    mg_uikit::header::record_headers(ui.ctx());
+                }
+                app.ui(ui);
+            },
+            app,
+        );
     h.run();
     h
 }
@@ -134,7 +170,8 @@ fn nui_tool<'t>(h: &'t mut Harness<'_, Moonglow>, name: &'t str) -> egui_kittest
     let records = header::records(&h.ctx, header_name);
     let rec = records.into_iter().next().expect("the designer's header");
     let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
-    let more: &'static str = Box::leak(header::more_name(header_name).into_boxed_str());
+    static MORE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let more = MORE.get_or_init(|| header::more_name(header_name)).as_str();
     if place == Some(Place::More) && h.query_by_label(more).is_none() {
         h.get_by_label(header_name).get_by_label(header::MORE).click();
         h.run();
@@ -368,7 +405,7 @@ fn picture_fields_take_a_file_from_disk() {
     assert!(!h.state().log.entries.iter().any(|(_, line)| line.contains("c40e2b2-1610-41b takes")));
 }
 
-/// Advanced › Images: a picture from disk into the module, used as the
+/// Images page: a picture from disk into the module, used as the
 /// window's background, then moved into a new hak the module lists. The
 /// user folder is a scratch one.
 #[test]
@@ -390,7 +427,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
         ..Default::default()
     };
     let install = mg_resman::GameInstall::new(mg_testkit::corpus!(), Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app(install, dialogs);
     let mut module = mg_module::Module::new();
     module.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     app.ws = Some(mg_edit::Workspace::new(module));
@@ -502,7 +539,11 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     assert!(text.contains("// mg:begin click mg_close"));
     assert!(h.state().dock.find_tab(&Tab::Script(script_key)).is_some());
     let at = mg_nui::handler_offset(&text, "click mg_close").unwrap();
-    assert!(h.state().script_tools.jump.is_none_or(|(k, i)| k == script_key && i == at));
+    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", script_key)))
+        .expect("script editor state");
+    let r = state.cursor.char_range().expect("script cursor range");
+    assert_eq!(usize::from(r.primary.index), at, "cursor jumped to handler offset {at}");
+    assert!(h.state().script_tools.jump.is_none(), "jump consumed by script editor");
     // Insert adds ready-made code to the handler, after what is there.
     close_script(&mut h, script_key);
     insert_close_window(&mut h);
@@ -1062,10 +1103,7 @@ fn deleting_a_window_says_its_script_s_unsaved_text_and_undo_brings_it_back() {
 #[test]
 fn cancel_after_a_build_leaves_a_window_that_builds() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     app.ws = Some(mg_edit::Workspace::new(m));
@@ -1106,10 +1144,7 @@ fn cancel_after_a_build_leaves_a_window_that_builds() {
 #[test]
 fn closing_the_creator_after_a_build_cancels_when_asked() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     app.settings.close_cancels = true;
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
@@ -1190,14 +1225,17 @@ fn cancel_sets_back_the_window_and_keeps_the_code_written_in_the_event_script() 
 /// took it for one.
 #[test]
 fn text_that_is_no_object_is_no_window() {
+    let mut h = creator(app(), [1200, 850]);
+    h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
     for text in ["[]", "7", "\"window\""] {
-        let mut app = app();
         let edit = mg_edit::Edit::SetResource { key: key(), data: Some(text.as_bytes().to_vec()) };
-        app.run(Action::Apply(mg_edit::Command::new("By hand", vec![edit])));
-        let mut h = creator(app, [1200, 850]);
-        h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
+        h.state_mut().run(Action::Apply(mg_edit::Command::new("By hand", vec![edit])));
         h.run_steps(3);
         assert!(h.state().dock.find_tab(&Tab::Nui(key())).is_some(), "{text}");
+        assert!(
+            h.query_by_label_contains("A window is a JSON object").is_some(),
+            "{text}: expected non-object error message"
+        );
     }
 }
 
@@ -1498,10 +1536,7 @@ fn a_sixteen_letter_name_and_settings_that_do_not_read_open() {
 #[test]
 fn build_takes_the_window_s_own_scripts_as_typed() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     let other = ResKey::parse("other", ResType::NSS).unwrap();
@@ -1562,10 +1597,7 @@ fn build_adds_what_it_compiled_to_the_compile_memory() {
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(&path).unwrap()));
     let kept = dir.join("compiled");
     std::fs::create_dir_all(&kept).unwrap();
@@ -1593,10 +1625,7 @@ fn build_adds_what_it_compiled_to_the_compile_memory() {
 #[test]
 fn export_says_the_pictures_it_leaves_behind() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     let mut m = mg_module::Module::new();
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     app.ws = Some(mg_edit::Workspace::new(m));
@@ -1617,10 +1646,7 @@ fn export_says_the_pictures_it_leaves_behind() {
 #[test]
 fn export_compiles_the_window_s_files_and_leaves_the_module_s_events() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     let mut m = mg_module::Module::new();
     let mut info = mg_gff::Gff::new(*b"IFO ");
     info.root.set("Mod_OnNuiEvent", mg_gff::Value::ResRef(b"my_event".to_vec()));
@@ -2796,19 +2822,16 @@ fn the_layout_says_what_does_not_fit() {
 fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
     use mg_ui::nui_render::{Look, Options, layout, render};
     mg_testkit::gpu::hold();
-    let Some(gpu) = mg_render::Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let Some(gpu) = shared_gpu() else { return };
     // With the game's skin and fonts when it is installed.
     let game = mg_testkit::nwn_root().and_then(|root| {
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+        mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).ok()
     });
     let m = crier();
     let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
     for scale in [1.0, 2.0] {
         let options = Options { scale, ..Default::default() };
-        let picture = render(&gpu, &window, &options).unwrap();
+        let picture = render(gpu, &window, &options).unwrap();
         let laid = layout(&window, &options).unwrap();
         assert_eq!(picture.layout, laid);
         let size = ((420.0 * scale) as u32, (300.0 * scale) as u32);
@@ -2837,10 +2860,10 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), picture.width);
     }
 
-    let plain = render(&gpu, &window, &Options::default()).unwrap();
+    let plain = render(gpu, &window, &Options::default()).unwrap();
     let o =
         Options { states: [(Some("cancel".to_owned()), Look::Hover)].into(), ..Default::default() };
-    let hovered = render(&gpu, &window, &o).unwrap();
+    let hovered = render(gpu, &window, &o).unwrap();
     assert_eq!(hovered.layout, layout(&window, &o).unwrap());
     let cancel =
         hovered.layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
@@ -2866,7 +2889,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
         states: [(Some("read".to_owned()), Look::Hover)].into(),
         ..Default::default()
     };
-    let picture = render(&gpu, &window, &o).unwrap();
+    let picture = render(gpu, &window, &o).unwrap();
     assert_eq!(picture.layout, layout(&window, &o).unwrap());
     let pixel = |x: f32, y: f32| {
         let i = ((y as u32 * picture.width + x as u32) * 4) as usize;
@@ -2886,7 +2909,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
     }
     // The variant: drawn as laid out too.
     let o = Options { variants: vec!["details".into()], states: Default::default(), ..o };
-    let picture = render(&gpu, &window, &o).unwrap();
+    let picture = render(gpu, &window, &o).unwrap();
     assert_eq!(picture.layout, layout(&window, &o).unwrap());
 }
 
@@ -3087,10 +3110,7 @@ fn a_renamed_window_takes_its_settings_and_scripts_and_one_undo_brings_them_back
 #[test]
 fn a_renamed_window_is_built_under_its_new_name() {
     let root = mg_testkit::corpus!();
-    let app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let app = game_app(mg_resman::GameInstall::new(root, None, "en"), NoDialogs::default());
     let mut app = shop(app);
     app.run(Action::GenerateNui { name: "shop".into(), export: false });
     let before = resources(&app);
@@ -3197,7 +3217,6 @@ fn a_window_rename_leaves_a_text_that_is_not_the_window_s_settings() {
 #[test]
 fn a_group_root_and_a_column_s_fit_are_as_the_client_has_them() {
     use mg_ui::nui_render::{Options, layout, render};
-    mg_testkit::gpu::hold();
     let magenta = json!({"r":255,"g":0,"b":255,"a":255});
     let rect = json!([{"type":7,"enabled":true,"color":magenta,"fill":true,"line_thickness":1.0,
         "order":1,"render":0,"rect":{"x":0.0,"y":0.0,"w":120.0,"h":40.0}}]);
@@ -3232,14 +3251,12 @@ fn a_group_root_and_a_column_s_fit_are_as_the_client_has_them() {
     let l = layout(&w, &Options::default()).unwrap();
     let child = l.elements.iter().find(|e| e.path == "/root/children/0").unwrap();
     assert_eq!((child.area.x, child.area.y), (12.0, 45.0), "{l:#?}");
-    let Some(gpu) = mg_render::Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = shared_gpu() else { return };
     let count = |root: Value| {
         let m = window(root);
         let w = mg_ui::nui_render::Window { name: "w", ..crier_window(&m) };
-        let p = render(&gpu, &w, &Options::default()).unwrap();
+        let p = render(gpu, &w, &Options::default()).unwrap();
         p.rgba.chunks(4).filter(|c| c[..3] == [255, 0, 255]).count()
     };
     // The spacer's alone: the group root's own isn't drawn.
@@ -3260,10 +3277,8 @@ fn not_built_is_said_until_a_build() {
     let root = mg_testkit::corpus!();
     for tabs in [true, false] {
         let what = if tabs { "As Tabs" } else { "floating" };
-        let mut app = Moonglow::new(
-            Some(mg_resman::GameInstall::new(root.clone(), None, "en")),
-            Box::new(NoDialogs::default()),
-        );
+        let mut app =
+            game_app(mg_resman::GameInstall::new(root.clone(), None, "en"), NoDialogs::default());
         if tabs {
             app.settings.open_editors = mg_ui::OpenEditors::Tabs;
         }

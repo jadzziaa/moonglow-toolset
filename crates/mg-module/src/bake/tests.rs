@@ -313,9 +313,7 @@ fn the_same_bake_is_taken_again() {
     let hak: Vec<(&str, ResType, &[u8])> = together
         .files
         .iter()
-        .map(|(k, d)| {
-            (Box::leak(k.resref.to_string().into_boxed_str()) as &str, k.restype, d.as_slice())
-        })
+        .map(|(k, d)| (k.resref.as_str().unwrap(), k.restype, d.as_slice()))
         .collect();
     let rm = game(&hak);
     let again = plan(&rules, &together.rows, &rm, cp, &[request(0, 0.5, 30.0, 0.0)]).unwrap();
@@ -442,4 +440,20 @@ fn labels_say_the_transform_briefly() {
         label("Box", &t(1.0 / 3.0, [45.0, -0.0, 12.5], [0.0, 1.5, 0.0])),
         "Baked: Box at 0.33, turned 45 0 12.5, moved 0 1.5 0"
     );
+}
+
+#[test]
+fn reusing_earlier_row_with_missing_mdl_emits_model_file_once() {
+    // Prior baked PWK exists, while its MDL is missing from ResMan.
+    let rm = game(&[("mgbk_0001", ResType::PWK, BOX_PWK.as_bytes())]);
+    let mut rows = RowsFile::default();
+    rows.insert(BakedRow {
+        row: 2,
+        copy_of: 0,
+        model: "mgbk_0001".into(),
+        label: "Baked: Box".into(),
+    });
+    let req = request(0, 1.0, 0.0, 0.0);
+    let out = plan(&ready("2-5"), &rows, &rm, Codepage::default(), &[req.clone(), req]).unwrap();
+    assert_eq!(out.files.iter().filter(|(k, _)| *k == key("mgbk_0001", ResType::MDL)).count(), 1);
 }

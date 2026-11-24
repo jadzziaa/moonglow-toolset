@@ -147,6 +147,8 @@ pub struct GpuMesh {
     /// as one bucket, with that mesh's alpha and `NO_DISCARD`
     /// (`docs/findings.md`, "Static geometry is drawn in buckets").
     pub(crate) bucket: usize,
+    /// Cached rest upload + normal smoothing topology populated on first animation.
+    pub(crate) anim_cache: std::sync::OnceLock<crate::anim::AnimMeshCache>,
 }
 
 impl GpuMesh {
@@ -255,14 +257,7 @@ impl GpuModel {
                     if !s.bones.is_empty() && s.weights.len() == m.vertices.len() =>
                 {
                     // (A copy's its original's.)
-                    let data: Vec<SkinVertex> = originals
-                        .iter()
-                        .map(|&v| &s.weights[v as usize])
-                        .map(|w| SkinVertex {
-                            bones: w.map(|(b, _)| u32::from(b)),
-                            weights: w.map(|(_, x)| x),
-                        })
-                        .collect();
+                    let data = skin_vertices(&originals, &s.weights, s.bones.len());
                     Some((s, data))
                 }
                 _ => None,
@@ -333,6 +328,7 @@ impl GpuModel {
                 slot: Arc::new(slot),
                 volume: Default::default(),
                 bucket: 0,
+                anim_cache: std::sync::OnceLock::new(),
             };
             if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
@@ -365,6 +361,7 @@ impl GpuModel {
                 slot: m.slot.clone(),
                 volume: Default::default(),
                 bucket: m.bucket,
+                anim_cache: std::sync::OnceLock::new(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -385,6 +382,7 @@ pub fn hint_wants_tangents(hint: &str) -> bool {
 
 /// A mesh as it is uploaded: its vertices, the vertex of the model's each
 /// is (a copy's original, past the model's own), and its triangles.
+#[derive(Debug)]
 pub(crate) struct Uploaded {
     pub(crate) vertices: Vec<Vertex>,
     pub(crate) originals: Vec<u32>,
@@ -477,6 +475,28 @@ fn made_tangents_split(
 
 /// A mesh's vertices as uploaded (a vertex on a mirrored seam two, where
 /// the renderer makes its tangents: [`made_tangents`]).
+fn skin_vertices(
+    originals: &[u32],
+    weights: &[[(u16, f32); 4]],
+    bone_count: usize,
+) -> Vec<SkinVertex> {
+    originals
+        .iter()
+        .map(|&v| &weights[v as usize])
+        .map(|w| {
+            let mut bones = [0u32; 4];
+            let mut ws = [0.0f32; 4];
+            for (slot, &(b, x)) in w.iter().enumerate() {
+                if usize::from(b) < bone_count {
+                    bones[slot] = u32::from(b);
+                    ws[slot] = x;
+                }
+            }
+            SkinVertex { bones, weights: ws }
+        })
+        .collect()
+}
+
 pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
     uploaded(m).vertices
 }
@@ -593,7 +613,7 @@ mod tests {
         let mut own = card.clone();
         own.tangents = vec![[1.0, 0.0, 0.0, 1.0]; 6];
         assert_eq!(uploaded(&own).vertices.len(), 6);
-        let mut animated = card.clone();
+        let mut animated = card;
         animated.extra = MeshExtra::Anim(Default::default());
         assert_eq!(uploaded(&animated).vertices.len(), 6);
     }
@@ -749,5 +769,14 @@ mod tests {
         assert_eq!((binds[0], binds[1]), (Mat4::IDENTITY, rest[2]));
         // And a skin node that is itself out of range doesn't panic either.
         assert_eq!(inverse_binds(&skin, &rest, 9).len(), 2);
+    }
+
+    #[test]
+    fn skin_vertices_clamp_and_zero_out_of_range_bones() {
+        let weights = [[(1u16, 0.6), (5u16, 0.4), (0u16, 0.0), (9u16, 0.2)]];
+        let got = skin_vertices(&[0], &weights, 2);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].bones, [1, 0, 0, 0]);
+        assert_eq!(got[0].weights, [0.6, 0.0, 0.0, 0.0]);
     }
 }

@@ -196,7 +196,7 @@ pub struct Outline {
 
 struct Parser<'a> {
     text: &'a str,
-    toks: Vec<Token>,
+    toks: &'a [Token],
     /// Indices of significant tokens.
     sig: Vec<usize>,
     pos: usize,
@@ -234,12 +234,12 @@ impl<'a> Parser<'a> {
     /// [`doc_before`] significant token `k`.
     fn doc_before(&self, k: usize) -> (String, String) {
         let Some(&raw) = self.sig.get(k) else { return Default::default() };
-        doc_before(self.text, &self.toks, raw)
+        doc_before(self.text, self.toks, raw)
     }
 
     /// [`trailing_comment`] of the `;` that is significant token `k`.
     fn trailing(&self, k: usize) -> Option<usize> {
-        trailing_comment(self.text, &self.toks, *self.sig.get(k)?)
+        trailing_comment(self.text, self.toks, *self.sig.get(k)?)
     }
 
     /// Skips to just after the next `;` at bracket depth 0, or to (and
@@ -409,7 +409,7 @@ impl<'a> Parser<'a> {
                 let trailing = self.trailing(self.pos);
                 for m in &mut members[first..] {
                     (m.doc, m.doc_source) =
-                        doc_with_trailing(self.text, &self.toks, above.clone(), trailing);
+                        doc_with_trailing(self.text, self.toks, above.clone(), trailing);
                 }
                 self.pos += 1;
             } else if self.peek() != "}" {
@@ -519,7 +519,7 @@ impl<'a> Parser<'a> {
                 };
                 let name_span = self.tok(name_k).map(|t| t.span.clone()).unwrap_or_default();
                 let (doc, doc_source) =
-                    doc_with_trailing(self.text, &self.toks, (doc, doc_source), trailing);
+                    doc_with_trailing(self.text, self.toks, (doc, doc_source), trailing);
                 out.functions.push(FunctionDecl {
                     return_type: ty,
                     name,
@@ -561,7 +561,7 @@ impl<'a> Parser<'a> {
                 for g in &mut out.globals[first..] {
                     let above = (std::mem::take(&mut g.doc), std::mem::take(&mut g.doc_source));
                     (g.doc, g.doc_source) =
-                        doc_with_trailing(self.text, &self.toks, above, trailing);
+                        doc_with_trailing(self.text, self.toks, above, trailing);
                 }
                 self.pos += 1;
             } else {
@@ -582,23 +582,24 @@ impl<'a> Parser<'a> {
 /// error is the compiler's to report, as Aurora reports it.
 pub fn has_entry_point(src: &[u8]) -> bool {
     let entry = |name: &str| matches!(name, "main" | "StartingConditional");
-    if outline(src).functions.iter().any(|f| f.body.is_some() && entry(&f.name)) {
-        return true;
-    }
-    let text = String::from_utf8_lossy(src);
-    let toks: Vec<&str> = (tokenize(text.as_bytes()).into_iter())
-        .filter(|t| t.kind.is_significant())
-        .map(|t| &text[t.span])
-        .collect();
-    toks.windows(4).any(|w| entry(w[0]) && w[1] == "(" && w[2] == ")" && w[3] == "{")
-}
-
-/// Parses the top-level declarations of a source.
-pub fn outline(src: &[u8]) -> Outline {
     let text = String::from_utf8_lossy(src);
     let toks = tokenize(text.as_bytes());
+    if outline_with_tokens(&text, &toks)
+        .functions
+        .iter()
+        .any(|f| f.body.is_some() && entry(&f.name))
+    {
+        return true;
+    }
+    let sig: Vec<&str> =
+        toks.iter().filter(|t| t.kind.is_significant()).map(|t| &text[t.span.clone()]).collect();
+    sig.windows(4).any(|w| entry(w[0]) && w[1] == "(" && w[2] == ")" && w[3] == "{")
+}
+
+/// Parses the top-level declarations from already-tokenized source text.
+pub fn outline_with_tokens(text: &str, toks: &[Token]) -> Outline {
     // (Read as the other script tools read them.)
-    let includes = (includes_in(text.as_bytes(), &toks).into_iter())
+    let includes = (includes_in(text.as_bytes(), toks).into_iter())
         .map(|at| Include {
             name: text[at.name.clone()].to_string(),
             span: at.directive.start..at.name.end + 1,
@@ -606,7 +607,14 @@ pub fn outline(src: &[u8]) -> Outline {
         .collect();
     let sig =
         toks.iter().enumerate().filter(|(_, t)| t.kind.is_significant()).map(|(i, _)| i).collect();
-    Outline { includes, ..Parser { text: &text, toks, sig, pos: 0 }.parse() }
+    Outline { includes, ..Parser { text, toks, sig, pos: 0 }.parse() }
+}
+
+/// Parses the top-level declarations of a source.
+pub fn outline(src: &[u8]) -> Outline {
+    let text = String::from_utf8_lossy(src);
+    let toks = tokenize(text.as_bytes());
+    outline_with_tokens(&text, &toks)
 }
 
 #[cfg(test)]

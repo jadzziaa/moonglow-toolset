@@ -427,7 +427,7 @@ fn verify_says_what_verify_run_finds() {
 
     let m = Module::open(&broken).unwrap();
     let gi = mg_resman::GameInstall::new(&root, None, "en");
-    let mut rm = mg_resman::ResMan::for_game(&gi).unwrap();
+    let mut rm = mg_testkit::shared_resman(&gi).unwrap();
     m.stack_onto(&mut rm, &gi);
     let base = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).unwrap()).unwrap().entries.len();
     let (nothing, unnamed) = (Skip::NONE, |_: &mg_module::palette::PaletteName| String::new());

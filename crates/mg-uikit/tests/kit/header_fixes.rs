@@ -12,22 +12,15 @@ use std::rc::Rc;
 
 use egui::accesskit::{Role, Toggled};
 use egui::{Rect, vec2};
-use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::header::{self, EditorHeader, Item, Joined, Place};
 use mg_uikit::popover::{Hang, PopAction, PopCheck, Popover};
 use mg_uikit::shelf::{Tool, ToolShelf};
-use mg_uikit::{Icon, KitButton, Theme};
+use mg_uikit::{Icon, KitButton};
+
+use crate::common::harness;
 
 const H: &str = "Fix header";
-
-fn harness<'a>(size: egui::Vec2, app: impl FnMut(&mut egui::Ui) + 'a) -> Harness<'a> {
-    let mut app = app;
-    Harness::builder().with_size(size).build_ui(move |ui| {
-        mg_uikit::apply(ui.ctx(), Theme::Dark);
-        app(ui);
-    })
-}
 
 // ------------------------------------------------------------------ A1
 
@@ -87,7 +80,6 @@ fn a_disabled_menu_is_disabled_in_more() {
 #[test]
 fn a_disabled_custom_item_is_disabled_everywhere() {
     let seen = RefCell::new(Vec::<(&'static str, bool)>::new());
-    let width = Cell::new(800.0);
     let mut h = harness(vec2(800.0, 400.0), |ui| {
         let _ = EditorHeader::new(H)
             .left(
@@ -108,7 +100,6 @@ fn a_disabled_custom_item_is_disabled_everywhere() {
             .show_with_end(ui, 60.0, |ui| {
                 let _ = ui.add(KitButton::new(None, "OK"));
             });
-        let _ = width.get();
     });
     for (w, form) in [(800.0, "row"), (260.0, "compact")] {
         seen.borrow_mut().clear();

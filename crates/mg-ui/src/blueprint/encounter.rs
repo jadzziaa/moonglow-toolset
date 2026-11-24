@@ -1,5 +1,5 @@
 //! Encounter Properties (`TdlgEncounterEdit`): Basic, Creature List,
-//! Scripts, Advanced, Comments.
+//! Scripts, Advanced, Variables, Comments.
 
 use egui::Ui;
 use mg_core::ResRef;
@@ -131,6 +131,49 @@ pub(crate) fn creature_entry(app: &mut crate::Moonglow, resref: ResRef) -> Struc
     s
 }
 
+fn creature_tag(f: &mut Form<'_>, r: ResRef) -> String {
+    f.kept_blueprint(BlueprintKind::Creature, r)
+        .and_then(|u| u.string("Tag").map(crate::text::decode))
+        .unwrap_or_default()
+}
+
+fn creature_layout(ui: &Ui, narrow: bool) -> (bool, egui::Layout) {
+    let over = narrow || ui.available_width() < PALETTE + LIST_LEAST;
+    let layout = match over {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    (over, layout)
+}
+
+fn creature_grid(ui: &mut Ui, key: mg_resman::ResKey, narrow: bool, rows: impl FnOnce(&mut Ui)) {
+    mg_uikit::with_rows(ui, |ui| {
+        let columns = if narrow { 3 } else { 5 };
+        egui::Grid::new(("ute-list", key)).num_columns(columns).striped(true).show(ui, |ui| {
+            for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
+                if !(narrow && matches!(h, "Tag" | "Blueprint ResRef")) {
+                    ui.strong(h);
+                }
+            }
+            ui.end_row();
+            rows(ui);
+        });
+    });
+}
+
+fn store_selected<T: Clone + Send + Sync + 'static>(
+    ui: &mut Ui,
+    sel_id: egui::Id,
+    selected: Option<T>,
+) {
+    ui.data_mut(|d| match selected {
+        Some(v) => {
+            d.insert_temp(sel_id, v);
+        }
+        None => d.remove::<T>(sel_id),
+    });
+}
+
 fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     if f.several() {
         creatures_together(f, ui);
@@ -140,30 +183,16 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     let key = f.key;
     let list: Vec<Struct> = f.root.list("CreatureList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Creature);
-    // Each creature's tag, from its blueprint.
-    let tags: Vec<String> = list
-        .iter()
-        .map(|c| {
-            let r = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
-            f.kept_blueprint(BlueprintKind::Creature, r)
-                .and_then(|u| u.string("Tag").map(crate::text::decode))
-                .unwrap_or_default()
-        })
-        .collect();
+    let tags: Vec<String> =
+        list.iter().map(|c| creature_tag(f, c.resref("ResRef").unwrap_or(ResRef::EMPTY))).collect();
     let mut add = None;
     let mut remove = None;
     let mut unique = None;
     let selected_id = f.id("ute-selected");
-    // (The palette beside the list; in a narrow room, the Properties
-    // panel's, over it, and the list without its Tag and ResRef.)
+    // Palette beside the list; in narrow panels or tight widths, stack them
+    // vertically and hide Tag/Blueprint ResRef columns.
     let narrow = super::narrow(ui);
-    // (Over it too where the room is short of the palette and the list's
-    // five columns, a column of pages side by side: M4's U10.)
-    let over = narrow || ui.available_width() < PALETTE + LIST_LEAST;
-    let layout = match over {
-        true => egui::Layout::top_down(egui::Align::Min),
-        false => egui::Layout::left_to_right(egui::Align::Min),
-    };
+    let (over, layout) = creature_layout(ui, narrow);
     ui.with_layout(layout, |ui| {
         ui.vertical(|ui| {
             ui.set_width(if over { ui.available_width() } else { PALETTE });
@@ -174,50 +203,32 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
         let mut selected: Option<usize> =
             ui.data(|d| d.get_temp(sel_id)).filter(|&i: &usize| i < list.len());
         ui.vertical(|ui| {
-            {
-                mg_uikit::with_rows(ui, |ui| {
-                    let columns = if narrow { 3 } else { 5 };
-                    let grid = egui::Grid::new(("ute-list", key)).num_columns(columns);
-                    grid.striped(true).show(ui, |ui| {
-                        for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
-                            if !(narrow && matches!(h, "Tag" | "Blueprint ResRef")) {
-                                ui.strong(h);
-                            }
-                        }
-                        ui.end_row();
-                        for (i, c) in list.iter().enumerate() {
-                            let resref = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
-                            let name =
-                                names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
-                            ui.label(format!("{}", c.float("CR").unwrap_or(0.0)));
-                            let tag = tags.get(i).cloned().unwrap_or_default();
-                            let row = ui.selectable_label(selected == Some(i), name);
-                            if row.on_hover_text(format!("{tag} ({resref})")).clicked() {
-                                selected = Some(i);
-                            }
-                            if !narrow {
-                                ui.label(tag);
-                                ui.label(resref.to_string());
-                            }
-                            let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
-                            if ui.check_box(&mut single, "").changed() {
-                                unique = Some((i, single));
-                            }
-                            ui.end_row();
-                        }
-                    })
-                });
-            }
+            creature_grid(ui, key, narrow, |ui| {
+                for (i, c) in list.iter().enumerate() {
+                    let resref = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
+                    let name = names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
+                    ui.label(format!("{}", c.float("CR").unwrap_or(0.0)));
+                    let tag = tags.get(i).cloned().unwrap_or_default();
+                    let row = ui.selectable_label(selected == Some(i), name);
+                    if row.on_hover_text(format!("{tag} ({resref})")).clicked() {
+                        selected = Some(i);
+                    }
+                    if !narrow {
+                        ui.label(tag);
+                        ui.label(resref.to_string());
+                    }
+                    let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
+                    if ui.check_box(&mut single, "").changed() {
+                        unique = Some((i, single));
+                    }
+                    ui.end_row();
+                }
+            });
             if ui.add_enabled(selected.is_some(), egui::Button::new("Remove Creature")).clicked() {
                 remove = selected.take();
             }
         });
-        ui.data_mut(|d| match selected {
-            Some(i) => {
-                d.insert_temp(sel_id, i);
-            }
-            None => d.remove::<usize>(sel_id),
-        });
+        store_selected(ui, sel_id, selected);
     });
     let path = base;
     if let Some(r) = add {
@@ -261,26 +272,11 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
     let total = targets.len();
     let merged = lists::merged(&targets, "CreatureList", spawned);
     let names = f.blueprint_names(BlueprintKind::Creature);
-    let tags: Vec<String> = merged
-        .iter()
-        .map(|m| {
-            f.kept_blueprint(BlueprintKind::Creature, m.key)
-                .and_then(|u| u.string("Tag").map(crate::text::decode))
-                .unwrap_or_default()
-        })
-        .collect();
+    let tags: Vec<String> = merged.iter().map(|m| creature_tag(f, m.key)).collect();
     let mut add = None;
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
-    // (The palette beside the list; in a narrow room, the Properties
-    // panel's, over it, and the list without its Tag and ResRef.)
     let narrow = super::narrow(ui);
-    // (Over it too where the room is short of the palette and the list's
-    // five columns, a column of pages side by side: M4's U10.)
-    let over = narrow || ui.available_width() < PALETTE + LIST_LEAST;
-    let layout = match over {
-        true => egui::Layout::top_down(egui::Align::Min),
-        false => egui::Layout::left_to_right(egui::Align::Min),
-    };
+    let (over, layout) = creature_layout(ui, narrow);
     ui.with_layout(layout, |ui| {
         ui.vertical(|ui| {
             ui.set_width(if over { ui.available_width() } else { PALETTE });
@@ -291,49 +287,35 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
         let mut selected: Option<ResRef> =
             ui.data(|d| d.get_temp(sel_id)).filter(|r: &ResRef| merged.iter().any(|m| m.key == *r));
         ui.vertical(|ui| {
-            mg_uikit::with_rows(ui, |ui| {
-                let columns = if narrow { 3 } else { 5 };
-                let grid = egui::Grid::new(("ute-list", key)).num_columns(columns);
-                grid.striped(true).show(ui, |ui| {
-                    for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
-                        if !(narrow && matches!(h, "Tag" | "Blueprint ResRef")) {
-                            ui.strong(h);
+            creature_grid(ui, key, narrow, |ui| {
+                for (m, tag) in merged.iter().zip(&tags) {
+                    let resref = m.key;
+                    let is = move |e: &Struct| spawned(e) == Some(resref);
+                    let name = names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
+                    ui.label(format!("{}", m.entry.float("CR").unwrap_or(0.0)));
+                    super::row(ui, |ui| {
+                        if ui.selectable_label(selected == Some(resref), name).clicked() {
+                            selected = Some(resref);
                         }
+                        super::entry_mark(ui, m.having.len(), total);
+                    });
+                    if !narrow {
+                        ui.label(tag);
+                        ui.label(resref.to_string());
+                    }
+                    let single = |e: &Struct| e.integer("SingleSpawn").unwrap_or(0) != 0;
+                    let differs = lists::differs(&targets, "CreatureList", is, single);
+                    f.mark_if(ui, &format!("SingleSpawn#{resref}"), differs);
+                    let mut on = single(&m.entry);
+                    if ui.check_box(&mut on, "").changed() {
+                        let out =
+                            lists::set(&targets, "CreatureList", is, &["SingleSpawn"], |e, l| {
+                                Some(lists::like(e.get(l), i64::from(on), Value::Byte(0)))
+                            });
+                        change = Some(("Unique creature", out, "Set on"));
                     }
                     ui.end_row();
-                    for (m, tag) in merged.iter().zip(&tags) {
-                        let resref = m.key;
-                        let is = move |e: &Struct| spawned(e) == Some(resref);
-                        let name =
-                            names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
-                        ui.label(format!("{}", m.entry.float("CR").unwrap_or(0.0)));
-                        super::row(ui, |ui| {
-                            if ui.selectable_label(selected == Some(resref), name).clicked() {
-                                selected = Some(resref);
-                            }
-                            super::entry_mark(ui, m.having.len(), total);
-                        });
-                        if !narrow {
-                            ui.label(tag);
-                            ui.label(resref.to_string());
-                        }
-                        let single = |e: &Struct| e.integer("SingleSpawn").unwrap_or(0) != 0;
-                        let differs = lists::differs(&targets, "CreatureList", is, single);
-                        f.mark_if(ui, &format!("SingleSpawn#{resref}"), differs);
-                        let mut on = single(&m.entry);
-                        if ui.check_box(&mut on, "").changed() {
-                            let out = lists::set(
-                                &targets,
-                                "CreatureList",
-                                is,
-                                &["SingleSpawn"],
-                                |e, l| Some(lists::like(e.get(l), i64::from(on), Value::Byte(0))),
-                            );
-                            change = Some(("Unique creature", out, "Set on"));
-                        }
-                        ui.end_row();
-                    }
-                })
+                }
             });
             // (Under the list, for the creature chosen: beside each row,
             // they left a narrow window's edge.)
@@ -362,12 +344,7 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             });
         });
-        ui.data_mut(|d| match selected {
-            Some(r) => {
-                d.insert_temp(sel_id, r);
-            }
-            None => d.remove::<ResRef>(sel_id),
-        });
+        store_selected(ui, sel_id, selected);
     });
     if let Some(r) = add {
         let entry = creature_entry(f.app, r);

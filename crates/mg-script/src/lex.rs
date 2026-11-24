@@ -145,7 +145,13 @@ pub fn tokenize(src: &[u8]) -> Vec<Token> {
             let mut terminated = false;
             while i < n {
                 match src[i] {
-                    b'\\' if i + 1 < n && src[i + 1] != b'\n' => i += 2,
+                    b'\\' if i + 1 < n && src[i + 1] != b'\n' => {
+                        let mut k = i + 2;
+                        while k < n && (src[k] & 0xC0) == 0x80 {
+                            k += 1;
+                        }
+                        i = k;
+                    }
                     b'"' => {
                         i += 1;
                         terminated = true;
@@ -359,5 +365,16 @@ mod tests {
         let names: Vec<&str> =
             includes(src.as_bytes()).iter().map(|i| &src[i.name.clone()]).collect();
         assert_eq!(names, ["d", "e"]);
+    }
+
+    #[test]
+    fn escaped_multibyte_char_in_string_keeps_utf8_boundaries() {
+        let src = "\"\\é\" x";
+        let toks = tokenize(src.as_bytes());
+        let joined: String = toks.iter().map(|t| &src[t.span.clone()]).collect();
+        assert_eq!(joined, src);
+        assert_eq!(toks[0].kind, TokenKind::String { terminated: true });
+        assert_eq!(&src[toks[0].span.clone()], "\"\\é\"");
+        assert_eq!(toks[2].kind, TokenKind::Ident);
     }
 }

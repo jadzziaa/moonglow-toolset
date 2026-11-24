@@ -8,6 +8,8 @@
 //! The 2DA editor's **Find References to Row** asks it, with the tables'
 //! own cells ([`doctor::column_kinds`](crate::doctor::column_kinds)).
 
+use std::collections::HashMap;
+
 use mg_core::{Codepage, ResType};
 use mg_gff::{Gff, GffPath, Step, Struct, Value};
 use mg_resman::ResKey;
@@ -85,8 +87,17 @@ pub fn row_uses_until(
     cp: Codepage,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<Usage>> {
-    let spec = game.and_then(|g| g.resman.get_named("nwscript", ResType::NSS).ok());
-    let spec = spec.map(|d| Spec::parse(&d));
+    let spec_bytes = game.and_then(|g| g.resman.get_named("nwscript", ResType::NSS).ok());
+    let spec = spec_bytes.map(|d| Spec::parse(&d));
+    let mut spec_ints: HashMap<&str, Option<i64>> = HashMap::new();
+    if let Some(s) = &spec {
+        spec_ints.reserve(s.constants.len());
+        for c in &s.constants {
+            spec_ints
+                .entry(c.name.as_str())
+                .or_insert_with(|| crate::table_desc::whole(c.value.trim()));
+        }
+    }
     let mut keys: Vec<ResKey> = module.keys().copied().collect();
     keys.sort();
     let mut out = Vec::new();
@@ -96,7 +107,7 @@ pub fn row_uses_until(
         }
         let Some(data) = module.get(&key) else { continue };
         if key.restype == ResType::NSS {
-            out.extend(script_uses(key, data, table, row, spec.as_ref(), cp));
+            out.extend(script_uses(key, data, table, row, &spec_ints, cp));
         } else if key.restype.is_gff()
             && let Ok(gff) = Gff::read(data)
         {
@@ -144,23 +155,26 @@ fn field_uses(
     let mut found: Vec<GffPath> = Vec::new();
     gff.root.walk_fields(&mut |f| {
         let steps = &f.path.0;
-        let above: Vec<&str> = steps[..steps.len() - 1].iter().map(Step::label).collect();
         // A list whose items stand for the rows, by their place (a
         // creature's skills): an item of some rank at the row's.
         if f.label == "Rank"
             && let Some((list, index)) = steps.len().checked_sub(2).and_then(|i| steps[i].item())
             && index == row
             && number(f.value).is_some_and(|r| r != 0)
-            && list_table(&file_type, &above[..above.len() - 1], list)
-                .is_some_and(|t| t.table.eq_ignore_ascii_case(table))
         {
-            found.push(f.path.clone());
+            let above: Vec<&str> = steps[..steps.len() - 2].iter().map(Step::label).collect();
+            if list_table(&file_type, &above, list)
+                .is_some_and(|t| t.table.eq_ignore_ascii_case(table))
+            {
+                found.push(f.path.clone());
+            }
             return;
         }
         let Some(value) = number(f.value) else { return };
         if usize::try_from(value).ok() != Some(row) {
             return;
         }
+        let above: Vec<&str> = steps[..steps.len() - 1].iter().map(Step::label).collect();
         let named = match row_table(&file_type, &above, f.label) {
             Some(t) => t.table.eq_ignore_ascii_case(table),
             None => {
@@ -192,49 +206,61 @@ fn script_uses(
     src: &[u8],
     table: &str,
     row: usize,
-    spec: Option<&Spec>,
+    spec_ints: &HashMap<&str, Option<i64>>,
     cp: Codepage,
 ) -> Vec<Usage> {
-    let toks: Vec<Token> = tokenize(src).into_iter().filter(|t| t.kind.is_significant()).collect();
-    let text = |t: &Token| String::from_utf8_lossy(&src[t.span.clone()]).into_owned();
-    let own = mg_script::outline::outline(src);
+    let raw_toks = tokenize(src);
+    let own = match std::str::from_utf8(src) {
+        Ok(text) => mg_script::outline::outline_with_tokens(text, &raw_toks),
+        Err(_) => mg_script::outline::outline(src),
+    };
+    let toks: Vec<Token> = raw_toks.into_iter().filter(|t| t.kind.is_significant()).collect();
+    let own_ints: HashMap<&str, Option<i64>> = own
+        .globals
+        .iter()
+        .map(|g| {
+            (g.name.as_str(), g.value.as_deref().and_then(|v| crate::table_desc::whole(v.trim())))
+        })
+        .collect();
+    let own_strings: HashMap<&str, &str> = own
+        .globals
+        .iter()
+        .filter(|g| g.ty == "string")
+        .filter_map(|g| Some((g.name.as_str(), g.value.as_deref()?.trim().trim_matches('"'))))
+        .collect();
     let int_of = |name: &str| -> Option<i64> {
-        let given = spec
-            .and_then(|s| s.constants.iter().find(|c| c.name == name))
-            .map(|c| c.value.clone())
-            .or_else(|| own.globals.iter().find(|g| g.name == name).and_then(|g| g.value.clone()));
-        crate::table_desc::whole(given?.trim())
+        match spec_ints.get(name) {
+            Some(&v) => v,
+            None => own_ints.get(name).copied().flatten(),
+        }
     };
-    let string_of = |name: &str| -> Option<String> {
-        let g = own.globals.iter().find(|g| g.name == name && g.ty == "string")?;
-        Some(g.value.as_deref()?.trim().trim_matches('"').to_string())
-    };
+    let slice = |t: &Token| std::str::from_utf8(&src[t.span.clone()]).ok();
+    let text = |t: &Token| String::from_utf8_lossy(&src[t.span.clone()]);
     let row = row as i64;
     let mut at: Vec<(usize, String)> = Vec::new();
     for (i, t) in toks.iter().enumerate() {
         if t.kind != TokenKind::Ident {
             continue;
         }
-        let name = text(t);
-        if constant_table(&name).is_some_and(|c| c.eq_ignore_ascii_case(table))
-            && spec.is_some_and(|s| s.constants.iter().any(|c| c.name == name))
-            && int_of(&name) == Some(row)
+        let Some(name) = slice(t) else { continue };
+        if constant_table(name).is_some_and(|c| c.eq_ignore_ascii_case(table))
+            && spec_ints.get(name).copied().flatten() == Some(row)
         {
-            at.push((t.span.start, name));
+            at.push((t.span.start, name.to_string()));
             continue;
         }
-        if name != "Get2DAString" || toks.get(i + 1).map(text).as_deref() != Some("(") {
+        if name != "Get2DAString" || toks.get(i + 1).map(|u| &src[u.span.clone()]) != Some(b"(") {
             continue;
         }
         // Its arguments, split at the commas outside brackets.
         let mut args: Vec<Vec<&Token>> = vec![Vec::new()];
         let mut depth = 0;
         for t in &toks[i + 2..] {
-            match text(t).as_str() {
-                "(" => depth += 1,
-                ")" if depth == 0 => break,
-                ")" => depth -= 1,
-                "," if depth == 0 => {
+            match &src[t.span.clone()] {
+                b"(" => depth += 1,
+                b")" if depth == 0 => break,
+                b")" => depth -= 1,
+                b"," if depth == 0 => {
                     args.push(Vec::new());
                     continue;
                 }
@@ -243,19 +269,22 @@ fn script_uses(
             args.last_mut().expect("one at least").push(t);
         }
         let [name_arg, _, row_arg] = &args[..] else { continue };
-        let named = match &name_arg[..] {
+        let named: Option<std::borrow::Cow<'_, str>> = match &name_arg[..] {
             [t] if matches!(t.kind, TokenKind::String { .. }) => {
-                Some(text(t).trim_matches('"').into())
+                let s = text(t);
+                Some(std::borrow::Cow::Owned(s.trim_matches('"').into()))
             }
-            [t] if t.kind == TokenKind::Ident => string_of(&text(t)),
+            [t] if t.kind == TokenKind::Ident => {
+                slice(t).and_then(|n| own_strings.get(n).copied()).map(std::borrow::Cow::Borrowed)
+            }
             _ => None,
         };
         let at_row = match &row_arg[..] {
-            [t] if t.kind == TokenKind::Int => crate::table_desc::whole(&text(t)),
-            [t] if t.kind == TokenKind::Ident => int_of(&text(t)),
+            [t] if t.kind == TokenKind::Int => slice(t).and_then(crate::table_desc::whole),
+            [t] if t.kind == TokenKind::Ident => slice(t).and_then(int_of),
             _ => None,
         };
-        if named.is_some_and(|n: String| n.eq_ignore_ascii_case(table)) && at_row == Some(row) {
+        if named.is_some_and(|n| n.eq_ignore_ascii_case(table)) && at_row == Some(row) {
             at.push((t.span.start, "Get2DAString".into()));
         }
     }

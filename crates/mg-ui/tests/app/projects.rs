@@ -462,7 +462,7 @@ fn store_project(
 #[test]
 fn the_project_file_is_read_again_with_reloading_off() {
     let Some((install, dir, area, _, _)) = store_project("ui-project-file-again") else { return };
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&install.root, install.user_dir);
     app.settings.no_auto_reload = true;
     app.open_module(&dir);
     app.palette_dock = false;
@@ -491,7 +491,7 @@ fn setup_store_follows_the_project_file() {
     let Some((install, dir, area, area_tag, git)) = store_project("ui-setup-store-project") else {
         return;
     };
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&install.root, install.user_dir);
     app.open_module(&dir);
     app.palette_dock = false;
     assert!(app.log.entries.iter().any(|e| e.1.contains("read from moonglow.toml")));

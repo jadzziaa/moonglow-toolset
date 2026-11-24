@@ -21,13 +21,25 @@ use mg_rules::GameData;
 use mg_set::Tileset;
 use mg_testkit::corpus;
 
-use crate::area_common::each_module;
+use crate::area_common::{each_module, shared_game};
+
+fn gpu() -> Option<Gpu> {
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g
+    });
+    base.as_ref().map(|g| Gpu::new(g.device.clone(), g.queue.clone()))
+}
 
 #[test]
 fn every_shipped_area_opens_and_renders() {
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let gpu = Gpu::headless();
+    let gpu = gpu();
     if gpu.is_none() {
         eprintln!("no GPU: models and rendering not checked");
     }
@@ -333,12 +345,8 @@ fn placed_objects_hold_still_when_not_animated() {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let Some(gpu) = gpu() else { return };
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Still", &mut rng).unwrap();
     let tileset = ResRef::from_str("ttr01").unwrap();
@@ -383,12 +391,13 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
+    // Alone across this test because mg_render::guard::fail_on is process-global.
+    mg_testkit::gpu::alone();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU adapter");
         return;
     };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Fails", &mut rng).unwrap();
     let tileset = ResRef::from_str("ttr01").unwrap();
@@ -428,8 +437,7 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
             mg_render::guard::fail_on(None);
         }
     }
-    // (No other test renders while a model fails on purpose.)
-    mg_testkit::gpu::alone();
+    // (gpu::alone() was acquired at the start of this test before creating Gpu.)
     let _reset = Reset;
     mg_render::guard::fail_on(Some(&name));
     let broken = AreaScene::new(&gpu, &game, &model);
@@ -453,12 +461,8 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
 fn the_tile_border_is_drawn_past_the_edge_when_asked_for() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let Some(gpu) = gpu() else { return };
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Border", &mut rng).unwrap();
     // (Three by three: three tiles a side, five deep, and four corners'
@@ -510,12 +514,8 @@ fn the_tile_border_is_drawn_past_the_edge_when_asked_for() {
 fn fade_geometry_leaves_out_the_fading_meshes() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let Some(gpu) = gpu() else { return };
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Fade", &mut rng).unwrap();
     let tileset = ResRef::from_str("tin01").unwrap();
@@ -583,12 +583,8 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
 fn a_tile_s_emitters_follow_its_animation_loops() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let Some(gpu) = gpu() else { return };
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Smoke", &mut rng).unwrap();
     let tileset = ResRef::from_str("tcn01").unwrap();
@@ -628,12 +624,8 @@ fn a_tile_s_emitters_follow_its_animation_loops() {
 fn water_ripples_with_time() {
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = corpus!();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let Some(gpu) = gpu() else { return };
+    let game = shared_game(&root);
     let mut rng = fastrand::Rng::with_seed(3);
     let mut m = new_module(&game, "Water", &mut rng).unwrap();
     let tileset = ResRef::from_str("ttr01").unwrap();

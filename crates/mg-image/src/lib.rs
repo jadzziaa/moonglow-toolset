@@ -172,6 +172,9 @@ impl Rgba {
     /// The rows in the other order (top first, for display).
     pub fn top_down(&self) -> Rgba {
         let row = self.width as usize * 4;
+        if row == 0 {
+            return Rgba::new(self.width, self.height);
+        }
         let data = self.data.chunks_exact(row).rev().flatten().copied().collect();
         Rgba { width: self.width, height: self.height, data }
     }
@@ -234,5 +237,13 @@ mod write_tests {
         let t = super::encode::compress(&cut, super::Format::Bc1, false, true);
         assert!(t.alpha_used() && !t.has_alpha);
         assert!(!t.to_rgba().alpha_used());
+    }
+
+    #[test]
+    fn zero_dimension_top_down_does_not_panic() {
+        let zw = super::Rgba::new(0, 4).top_down();
+        assert_eq!((zw.width, zw.height, zw.data.len()), (0, 4, 0));
+        let zh = super::Rgba::new(4, 0).top_down();
+        assert_eq!((zh.width, zh.height, zh.data.len()), (4, 0, 0));
     }
 }

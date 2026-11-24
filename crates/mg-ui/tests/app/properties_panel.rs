@@ -18,7 +18,27 @@ use mg_ui::properties_panel::{NOTHING_SELECTED, OPEN_IN_TAB};
 /// with two chests at 12 and 14 by 20, and two of each other kind (a
 /// bandit, a store, an encounter, a door, a trigger, a sound, an item), in `mode`, in a window `width` by 900 (1600: the Right
 /// Dock's sections stacked, the palettes over Properties).
+/// Pure-UI `props_area_with(..., false)` for tests that inspect panels,
+/// docks, forms, and edits without 3D viewport picking.
 fn props_area(name: &str, mode: Mode, width: f32) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    props_area_with(name, mode, width, false)
+}
+
+/// GPU-backed `props_area_with(..., true)` for tests using `screen(...)` picking.
+fn props_gpu_area(
+    name: &str,
+    mode: Mode,
+    width: f32,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    props_area_with(name, mode, width, true)
+}
+
+fn props_area_with(
+    name: &str,
+    mode: Mode,
+    width: f32,
+    with_gpu: bool,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let chests = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
         use mg_module::instances::{Placement, Placing, instance};
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -55,12 +75,20 @@ fn props_area(name: &str, mode: Mode, width: f32) -> Option<(Harness<'static, Mo
         }
         m.set_gff(git_key, &git).unwrap();
     };
-    let (mut app, rs, area) = area_app(&mode.dir(name), "ttr01", None, 4, None, &chests)?;
-    put_in(&mut app, mode);
-    let mut h = area_gpu_harness(app, rs, width, 900.0);
-    h.run_steps(3);
-    settle(&mut h);
-    Some((h, area))
+    let mut h = if with_gpu {
+        let (mut app, rs, area) = area_app(&mode.dir(name), "ttr01", None, 4, None, &chests)?;
+        put_in(&mut app, mode);
+        let h = area_gpu_harness(app, rs, width, 900.0);
+        (h, area)
+    } else {
+        let (mut h, area) = area_ui_harness_with(&mode.dir(name), "ttr01", None, 4, None, &chests)?;
+        put_in(h.state_mut(), mode);
+        h.set_size(egui::vec2(width, 900.0));
+        (h, area)
+    };
+    h.0.run_steps(3);
+    settle(&mut h.0);
+    Some(h)
 }
 
 fn select(h: &mut Harness<'_, Moonglow>, area: ResRef, objects: &[(ObjectKind, usize)]) {
@@ -123,17 +151,6 @@ fn page_controls(h: &Harness<'_, Moonglow>, page: &str) -> usize {
                 .is_some_and(|r| r.top() > heading.bottom() && dock.x_range().contains(r.left()))
     };
     h.query_all(egui_kittest::kittest::by()).filter(under).count()
-}
-
-/// Types `text` over the text field showing `value`, and leaves it (Tab).
-fn retype(h: &mut Harness<'_, Moonglow>, value: &str, text: &str) {
-    h.get_all_by_value(value).find(is_input).expect("the field").click();
-    h.run_steps(2);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_all_by_value(value).find(is_input).unwrap().type_text(text);
-    h.run_steps(2);
-    h.key_press(egui::Key::Tab);
-    h.run_steps(3);
 }
 
 /// The panel follows the selection: with nothing selected it says how to
@@ -325,12 +342,12 @@ fn the_wide_layout_s_columns_and_their_seam() {
 #[test]
 fn a_double_click_shows_the_panel_and_open_in_tab_the_window() {
     for mode in MODES {
-        let Some((mut h, area)) = props_area("props-double", mode, 1280.0) else { return };
+        let Some((mut h, area)) = props_gpu_area("props-double", mode, 1280.0) else { return };
         let w = mode.word();
         h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
         h.state_mut().settings.hide_palettes = true;
         settle(&mut h);
-        h.run_steps(40);
+        advance_clock(&mut h, 1.0);
         let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
         for _ in 0..2 {
             press(&h, at, true, egui::Modifiers::NONE);
@@ -410,7 +427,7 @@ fn text_typed_goes_to_its_own_object_when_another_is_selected() {
 /// typed changes nothing.
 #[test]
 fn a_read_only_area_s_properties_are_looked_at() {
-    let Some((mut h, area)) = read_only_area_harness("props-read-only") else { return };
+    let Some((mut h, area)) = read_only_area_ui_harness("props-read-only") else { return };
     wide_window(&mut h);
     select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
     h.get_by_label("Properties, Placeable");
@@ -433,7 +450,7 @@ fn a_read_only_area_s_properties_are_looked_at() {
 #[test]
 fn f6_reaches_the_properties_panel() {
     for mode in MODES {
-        let Some((mut h, area)) = props_area("props-f6", mode, 1600.0) else { return };
+        let Some((mut h, area)) = props_gpu_area("props-f6", mode, 1600.0) else { return };
         let w = mode.word();
         select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
         let mut stops = Vec::new();
@@ -531,46 +548,6 @@ fn the_rail_reaches_every_page_in_a_low_section() {
     assert!(page_controls(&h, "Description") >= 2, "the Description page drawn");
 }
 
-/// The panel's controls draw nothing over each other in the Right Dock at
-/// its least, 280 (a window under 1400, Properties chosen) and stacked at
-/// 280, on each of a placeable's pages.
-#[test]
-fn the_panel_draws_nothing_over_anything_else_at_280() {
-    let Some((mut h, area)) = props_area("props-overlap", Mode::Floating, 1280.0) else { return };
-    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
-    h.get_by_label("Right Dock").get_by_label("Properties").click();
-    settle(&mut h);
-    let mut found = Vec::new();
-    for width in [1280.0, 1600.0] {
-        h.set_size(egui::vec2(width, 900.0));
-        right_dock_width(&mut h, 280.0);
-        settle(&mut h);
-        for page in ["Basic", "Inventory", "Lock", "Trap", "Scripts", "Advanced", "Visuals"] {
-            h.get_by_label("Pages").get_by_label(page).click();
-            settle(&mut h);
-            if page_controls(&h, page) < 2 {
-                found.push(format!("{page} at {width}: the page not drawn"));
-            }
-            // (Of the Right Dock's widgets: both of a pair named there.)
-            let dock = right_dock_rect(&h);
-            let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
-                .filter(|n| {
-                    let b = n.accesskit_node().bounding_box();
-                    b.is_some_and(|b| dock.contains(egui::pos2(b.x0 as f32, b.y0 as f32)))
-                })
-                .filter_map(|n| n.accesskit_node().label())
-                .collect();
-            let ours = |o: &String| {
-                let quoted: Vec<&str> = o.split('"').skip(1).step_by(2).collect();
-                quoted.iter().all(|q| named.iter().any(|n| n == q))
-            };
-            let over = overlapping(&h).into_iter().filter(ours);
-            found.extend(over.map(|o| format!("{page} at {width}: {o}")));
-        }
-    }
-    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
-}
-
 /// A drag on one of the panel's number fields (a chest's hit points)
 /// moves nothing in the area beside it (deferred: "A drag on a number
 /// field moving objects in the area behind", with the panel).
@@ -603,63 +580,6 @@ fn a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area() {
         .map(|p| (p.float("X").unwrap_or(0.0), p.float("Y").unwrap_or(0.0)))
         .collect();
     assert_eq!(now, chests, "the chests stay where they are");
-}
-
-/// Every kind's pages in the panel (a placeable's, a creature's, a
-/// store's, an encounter's): shown one by one, at 280 (under 1400,
-/// Properties chosen) and stacked at 320, they write nothing and draw
-/// nothing over each other in the dock. Picture of the creature's
-/// Inventory page at 320: `ui-area-props-kinds-floating/inventory.png`.
-#[test]
-fn every_kind_s_pages_write_nothing_and_fit() {
-    let Some((mut h, area)) = props_area("props-kinds", Mode::Floating, 1280.0) else { return };
-    h.get_by_label("Right Dock").get_by_label("Properties").click();
-    settle(&mut h);
-    let (at, label) = (revision(&h), undo_label(&h));
-    let mut found = Vec::new();
-    for (width, dock) in [(1280.0, 280.0), (1600.0, 320.0)] {
-        h.set_size(egui::vec2(width, 900.0));
-        right_dock_width(&mut h, dock);
-        settle(&mut h);
-        for (kind, t) in [
-            (ObjectKind::Placeable, ResType::UTP),
-            (ObjectKind::Creature, ResType::UTC),
-            (ObjectKind::Store, ResType::UTM),
-            (ObjectKind::Encounter, ResType::UTE),
-        ] {
-            select(&mut h, area, &[(kind, 0)]);
-            for page in mg_ui::blueprint::instance_pages(t) {
-                h.get_by_label("Pages").get_by_label(page).scroll_to_me();
-                settle(&mut h);
-                h.get_by_label("Pages").get_by_label(page).click();
-                settle(&mut h);
-                if page_controls(&h, page) < 2 {
-                    found.push(format!("{kind:?} {page} at {width}: the page not drawn"));
-                }
-                let dock = right_dock_rect(&h);
-                let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
-                    .filter(|n| {
-                        let b = n.accesskit_node().bounding_box();
-                        b.is_some_and(|b| dock.contains(egui::pos2(b.x0 as f32, b.y0 as f32)))
-                    })
-                    .filter_map(|n| n.accesskit_node().label())
-                    .collect();
-                let ours = |o: &String| {
-                    let quoted: Vec<&str> = o.split('"').skip(1).step_by(2).collect();
-                    quoted.iter().all(|q| named.iter().any(|n| n == q))
-                };
-                let over = overlapping(&h).into_iter().filter(ours);
-                found.extend(over.map(|o| format!("{kind:?} {page} at {width}: {o}")));
-                if kind == ObjectKind::Creature && page == "Inventory" && width == 1600.0 {
-                    let dir = mg_testkit::test_output().join("ui-area-props-kinds-floating");
-                    let _ = std::fs::create_dir_all(&dir);
-                    h.render().unwrap().save(dir.join("inventory.png")).unwrap();
-                }
-            }
-        }
-    }
-    assert_eq!((revision(&h), undo_label(&h)), (at, label), "shown: nothing written");
-    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
 }
 
 /// An area dragged out into a window of its own has Properties in its
@@ -717,7 +637,11 @@ fn a_dragged_out_area_has_properties_in_its_window() {
 /// heading).
 #[test]
 fn every_page_of_every_kind_fits_the_panel() {
-    let Some((mut h, area)) = props_area("props-fit", Mode::Floating, 1280.0) else { return };
+    let shots = std::env::var_os("MG_PAGE_SHOTS").is_some();
+    let Some((mut h, area)) = props_area_with("props-fit", Mode::Floating, 1280.0, shots) else {
+        return;
+    };
+    let (rev, label) = (revision(&h), undo_label(&h));
     // (The pictures in the light theme too, with `MG_LIGHT`.)
     if std::env::var_os("MG_LIGHT").is_some() {
         h.state_mut().settings.light_theme = true;
@@ -726,14 +650,11 @@ fn every_page_of_every_kind_fits_the_panel() {
     h.get_by_label("Right Dock").get_by_label("Properties").click();
     settle(&mut h);
     let mut found = Vec::new();
-    // (One of each kind at every width; two edited together at the narrow
-    // ones, where the pages of lists edited together are drawn.)
+    // (Critical dock widths rather than intermediate redundant widths.)
     let sizes = [
         (1280.0, 280.0, false),
         (1600.0, 320.0, false),
-        (1600.0, 400.0, false),
         (1600.0, 480.0, false),
-        (1600.0, 560.0, false),
         (1600.0, 640.0, false),
         (1280.0, 280.0, true),
         (1600.0, 400.0, true),
@@ -836,6 +757,7 @@ fn every_page_of_every_kind_fits_the_panel() {
             }
         }
     }
+    assert_eq!((revision(&h), undo_label(&h)), (rev, label), "shown: nothing written");
     assert!(found.is_empty(), "{} found:\n{}", found.len(), found.join("\n"));
 }
 
@@ -845,7 +767,7 @@ fn every_page_of_every_kind_fits_the_panel() {
 /// beside the pane's 280), and comes back as the window is widened.
 #[test]
 fn a_small_area_window_keeps_its_view() {
-    let Some((mut h, area)) = props_area("props-small", Mode::Floating, 1700.0) else { return };
+    let Some((mut h, area)) = props_gpu_area("props-small", Mode::Floating, 1700.0) else { return };
     select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
     own_window(&mut h, &Tab::Area(area), egui::pos2(20.0, 40.0), egui::vec2(1200.0, 700.0));
     settle(&mut h);
@@ -875,7 +797,7 @@ fn a_small_area_window_keeps_its_view() {
     let state = h.state_mut().dock.get_window_state_mut(found.surface).unwrap();
     state.set_size(egui::vec2(450.0, 700.0));
     settle(&mut h);
-    h.run_steps(40);
+    advance_clock(&mut h, 1.0);
     let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -892,10 +814,10 @@ fn a_small_area_window_keeps_its_view() {
 /// Properties, whatever the modifier).
 #[test]
 fn a_ctrl_double_click_keeps_the_object_in_the_panel() {
-    let Some((mut h, area)) = props_area("props-ctrl-double", Mode::Floating, 1600.0) else {
+    let Some((mut h, area)) = props_gpu_area("props-ctrl-double", Mode::Floating, 1600.0) else {
         return;
     };
-    h.run_steps(40);
+    advance_clock(&mut h, 1.0);
     let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::COMMAND);
@@ -972,8 +894,6 @@ fn the_rail_s_pages_by_up_and_down() {
     assert!(on(&h, "Inventory") && focused(&h, "Inventory"), "Up: back");
 }
 
-/// A double click on an object's row in the Outliner (as on the object in
-/// the view, the coordinator's ruling at U6's review) selects it and
 /// A single click on an Outliner row selects the object without moving the
 /// camera, and a double click goes to (focuses) it; no window opens (5.1.0).
 #[test]
@@ -1671,7 +1591,7 @@ fn rearrange_right_dock_and_half_height_on_ultrawide() {
 /// what the pointer moved.
 #[test]
 fn the_wide_layout_s_properties_wait_for_the_pointer() {
-    let Some((mut h, area)) = props_area("props-wide-wait", Mode::Tabs, 1600.0) else { return };
+    let Some((mut h, area)) = props_gpu_area("props-wide-wait", Mode::Tabs, 1600.0) else { return };
     h.set_size(egui::vec2(3440.0, 1440.0));
     settle(&mut h);
     select(&mut h, area, &[]);
@@ -1735,7 +1655,7 @@ fn the_shared_tab_bar_s_hide_properties_hides_properties() {
 /// docked pane while it is open.
 #[test]
 fn right_click_properties_closes_the_docked_pane() {
-    let Some((mut h, area)) = props_area("props-menu-pops-out", Mode::Tabs, 1600.0) else {
+    let Some((mut h, area)) = props_gpu_area("props-menu-pops-out", Mode::Tabs, 1600.0) else {
         return;
     };
     select(&mut h, area, &[(ObjectKind::Placeable, 0)]);

@@ -1,8 +1,7 @@
 //! What API 0.6 added a plugin can be: an exporter, an importer, a wizard
 //! and a panel; each declared, run, and held to what it may do.
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -10,10 +9,12 @@ use mg_edit::{Command, Workspace};
 use mg_gff::{Gff, Value};
 use mg_module::Module;
 use mg_plugin::{
-    Answer, Element, FieldKind, Host, Input, Level, Manifest, Plugin, PluginError, Question,
-    Selected, Tone, inspect, run_export, run_import, run_panel, run_wizard,
+    Answer, Element, FieldKind, Input, Manifest, Plugin, PluginError, Question, Selected, Tone,
+    inspect, run_export, run_import, run_panel, run_wizard,
 };
 use mg_resman::ResKey;
+
+use crate::common::TestHost;
 
 fn key(name: &str) -> ResKey {
     ResKey::from_filename(name).unwrap()
@@ -29,40 +30,6 @@ fn module() -> Module {
         m.set_gff(key(&format!("{name}.utc")), &g).unwrap();
     }
     m
-}
-
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<String>>,
-    answers: RefCell<VecDeque<Option<Answer>>>,
-    asked: RefCell<Vec<Question>>,
-    interactive: Cell<bool>,
-}
-
-impl Host for TestHost {
-    fn log(&self, _: Level, text: &str) {
-        self.log.borrow_mut().push(text.to_string());
-    }
-
-    fn interactive(&self) -> bool {
-        self.interactive.get()
-    }
-
-    fn ask(&self, question: &Question) -> Option<Answer> {
-        self.asked.borrow_mut().push(question.clone());
-        let answer = self.answers.borrow_mut().pop_front().flatten();
-        // (A page's fields not given are as the page shows them, as a
-        // window answers.)
-        match (question, answer) {
-            (Question::Page(p), Some(Answer::Page { mut values, back })) => {
-                for f in &p.fields {
-                    values.entry(f.id.clone()).or_insert_with(|| f.kind.default_value());
-                }
-                Some(Answer::Page { values, back })
-            }
-            (_, answer) => answer,
-        }
-    }
 }
 
 const HEAD: &str = "[plugin]\nid = \"test.kinds\"\nname = \"Kinds\"\nversion = \"1\"\napi = \"0.6\"\nlicense = \"MIT\"\n";
@@ -155,7 +122,7 @@ fn the_code_registers_what_is_declared() {
         "[exporter]\nid = \"e\"\ntitle = \"E\"\n\n[wizard]\nid = \"w\"\ntitle = \"W\"\n\n[panel]\nid = \"p\"\ntitle = \"P\"\n",
         "mg.exporter(\"e\", function(ctx, out) end)\nmg.panel(\"q\", function(ctx) end)\n",
     );
-    let faults = inspect(&p, Rc::new(TestHost::default())).unwrap();
+    let faults = inspect(&p, Rc::new(TestHost::with_page_defaults())).unwrap();
     assert_eq!(
         faults,
         [
@@ -170,7 +137,7 @@ fn the_code_registers_what_is_declared() {
         "[wizard]\nid = \"w\"\ntitle = \"W\"\n",
         "mg.wizard(\"w\", function() end)\n",
     );
-    let e = inspect(&bad, Rc::new(TestHost::default())).unwrap_err();
+    let e = inspect(&bad, Rc::new(TestHost::with_page_defaults())).unwrap_err();
     assert!(e.to_string().contains("a table"), "{e}");
 }
 
@@ -198,7 +165,7 @@ mg.exporter("each", function(ctx, out)
 end)
 "#,
     );
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     let to = Path::new("/somewhere/tags.txt");
     let done = run_export(&p, "tags", to, input(), host.clone()).unwrap();
     assert!(done.edits.is_empty());
@@ -206,7 +173,7 @@ end)
     assert_eq!(done.folders.len(), 1);
     assert_eq!(done.folders[0].dir, PathBuf::from("/somewhere"));
     assert_eq!(done.folders[0].files, [("tags.txt".to_string(), b"CAPTAIN\ngate_guard".to_vec())]);
-    assert_eq!(host.log.borrow().as_slice(), ["2 tags to tags.txt"]);
+    assert_eq!(host.log_texts(), ["2 tags to tags.txt"]);
     // To a folder: a file a creature, written for real.
     let dir = mg_testkit::scratch_dir("kinds-export-out");
     let done = run_export(&p, "each", &dir, input(), host.clone()).unwrap();
@@ -233,7 +200,7 @@ mg.exporter("out", function(ctx, out)
 end)
 "#,
     );
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().push_back(Some(Answer::Yes));
     for (id, why) in
         [("edits", "only reads"), ("hak", "only reads"), ("out", "a file's name alone")]
@@ -269,7 +236,7 @@ end)
     let dir = mg_testkit::scratch_dir("kinds-import-in");
     std::fs::write(dir.join("tags.txt"), "guard=NIGHT\n").unwrap();
     std::fs::write(dir.join("tags.csv"), "guard=NIGHT\n").unwrap();
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     let done = run_import(&p, "tags", &dir.join("tags.txt"), input(), host.clone()).unwrap();
     assert_eq!(done.label, "Import Tags");
     let ws = applied(done.edits);
@@ -339,7 +306,7 @@ fn guard_tag(edits: Vec<mg_edit::Edit>) -> String {
 #[test]
 fn a_wizard_asks_its_pages_in_turn() {
     let p = wizard_plugin("kinds-wizard", WIZARD);
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().extend([
         page(&[("name", "Forge".into())], false),
         // (Back from the second, to change the name.)
@@ -382,7 +349,7 @@ fn a_wizard_asks_its_pages_in_turn() {
     );
 
     // A page its function skips is not asked.
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().extend([page(&[("name", "skip".into())], false), page(&[], false)]);
     let done = run_wizard(&p, "shop", input(), host.clone()).unwrap();
     assert_eq!(guard_tag(done.edits), "skip:none:true");
@@ -395,7 +362,7 @@ fn a_wizard_asks_its_pages_in_turn() {
 #[test]
 fn a_wizard_s_check_and_its_cancel() {
     let p = wizard_plugin("kinds-wizard-check", WIZARD);
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.interactive.set(true);
     host.answers.borrow_mut().extend([
         page(&[("name", "".into())], false),
@@ -411,12 +378,12 @@ fn a_wizard_s_check_and_its_cancel() {
     let Question::Page(after) = &asked[2] else { panic!() };
     assert_eq!(after.error, None);
 
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().push_back(page(&[("name", "".into())], false));
     let e = run_wizard(&p, "shop", input(), host).unwrap_err();
     assert!(e.to_string().contains("Name: A shop needs a name."), "{e}");
 
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().extend([page(&[], false), None]);
     let e = run_wizard(&p, "shop", input(), host).unwrap_err();
     assert!(matches!(e, PluginError::Canceled(_)), "{e:?}");
@@ -432,7 +399,8 @@ fn a_wizard_s_pages_only_read() {
 }, finish = function() end })
 "#,
     );
-    let e = run_wizard(&edits, "shop", input(), Rc::new(TestHost::default())).unwrap_err();
+    let e =
+        run_wizard(&edits, "shop", input(), Rc::new(TestHost::with_page_defaults())).unwrap_err();
     assert!(e.to_string().contains("a wizard's pages only read"), "{e}");
     let twice = wizard_plugin(
         "kinds-wizard-twice",
@@ -442,7 +410,7 @@ fn a_wizard_s_pages_only_read() {
 }, finish = function() end })
 "#,
     );
-    let host = Rc::new(TestHost::default());
+    let host = Rc::new(TestHost::with_page_defaults());
     host.answers.borrow_mut().push_back(page(&[], false));
     let e = run_wizard(&twice, "shop", input(), host).unwrap_err();
     assert!(e.to_string().contains("the field \"n\" is on the pages \"a\" and \"b\""), "{e}");
@@ -475,7 +443,7 @@ end)
 mg.command("go", function() end)
 "#,
     );
-    let shown = run_panel(&p, "view", input(), Rc::new(TestHost::default())).unwrap();
+    let shown = run_panel(&p, "view", input(), Rc::new(TestHost::with_page_defaults())).unwrap();
     let e = &shown.elements;
     assert_eq!(e[0], Element::Heading("Creatures".into()));
     assert_eq!(e[1], Element::Text { text: "plain text".into(), tone: Tone::Plain });
@@ -528,7 +496,7 @@ mg.panel("set", function(ctx)
 end)
 "#,
     );
-    let host = || Rc::new(TestHost::default());
+    let host = || Rc::new(TestHost::with_page_defaults());
     let many = run_panel(&p, "many", input(), host()).unwrap();
     let Element::List(items) = &many.elements[1] else { panic!() };
     assert_eq!(items.len(), mg_plugin::MAX_ELEMENTS - 2);

@@ -35,6 +35,132 @@ pub struct Symbol {
     pub custom: bool,
 }
 
+/// Symbols available to a script: its own and its includes' declarations, plus
+/// the shared `nwscript.nss` spec symbols, merged lazily in sorted name order
+/// (`own` before `spec` on equal names).
+#[derive(Debug, Clone, Default)]
+pub struct SymbolSet {
+    pub own: Arc<Vec<Symbol>>,
+    pub spec: Arc<Vec<Symbol>>,
+}
+
+impl SymbolSet {
+    /// Total symbol count (`own` plus `spec`).
+    pub fn len(&self) -> usize {
+        self.own.len() + self.spec.len()
+    }
+
+    /// Whether neither `own` nor `spec` has symbols.
+    pub fn is_empty(&self) -> bool {
+        self.own.is_empty() && self.spec.is_empty()
+    }
+
+    /// Cache key identifying the underlying `(own, spec)` arcs.
+    pub fn cache_key(&self) -> (usize, usize) {
+        (Arc::as_ptr(&self.own) as usize, Arc::as_ptr(&self.spec) as usize)
+    }
+
+    /// Single integer id identifying this set for draw-tracking checks.
+    pub fn ptr_id(&self) -> usize {
+        egui::epaint::util::hash(self.cache_key()) as usize
+    }
+
+    /// Sorted iterator yielding all symbols (`own` before `spec` on ties).
+    pub fn iter(&self) -> SymbolIter<'_> {
+        SymbolIter { own: &self.own, spec: &self.spec, i: 0, j: 0 }
+    }
+
+    /// Binary search by exact identifier name (`own` before `spec`).
+    pub fn find_by_name(&self, name: &str) -> Option<&Symbol> {
+        let i = self.own.partition_point(|s| s.name.as_str() < name);
+        if let Some(s) = self.own.get(i)
+            && s.name == name
+        {
+            return Some(s);
+        }
+        let j = self.spec.partition_point(|s| s.name.as_str() < name);
+        self.spec.get(j).filter(|s| s.name == name)
+    }
+
+    /// Completion candidates starting with `prefix` (custom first, then by name).
+    pub fn completions(&self, prefix: &str) -> Vec<Symbol> {
+        completions_from(self.own.iter().chain(self.spec.iter()), prefix)
+    }
+}
+
+/// Lazy 2-way merge iterator over a [`SymbolSet`].
+#[derive(Debug)]
+pub struct SymbolIter<'a> {
+    own: &'a [Symbol],
+    spec: &'a [Symbol],
+    i: usize,
+    j: usize,
+}
+
+impl<'a> SymbolIter<'a> {
+    /// Yields `(is_own, index_in_vec, symbol)` in sorted order.
+    pub(crate) fn next_indexed(&mut self) -> Option<(bool, usize, &'a Symbol)> {
+        match (self.own.get(self.i), self.spec.get(self.j)) {
+            (Some(a), Some(b)) => {
+                if a.name <= b.name {
+                    let idx = self.i;
+                    self.i += 1;
+                    Some((true, idx, a))
+                } else {
+                    let idx = self.j;
+                    self.j += 1;
+                    Some((false, idx, b))
+                }
+            }
+            (Some(a), None) => {
+                let idx = self.i;
+                self.i += 1;
+                Some((true, idx, a))
+            }
+            (None, Some(b)) => {
+                let idx = self.j;
+                self.j += 1;
+                Some((false, idx, b))
+            }
+            (None, None) => None,
+        }
+    }
+}
+
+impl<'a> Iterator for SymbolIter<'a> {
+    type Item = &'a Symbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_indexed().map(|(_, _, s)| s)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let rem = (self.own.len() - self.i) + (self.spec.len() - self.j);
+        (rem, Some(rem))
+    }
+}
+
+struct SymbolJob {
+    key: ResKey,
+    h: u64,
+    rx: std::sync::mpsc::Receiver<(Vec<Symbol>, Vec<ResKey>)>,
+}
+
+#[derive(Default)]
+struct PendingSymbolJob(Option<SymbolJob>);
+
+impl Clone for PendingSymbolJob {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
+impl std::fmt::Debug for PendingSymbolJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PendingSymbolJob").field(&self.0.as_ref().map(|j| (j.key, j.h))).finish()
+    }
+}
+
 /// What the Reference panel lists (its segmented control's choices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SideTab {
@@ -290,10 +416,16 @@ pub struct ScriptTools {
     pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.
     pub spec: Option<Arc<Spec>>,
-    /// Its symbols by name, and the spec they are of (its address).
-    spec_symbols: Option<(usize, Arc<Vec<Symbol>>)>,
+    /// Its symbols by name, and the spec they were built from.
+    spec_symbols: Option<(Arc<Spec>, Arc<Vec<Symbol>>)>,
     /// Symbols of each script (with its includes), by its text.
-    pub symbols: HashMap<ResKey, (u64, Arc<Vec<Symbol>>)>,
+    pub symbols: HashMap<ResKey, (u64, SymbolSet)>,
+    /// Transitive `#include` keys recorded per script for targeted invalidation.
+    symbol_deps: HashMap<ResKey, Vec<ResKey>>,
+    /// Cached filtered list for the Reference panel.
+    pub(crate) ref_cache: Option<crate::script_reference::RefCache>,
+    /// Background symbol extraction job for large scripts.
+    symbol_job: PendingSymbolJob,
     /// Each script's text when its editor was last drawn, and the
     /// workspace revision then: an include edited or the module changed
     /// leaves other scripts' symbols and live checks out of date.
@@ -380,7 +512,15 @@ fn from_spec(spec: &Spec) -> Vec<Symbol> {
 /// The symbols declared by a script and (recursively) its includes;
 /// `source` loads an include's text.
 pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>) -> Vec<Symbol> {
+    script_symbols_with_deps(text, source).0
+}
+
+fn script_symbols_with_deps(
+    text: &str,
+    source: &mut dyn FnMut(&str) -> Option<String>,
+) -> (Vec<Symbol>, Vec<ResKey>) {
     let mut out = Vec::new();
+    let mut deps = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut queue = vec![text.to_string()];
     while let Some(src) = queue.pop() {
@@ -419,11 +559,13 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
         }
         for inc in &o.includes {
             let name = inc.name.to_ascii_lowercase();
-            if seen.len() < 64
-                && seen.insert(name.clone())
-                && let Some(text) = source(&name)
-            {
-                queue.push(text);
+            if seen.len() < 64 && seen.insert(name.clone()) {
+                if let Some(k) = nss(&name) {
+                    deps.push(k);
+                }
+                if let Some(text) = source(&name) {
+                    queue.push(text);
+                }
             }
         }
     }
@@ -456,7 +598,35 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
     for (to, from) in docs {
         out[to].doc = std::mem::take(&mut out[from].doc);
     }
-    out.into_iter().zip(kept).filter(|(_, k)| *k).map(|(s, _)| s).collect()
+    let syms = out.into_iter().zip(kept).filter(|(_, k)| *k).map(|(s, _)| s).collect();
+    (syms, deps)
+}
+
+const ASYNC_SYMBOL_BYTES: usize = 16_384;
+
+fn collect_includes(
+    text: &str,
+    source: &mut dyn FnMut(&str) -> Option<String>,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = vec![text.to_string()];
+    while let Some(src) = queue.pop() {
+        if !src.contains("include") {
+            continue;
+        }
+        for inc in mg_script::lex::includes(src.as_bytes()) {
+            let Some(name) = src.get(inc.name).map(str::to_ascii_lowercase) else { continue };
+            if seen.len() < 64
+                && seen.insert(name.clone())
+                && let Some(inc_src) = source(&name)
+            {
+                queue.push(inc_src.clone());
+                out.insert(name, inc_src);
+            }
+        }
+    }
+    out
 }
 
 impl ScriptTools {
@@ -485,6 +655,80 @@ impl ScriptTools {
         self.made += 1;
     }
 
+    /// Clears all cached symbol tables, dependency edges, and pending jobs.
+    pub(crate) fn clear_symbols(&mut self) {
+        self.symbols.clear();
+        self.symbol_deps.clear();
+        self.ref_cache = None;
+        self.symbol_job.0 = None;
+    }
+
+    /// Drops cached symbol tables of other scripts that depend on `edited` (or
+    /// have no recorded dependency list yet).
+    pub(crate) fn invalidate_dependents(&mut self, edited: ResKey) {
+        let deps = &self.symbol_deps;
+        self.symbols
+            .retain(|k, _| *k == edited || deps.get(k).is_some_and(|d| !d.contains(&edited)));
+        self.symbol_deps.retain(|k, _| self.symbols.contains_key(k));
+        if self.ref_cache.as_ref().is_some_and(|c| !self.symbols.contains_key(&c.key)) {
+            self.ref_cache = None;
+        }
+    }
+
+    /// Whether a background symbol extraction job is currently running.
+    pub(crate) fn reading_symbols(&self) -> bool {
+        self.symbol_job.0.is_some()
+    }
+
+    fn ensure_spec_symbols(
+        &mut self,
+        load_spec: impl FnOnce() -> Option<Spec>,
+    ) -> Arc<Vec<Symbol>> {
+        if self.spec.is_none() {
+            self.spec = Some(Arc::new(load_spec().unwrap_or_default()));
+        }
+        let spec = self.spec.as_ref().expect("loaded");
+        match &self.spec_symbols {
+            Some((made, symbols)) if Arc::ptr_eq(made, spec) => symbols.clone(),
+            _ => {
+                let mut symbols = from_spec(spec);
+                symbols.sort_by(|a, b| a.name.cmp(&b.name));
+                let symbols = Arc::new(symbols);
+                self.spec_symbols = Some((spec.clone(), symbols.clone()));
+                symbols
+            }
+        }
+    }
+
+    /// Polls any in-flight background symbol extraction job, applying completed
+    /// results and requesting a UI repaint when `repaint` is set.
+    pub(crate) fn poll_symbol_job(&mut self, ctx: &egui::Context, repaint: bool) {
+        let Some(job) = self.symbol_job.0.as_ref() else { return };
+        match job.rx.try_recv() {
+            Ok((mut own, deps)) => {
+                let (key, h) = (job.key, job.h);
+                self.symbol_job.0 = None;
+                own.sort_by(|a, b| a.name.cmp(&b.name));
+                let spec = self.ensure_spec_symbols(|| None);
+                if self.seen.get(&key).is_none_or(|&cur| cur == h) {
+                    let set = SymbolSet { own: Arc::new(own), spec };
+                    self.symbols.insert(key, (h, set));
+                    self.symbol_deps.insert(key, deps);
+                    if self.ref_cache.as_ref().is_some_and(|c| c.key == key) {
+                        self.ref_cache = None;
+                    }
+                    if repaint {
+                        ctx.request_repaint();
+                    }
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.symbol_job.0 = None;
+            }
+        }
+    }
+
     /// All symbols a script can use: its own and its includes' (custom),
     /// then `nwscript.nss`'s; cached by the script's text (`h`, its
     /// [`hash`]). In a frame of `typing` (a key went to the text), those
@@ -498,49 +742,83 @@ impl ScriptTools {
         text: &str,
         load_spec: impl FnOnce() -> Option<Spec>,
         source: &mut dyn FnMut(&str) -> Option<String>,
-    ) -> Arc<Vec<Symbol>> {
-        if self.spec.is_none() {
-            self.spec = Some(Arc::new(load_spec().unwrap_or_default()));
-        }
-        if let Some((cached, symbols)) = self.symbols.get(&key)
+    ) -> SymbolSet {
+        self.symbols_for_inner(key, h, typing, text, load_spec, source, None)
+    }
+
+    /// UI variant of [`Self::symbols_for`] that offloads re-parsing huge scripts
+    /// (> 16 KiB) after an edit to a background worker thread when `background` is set.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn symbols_for_ui(
+        &mut self,
+        key: ResKey,
+        h: u64,
+        typing: bool,
+        text: &str,
+        load_spec: impl FnOnce() -> Option<Spec>,
+        source: &mut dyn FnMut(&str) -> Option<String>,
+        ctx: &egui::Context,
+        background: bool,
+    ) -> SymbolSet {
+        self.poll_symbol_job(ctx, true);
+        self.symbols_for_inner(key, h, typing, text, load_spec, source, background.then_some(ctx))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn symbols_for_inner(
+        &mut self,
+        key: ResKey,
+        h: u64,
+        typing: bool,
+        text: &str,
+        load_spec: impl FnOnce() -> Option<Spec>,
+        source: &mut dyn FnMut(&str) -> Option<String>,
+        ctx: Option<&egui::Context>,
+    ) -> SymbolSet {
+        let spec_symbols = self.ensure_spec_symbols(load_spec);
+        if let Some((cached, set)) = self.symbols.get(&key)
             && (*cached == h || typing)
         {
-            return symbols.clone();
+            return set.clone();
         }
-        let spec = self.spec.as_ref().expect("loaded");
-        let made_for = Arc::as_ptr(spec) as usize;
-        let spec_symbols = match &self.spec_symbols {
-            Some((made, symbols)) if *made == made_for => symbols.clone(),
-            _ => {
-                let mut symbols = from_spec(spec);
-                symbols.sort_by(|a, b| a.name.cmp(&b.name));
-                let symbols = Arc::new(symbols);
-                self.spec_symbols = Some((made_for, symbols.clone()));
-                symbols
+        if let Some(ctx) = ctx
+            && text.len() > ASYNC_SYMBOL_BYTES
+            && let Some((_, existing)) = self.symbols.get(&key)
+        {
+            if let Some(job) = self.symbol_job.0.as_ref()
+                && job.key == key
+                && job.h == h
+            {
+                return existing.clone();
             }
-        };
-        // By name, as the side lists show them (not sorted every frame);
-        // of one name, the script's own before nwscript's. (nwscript's
-        // sorted once: put in among the script's.)
-        let mut own = script_symbols(text, source);
+            let existing = existing.clone();
+            let owned_text = text.to_string();
+            let includes = collect_includes(text, source);
+            let ctx_bg = ctx.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let res =
+                    script_symbols_with_deps(&owned_text, &mut |name| includes.get(name).cloned());
+                let _ = tx.send(res);
+                ctx_bg.request_repaint();
+            });
+            self.symbol_job.0 = Some(SymbolJob { key, h, rx });
+            return existing;
+        }
+        let (mut own, deps) = script_symbols_with_deps(text, source);
         own.sort_by(|a, b| a.name.cmp(&b.name));
-        let mut all = Vec::with_capacity(own.len() + spec_symbols.len());
-        let mut theirs = spec_symbols.iter().peekable();
-        for s in own {
-            while let Some(t) = theirs.next_if(|t| t.name < s.name) {
-                all.push(t.clone());
-            }
-            all.push(s);
-        }
-        all.extend(theirs.cloned());
-        let all = Arc::new(all);
-        self.symbols.insert(key, (h, all.clone()));
-        all
+        let set = SymbolSet { own: Arc::new(own), spec: spec_symbols };
+        self.symbols.insert(key, (h, set.clone()));
+        self.symbol_deps.insert(key, deps);
+        set
     }
 }
 
 /// The byte index of a character index.
 pub fn byte_index(text: &str, chars: usize) -> usize {
+    if text.is_ascii() {
+        return chars.min(text.len());
+    }
     text.char_indices().nth(chars).map_or(text.len(), |(b, _)| b)
 }
 
@@ -563,6 +841,9 @@ pub fn line_moved(text: &str, at: usize, lines: isize) -> usize {
 
 /// The character index of a byte index.
 pub fn char_index(text: &str, bytes: usize) -> usize {
+    if text.is_ascii() {
+        return bytes.min(text.len());
+    }
     // (A byte inside a character, as a place of another text may be:
     // that character's index.)
     text.char_indices().take_while(|(b, _)| *b < bytes).count()
@@ -574,20 +855,21 @@ pub fn line_start(text: &str, line: usize) -> usize {
         return 0;
     }
     let mut n = 0;
-    for (i, c) in text.chars().enumerate() {
-        if c == '\n' {
+    for (i, b) in text.bytes().enumerate() {
+        if b == b'\n' {
             n += 1;
             if n == line {
-                return i + 1;
+                return char_index(text, i + 1);
             }
         }
     }
-    text.chars().count()
+    if text.is_ascii() { text.len() } else { text.chars().count() }
 }
 
 /// The line (0-based) of a character index.
 pub fn line_of(text: &str, chars: usize) -> usize {
-    text.chars().take(chars).filter(|c| *c == '\n').count()
+    let b = byte_index(text, chars);
+    text.as_bytes()[..b].iter().filter(|&&c| c == b'\n').count()
 }
 
 fn is_ident(c: char) -> bool {
@@ -631,9 +913,11 @@ pub fn lines_text(text: &str, lines: impl IntoIterator<Item = usize>) -> HashMap
 /// tabs its line begins with (those before `at`), so that the new line is
 /// as far in as the one it is started from, as in Aurora.
 pub fn new_line_indent(text: &str, at: usize) -> String {
-    let before: String = text.chars().take(at).collect();
-    let line = before.rsplit('\n').next().unwrap_or_default();
-    line.chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+    let b = byte_index(text, at);
+    let line_start = text[..b].rfind('\n').map_or(0, |i| i + 1);
+    let line = &text[line_start..b];
+    let n = line.bytes().take_while(|&c| c == b' ' || c == b'\t').count();
+    line[..n].to_string()
 }
 
 /// One step of indentation: a tab, or `width` spaces; as the script is
@@ -724,8 +1008,9 @@ impl Indent {
         if self.tabs {
             return "\t".into();
         }
-        let before: String = text.chars().take(at).collect();
-        let line = before.rsplit('\n').next().unwrap_or_default();
+        let b = byte_index(text, at);
+        let line_start = text[..b].rfind('\n').map_or(0, |i| i + 1);
+        let line = &text[line_start..b];
         let column = line.chars().fold(0, |col, c| {
             if c == '\t' { (col / self.width + 1) * self.width } else { col + 1 }
         });
@@ -746,32 +1031,39 @@ pub fn indent_lines(
     indent: Indent,
 ) -> (String, usize, usize) {
     let unit = indent.unit();
-    let chars: Vec<char> = text.chars().collect();
-    let (from, to) = (from.min(chars.len()), to.min(chars.len()).max(from.min(chars.len())));
-    let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
+    let from_b = byte_index(text, from);
+    let to_b = byte_index(text, to).max(from_b);
+    let start_b = text[..from_b].rfind('\n').map_or(0, |i| i + 1);
     // A selection ending at a line's start leaves that line alone.
-    let last = if to > from && chars[to - 1] == '\n' { to - 1 } else { to };
-    let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
-    let block: String = chars[start..end].iter().collect();
-    let lines: Vec<String> = block
-        .split('\n')
-        .map(|line| {
-            // (An empty line is left empty: no trailing spaces.)
-            if !outdent {
-                return if line.is_empty() { String::new() } else { format!("{unit}{line}") };
+    let last_b = if to_b > from_b && text.as_bytes()[to_b - 1] == b'\n' { to_b - 1 } else { to_b };
+    let end_b = text[last_b..].find('\n').map_or(text.len(), |i| last_b + i);
+    let block = &text[start_b..end_b];
+    let mut new_block = String::with_capacity(block.len() + unit.len() * 4);
+    for (idx, line) in block.split('\n').enumerate() {
+        if idx > 0 {
+            new_block.push('\n');
+        }
+        // (An empty line is left empty: no trailing spaces.)
+        if !outdent {
+            if !line.is_empty() {
+                new_block.push_str(&unit);
+                new_block.push_str(line);
             }
-            if let Some(rest) = line.strip_prefix('\t') {
-                return rest.to_string();
-            }
-            let spaces = line.chars().take(indent.width).take_while(|&c| c == ' ').count();
-            line[spaces..].to_string()
-        })
-        .collect();
-    let new_block = lines.join("\n");
-    let head: String = chars[..start].iter().collect();
-    let tail: String = chars[end..].iter().collect();
-    let new_end = start + new_block.chars().count();
-    (format!("{head}{new_block}{tail}"), start, new_end)
+        } else if let Some(rest) = line.strip_prefix('\t') {
+            new_block.push_str(rest);
+        } else {
+            let spaces = line.bytes().take(indent.width).take_while(|&b| b == b' ').count();
+            new_block.push_str(&line[spaces..]);
+        }
+    }
+    let start_char = char_index(text, start_b);
+    let new_block_chars =
+        if new_block.is_ascii() { new_block.len() } else { new_block.chars().count() };
+    let mut out = String::with_capacity(start_b + new_block.len() + (text.len() - end_b));
+    out.push_str(&text[..start_b]);
+    out.push_str(&new_block);
+    out.push_str(&text[end_b..]);
+    (out, start_char, start_char + new_block_chars)
 }
 
 /// `text` with each line's indentation (the spaces and tabs it begins
@@ -780,23 +1072,31 @@ pub fn indent_lines(
 /// left of a step stays spaces (a ` * ` under `/*`, a column lined up).
 pub fn convert_indentation(text: &str, tabs: bool, width: usize) -> String {
     let width = width.max(1);
-    let lines: Vec<String> = text
-        .split('\n')
-        .map(|line| {
-            let rest = line.trim_start_matches([' ', '\t']);
-            let lead = &line[..line.len() - rest.len()];
-            let columns = lead
-                .chars()
-                .fold(0, |col, c| if c == '\t' { (col / width + 1) * width } else { col + 1 });
-            let lead = if tabs {
-                format!("{}{}", "\t".repeat(columns / width), " ".repeat(columns % width))
-            } else {
-                " ".repeat(columns)
-            };
-            format!("{lead}{rest}")
-        })
-        .collect();
-    lines.join("\n")
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let rest = line.trim_start_matches([' ', '\t']);
+        let lead = &line[..line.len() - rest.len()];
+        let columns = lead
+            .bytes()
+            .fold(0, |col, b| if b == b'\t' { (col / width + 1) * width } else { col + 1 });
+        if tabs {
+            for _ in 0..(columns / width) {
+                out.push('\t');
+            }
+            for _ in 0..(columns % width) {
+                out.push(' ');
+            }
+        } else {
+            for _ in 0..columns {
+                out.push(' ');
+            }
+        }
+        out.push_str(rest);
+    }
+    out
 }
 
 /// [`convert_indentation`] of the lines a selection (character indexes
@@ -814,19 +1114,17 @@ pub fn convert_indentation_in(
     if from == to {
         return convert_indentation(text, tabs, width);
     }
-    let chars: Vec<char> = text.chars().collect();
-    // (A selection kept from a longer text: held to this one, where it
-    // may be empty, at the end: its line then.)
-    let (from, to) = (from.min(chars.len()), to.min(chars.len()));
-    let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
-    let last = if to > from && chars[to - 1] == '\n' { to - 1 } else { to };
-    let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
-    let (head, block, tail): (String, String, String) = (
-        chars[..start].iter().collect(),
-        chars[start..end].iter().collect(),
-        chars[end..].iter().collect(),
-    );
-    format!("{head}{}{tail}", convert_indentation(&block, tabs, width))
+    let from_b = byte_index(text, from);
+    let to_b = byte_index(text, to).max(from_b);
+    let start_b = text[..from_b].rfind('\n').map_or(0, |i| i + 1);
+    let last_b = if to_b > from_b && text.as_bytes()[to_b - 1] == b'\n' { to_b - 1 } else { to_b };
+    let end_b = text[last_b..].find('\n').map_or(text.len(), |i| last_b + i);
+    let converted = convert_indentation(&text[start_b..end_b], tabs, width);
+    let mut out = String::with_capacity(start_b + converted.len() + (text.len() - end_b));
+    out.push_str(&text[..start_b]);
+    out.push_str(&converted);
+    out.push_str(&text[end_b..]);
+    out
 }
 
 /// The identifier around a character index.
@@ -868,11 +1166,74 @@ fn matches(hay: &[char], pat: &[char], o: &SearchOptions) -> Vec<usize> {
     found
 }
 
+fn whole_at(text: &str, start_b: usize, end_b: usize) -> bool {
+    let before = text[..start_b].chars().next_back().is_none_or(|c| !is_ident(c));
+    let after = text[end_b..].chars().next().is_none_or(|c| !is_ident(c));
+    before && after
+}
+
+fn byte_matches(text: &str, needle: &str, o: &SearchOptions) -> Option<(Vec<usize>, usize)> {
+    if needle.is_empty() {
+        return Some((Vec::new(), 0));
+    }
+    if o.match_case {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while let Some(rel) = text[at..].find(needle) {
+            let s = at + rel;
+            let e = s + needle.len();
+            if !o.whole_word || whole_at(text, s, e) {
+                out.push(s);
+                at = e;
+            } else {
+                at = s + text[s..].chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        return Some((out, needle.len()));
+    }
+    if text.is_ascii() && needle.is_ascii() {
+        let hay = text.as_bytes();
+        let pat = needle.as_bytes();
+        let mut out = Vec::new();
+        if let Some(last) = hay.len().checked_sub(pat.len()) {
+            let mut s = 0;
+            while s <= last {
+                if hay[s..s + pat.len()].eq_ignore_ascii_case(pat)
+                    && (!o.whole_word || whole_at(text, s, s + pat.len()))
+                {
+                    out.push(s);
+                    s += pat.len();
+                } else {
+                    s += 1;
+                }
+            }
+        }
+        return Some((out, pat.len()));
+    }
+    None
+}
+
 /// The next match of `needle` from a character index (wrapping around),
 /// as a character range. Without Match case, letter by letter with case
 /// and accents aside ([`mg_core::text::same_letter`]), so what is found
 /// is as long as `needle`.
 pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
+    if needle.is_empty() {
+        return None;
+    }
+    if let Some((found, _)) = byte_matches(text, needle, o) {
+        let from_b = byte_index(text, from);
+        let pick = if o.backwards {
+            found.iter().rev().find(|b| **b < from_b).or(found.last())
+        } else {
+            found.iter().find(|b| **b >= from_b).or(found.first())
+        };
+        let pat_chars = if needle.is_ascii() { needle.len() } else { needle.chars().count() };
+        return pick.map(|&b| {
+            let s = char_index(text, b);
+            (s, s + pat_chars)
+        });
+    }
     let hay: Vec<char> = text.chars().collect();
     let pat: Vec<char> = needle.chars().collect();
     let matches = matches(&hay, &pat, o);
@@ -889,8 +1250,30 @@ pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<
 /// replaces. (Replace compared the selection itself, A to Z alone and
 /// whole words or not, and refused what Find had found: "É" for "é".)
 pub fn is_match_at(text: &str, needle: &str, start: usize, end: usize, o: &SearchOptions) -> bool {
-    let forward = SearchOptions { backwards: false, ..o.clone() };
-    start != end && find(text, needle, start, &forward) == Some((start, end))
+    if start >= end || needle.is_empty() {
+        return false;
+    }
+    let sb = byte_index(text, start);
+    let eb = byte_index(text, end);
+    if sb >= eb {
+        return false;
+    }
+    if o.whole_word && !whole_at(text, sb, eb) {
+        return false;
+    }
+    let sub = &text[sb..eb];
+    if o.match_case {
+        return sub == needle;
+    }
+    let mut sc = sub.chars();
+    let mut nc = needle.chars();
+    loop {
+        match (sc.next(), nc.next()) {
+            (Some(a), Some(b)) if mg_core::text::same_letter(a, b) => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
 }
 
 /// Every line containing `needle`: (0-based line, the line's text).
@@ -911,6 +1294,23 @@ pub fn find_lines(text: &str, needle: &str, o: &SearchOptions) -> Vec<(usize, St
 /// text's start for each match: two spaces for one left about half of a
 /// run, and a name used a thousand times took a thousand passes.)
 pub fn replace_all(text: &str, needle: &str, with: &str, o: &SearchOptions) -> (String, usize) {
+    if needle.is_empty() {
+        return (text.to_string(), 0);
+    }
+    if let Some((found, pat_bytes)) = byte_matches(text, needle, o) {
+        if found.is_empty() {
+            return (text.to_string(), 0);
+        }
+        let mut out = String::with_capacity(text.len());
+        let mut at = 0;
+        for &b in &found {
+            out.push_str(&text[at..b]);
+            out.push_str(with);
+            at = b + pat_bytes;
+        }
+        out.push_str(&text[at..]);
+        return (out, found.len());
+    }
     let hay: Vec<char> = text.chars().collect();
     let pat: Vec<char> = needle.chars().collect();
     let found = matches(&hay, &pat, o);
@@ -931,9 +1331,13 @@ pub fn replace_all(text: &str, needle: &str, with: &str, o: &SearchOptions) -> (
 /// Completion candidates: symbols starting with the prefix (any case),
 /// custom ones first, then by name.
 pub fn completions(symbols: &[Symbol], prefix: &str) -> Vec<Symbol> {
+    completions_from(symbols.iter(), prefix)
+}
+
+fn completions_from<'a>(symbols: impl Iterator<Item = &'a Symbol>, prefix: &str) -> Vec<Symbol> {
     let p = prefix.to_ascii_lowercase();
     let mut out: Vec<Symbol> =
-        symbols.iter().filter(|s| s.name.to_ascii_lowercase().starts_with(&p)).cloned().collect();
+        symbols.filter(|s| s.name.to_ascii_lowercase().starts_with(&p)).cloned().collect();
     out.sort_by(|a, b| b.custom.cmp(&a.custom).then_with(|| a.name.cmp(&b.name)));
     out.dedup_by(|a, b| a.name == b.name);
     out.truncate(200);

@@ -26,10 +26,23 @@ use naga::ShaderStage;
 
 use crate::area_common::each_module;
 
+fn gpu() -> Option<Gpu> {
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU adapter");
+        }
+        g
+    });
+    base.as_ref().map(|g| Gpu::new(g.device.clone(), g.queue.clone()))
+}
+
 #[test]
 fn the_game_s_programs_are_written_in_hlsl_as_direct3d_12_writes_them() {
     let root = corpus!();
-    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+    let Some(gpu) = gpu() else { return };
     // (The area view's: four samples a pixel; the programs waited for.)
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     r.game_shaders = true;
@@ -189,9 +202,9 @@ const KNOWN_FXC_FAILURES: &[(&str, &str)] = &[("fslit_nm", "X3511"), ("fslit_sm_
 fn the_lit_check_draws_with_the_game_s_programs() {
     use std::io::Write;
     let root = corpus!();
-    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+    let Some(gpu) = gpu() else { return };
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let rm = mg_resman::ResMan::for_game(&install).unwrap();
+    let rm = mg_testkit::shared_resman(&install).unwrap();
     let cache = mg_testkit::scratch_dir("lit-check-cache");
     let cold = mg_render::probe::probe_lit(&gpu, &rm, Some(cache.clone()));
     let cached = mg_render::probe::probe_lit(&gpu, &rm, Some(cache));
@@ -263,9 +276,9 @@ impl mg_render::Assets for Overridden<'_> {
 fn a_builder_s_include_leaves_the_lit_check_to_the_game_s_own() {
     use std::io::Write;
     let root = corpus!();
-    let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+    let Some(gpu) = gpu() else { return };
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let rm = mg_resman::ResMan::for_game(&install).unwrap();
+    let rm = mg_testkit::shared_resman(&install).unwrap();
     let out = mg_testkit::output_dir("lit-check");
     // (The load order's copies drawn, as the check read them before.)
     let pink = mg_render::probe::probe_lit(&gpu, &Overridden { game: &rm, own: false }, None);

@@ -69,7 +69,7 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     // (The script's symbols as its editor last made them: none before it
     // is first drawn, which draws the panel again once it has them.)
     let symbols = app.script_tools.symbols.get(&key).map(|(_, s)| s.clone());
-    let made = symbols.as_ref().map_or(0, |s| std::sync::Arc::as_ptr(s) as usize);
+    let made = symbols.as_ref().map_or(0, |s| s.ptr_id());
     let shown = app.script_tools.help.as_ref().map(|h| h.name.clone());
     let pass = ui.ctx().cumulative_pass_nr();
     app.script_tools.reference_drawn = Some((pass, key, made, shown));
@@ -138,17 +138,34 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             SideTab::Variables => SymbolKind::Variable,
             _ => SymbolKind::Constant,
         };
-        let all = symbols.as_deref().map_or(&[][..], |s| s.as_slice());
-        // (By name already: `ScriptTools::symbols_for`.)
-        let list: Vec<&Symbol> =
-            all.iter().filter(|s| s.kind == kind && filter.finds(&s.name)).collect();
+        let empty = crate::script_tools::SymbolSet::default();
+        let set = symbols.as_ref().unwrap_or(&empty);
+        let cache_key = set.cache_key();
+        let hit = t.ref_cache.as_ref().is_some_and(|c| {
+            c.key == key && c.made == cache_key && c.kind == kind && c.filter == t.filter
+        });
+        if !hit {
+            let mut entries = Vec::new();
+            let mut iter = set.iter();
+            while let Some((is_own, idx, s)) = iter.next_indexed() {
+                if s.kind == kind && filter.finds(&s.name) {
+                    entries.push((is_own, idx));
+                }
+            }
+            t.ref_cache =
+                Some(RefCache { key, made: cache_key, kind, filter: t.filter.clone(), entries });
+        }
+        let entries = &t.ref_cache.as_ref().expect("just cached").entries;
+        let entry = |&(is_own, idx): &(bool, usize)| -> &Symbol {
+            if is_own { &set.own[idx] } else { &set.spec[idx] }
+        };
         let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
         // (The name Help shows, chosen elsewhere (the text's cursor, Go to
         // Definition) since the list last showed it: the list scrolled to
         // it, in its middle, once.)
         let shown = t.help.as_ref().map(|h| h.name.clone());
         if shown.is_some() && shown != t.list_at {
-            let at = list.iter().position(|s| Some(&s.name) == shown.as_ref());
+            let at = entries.iter().position(|e| Some(&entry(e).name) == shown.as_ref());
             if let Some(at) = at {
                 let (_, pitch) = mg_uikit::row_metrics(ui);
                 let room = ui.available_height();
@@ -158,11 +175,12 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             t.list_at = shown;
         }
         let area = area.id_salt(("symbols", kind));
-        mg_uikit::show_rows(area, ui, list.len(), |ui, range| {
+        mg_uikit::show_rows(area, ui, entries.len(), |ui, range| {
             // (Each row as wide as the list, so that its width doesn't
             // change with the names in view.)
             ui.set_min_width(ui.available_width());
-            for s in &list[range] {
+            for e in &entries[range] {
+                let s = entry(e);
                 // (The module's own in the theme's text, the game's in its
                 // secondary text. Chosen, the selection's own color.)
                 let chosen = t.help.as_ref().is_some_and(|h| h.name == s.name);
@@ -172,7 +190,7 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                 // front there as 4.2.1's click did; the list stays where it
                 // is, so that a double click can put it in.)
                 if r.clicked() {
-                    t.help = Some((*s).clone());
+                    t.help = Some(s.clone());
                     t.list_at = Some(s.name.clone());
                     t.help_forward = Some(key);
                 }
@@ -300,6 +318,16 @@ pub(crate) fn verbatim(s: &Symbol) -> String {
         "" => s.signature.clone(),
         doc => format!("{doc}\n{}", s.signature),
     }
+}
+
+/// Cached filtered list of symbols for [`reference`].
+#[derive(Debug, Clone)]
+pub(crate) struct RefCache {
+    pub(crate) key: ResKey,
+    made: (usize, usize),
+    kind: SymbolKind,
+    filter: String,
+    entries: Vec<(bool, usize)>,
 }
 
 /// [`verbatim`] laid out as the editor's text is (its colors and font).

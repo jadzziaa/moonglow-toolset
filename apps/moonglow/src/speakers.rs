@@ -68,6 +68,7 @@ impl Speakers {
 impl Speaker for Speakers {
     fn play(&mut self, channel: Channel, sound: Sound, volume: f32, looped: bool) {
         self.stop(channel);
+        self.players.retain(|_, p| !p.empty());
         let Ok(stream) = mg_audio::Stream::open(sound.data.clone()) else { return };
         let (Some(rate), Some(channels)) =
             (NonZero::new(stream.rate()), NonZero::new(stream.channels()))

@@ -687,7 +687,7 @@ fn drawn_rows(h: &H, starts: &str) -> usize {
 /// closed), it goes.
 #[test]
 fn resources_used_is_a_tab_that_goes_with_its_area() {
-    let Some((mut h, area)) = area_harness("u28-used-tab") else { return };
+    let Some((mut h, area)) = area_ui_harness("u28-used-tab") else { return };
     menu_command(&mut h, "Build", "Area Statistics");
     settle(&mut h);
     assert_eq!(h.state().bottom_dock_shows(), Some(Panel::ResourcesUsed));
@@ -1327,8 +1327,10 @@ fn no_dock_list_takes_a_key_under_a_menu_a_popover_or_a_dialog() {
         for over in overs {
             let name = format!("u28f-under-{list:?}-{over:?}").to_lowercase();
             let made = match list {
-                List::Claims => read_only_area_harness_with(&name, CLAIMS_MORE),
-                _ => area_harness_with(&name, "ttr01", None, 4, None, &waypoints_and_gone_scripts),
+                List::Claims => read_only_area_ui_harness_with(&name, CLAIMS_MORE),
+                _ => {
+                    area_ui_harness_with(&name, "ttr01", None, 4, None, &waypoints_and_gone_scripts)
+                }
             };
             let Some((mut h, _)) = made else { return };
             settle(&mut h);
@@ -1881,7 +1883,7 @@ fn lists_opened_by_their_commands_pictured() {
 #[test]
 fn find_and_replace_text_s_field_and_rows_by_the_keyboard_alone() {
     let prepare = &waypoints_and_gone_scripts;
-    let made = area_harness_with("u28f-text-tab", "ttr01", None, 4, None, prepare);
+    let made = area_ui_harness_with("u28f-text-tab", "ttr01", None, 4, None, prepare);
     let Some((mut h, _)) = made else { return };
     settle(&mut h);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
