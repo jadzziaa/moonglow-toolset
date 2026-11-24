@@ -10250,7 +10250,7 @@ fn escape_in_adjust_location_discards_the_edit() {
 fn adjust_location_follows_a_drag_in_the_view() {
     use glam::Vec3;
     use mg_area::ObjectKind;
-    let Some((mut h, area)) = area_harness("adjust-live") else { return };
+    let Some((mut h, area)) = area_harness("adjust-autosave") else { return };
     // (The waypoint clear above the dialog, in the middle of the window.)
     h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
         Vec3::new(25.0, 12.0, 0.0);

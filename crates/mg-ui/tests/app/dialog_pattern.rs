@@ -933,8 +933,10 @@ pub(crate) fn opened(
     op: &Opener,
     size: egui::Vec2,
     zoom: f32,
-) -> Option<Harness<'static, Moonglow>> {
-    let mut h = (op.setup)()?;
+) -> Option<Box<Harness<'static, Moonglow>>> {
+    // Boxed: a test holds several of these at once, and a debug build keeps
+    // each on the stack whole (Windows' test threads overflowed theirs).
+    let mut h = Box::new((op.setup)()?);
     h.state_mut().settings.ui_scale = Some((zoom * 100.0).round() as u16);
     h.set_size(size);
     settle(&mut h);
