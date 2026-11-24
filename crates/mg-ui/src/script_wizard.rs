@@ -390,7 +390,7 @@ fn pick_list(
 /// between `chosen` and the rest of `all`.
 #[derive(Clone)]
 struct CachedMoveLists {
-    key: (usize, u64, String),
+    key: (u64, u64, String),
     left: Vec<usize>,
     right: Vec<usize>,
 }
@@ -412,10 +412,21 @@ fn move_lists(
 ) {
     let filter_str = spec.filter.unwrap_or_default();
     let cache_id = egui::Id::new(("wizard-move-lists", spec.id));
-    let key = (spec.all.len(), egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
+    // (Keyed by the list's rows themselves, not its length alone: another
+    // list as long (another 2DA's, a wizard of another kind) took the
+    // rows of the one before: review D9.)
+    let all = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for e in spec.all {
+            (e.row, &e.name).hash(&mut h);
+        }
+        h.finish()
+    };
+    let key = (all, egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
     let cached = ui.ctx().data_mut(|d| {
         let slot = d.get_temp_mut_or_insert_with(cache_id, || CachedMoveLists {
-            key: (usize::MAX, 0, String::new()),
+            key: (u64::MAX, 0, String::new()),
             left: Vec::new(),
             right: Vec::new(),
         });
@@ -1258,6 +1269,49 @@ fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two lists are worked out again for another list as long as the
+    /// one before (another wizard's, another 2DA's): kept by length alone,
+    /// they had the rows of the one before (review D9).
+    #[test]
+    fn move_lists_follow_the_rows_not_their_count() {
+        let entry = |row: usize, name: &str| mg_module::script_wizard::Entry {
+            row,
+            name: name.into(),
+            constant: String::new(),
+        };
+        let ctx = egui::Context::default();
+        let frame = |all: &[mg_module::script_wizard::Entry], chosen: &mut Vec<usize>| {
+            let mut selected = None;
+            let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let spec = MoveLists {
+                    id: "feats",
+                    all,
+                    titles: ["Feats", "Has"],
+                    lists: [0, 1],
+                    filter: None,
+                    height: 100.0,
+                };
+                move_lists(ui, spec, chosen, &mut selected);
+            });
+            { out }.textures_delta.clear();
+            let id = egui::Id::new(("wizard-move-lists", "feats"));
+            let kept: CachedMoveLists = ctx.data(|d| d.get_temp(id)).unwrap();
+            let names = |l: &[usize]| l.iter().map(|&i| all[i].name.clone()).collect::<Vec<_>>();
+            (names(&kept.left), names(&kept.right))
+        };
+        let mut chosen = vec![2];
+        let feats = [entry(1, "Alertness"), entry(2, "Dodge"), entry(3, "Mobility")];
+        let (left, right) = frame(&feats, &mut chosen);
+        assert_eq!(
+            (left, right),
+            (vec!["Alertness".into(), "Mobility".into()], vec!["Dodge".into()])
+        );
+        let skills = [entry(7, "Hide"), entry(8, "Listen"), entry(9, "Spot")];
+        let (left, right) = frame(&skills, &mut chosen);
+        assert_eq!(left, ["Hide", "Listen", "Spot"]);
+        assert!(right.is_empty(), "{right:?}");
+    }
 
     #[test]
     fn the_date_is_iso() {

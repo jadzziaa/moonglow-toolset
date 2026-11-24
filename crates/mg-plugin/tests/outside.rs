@@ -157,6 +157,9 @@ fn a_file_put_into_a_hak_is_not_read_to_say_it_is_there() {
     );
     assert!(log[2].contains("big.tga has 65 MB; a plugin reads files of up to 64"), "{}", log[2]);
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    // (The 65 MB file goes with the test: a file system without sparse
+    // files holds all of it.)
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

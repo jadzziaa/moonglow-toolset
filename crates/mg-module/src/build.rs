@@ -439,6 +439,15 @@ pub fn own_scratch_dir() -> std::io::Result<std::path::PathBuf> {
     if let Some(dir) = kept.as_ref().filter(|d| d.is_dir()) {
         return Ok(dir.clone());
     }
+    // (This crate's own tests write under `target/test-output/`, never in
+    // the user's cache, and sweep nothing there.)
+    #[cfg(test)]
+    let base = {
+        let base = mg_testkit::test_output().join("mg-module-own-scratch");
+        std::fs::create_dir_all(&base)?;
+        base
+    };
+    #[cfg(not(test))]
     let base = match cache_dir() {
         Some(cache) => {
             let base = cache.join("scratch");

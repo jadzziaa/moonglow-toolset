@@ -1452,6 +1452,12 @@ impl ModelView {
         self.gpu_renders
     }
 
+    /// Its picture drawn anew at the next frame, though nothing it is
+    /// drawn from changed (the textures read again at another size).
+    pub(crate) fn redraw_picture(&mut self) {
+        self.drawn = None;
+    }
+
     /// How many times a second place in a pass showed its picture.
     pub fn followed(&self) -> u64 {
         self.followed
@@ -2224,12 +2230,23 @@ impl Thumbnails {
     /// What pictures `creature` (a creature's fields) as it is in another
     /// appearance: [`Pictured::Creature`] with this and the row.
     pub(crate) fn creature(&mut self, creature: &Struct) -> u64 {
+        let id = Self::creature_id(creature);
+        self.creatures.entry(id).or_insert_with(|| creature.clone());
+        id
+    }
+
+    /// The id [`creature`](Self::creature) gives `creature`.
+    fn creature_id(creature: &Struct) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         format!("{creature:?}").hash(&mut h);
-        let id = h.finish();
-        self.creatures.entry(id).or_insert_with(|| creature.clone());
-        id
+        h.finish()
+    }
+
+    /// Whether the creature [`creature`](Self::creature) gave `id` is
+    /// still kept to be pictured.
+    pub(crate) fn has_creature(&self, id: u64) -> bool {
+        self.creatures.contains_key(&id)
     }
 
     /// The pictures a view shows this frame: kept while they are shown,
@@ -2281,7 +2298,10 @@ impl Thumbnails {
         }
         self.wanted.clear();
         self.items.clear();
-        self.creatures.clear();
+        // (Not the creatures: a gallery keeps the id it was given for one
+        // and asks for its pictures by it, and they are made anew from
+        // its fields; those no picture asks for are let go after the
+        // frame, as ever.)
         self.flushed = None;
         self.let_go();
         self.ready.clear();
@@ -2312,6 +2332,18 @@ impl Thumbnails {
     #[doc(hidden)]
     pub fn asked(&self) -> usize {
         self.made.len() + self.wanted.len()
+    }
+
+    /// The creatures' pictures in other appearances made (a gallery's
+    /// opened for one): how many have something to draw, and how many
+    /// were made with nothing (their creature not found).
+    #[doc(hidden)]
+    pub fn creature_pictures(&self) -> (usize, usize) {
+        let made = self.made.iter().filter(|((k, _), _)| matches!(k, Pictured::Creature(..)));
+        made.fold((0, 0), |(drawn, none), (_, m)| match m.picture.is_some() || m.no_model {
+            true => (drawn + 1, none),
+            false => (drawn, none + 1),
+        })
     }
 
     /// How many pictures are being read apart, or wait to be drawn for

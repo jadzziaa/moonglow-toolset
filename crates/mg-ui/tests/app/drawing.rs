@@ -2376,3 +2376,27 @@ fn idle_model_view_keeps_rendered_picture_across_frames() {
     let g2 = h.state().model_views[&source].gpu_renders();
     assert!(g2 > g1, "camera change triggered re-render: {g1} -> {g2}");
 }
+
+/// Options › Area › Largest textures changed: a model view kept idle draws
+/// its picture again, with the textures read at the new size (the review's
+/// C-9: it kept the old picture until the camera moved).
+#[test]
+fn an_idle_model_view_is_drawn_again_at_another_texture_size() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.settings.game_shaders = Some(false);
+    app.set_render_state(rs.clone());
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let renders = |h: &Harness<'_, Moonglow>| h.state().model_views[&source].gpu_renders();
+    let before = renders(&h);
+    h.run_steps(3);
+    assert_eq!(renders(&h), before, "kept while idle");
+    h.state_mut().settings.texture_limit = Some(256);
+    h.run_steps(3);
+    assert!(renders(&h) > before, "drawn again at the new size: {before} -> {}", renders(&h));
+}

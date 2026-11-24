@@ -55,14 +55,12 @@ impl SymbolSet {
         self.own.is_empty() && self.spec.is_empty()
     }
 
-    /// Cache key identifying the underlying `(own, spec)` arcs.
-    pub fn cache_key(&self) -> (usize, usize) {
-        (Arc::as_ptr(&self.own) as usize, Arc::as_ptr(&self.spec) as usize)
-    }
-
-    /// Single integer id identifying this set for draw-tracking checks.
-    pub fn ptr_id(&self) -> usize {
-        egui::epaint::util::hash(self.cache_key()) as usize
+    /// Whether `other` is this very set (the same `own` and `spec`). A
+    /// cache that asks this holds the set it was made from: keyed by the
+    /// sets' addresses alone, a set dropped and another made where it was
+    /// took the old one's answer (review D3).
+    pub fn same(&self, other: &SymbolSet) -> bool {
+        Arc::ptr_eq(&self.own, &other.own) && Arc::ptr_eq(&self.spec, &other.spec)
     }
 
     /// Sorted iterator yielding all symbols (`own` before `spec` on ties).
@@ -143,6 +141,10 @@ impl<'a> Iterator for SymbolIter<'a> {
 struct SymbolJob {
     key: ResKey,
     h: u64,
+    /// The includes it read (their names, in lower case), as they were
+    /// as it began: one of them edited since, what it finds is of the
+    /// text before ([`ScriptTools::invalidate_dependents`]).
+    reads: Vec<String>,
     rx: std::sync::mpsc::Receiver<(Vec<Symbol>, Vec<ResKey>)>,
 }
 
@@ -382,7 +384,7 @@ pub struct ScriptTools {
     /// where the editor changed them in the same pass, and only then: a
     /// Reference not drawn this pass (behind Help's tab, the dock folded)
     /// asks for nothing (M4's U12 review, A1).
-    pub(crate) reference_drawn: Option<(u64, ResKey, usize, Option<String>)>,
+    pub(crate) reference_drawn: Option<(u64, ResKey, Option<SymbolSet>, Option<String>)>,
     /// What the Help panel showed as it was last drawn: the pass and the
     /// name, drawn again where the editor chose another in that pass.
     pub(crate) help_drawn: Option<(u64, Option<String>)>,
@@ -426,6 +428,9 @@ pub struct ScriptTools {
     pub(crate) ref_cache: Option<crate::script_reference::RefCache>,
     /// Background symbol extraction job for large scripts.
     symbol_job: PendingSymbolJob,
+    /// How many symbol jobs have gone to a worker (for tests: one can come
+    /// back between two frames a test looks at).
+    pub(crate) symbol_jobs_started: usize,
     /// Each script's text when its editor was last drawn, and the
     /// workspace revision then: an include edited or the module changed
     /// leaves other scripts' symbols and live checks out of date.
@@ -673,6 +678,21 @@ impl ScriptTools {
         if self.ref_cache.as_ref().is_some_and(|c| !self.symbols.contains_key(&c.key)) {
             self.ref_cache = None;
         }
+        // (A worker reading another script's symbols with `edited` as it
+        // was among its includes: what it finds is let go, and read again
+        // once that script's editor asks. Its result had been kept with
+        // the include's old declarations: review D4 of the adversarial
+        // branch.)
+        let name = edited.resref.to_lowercase().to_string();
+        if edited.restype == ResType::NSS
+            && self
+                .symbol_job
+                .0
+                .as_ref()
+                .is_some_and(|j| j.key != edited && j.reads.contains(&name))
+        {
+            self.symbol_job.0 = None;
+        }
     }
 
     /// Whether a background symbol extraction job is currently running.
@@ -794,6 +814,7 @@ impl ScriptTools {
             let existing = existing.clone();
             let owned_text = text.to_string();
             let includes = collect_includes(text, source);
+            let reads = includes.keys().cloned().collect();
             let ctx_bg = ctx.clone();
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
@@ -802,7 +823,8 @@ impl ScriptTools {
                 let _ = tx.send(res);
                 ctx_bg.request_repaint();
             });
-            self.symbol_job.0 = Some(SymbolJob { key, h, rx });
+            self.symbol_job.0 = Some(SymbolJob { key, h, reads, rx });
+            self.symbol_jobs_started += 1;
             return existing;
         }
         let (mut own, deps) = script_symbols_with_deps(text, source);
@@ -1672,6 +1694,60 @@ mod tests {
         let adds: Vec<bool> =
             symbols.iter().filter(|s| s.name == "Add").map(|s| s.custom).collect();
         assert_eq!(adds, [true, false], "the script's own first");
+    }
+
+    /// A long script's symbols read on a worker (`symbols_for_ui`) with an
+    /// include as it was: the include edited meanwhile, what the worker
+    /// found is let go, and the script's symbols are the edited include's.
+    /// They had been kept with its old declarations (review D4).
+    #[test]
+    fn a_worker_s_symbols_go_when_an_include_it_read_is_edited() {
+        let (main, inc) = (super::nss("big").unwrap(), super::nss("inc_a").unwrap());
+        let ctx = egui::Context::default();
+        let mut tools = super::ScriptTools::default();
+        let filler: String = (0..1200).map(|i| format!("int nFill{i} = {i};\n")).collect();
+        let text = format!("#include \"inc_a\"\n{filler}void main() {{}}\n");
+        assert!(text.len() > super::ASYNC_SYMBOL_BYTES);
+        let include = |name: &'static str| {
+            move |n: &str| (n == "inc_a").then(|| format!("void {name}();\nvoid {name}() {{}}\n"))
+        };
+        let names = |s: &super::SymbolSet| -> Vec<String> {
+            s.own.iter().map(|s| s.name.clone()).filter(|n| n.ends_with("Name")).collect()
+        };
+        let first = tools.symbols_for_ui(
+            main,
+            1,
+            false,
+            &text,
+            || None,
+            &mut include("OldName"),
+            &ctx,
+            true,
+        );
+        assert_eq!(names(&first), ["OldName"]);
+        // Typed in: read on a worker, the include as it is now.
+        let typed = format!("{text}// typed\n");
+        tools.symbols_for_ui(main, 2, false, &typed, || None, &mut include("OldName"), &ctx, true);
+        assert!(tools.reading_symbols(), "read on a worker");
+        // The include edited in its own editor before the worker is done.
+        tools.seen.insert(inc, 7);
+        tools.invalidate_dependents(inc);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while tools.reading_symbols() && std::time::Instant::now() < deadline {
+            tools.poll_symbol_job(&ctx, false);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let now = tools.symbols_for_ui(
+            main,
+            2,
+            false,
+            &typed,
+            || None,
+            &mut include("NewName"),
+            &ctx,
+            true,
+        );
+        assert_eq!(names(&now), ["NewName"], "the edited include's");
     }
 
     /// The templates' folders are read again a couple of seconds on, or

@@ -191,9 +191,14 @@ fn struct_read(
     };
     let mut s = Struct::new(id);
     for (label, field) in obj {
+        // (The root's file type, and off the root a string `__data_type`
+        // or `__row`: a whole document inserted as a struct keeps its
+        // type, which a struct can't hold. A field of that label is an
+        // object, and is read as one.)
+        let tagged = matches!(field, Json::String(_));
         if label == "__struct_id"
-            || (is_root && label == "__data_type")
-            || (!is_root && label == "__row" && matches!(field, Json::String(_)))
+            || (label == "__data_type" && (is_root || tagged))
+            || (!is_root && label == "__row" && tagged)
         {
             continue;
         }
@@ -710,6 +715,21 @@ mod tests {
         let mut j = to_json(&g, Codepage::default()).unwrap();
         j["Items"]["value"][0].as_object_mut().unwrap().insert("__row".into(), json!("Hide"));
         assert_eq!(from_json(&j, Codepage::default()).unwrap(), g);
+
+        // A whole document inserted as a list's item or a struct: its
+        // `__data_type` off the root is no field, and is left out.
+        let mut doc = to_json(&g, Codepage::default()).unwrap();
+        doc["Items"]["value"][0]
+            .as_object_mut()
+            .unwrap()
+            .insert("__data_type".into(), json!("UTI "));
+        let item = struct_from_json(
+            &json!({"__data_type": "UTC ", "N": {"type": "int", "value": 1}}),
+            Codepage::default(),
+        )
+        .unwrap();
+        assert_eq!(item.fields.len(), 1);
+        assert_eq!(from_json(&doc, Codepage::default()).unwrap(), g);
 
         let mut bad_root = Gff::new(*b"GFF ");
         bad_root.root.set("__data_type", Value::Int(1));

@@ -1138,8 +1138,15 @@ impl Moonglow {
         let user = mg_plugin::settings::user_values(raw, &p.manifest.id);
         let project = self.project_root().and(self.ws.as_ref()).map(|ws| &ws.module.project_file);
         let mut faults = mg_plugin::settings::resolve(&p.manifest, &user, project).1;
-        // (Of the user's own, what no setting of scope user is.)
-        for name in raw.get(&p.manifest.id).into_iter().flatten().map(|(k, _)| k) {
+        // (Of the user's own, what no setting of scope user is: in the
+        // shared file where there is one, nothing where it can't be read,
+        // not Moonglow's copy.)
+        let none = Default::default();
+        let own = match (&read, self.plugin_values.as_deref().is_some_and(|f| f.exists())) {
+            (None, true) => &none,
+            _ => raw,
+        };
+        for name in own.get(&p.manifest.id).into_iter().flatten().map(|(k, _)| k) {
             if !p
                 .manifest
                 .settings
@@ -1673,7 +1680,9 @@ impl Moonglow {
     /// Runs the next thing a plugin does on an event, if no job is
     /// running: as a job, like a command.
     pub(crate) fn next_plugin_event(&mut self) {
-        if self.busy() || self.ws.is_none() {
+        // (Nor while a command is held for the Protected Area window: the
+        // events wait their turn.)
+        if self.busy() || self.ws.is_none() || self.held_for_protected() {
             return;
         }
         // What the last event's job was allowed is kept for the next run.
@@ -1851,6 +1860,15 @@ impl Moonglow {
         // question again, and waited until it was called off.)
         if let Some(job) = &self.job {
             self.log.warn(format!("{name}: {heading}: waiting for {} to finish", job.title));
+            return;
+        }
+        // Nor while a command is held for the Protected Area window: its
+        // edits and the haks it wrote wait for that answer, and a second
+        // held run took the first's place (its haks left written).
+        if self.held_for_protected() {
+            self.log.warn(format!(
+                "{name}: {heading}: not run while the Protected Area window waits for an answer"
+            ));
             return;
         }
         // (An event's job that changes nothing says nothing.)
@@ -2144,6 +2162,13 @@ impl Moonglow {
                 }
             }
         }
+    }
+
+    /// Whether a plugin's run or an import is held for the Protected Area
+    /// window: no other plugin runs, and no other command is held, until
+    /// it is answered.
+    pub(crate) fn held_for_protected(&self) -> bool {
+        self.plugins.pending_apply.is_some() || self.pending_import.is_some()
     }
 
     /// Rolls back any pending plugin hak writes held for a Protected Area
@@ -3476,6 +3501,35 @@ mod tests {
         let said = "Probe: Apply: waiting for Another job to finish";
         assert!(app.log.entries.iter().any(|(_, m)| m == said), "{:?}", app.log.entries);
         let _ = release.send(());
+    }
+
+    /// While a plugin's run is held for the Protected Area window, an
+    /// event's job waits in the queue (it started, and a second held run
+    /// took the first's place) and a command does not start.
+    #[test]
+    fn a_held_run_keeps_events_waiting_and_refuses_another_run() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+        let event = mg_plugin::Event::new(mg_plugin::EventKind::ModuleOpened, vec![]);
+        app.queue_event_of("probe", "opened", event);
+        app.plugins.pending_apply = Some(PendingPluginApply {
+            plugin: None,
+            name: "First".into(),
+            title: "Apply".into(),
+            console: false,
+            cmd: Command::new("Apply", vec![]),
+            resources: 1,
+            written: Vec::new(),
+            settings: None,
+        });
+        app.next_plugin_event();
+        assert_eq!(app.plugins.events.len(), 1, "the event waits");
+        app.run_plugin("Probe".into(), "Apply…".into(), false, None, None, |_, _| {
+            panic!("it does not start")
+        });
+        assert!(app.job.is_none());
+        app.cancel_pending_plugin_apply();
+        assert!(!app.held_for_protected());
     }
 
     /// A number field whose value lies outside its limits (one kept from

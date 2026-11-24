@@ -19,7 +19,7 @@
 //! a chunk's mesh is made, its tiles are drawn individually with per-tile
 //! wind sway (`SWAY_NODE`), whereas completed chunk meshes are static.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, mpsc};
 
 use glam::{Mat4, Vec3};
@@ -274,10 +274,20 @@ pub(crate) struct ChunkWorker {
     done: mpsc::Receiver<(u64, (i32, i32), Option<ChunkGrass>)>,
     /// Invalidates in-flight results from earlier grass/tile configurations.
     generation: u64,
-    /// The chunks handed over and not yet taken back.
-    pending: HashSet<(i32, i32)>,
-    /// Those that failed (drawn tile by tile from then on).
-    failed: HashSet<(i32, i32)>,
+    /// The chunks handed over and not yet taken back, with what of.
+    pending: HashMap<(i32, i32), MadeOf>,
+    /// Those that failed, with what of: drawn tile by tile from then on,
+    /// until the chunk is of something else (its tiles edited).
+    failed: HashMap<(i32, i32), MadeOf>,
+}
+
+/// Whether two chunks' grass is made of the same: each tile's index, its
+/// grass and where it stands ([`ChunkGrass::is_of`]).
+fn same_made_of(a: &MadeOf, b: &MadeOf) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|((i, grass, at), (j, other, then))| {
+            i == j && Arc::ptr_eq(grass, other) && at == then
+        })
 }
 
 impl ChunkWorker {
@@ -297,7 +307,7 @@ impl ChunkWorker {
                 }
             })
             .ok()?;
-        let (pending, failed) = (HashSet::new(), HashSet::new());
+        let (pending, failed) = (HashMap::new(), HashMap::new());
         Some(ChunkWorker { jobs, done, generation: 0, pending, failed })
     }
 
@@ -308,16 +318,17 @@ impl ChunkWorker {
         self.failed.clear();
     }
 
-    /// Retries previously failed chunks without cancelling valid in-flight work.
-    pub(crate) fn clear_failed(&mut self) {
-        self.failed.clear();
-    }
-
-    /// Hands chunk `key` over, unless it is being made already (or failed).
+    /// Hands chunk `key` over, unless it is being made already, or failed
+    /// made of the same `tiles`.
     pub(crate) fn make(&mut self, gpu: &Gpu, key: (i32, i32), tiles: MadeOf) {
-        if !self.failed.contains(&key) && self.pending.insert(key) {
-            let _ = self.jobs.send((self.generation, gpu.clone(), key, tiles));
+        if self.failed.get(&key).is_some_and(|was| same_made_of(was, &tiles))
+            || self.pending.contains_key(&key)
+        {
+            return;
         }
+        self.failed.remove(&key);
+        self.pending.insert(key, tiles.clone());
+        let _ = self.jobs.send((self.generation, gpu.clone(), key, tiles));
     }
 
     /// The chunks made since the last call.
@@ -327,11 +338,11 @@ impl ChunkWorker {
             if generation != self.generation {
                 continue;
             }
-            self.pending.remove(&key);
+            let made_of = self.pending.remove(&key);
             match chunk {
                 Some(c) => out.push((key, c)),
                 None => {
-                    self.failed.insert(key);
+                    self.failed.insert(key, made_of.unwrap_or_default());
                 }
             }
         }
@@ -487,8 +498,8 @@ mod tests {
             jobs: jobs_tx,
             done: done_rx,
             generation: 0,
-            pending: HashSet::from([(1, 1)]),
-            failed: HashSet::from([(2, 2)]),
+            pending: HashMap::from([((1, 1), Vec::new())]),
+            failed: HashMap::from([((2, 2), Vec::new())]),
         };
         done_tx.send((0, (1, 1), None)).unwrap();
         worker.reset();
@@ -497,6 +508,40 @@ mod tests {
         assert!(worker.pending.is_empty());
         // Stale gen 0 failure must not re-blacklist (1, 1) after reset.
         assert!(worker.made().is_empty());
-        assert!(!worker.failed.contains(&(1, 1)));
+        assert!(!worker.failed.contains_key(&(1, 1)));
+    }
+
+    /// A chunk whose grass failed to be put together is not handed over
+    /// again while it is of the same tiles (each area update handed it
+    /// over again, and it failed again), and is once they change.
+    #[test]
+    fn a_failed_chunk_stays_failed_until_its_tiles_change() {
+        let (jobs_tx, jobs_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let mut worker = ChunkWorker {
+            jobs: jobs_tx,
+            done: done_rx,
+            generation: 0,
+            pending: HashMap::new(),
+            failed: HashMap::new(),
+        };
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else { return };
+        let grass = |radius| {
+            let levels = Vec::new();
+            Arc::new(TileGrass { levels, densities: Vec::new(), centre: Vec3::ZERO, radius })
+        };
+        let tiles: MadeOf = vec![(0, grass(1.0), Mat4::IDENTITY)];
+        worker.make(&gpu, (0, 0), tiles.clone());
+        assert_eq!(jobs_rx.try_iter().count(), 1);
+        done_tx.send((0, (0, 0), None)).unwrap();
+        assert!(worker.made().is_empty());
+        // (An area update, the same tiles: not again.)
+        worker.make(&gpu, (0, 0), tiles.clone());
+        assert_eq!(jobs_rx.try_iter().count(), 0, "failed of the same tiles");
+        // Its tiles edited (another grass on the tile): again.
+        worker.make(&gpu, (0, 0), vec![(0, grass(2.0), Mat4::IDENTITY)]);
+        assert_eq!(jobs_rx.try_iter().count(), 1, "of other tiles");
+        assert!(!worker.failed.contains_key(&(0, 0)));
     }
 }

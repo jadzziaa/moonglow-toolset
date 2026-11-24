@@ -269,10 +269,14 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
         until(&mut h, "the area in front", |h| h.state().active_editor() == Some(&Tab::Area(area)));
         let mut wrong = Vec::new();
         let mut strips = (0, 0);
-        let widths = [
-            420, 480, 560, 680, 795, 796, 880, 961, 962, 1120, 1280, 1499, 1500, 1600, 1850, 2200,
-            2600, 3000, 3440,
-        ];
+        let widths: Vec<i32> = if mg_testkit::full_corpus() {
+            (420..=3440).step_by(20).collect()
+        } else {
+            vec![
+                420, 480, 560, 680, 795, 796, 880, 961, 962, 1120, 1280, 1499, 1500, 1600, 1850,
+                2200, 2600, 3000, 3440,
+            ]
+        };
         for width in widths {
             let width = width as f32;
             size(&mut h, width, 800.0);
@@ -333,7 +337,9 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
             }
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
-        assert_eq!(strips, (12, 5), "{mode:?}: the widths with each dock a strip");
+        // (Folded by the width: the Left Dock under 1500, the Right Dock under 796.)
+        let strips_expected = if mg_testkit::full_corpus() { (54, 19) } else { (12, 5) };
+        assert_eq!(strips, strips_expected, "{mode:?}: the widths with each dock a strip");
     }
 }
 
@@ -349,8 +355,14 @@ fn a_window_narrowed_and_widened_writes_nothing_and_gives_all_back() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Placeable, 0)];
     let sweep = |h: &mut Harness<'_, Moonglow>, saved: &str| {
-        let down = [3440, 2600, 1850, 1600, 1500, 1499, 1280, 962, 961, 796, 795, 600, 420];
-        let up = [600, 795, 796, 961, 962, 1280, 1499, 1500, 1600, 1850, 2600, 3440];
+        let (down, up): (Vec<i32>, Vec<i32>) = if mg_testkit::full_corpus() {
+            ((420..=3440).rev().step_by(60).collect(), (420..=3440).step_by(60).collect())
+        } else {
+            (
+                vec![3440, 2600, 1850, 1600, 1500, 1499, 1280, 962, 961, 796, 795, 600, 420],
+                vec![600, 795, 796, 961, 962, 1280, 1499, 1500, 1600, 1850, 2600, 3440],
+            )
+        };
         for width in down.into_iter().chain(up) {
             size(h, width as f32, 1000.0);
             assert_eq!(h.state().settings.saved_text(), saved, "written at {width}");
@@ -832,7 +844,12 @@ fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
         })
     };
     let mut wrong = Vec::new();
-    for width in [420, 560, 700, 795, 796, 961, 962, 1120, 1300, 1499] {
+    let widths: Vec<i32> = if mg_testkit::full_corpus() {
+        (420..1500).step_by(40).collect()
+    } else {
+        vec![420, 560, 700, 795, 796, 961, 962, 1120, 1300, 1499]
+    };
+    for width in widths {
         let width = width as f32;
         // (From 1600 each time: neither dock unfolded by hand yet.)
         size(&mut h, 1600.0, 800.0);

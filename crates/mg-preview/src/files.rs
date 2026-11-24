@@ -224,15 +224,17 @@ impl<'a> Gatherer<'a> {
         self.rm.get(&ResKey::new(resref, restype)).ok().map(|d| d.into_owned())
     }
 
-    /// A texture by the name a model, a material or a TXI gives it: its
-    /// MTR and what that names, its image (as the game picks it, and a PLT
-    /// of the name), its TXI and what that names.
+    /// An environment map by the name a model or a material gives it, as
+    /// [`Self::texture`]: none for `default`, which names no file.
     fn env_map(&mut self, name: &str, depth: u8) {
         if !name.eq_ignore_ascii_case("default") {
             self.texture(name, depth);
         }
     }
 
+    /// A texture by the name a model, a material or a TXI gives it: its
+    /// MTR and what that names, its image (as the game picks it, and a PLT
+    /// of the name), its TXI and what that names.
     fn texture(&mut self, name: &str, depth: u8) {
         let Some(resref) = ResRef::cut(name) else { return };
         if name.eq_ignore_ascii_case("null") || depth > 4 {

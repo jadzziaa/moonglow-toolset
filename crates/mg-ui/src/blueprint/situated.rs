@@ -657,8 +657,11 @@ struct TransitionPick {
     worked: Option<Worked>,
     /// OK asked for by a double click before what it chose was worked out.
     confirm: bool,
-    /// Cached sorted target areas and area labels for the active dialog.
-    cached_areas_for: Option<(u64, usize)>,
+    /// Cached sorted target areas and area labels for the active dialog,
+    /// and what they were listed for: the module's revision, the destinations'
+    /// count, whether areas are shown by name (Options) and the load order
+    /// (a talk table read again bumps it: the names may be its lines).
+    cached_areas_for: Option<(u64, usize, bool, u64)>,
     cached_areas: std::sync::Arc<Vec<mg_core::ResRef>>,
     cached_area_names: std::sync::Arc<std::collections::HashMap<mg_core::ResRef, String>>,
 }
@@ -812,7 +815,9 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
     let current = current_of(f);
     let current_tag = f.root.string("Tag").unwrap_or_default().to_vec();
     let ws_rev = f.app.ws.as_ref().map_or(0, |ws| ws.revision());
-    if state.cached_areas_for != Some((ws_rev, state.destinations.len())) {
+    let listed_for =
+        Some((ws_rev, state.destinations.len(), f.app.settings.area_names, f.app.load_order));
+    if state.cached_areas_for != listed_for {
         let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
         areas.dedup();
         let names: std::collections::HashMap<mg_core::ResRef, String> =
@@ -822,7 +827,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
         areas.sort_by_cached_key(|a| names.get(a).map(|n| n.to_lowercase()));
         state.cached_areas = std::sync::Arc::new(areas);
         state.cached_area_names = std::sync::Arc::new(names);
-        state.cached_areas_for = Some((ws_rev, state.destinations.len()));
+        state.cached_areas_for = listed_for;
     }
     let areas = state.cached_areas.clone();
     let names = state.cached_area_names.clone();

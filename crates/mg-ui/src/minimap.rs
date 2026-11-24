@@ -20,6 +20,8 @@ const TILE: f32 = mg_area::TILE_SIZE;
 /// An area's map, kept while its tiles stay as they are.
 #[derive(Clone)]
 pub(crate) struct Map {
+    /// The area it is the map of.
+    area: ResRef,
     /// Workspace identity, revision, and load order it was last checked at.
     stamp: (u64, u64, u64),
     /// What it was drawn from ([`key`]).
@@ -59,12 +61,16 @@ pub(crate) fn of<'m>(
 ) -> Option<&'m Map> {
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return None };
     let stamp = (ws.identity(), ws.revision(), app.load_order);
-    if kept.as_ref().is_some_and(|m| m.stamp == stamp) {
+    // (The area too: Setup Area Transition's one slot serves whichever
+    // area its Target area box shows.)
+    if kept.as_ref().is_some_and(|m| m.area == area && m.stamp == stamp) {
         return kept.as_ref();
     }
     let are = &ws.doc(&ResKey::new(area, ResType::ARE)).ok()?.root;
     let now = key(are);
-    let same_load = kept.as_ref().is_some_and(|m| m.stamp.0 == stamp.0 && m.stamp.2 == stamp.2);
+    let same_load = kept
+        .as_ref()
+        .is_some_and(|m| m.area == area && m.stamp.0 == stamp.0 && m.stamp.2 == stamp.2);
     if let Some(m) = kept.as_mut()
         && same_load
         && m.key == now
@@ -86,7 +92,7 @@ pub(crate) fn of<'m>(
         );
         ctx.load_texture(format!("minimap {area}"), image, egui::TextureOptions::LINEAR)
     });
-    *kept = Some(Map { stamp, key: now, texture, tiles });
+    *kept = Some(Map { area, stamp, key: now, texture, tiles });
     kept.as_ref()
 }
 
@@ -143,7 +149,13 @@ mod tests {
 
     #[test]
     fn the_map_s_points_are_the_area_s_north_up() {
-        let map = Map { stamp: (0, 0, 0), key: 0, texture: None, tiles: (4, 2) };
+        let map = Map {
+            area: ResRef::from_str("a").unwrap(),
+            stamp: (0, 0, 0),
+            key: 0,
+            texture: None,
+            tiles: (4, 2),
+        };
         // A map 200 points wide: 40 by 20 m.
         let rect = map.placed(Pos2::new(300.0, 10.0), 200.0);
         assert_eq!(rect, Rect::from_min_size(Pos2::new(100.0, 10.0), egui::vec2(200.0, 100.0)));
@@ -192,9 +204,18 @@ mod tests {
         are.root.set("Tile_List", mg_gff::Value::List(vec![tile]));
         let are_bytes = are.to_bytes().unwrap();
 
+        // A second area, 2 by 1 tiles.
+        let wide = ResRef::from_str("area02").unwrap();
+        let mut are2 = are.clone();
+        are2.root.set("Width", mg_gff::Value::Int(2));
+        let tile2 = are2.root.list("Tile_List").unwrap()[0].clone();
+        are2.root.set("Tile_List", mg_gff::Value::List(vec![tile2.clone(), tile2]));
+        let are2_bytes = are2.to_bytes().unwrap();
+
         let make_ws = || {
             let mut m = mg_module::Module::new();
             m.set(ResKey::new(area, ResType::ARE), are_bytes.clone());
+            m.set(ResKey::new(wide, ResType::ARE), are2_bytes.clone());
             mg_edit::Workspace::new(m)
         };
 
@@ -225,5 +246,11 @@ mod tests {
             of(&mut app, &ctx, area, &mut kept).expect("rebuilt for fresh workspace").stamp;
         assert_ne!(after_ws, after_load);
         assert_eq!(after_ws.0, app.ws.as_ref().unwrap().identity());
+
+        // Another area through the same slot, nothing edited: its own map.
+        let other = of(&mut app, &ctx, wide, &mut kept).expect("the second area's map");
+        assert_eq!(other.tiles, (2, 1), "the second area's map, not the first's");
+        let back = of(&mut app, &ctx, area, &mut kept).expect("the first area's map");
+        assert_eq!(back.tiles, (1, 1));
     }
 }

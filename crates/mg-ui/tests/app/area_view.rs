@@ -679,6 +679,42 @@ fn area_viewer_paints_placeables() {
     assert_eq!(h.state().palette.chosen, [shrub]);
 }
 
+/// The brush's ghosts (the dab it would lay next, see-through) are drawn
+/// again as they change: the pointer moved over the view, the picture is
+/// drawn anew with them where it now is (the review's C-14: they no longer
+/// make the picture follow the pointer, the brush's own stamp does).
+#[test]
+fn the_brush_s_ghosts_are_drawn_again_as_they_change() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("c14-ghosts") else { return };
+    let tree = ResKey::parse("plc_tree", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(tree);
+        app.paint = true;
+        app.settings.paint = mg_ui::settings::PaintSettings {
+            radius_cm: 200,
+            density: 20,
+            spacing_cm: 100,
+            flow: 100,
+            turn_spread: 0,
+            ..Default::default()
+        };
+    }
+    h.hover_at(screen(&h, area, Vec3::new(12.0, 12.0, 0.0)));
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].paint.shown > 0, "the next dab shows");
+    for spot in [Vec3::new(24.0, 24.0, 0.0), Vec3::new(12.0, 24.0, 0.0)] {
+        let before = h.state().area_views[&area].pictures;
+        h.hover_at(screen(&h, area, spot));
+        h.run_steps(1);
+        let now = h.state().area_views[&area].pictures;
+        assert!(now > before, "the ghosts at {spot} drawn: {before} -> {now} pictures");
+    }
+}
+
 /// The placeable brush's Row: a drag lays one placeable end to end along
 /// it, each facing the same way, as one step.
 #[test]

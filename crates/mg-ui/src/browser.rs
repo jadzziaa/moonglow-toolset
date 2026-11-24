@@ -2190,10 +2190,13 @@ pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) ->
             Err(e) => Plain::Error(e.to_string()),
         }
     } else if is_text(key.restype, data) {
+        // (Other text UTF-8 where it is: Moonglow and NUI write JUI so,
+        // and LUA, MTR and TXT files are often saved so. Else the game's
+        // codepage.)
         let decoded = if key.restype == ResType::NSS {
             crate::text::decode_script(data)
         } else {
-            crate::text::decode(data)
+            std::str::from_utf8(data).map_or_else(|_| crate::text::decode(data), str::to_owned)
         };
         Plain::Text(crate::text::to_editor(&decoded).0.into())
     } else if let Some(text) = model_text(key, data, rm) {
@@ -3024,6 +3027,16 @@ mod tests {
         };
         assert_eq!(p.text, "\u{201c}hi\u{201d}\nnext");
         assert_eq!(p.lines().1, 4);
+        // UTF-8 text shows as UTF-8 (a NUI window's JUI, a Lua file, a
+        // material, a text file), not read through the codepage.
+        for ext in ["jui", "lua", "txt", "mtr"] {
+            let restype = ResType::from_extension(ext).expect(ext);
+            let key = ResKey::parse("sample", restype).unwrap();
+            let Plain::Text(p) = plain(key, "{\"title\": \"Café\"}".as_bytes(), None) else {
+                panic!("expected text for {ext}");
+            };
+            assert_eq!(p.text, "{\"title\": \"Café\"}", "{ext}");
+        }
     }
 
     #[test]

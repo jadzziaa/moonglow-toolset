@@ -2270,6 +2270,9 @@ impl Moonglow {
             for view in self.area_views.values_mut() {
                 view.redraw_picture();
             }
+            for view in self.model_views.values_mut() {
+                view.redraw_picture();
+            }
         }
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = shaders;
@@ -3768,9 +3771,9 @@ impl Moonglow {
         panes.push(self.editor_keys());
         marks.push(None);
         // (Each floating editor's window's other panes after it.)
-        for p in
-            self.window_bars.iter().filter(|p| !matches!(**p, Panel::OUTLINER | Panel::Appearance))
-        {
+        // (The Appearance Gallery's Appearance panel among them, M4's
+        // U26: F6 there takes the keys from the panes.)
+        for p in self.window_bars.iter().filter(|p| **p != Panel::OUTLINER) {
             panes.push((p.keys(), None));
             marks.push(None);
         }
@@ -3780,14 +3783,8 @@ impl Moonglow {
             // (In two columns, a stop for each: the Palette's, then the
             // Preview's.)
             match self.right_columns {
-                true => panes.extend(
-                    self.right_bars
-                        .iter()
-                        .filter(|p| **p != Panel::Appearance)
-                        .map(|p| (p.keys(), None)),
-                ),
-                false if panel != Panel::Appearance => panes.push((panel.keys(), None)),
-                false => {}
+                true => panes.extend(self.right_bars.iter().map(|p| (p.keys(), None))),
+                false => panes.push((panel.keys(), None)),
             }
         }
         // The Bottom Dock last, below them all, where it is shown: its
@@ -4779,7 +4776,7 @@ impl Moonglow {
         // (The project's plugins first: those allowed act on its opening.)
         self.load_project_plugins();
         self.plugins_module_opened();
-        self.outside = Default::default();
+        self.outside.forget_module();
         self.area_names = Default::default();
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
@@ -4856,6 +4853,8 @@ impl Moonglow {
         self.area_contents.clear();
         let Some(name) = name else {
             game.set_custom_tlk(None);
+            // (What is kept by the load order names things by it too.)
+            self.load_order_changed();
             return;
         };
         let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
@@ -4886,6 +4885,11 @@ impl Moonglow {
         }
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));
+        // (And what is kept for the load order, which names things by the
+        // talk tables: the palette's Find, the base items' names. A line
+        // renamed and saved was found by its old name until the haks
+        // changed.)
+        self.load_order_changed();
     }
 
     /// What the module uses of its haks, worked out as a job and shown
@@ -5130,7 +5134,7 @@ impl Moonglow {
         self.adjust = None;
         self.light_draft = None;
         self.find_instance = None;
-        self.outside = Default::default();
+        self.outside.forget_module();
         self.bake = Default::default();
         self.copy_as = None;
         self.rename = None;
@@ -6077,6 +6081,9 @@ impl Moonglow {
                 self.run_now(Action::Quit);
             }
             Action::Quit => {
+                // (What a plugin held for the Protected Area window wrote
+                // into haks is taken back, as its Cancel would.)
+                self.cancel_pending_protected();
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
                 self.keep_open_tabs();

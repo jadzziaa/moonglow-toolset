@@ -29,7 +29,7 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
     if ignore_case {
         rx.push_str("(?i)");
     }
-    let (mut in_range, mut in_group) = (false, false);
+    let (mut globstar, mut in_range, mut in_group) = (false, false, false);
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -45,6 +45,9 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
                 rx.push(next);
                 i += 1;
             }
+            // After a `**`, the glob package drops every later separator
+            // (nasher 1.1.3 lists `src/x/subd.nss` for `src/**/sub/*.nss`).
+            '/' if globstar => {}
             '/' => rx.push('/'),
             '(' | '|' | ')' | '+' | '@' => {
                 rx.push('\\');
@@ -86,12 +89,9 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
             }
             ',' if in_group => rx.push_str(")|(?:"),
             '*' if peek(i + 1) == '*' => {
+                globstar = true;
                 rx.push_str("(?:[^/]*(?:/|$))*");
                 i += 1;
-                // Only swallow the single separator right after `**`.
-                if peek(i + 1) == '/' {
-                    i += 1;
-                }
             }
             '*' => rx.push_str("[^/]*"),
             c => {
@@ -226,14 +226,43 @@ fn base_and_rest(pattern: &str) -> (&str, &str) {
     }
 }
 
+/// `rel` under `root`, each folder or file name found ignoring case
+/// where the exact spelling is not there (nasher 1.1.3 on Linux lists
+/// `src/areas/f.nss` for `SRC/**/*.nss` and for `src/AREAS`), as
+/// [`Cover::covers`] compares the base folder.
+fn resolve_ignoring_case(root: &Path, rel: &str) -> PathBuf {
+    let mut p = root.to_path_buf();
+    for c in Path::new(rel).components() {
+        let Component::Normal(name) = c else {
+            p.push(c.as_os_str());
+            continue;
+        };
+        let exact = p.join(name);
+        if exact.symlink_metadata().is_ok() {
+            p = exact;
+            continue;
+        }
+        let wanted = name.to_string_lossy();
+        let found = std::fs::read_dir(&p).ok().and_then(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name())
+                .filter(|n| n.to_string_lossy().eq_ignore_ascii_case(&wanted))
+                .min()
+        });
+        p = found.map_or(exact, |n| p.join(n));
+    }
+    p
+}
+
 /// The files a pattern finds, relative to `root` unless absolute, as
 /// absolute paths in the order the walk meets them. As in nasher's build,
-/// names compare ignoring case.
+/// names compare ignoring case, the leading folders' too.
 pub(crate) fn walk(root: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
     let mut out = Vec::new();
     let pattern = pattern.replace('\\', "/");
     if !has_magic(&pattern) {
-        let p = root.join(&pattern);
+        let p = resolve_ignoring_case(root, &pattern);
         if p.is_file() {
             out.push(p);
             return Ok(out);
@@ -245,7 +274,7 @@ pub(crate) fn walk(root: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
     }
     // The leading folders without glob syntax, and the rest.
     let (base, magic) = base_and_rest(&pattern);
-    let dir = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
+    let dir = if base.is_empty() { root.to_path_buf() } else { resolve_ignoring_case(root, base) };
     let rx = Regex::new(&to_regex(magic, true)?).map_err(|e| e.to_string())?;
     let mut stack = vec![dir.clone()];
     while let Some(sub) = stack.pop() {
@@ -311,6 +340,10 @@ mod tests {
             "src/{a,win}.{nss,jui}",
             "src/[",
             "nothing/**/*",
+            "SRC/**/*.nss",
+            "src/AREAS",
+            "Src/Areas/**/*.json",
+            "**/areas/*.json",
         ] {
             let cover = Cover::new(&root, pattern);
             let mut walked = walk(&root, pattern).unwrap_or_default();
@@ -381,20 +414,36 @@ mod tests {
         );
         assert_eq!(rel(walk(&root, "README.md").unwrap()), ["README.md"]);
         assert!(walk(&root, "nothing/*.nss").unwrap().is_empty());
+        // The leading folders found ignoring case too, as nasher does on Linux.
+        assert_eq!(rel(walk(&root, "SRC/*.nss").unwrap()), ["src/a.nss"]);
+        assert_eq!(
+            rel(walk(&root, "Src/SUB").unwrap()),
+            ["src/sub/b.utc.json", "src/sub/deep/c.nss"]
+        );
+        assert_eq!(rel(walk(&root, "readme.MD").unwrap()), ["README.md"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn globstar_preserves_later_slashes_and_cover_matches_case_and_skips_hidden() {
-        assert_eq!(to_regex("**/sub/*.nss", false).unwrap(), r"^(?:[^/]*(?:/|$))*sub/[^/]*\.nss$");
+    fn globstar_drops_later_slashes_as_nasher_and_cover_matches_case_and_skips_hidden() {
+        // The glob package drops every separator after a `**`: nasher 1.1.3
+        // lists `src/suba.nss` and `src/x/subd.nss` for `src/**/sub/*.nss`,
+        // and not `src/sub/a.nss` or `src/x/sub/b.nss`.
+        assert_eq!(to_regex("**/sub/*.nss", false).unwrap(), r"^(?:[^/]*(?:/|$))*sub[^/]*\.nss$");
         assert_eq!(
             to_regex("src/**/areas/*.json", false).unwrap(),
-            r"^src/(?:[^/]*(?:/|$))*areas/[^/]*\.json$"
+            r"^src/(?:[^/]*(?:/|$))*areas[^/]*\.json$"
         );
-        let sub_rx = Regex::new(&to_regex("**/sub/*.nss", false).unwrap()).unwrap();
-        assert!(sub_rx.is_match("sub/a.nss"));
-        assert!(sub_rx.is_match("x/y/sub/a.nss"));
-        assert!(!sub_rx.is_match("sub_extra.nss"));
+        let sub_rx = Regex::new(&to_regex("src/**/sub/*.nss", false).unwrap()).unwrap();
+        for (path, nasher) in [
+            ("src/suba.nss", true),
+            ("src/x/subd.nss", true),
+            ("src/sub/a.nss", false),
+            ("src/x/sub/b.nss", false),
+            ("src/x/y/sub/c.nss", false),
+        ] {
+            assert_eq!(sub_rx.is_match(path), nasher, "{path}");
+        }
 
         // Work with a dot-prefixed ancestor root to ensure only components
         // under `base` are treated as hidden.

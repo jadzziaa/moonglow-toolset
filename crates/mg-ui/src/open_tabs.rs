@@ -589,9 +589,18 @@ fn found_again(git: &mg_gff::Gff, path: &GffPath, kept: Option<&Placed>) -> Opti
     };
     let items = git.root.list(list)?;
     let near = |a: &[f32; 3], b: &[f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.01);
+    // (A record written before 5.2.0 kept the tag read as UTF-8 and the
+    // blueprint as `TemplateResRef`, empty for a store: taken as well.)
+    let old = |s: &mg_gff::Struct| {
+        let tag = String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).into_owned();
+        (tag, s.resref("TemplateResRef").map(|r| r.to_string()).unwrap_or_default())
+    };
     let like = |i: usize, exact: bool| {
         placed(list, i, &items[i]).is_some_and(|p| {
-            p.tag == kept.tag && p.resref == kept.resref && (!exact || near(&p.at, &kept.at))
+            let (old_tag, old_resref) = old(&items[i]);
+            (p.tag == kept.tag || old_tag == kept.tag)
+                && (p.resref == kept.resref || old_resref == kept.resref)
+                && (!exact || near(&p.at, &kept.at))
         })
     };
     let item = |i: usize| Some(GffPath::root().item(list, i));
@@ -1178,8 +1187,9 @@ impl Moonglow {
     }
 
     /// At the end of each frame: the kept tabs opened, at the module's
-    /// first; then, the tabs written whenever they change, and a second
-    /// after the windows were last moved or resized.
+    /// first; then the tabs written a second after they last changed or
+    /// the windows were last moved or resized (at once the first time,
+    /// and on Close, Open Module and Exit, which write what is pending).
     pub(crate) fn open_tabs_frame(&mut self, ctx: &egui::Context) {
         if let Some(Pending { panes, front, views }) = self.open_tabs.pending.take() {
             if self.ws.is_some() {
@@ -1697,5 +1707,32 @@ mod tests {
 
         assert!(app.open_tabs.written.is_none());
         assert!(app.open_tabs.told);
+    }
+
+    /// A kept tab's object recorded before 5.2.0 (the tag read as UTF-8, a
+    /// store's blueprint kept empty) is found again.
+    #[test]
+    fn an_object_kept_in_the_old_form_is_found_again() {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("ResRef", mg_gff::Value::ResRef(b"shop_01".to_vec()));
+        s.set("Tag", mg_gff::Value::String(b"Caf\xe9".to_vec()));
+        s.set("XPosition", mg_gff::Value::Float(1.0));
+        s.set("YPosition", mg_gff::Value::Float(2.0));
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        git.root.set("StoreList", mg_gff::Value::List(vec![s]));
+        let path = GffPath::root().item("StoreList", 0);
+        let at = placed("StoreList", 0, &git.root.list("StoreList").unwrap()[0]).unwrap().at;
+        let kept = Placed {
+            tag: String::from_utf8_lossy(b"Caf\xe9").into_owned(),
+            resref: String::new(),
+            at,
+        };
+        assert_eq!(found_again(&git, &path, Some(&kept)), Some(path.clone()));
+        // And as 5.2.0 keeps it.
+        let now = placed("StoreList", 0, &git.root.list("StoreList").unwrap()[0]).unwrap();
+        assert_eq!(found_again(&git, &path, Some(&now)), Some(path.clone()));
+        // Another object's record is not.
+        let other = Placed { tag: "Other".into(), resref: String::new(), at };
+        assert_eq!(found_again(&git, &path, Some(&other)), None);
     }
 }

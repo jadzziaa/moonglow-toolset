@@ -99,7 +99,12 @@ pub const MAX_FACES: usize = 32_767;
 /// A mesh's vertices: their indices are 16 bits.
 pub const MAX_VERTICES: usize = 65_535;
 pub const MAX_RESREF: usize = 16;
-pub const MAX_NODE_NAME: usize = 31;
+/// A node's name: 32 characters, the most nwn.wiki's MDL page gives (the
+/// game's compiler keeps a longer name's first 32). Not proven in the
+/// engine: no model of the game's has a name of more than 28, and
+/// Moonglow's binary writer keeps a NUL in the field, refusing more than
+/// 31.
+pub const MAX_NODE_NAME: usize = 32;
 pub const MAX_LIGHTNING_SEGMENTS: f32 = 9.0;
 
 #[derive(Default)]
@@ -946,7 +951,9 @@ donemodel box\n";
     }
 
     #[test]
-    fn node_name_limit_matches_binary_compiler_31_bytes() {
+    /// The linter's limit is the 32 characters nwn.wiki's MDL page gives
+    /// (the branch's 31 was the binary writer's, unproven in the engine).
+    fn node_name_limit_is_the_wiki_s_32() {
         let with_name = |len: usize| {
             let name = "n".repeat(len);
             format!(
@@ -954,9 +961,9 @@ donemodel box\n";
                  node dummy {name}\n  parent w\nendnode\nendmodelgeom w\ndonemodel w\n"
             )
         };
-        assert!(messages(&with_name(31)).is_empty());
-        let msgs = messages(&with_name(32));
+        assert!(messages(&with_name(32)).is_empty());
+        let msgs = messages(&with_name(33));
         assert_eq!(msgs.len(), 1);
-        assert!(msgs[0].2.contains("31"), "{:?}", msgs);
+        assert!(msgs[0].2.contains("32"), "{:?}", msgs);
     }
 }

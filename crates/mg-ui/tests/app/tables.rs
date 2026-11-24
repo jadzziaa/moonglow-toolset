@@ -1533,6 +1533,37 @@ fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
     assert_eq!(h.state().tables[0].selected, Some((0, footsteps)));
 }
 
+/// Another cell of a row with the game's own wrong cell edited (the table
+/// with no faults of the builder's before): the game's cell is still not
+/// said (the review's C-2: the cells edited were checked without the
+/// game's copy while the table had no faults).
+#[test]
+fn the_game_s_own_wrong_cell_is_not_said_when_its_row_is_edited() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-game-s-own-row");
+    let game = game_data(&root);
+    let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
+    let file = dir.join("appearance.2da");
+    std::fs::write(&file, game.resman.get(&key).unwrap()).unwrap();
+    let table = game.table("appearance").unwrap();
+    let (footsteps, name) = (table.column("FOOTSTEPTYPE").unwrap(), table.column("NAME").unwrap());
+    assert_eq!(table.cell(562, footsteps), Some("30"), "one of the game's own seven");
+    let app = game_app(&root, None);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    assert!(h.query_by_label_contains("wrong").is_none(), "the game's own seven");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(562, name, Some("C2_Renamed".into())).unwrap();
+        doc.go_to(562, footsteps);
+    }
+    h.run_steps(4);
+    let said = h.query_by_label_contains("wrong").map(|n| n.accesskit_node().label());
+    assert_eq!(said, None, "the game's own cell in the row edited");
+}
+
 /// With the game's data: a cell is checked by what its column holds as
 /// it is typed, a row of another table is chosen by name, where a row is
 /// named is found, and rows are taken from the game's copy.
@@ -2018,6 +2049,29 @@ fn a_file_s_table_keeps_its_layout_and_is_read_again_when_changed() {
     }
     assert_eq!(table_of(&h, id).get(0, "Cost"), Some("8"));
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("4"));
+}
+
+/// A table never edited, given a column outside and read again, shows the
+/// new column at once (the review's C-3: the grid's columns were kept by
+/// the count of changes, 0 before and after).
+#[test]
+fn a_column_added_outside_shows_once_the_table_is_read_again() {
+    let dir = mg_testkit::scratch_dir("ui-table-column-outside");
+    let file = dir.join("columns.2da");
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\nbread\tBread\t1\n").unwrap();
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1200.0, 800.0);
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    assert!(h.query_by_label("Weight").is_none(), "no Weight yet");
+    std::fs::write(&file, "2DA V2.0\n\n\tLabel\tCost\tWeight\nbread\tBread\t1\t5\n").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while table_of(&h, id).column("Weight").is_none() {
+        assert!(std::time::Instant::now() < deadline, "read again");
+        h.run_steps(5);
+    }
+    h.run_steps(3);
+    assert!(h.query_all_by_label("Weight").next().is_some(), "the new column's header");
 }
 
 /// A model's cell chosen says whether the game has the model (and where

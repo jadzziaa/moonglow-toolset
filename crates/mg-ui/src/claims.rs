@@ -268,6 +268,19 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
         app.claims.let_through.clear();
         return Ok(());
     }
+    // (Another held for the window already, a plugin's run or an import,
+    // whose follow-ups wait for its answer: this one is refused, not
+    // put in its place.)
+    if app.claims.protected_ask.is_some() && app.held_for_protected() {
+        return Err(EditError::Invalid {
+            key: ResKey::new(area, ResType::ARE),
+            message: format!(
+                "not changed: {area}'s {} is kept, and the Protected Area window waits for an \
+                 answer about another change",
+                what.noun()
+            ),
+        });
+    }
     app.claims.protected_ask = Some(ProtectedAsk { changes, then: Action::Apply(cmd.clone()) });
     app.claims.held = true;
     Err(EditError::Invalid {
@@ -329,6 +342,16 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
+    // (Another held for the window already, a plugin's run or an import:
+    // this one is not done, nor put in its place, as in `gate`.)
+    if app.claims.protected_ask.is_some() && app.held_for_protected() {
+        app.log.warn(format!(
+            "Not done: {} is protected, and the Protected Area window waits for an answer about \
+             another change",
+            key.resref
+        ));
+        return true;
+    }
     let changes = vec![(key.resref, why, what)];
     app.claims.protected_ask = Some(ProtectedAsk { changes, then: action.clone() });
     true

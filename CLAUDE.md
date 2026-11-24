@@ -28,11 +28,13 @@ and everything with `MOONGLOW_FULL_CORPUS=1` (four minutes), which a
 release is tested with: `mg_testkit::sweep` picks, `at_least` scales the
 counts a sweep must reach. A new sweep over the install goes through
 them. Test files are grouped into a few binaries (`tests/groups/` in
-`mg-corpus-tests` and `apps/mg`): a new test file is named in its group,
-and one group runs with `--test engine` (a file's tests: `--test engine
-engine_tlk`). mg-ui's UI tests are one binary, `--test app`, a file a
+`mg-corpus-tests`, `mg-plugin` and `apps/mg`): a new test file is named
+in its group, and one group runs with `--test engine` (a file's tests:
+`--test engine engine_tlk`; mg-plugin's seven are `--test plugins`). mg-ui's UI tests are one binary, `--test app`, a file a
 subject in `crates/mg-ui/tests/app/` (a new file is named in its
-`main.rs`), with the shared set-ups in `app/common.rs`. A UI test waits
+`main.rs`), with the shared set-ups in `app/common.rs` (an area's
+window with its 3D view, `area_harness`, which takes the GPU; without
+it, its panels, docks and forms alone, `area_ui_harness`). A UI test waits
 for the window's own work (`Moonglow::under_way`) with `settle`, or for
 what it looks for with a deadline, not for a count of frames: on a busy
 machine (CI's) the same work takes more of them. To try the tests on a
@@ -64,8 +66,8 @@ tokens, metrics, fonts, the drawn icons; `docs/ui-redesign-proposal.md`),
 its checks and the generated scripts), `mg-plugin` (the plugin host: manifests
 and the sandboxed Luau runtime; the API is documented in
 `docs/manual/16-writing-plugins.md` and `17-plugin-api.md`, and
-`crates/mg-plugin/tests/examples.rs` holds those and the examples in
-`docs/plugins/` to the code), `mg-render` (wgpu renderer), `mg-preview`
+`crates/mg-plugin/tests/examples.rs`, in its `plugins` test binary,
+holds those and the examples in `docs/plugins/` to the code), `mg-render` (wgpu renderer), `mg-preview`
 (blueprint previews: what a creature, item, placeable or door looks like),
 `mg-serve` (runs the game's headless server on a module: `mg serve`,
 `mg test`, the engine tests), `mg-ui` (egui app; UI tests with

@@ -206,17 +206,64 @@ impl LaidOut {
         self.synced_hash = Some(h);
     }
 
+    /// Whether the lines are those of `text` (`h`, its hash): what places
+    /// in the text may be read from them. A script's text replaced where
+    /// its editor was not drawn (a tab behind another following the
+    /// module, the NUI Creator writing it) leaves them those of the text
+    /// before.
+    pub(crate) fn in_sync(&self, text: &str, h: u64) -> bool {
+        self.synced_hash == Some(h) && self.lines.last().is_some_and(|l| l.end == text.len())
+    }
+
+    /// Whether the lines are stamped as those of the text hashed `h`.
+    pub(crate) fn stamped_in_sync(&self, h: u64) -> bool {
+        self.synced_hash == Some(h)
+    }
+
+    /// Whether the lines' bounds are `text`'s lines' (its line ends, the
+    /// characters before each), for tests.
+    pub(crate) fn lines_are(&self, text: &str) -> bool {
+        let mut start = 0;
+        let mut chars = 0;
+        for (i, l) in self.lines.iter().enumerate() {
+            let end =
+                text.get(start..).and_then(|t| t.find('\n')).map_or(text.len(), |e| start + e);
+            let Some(own) = text.get(start..end) else { return false };
+            if (l.start, l.end, l.char_start, l.char_len)
+                != (start, end, chars, own.chars().count())
+            {
+                return false;
+            }
+            chars += l.char_len + 1;
+            if end == text.len() {
+                return i + 1 == self.lines.len() && self.total_chars == chars - 1;
+            }
+            start = end + 1;
+        }
+        false
+    }
+
     /// Incrementally updates line metadata after `text` changed in byte range
     /// `edit_start..old_end` -> `edit_start..new_end`, without shaping any line.
+    /// The lines must be those of the text before the edit (`old_hash`):
+    /// otherwise they are only marked stale, for [`LaidOut::sync_full`] to
+    /// make again (an edit applied to another text's lines stamped them as
+    /// the new text's, wrong: review D1 of the adversarial branch).
     pub(crate) fn apply_edit(
         &mut self,
         text: &str,
         edit_start: usize,
         old_end: usize,
         new_end: usize,
+        old_hash: u64,
         new_hash: u64,
     ) {
-        if self.lines.is_empty() || self.synced_hash.is_none() {
+        let old_len = (text.len() + old_end).checked_sub(new_end);
+        if self.synced_hash != Some(old_hash)
+            || self.lines.last().map(|l| l.end) != old_len
+            || old_end < edit_start
+            || new_end < edit_start
+        {
             self.synced_hash = None;
             return;
         }
@@ -791,9 +838,169 @@ fn line_job(
     palette.pitched(job)
 }
 
+/// Replaces the characters `del` of the editor's text with `ins` as a step
+/// of its history (`before` and `after`, the cursor it gives back on Undo
+/// and on Redo), keeping the laid-out lines in step.
+#[allow(clippy::too_many_arguments)]
+fn replace(
+    buf: &mut crate::script_view::ScriptBuffer,
+    laid: &mut LaidOut,
+    del: egui::text::CCursorRange,
+    ins: &str,
+    before: egui::text::CCursorRange,
+    after: egui::text::CCursorRange,
+    time: f64,
+    mergeable: bool,
+) {
+    let [min, max] = del.sorted_cursors();
+    let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
+    let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
+    let oh = buf.text_hash();
+    let (at, old_end, new_end) =
+        buf.replace_range_undo(bf..bt, ins, before, after, time, mergeable);
+    let nh = buf.text_hash();
+    laid.apply_edit(&buf.text, at, old_end, new_end, oh, nh);
+}
+
+/// [`replace`] for a composition's text (IME): the composition one step.
+fn compose(
+    buf: &mut crate::script_view::ScriptBuffer,
+    laid: &mut LaidOut,
+    del: egui::text::CCursorRange,
+    ins: &str,
+    after: egui::text::CCursorRange,
+    time: f64,
+) {
+    let [min, max] = del.sorted_cursors();
+    let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
+    let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
+    let oh = buf.text_hash();
+    let (at, old_end, new_end) = buf.replace_range_composing(bf..bt, ins, del, after, time);
+    let nh = buf.text_hash();
+    laid.apply_edit(&buf.text, at, old_end, new_end, oh, nh);
+}
+
+/// Where a word move left from the character `cur` lands (Ctrl+Left, Alt+Left
+/// on a Mac): egui's word before it, over line ends as egui finds it in the
+/// whole text, from the lines before it only as far back as a line with
+/// something other than spaces (not the whole text each key).
+fn word_left(laid: &LaidOut, text: &str, cur: usize) -> usize {
+    use egui::text_selection::text_cursor_state::ccursor_previous_word;
+    let (li, _) = laid.line_col(cur);
+    let to = laid.byte_of_char(text, cur);
+    let mut k = li;
+    loop {
+        let from = laid.lines[k];
+        let slice = &text[from.start..to];
+        if k == 0 || slice.chars().any(|c| !c.is_whitespace()) {
+            let n = count_chars(slice);
+            let at = ccursor_previous_word(slice, egui::text::CCursor::new(n));
+            return from.char_start + usize::from(at.index);
+        }
+        k -= 1;
+    }
+}
+
+/// Where a word move right from the character `cur` lands (Ctrl+Right), as
+/// [`word_left`] does: over line ends, as egui's in the whole text.
+fn word_right(laid: &LaidOut, text: &str, cur: usize) -> usize {
+    use egui::text_selection::text_cursor_state::ccursor_next_word;
+    let (li, _) = laid.line_col(cur);
+    let from = laid.byte_of_char(text, cur);
+    let mut k = li;
+    loop {
+        let to = laid.lines[k];
+        let slice = &text[from..to.end];
+        if k + 1 == laid.lines.len() || slice.chars().any(|c| !c.is_whitespace()) {
+            let at = ccursor_next_word(slice, egui::text::CCursor::new(0));
+            return (cur + usize::from(at.index)).min(laid.total_chars);
+        }
+        k += 1;
+    }
+}
+
+/// The start of the line of the character `c`.
+fn line_start_of(laid: &LaidOut, c: usize) -> usize {
+    let (li, _) = laid.line_col(c);
+    laid.lines.get(li).map_or(0, |l| l.char_start)
+}
+
+/// The end of the line of the character `c` (before its line end).
+fn line_end_of(laid: &LaidOut, c: usize) -> usize {
+    let (li, _) = laid.line_col(c);
+    laid.lines.get(li).map_or(0, |l| l.char_start + l.char_len)
+}
+
+/// The cursor a line up (`up`) or down from `range`'s, at its column as the
+/// points across go (kept over short lines, `h_pos`); past the first line
+/// the text's start, past the last its end.
+fn vertical(
+    ui: &Ui,
+    laid: &mut LaidOut,
+    text: &str,
+    palette: &Palette,
+    range: &mut egui::text::CCursorRange,
+    up: bool,
+) {
+    let (li, _) = laid.line_col(usize::from(range.primary.index));
+    let h_pos = range
+        .h_pos
+        .unwrap_or_else(|| laid.cursor_local_rect(ui, text, palette, range.primary).min.x);
+    let lines = laid.lines.len();
+    let to = if up { li.checked_sub(1) } else { Some(li + 1).filter(|l| *l < lines) };
+    range.primary = match to {
+        Some(l) => {
+            let g = laid.ensure_line(ui, text, l, palette);
+            let col = g.rows.first().map_or(0, |r| usize::from(r.char_at(h_pos)));
+            laid.ccursor_at(l, col)
+        }
+        None if up => egui::text::CCursor::new(0),
+        None => egui::text::CCursor::new(laid.total_chars),
+    };
+    range.h_pos = Some(h_pos);
+}
+
+impl LaidOut {
+    /// Paints a line under the characters `from..to` at the foot of their
+    /// rows (a composition's, IME), as egui underlines one.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_underline(
+        &mut self,
+        ui: &Ui,
+        painter: &egui::Painter,
+        text: &str,
+        palette: &Palette,
+        origin: egui::Pos2,
+        (from, to): (usize, usize),
+        stroke: egui::Stroke,
+    ) {
+        if from >= to {
+            return;
+        }
+        let ((fl, fc), (tl, tc)) = (self.line_col(from), self.line_col(to));
+        let ppp = ui.ctx().pixels_per_point();
+        for li in fl..=tl {
+            let g = self.ensure_line(ui, text, li, palette);
+            let Some(row) = g.rows.first() else { continue };
+            let left = if li == fl { row.x_offset(egui::text::CharIndex::from(fc)) } else { 0.0 };
+            let right =
+                if li == tl { row.x_offset(egui::text::CharIndex::from(tc)) } else { row.size.x };
+            let y = origin.y + self.row_y(li, ppp) + self.row_height();
+            painter.line_segment(
+                [egui::pos2(origin.x + left, y), egui::pos2(origin.x + right, y)],
+                stroke,
+            );
+        }
+    }
+}
+
 /// Viewport-virtualized multiline script editor built directly over [`LaidOut`]
 /// and [`ScriptBuffer`], avoiding `egui::TextEdit`'s full-galley clones and
-/// full-document undo snapshots.
+/// full-document undo snapshots. It answers the keys and the pointer as
+/// egui's `TextEdit` does (its `events` and `pointer_interaction`); where it
+/// does otherwise, it says so. `reveal`: the cursor brought into sight, the
+/// text changed before it was drawn (the menus' Undo, Tab, a completion put
+/// in: review N4).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn code_edit(
     ui: &mut Ui,
@@ -802,9 +1009,9 @@ pub(crate) fn code_edit(
     laid: &mut LaidOut,
     palette: &Palette,
     room: f32,
+    reveal: bool,
 ) -> CodeEditOutput {
     use egui::text::{CCursor, CCursorRange};
-    use egui::text_selection::text_cursor_state::{ccursor_next_word, ccursor_previous_word};
     use egui::{Event, Key, Modifiers};
 
     let ctx = ui.ctx().clone();
@@ -819,20 +1026,6 @@ pub(crate) fn code_edit(
         r
     });
     let mut cursor_range = prev_cursor_range.unwrap_or_default();
-
-    let lines = laid.line_count();
-    let gutter_width = laid.ensure_gutter_width(ui, lines, palette);
-    let (gutter_rect, numbers) =
-        ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
-    name_gutter(&numbers, lines);
-
-    let est_w = (laid.max_cols as f32 + 1.0) * laid.char_advance;
-    let content_w = laid.max_width.max(est_w);
-    let field_w = (content_w + 20.0).max(ui.available_width());
-    let field_h = (lines as f32 * laid.row_height()).max(room);
-    let (_, field_rect) = ui.allocate_space(egui::vec2(field_w, field_h));
-    let mut response = ui.interact(field_rect, id, egui::Sense::click_and_drag());
-    let text_origin = egui::pos2(field_rect.left() + 8.0, field_rect.top());
 
     let os = ui.os();
     let has_focus = ctx.memory(|m| m.has_focus(id));
@@ -852,86 +1045,17 @@ pub(crate) fn code_edit(
             escape: false,
         };
         ctx.memory_mut(|m| m.set_focus_lock_filter(id, filter));
+    } else {
+        // (A composition goes with the keys: review M2.)
+        laid.ime_preedit = None;
+        buf.undo.end_composing();
     }
 
-    // Helper: delete `range` (sorted) or replace with `ins`, updating `laid`, `buf`, `cursor_range`.
-    let apply_replace = |buf: &mut crate::script_view::ScriptBuffer,
-                         laid: &mut LaidOut,
-                         range: CCursorRange,
-                         ins: &str,
-                         new_cursor: CCursorRange,
-                         time: f64,
-                         mergeable: bool| {
-        let [min, max] = range.sorted_cursors();
-        let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
-        let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
-        let (at, old_end, new_end) =
-            buf.replace_range_undo(bf..bt, ins, range, new_cursor, time, mergeable);
-        let nh = buf.text_hash();
-        laid.apply_edit(&buf.text, at, old_end, new_end, nh);
-    };
-
-    // Pointer interaction (preserving right-click selection for context menus).
-    if response.hovered() {
-        ui.set_cursor_icon(egui::CursorIcon::Text);
-        ui.output_mut(|o| o.mutable_text_under_cursor = true);
-    }
-    if let Some(pos) = response.interact_pointer_pos() {
-        let local = egui::pos2(pos.x - text_origin.x, pos.y - text_origin.y);
-        let pointer_cursor = laid.ccursor_from_local_pos(ui, &buf.text, palette, local);
-        if response.double_clicked() {
-            ctx.memory_mut(|m| m.request_focus(id));
-            let (li, col) = laid.line_col(usize::from(pointer_cursor.index));
-            let l = laid.lines[li];
-            let s = &buf.text[l.start..l.end];
-            let rel = CCursor::new(col);
-            let a = usize::from(ccursor_previous_word(s, rel).index) + l.char_start;
-            let b = usize::from(ccursor_next_word(s, rel).index) + l.char_start;
-            cursor_range = CCursorRange::two(CCursor::new(a), CCursor::new(b));
-            laid.ime_preedit = None;
-            any_cursor_edit = true;
-        } else if response.triple_clicked() {
-            ctx.memory_mut(|m| m.request_focus(id));
-            let (li, _) = laid.line_col(usize::from(pointer_cursor.index));
-            let l = laid.lines[li];
-            let end =
-                (l.char_start + l.char_len + usize::from(li + 1 < lines)).min(laid.total_chars);
-            cursor_range = CCursorRange::two(CCursor::new(l.char_start), CCursor::new(end));
-            laid.ime_preedit = None;
-            any_cursor_edit = true;
-        } else if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
-            ctx.memory_mut(|m| m.request_focus(id));
-            if ui.input(|i| i.modifiers.shift) {
-                cursor_range.primary = pointer_cursor;
-                cursor_range.h_pos = None;
-            } else {
-                cursor_range = CCursorRange::one(pointer_cursor);
-            }
-            laid.ime_preedit = None;
-            any_cursor_edit = true;
-        } else if ui.is_being_dragged(id) && ui.input(|i| i.pointer.primary_down()) {
-            cursor_range.primary = pointer_cursor;
-            cursor_range.h_pos = None;
-            any_cursor_edit = true;
-        } else if response.hovered()
-            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
-        {
-            // (A right press gives the editor the keys, for its menu
-            // (`widgets::text_menu`). In the selection it keeps it, for the
-            // menu's Cut, Copy and Convert Indentation of its lines; outside
-            // it, the caret goes where it was pressed, as a left press puts
-            // it.)
-            ctx.memory_mut(|m| m.request_focus(id));
-            let [min, max] = cursor_range.sorted_cursors();
-            if pointer_cursor.index < min.index || pointer_cursor.index > max.index {
-                cursor_range = CCursorRange::one(pointer_cursor);
-                laid.ime_preedit = None;
-                any_cursor_edit = true;
-            }
-        }
-    }
-
-    // Keyboard / clipboard / IME events when focused.
+    // Keyboard, clipboard and IME events, before the editor's size is
+    // taken, as egui's TextEdit has them: lines a paste adds are in the
+    // room the scroll area is given this frame, and the cursor scrolled to
+    // there at once (with smooth scrolling off, the scroll stopped short of
+    // a paste at the text's end: review N6).
     if has_focus {
         let now = ui.input(|i| i.time);
         let events = ui.input(|i| {
@@ -953,6 +1077,8 @@ pub(crate) fn code_edit(
                 .collect::<Vec<_>>()
         });
         for ev in &events {
+            let total = laid.total_chars;
+            let was = cursor_range;
             match ev {
                 Event::Copy => {
                     if !cursor_range.is_empty() {
@@ -969,7 +1095,7 @@ pub(crate) fn code_edit(
                         let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
                         ui.copy_text(buf.text[bf..bt].to_owned());
                         let next = CCursorRange::one(min);
-                        apply_replace(buf, laid, cursor_range, "", next, now, false);
+                        replace(buf, laid, was, "", was, next, now, false);
                         cursor_range = next;
                         text_changed = true;
                     }
@@ -977,11 +1103,9 @@ pub(crate) fn code_edit(
                 Event::Paste(ins) => {
                     if !ins.is_empty() {
                         let min = cursor_range.sorted_cursors()[0];
-                        let after_c = CCursor::new(min.index + count_chars(ins));
-                        let next = CCursorRange::one(after_c);
-                        apply_replace(buf, laid, cursor_range, ins, next, now, false);
+                        let next = CCursorRange::one(CCursor::new(min.index + count_chars(ins)));
+                        replace(buf, laid, was, ins, was, next, now, false);
                         cursor_range = next;
-                        laid.ime_preedit = None;
                         text_changed = true;
                     }
                 }
@@ -989,14 +1113,16 @@ pub(crate) fn code_edit(
                     if !ins.is_empty() && ins != "\n" && ins != "\r" {
                         let mergeable = cursor_range.is_empty();
                         let min = cursor_range.sorted_cursors()[0];
-                        let after_c = CCursor::new(min.index + count_chars(ins));
-                        let next = CCursorRange::one(after_c);
-                        apply_replace(buf, laid, cursor_range, ins, next, now, mergeable);
+                        let next = CCursorRange::one(CCursor::new(min.index + count_chars(ins)));
+                        replace(buf, laid, was, ins, was, next, now, mergeable);
                         cursor_range = next;
-                        laid.ime_preedit = None;
                         text_changed = true;
                     }
                 }
+                // A composition (IME) goes where the cursor is, as in
+                // egui: its text replaces the selection, and each next text
+                // the one before (the cursor's range while it goes on); the
+                // whole of it is one step of the history (review M1, M2).
                 Event::Ime(ime) => match ime {
                     egui::ImeEvent::Preedit { text: pre, .. }
                         if pre.is_empty() && laid.ime_preedit.is_none() => {}
@@ -1004,315 +1130,316 @@ pub(crate) fn code_edit(
                     egui::ImeEvent::Preedit { text: pre, .. } | egui::ImeEvent::Commit(pre)
                         if pre == "\n" || pre == "\r" => {}
                     egui::ImeEvent::Preedit { text: pre, active_range_chars } => {
-                        let base = laid.ime_preedit.take().map_or(cursor_range, |(r, _)| r);
-                        let min = base.sorted_cursors()[0];
-                        if pre.is_empty() {
-                            let next = CCursorRange::one(min);
-                            apply_replace(buf, laid, base, "", next, now, false);
-                            cursor_range = next;
-                        } else {
-                            let end = CCursor::new(min.index + count_chars(pre));
-                            let next = CCursorRange::two(min, end);
-                            apply_replace(buf, laid, base, pre, next, now, false);
-                            cursor_range = next;
-                            laid.ime_preedit = Some((
-                                next,
-                                active_range_chars
-                                    .as_ref()
-                                    .map(|r| CCursor::new(r.start)..CCursor::new(r.end)),
-                            ));
-                        }
+                        let min = cursor_range.sorted_cursors()[0];
+                        let end = CCursor::new(min.index + count_chars(pre));
+                        let next = CCursorRange::two(min, end);
+                        compose(buf, laid, was, pre, next, now);
+                        cursor_range = next;
+                        laid.ime_preedit = (!pre.is_empty()).then(|| {
+                            let active = active_range_chars.as_ref();
+                            (next, active.map(|r| CCursor::new(r.start)..CCursor::new(r.end)))
+                        });
                         text_changed = true;
                     }
                     egui::ImeEvent::Commit(commit) => {
-                        let base = laid.ime_preedit.take().map_or(cursor_range, |(r, _)| r);
-                        let min = base.sorted_cursors()[0];
-                        let next = CCursor::new(min.index + count_chars(commit));
-                        let range = CCursorRange::one(next);
-                        apply_replace(buf, laid, base, commit, range, now, false);
-                        cursor_range = range;
+                        let min = cursor_range.sorted_cursors()[0];
+                        let next = CCursorRange::one(CCursor::new(min.index + count_chars(commit)));
+                        compose(buf, laid, was, commit, next, now);
+                        buf.undo.end_composing();
+                        cursor_range = next;
+                        laid.ime_preedit = None;
                         text_changed = true;
                     }
+                    // (The characters around the selection, the selection
+                    // kept, as egui's `delete_surrounding_chars`: review N5.)
                     egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
                         let [min, max] = cursor_range.sorted_cursors();
-                        let a = usize::from(min.index).saturating_sub(*before_chars);
-                        let b = usize::from(max.index)
-                            .saturating_add(*after_chars)
-                            .min(laid.total_chars);
-                        let del = CCursorRange::two(CCursor::new(a), CCursor::new(b));
-                        let next = CCursorRange::one(CCursor::new(a));
-                        apply_replace(buf, laid, del, "", next, now, false);
-                        cursor_range = next;
+                        if *after_chars > 0 {
+                            let to =
+                                CCursor::new((usize::from(max.index) + after_chars).min(total));
+                            let del = CCursorRange::two(max, to);
+                            replace(buf, laid, del, "", was, was, now, false);
+                        }
+                        let back = (*before_chars).min(usize::from(min.index));
+                        if back > 0 {
+                            let mut moved = cursor_range;
+                            moved.primary -= back;
+                            moved.secondary -= back;
+                            let del = CCursorRange::two(CCursor::new(min.index - back), min);
+                            replace(buf, laid, del, "", was, moved, now, false);
+                            cursor_range = moved;
+                        }
+                        laid.ime_preedit = None;
                         text_changed = true;
                     }
                     _ => {}
                 },
-                Event::Key { key, pressed: true, modifiers, .. } => match key {
-                    Key::A if modifiers.command => {
-                        cursor_range =
-                            CCursorRange::two(CCursor::new(0), CCursor::new(laid.total_chars));
-                        any_cursor_edit = true;
-                    }
-                    Key::ArrowLeft | Key::ArrowRight
-                        if modifiers.is_none() && !cursor_range.is_empty() =>
-                    {
-                        let [min, max] = cursor_range.sorted_cursors();
-                        cursor_range =
-                            CCursorRange::one(if *key == Key::ArrowLeft { min } else { max });
-                        any_cursor_edit = true;
-                    }
-                    Key::ArrowLeft => {
-                        let cur = usize::from(cursor_range.primary.index);
-                        let c = if modifiers.alt || modifiers.ctrl {
-                            let (li, col) = laid.line_col(cur);
-                            if col > 0 {
-                                let l = laid.lines[li];
-                                let rel = ccursor_previous_word(
-                                    &buf.text[l.start..l.end],
-                                    CCursor::new(col),
-                                );
-                                laid.ccursor_at(li, usize::from(rel.index))
-                            } else if li > 0 {
-                                let pl = laid.lines[li - 1];
-                                laid.ccursor_at(li - 1, pl.char_len)
-                            } else {
-                                CCursor::new(0)
-                            }
-                        } else if modifiers.mac_cmd {
-                            let (li, _) = laid.line_col(cur);
-                            laid.ccursor_at(li, 0)
-                        } else {
-                            CCursor::new(cur.saturating_sub(1))
-                        };
-                        cursor_range.primary = c;
-                        cursor_range.h_pos = None;
-                        if !modifiers.shift {
-                            cursor_range.secondary = c;
+                Event::Key { key, pressed: true, modifiers, .. } => {
+                    // (A Mac's Ctrl+A, E, P, N, B and F move the cursor, as
+                    // in egui: review N8.)
+                    let mac_ctrl =
+                        os == egui::os::OperatingSystem::Mac && modifiers.ctrl && !modifiers.shift;
+                    let cur = usize::from(cursor_range.primary.index);
+                    let [min, max] = cursor_range.sorted_cursors();
+                    let (min_c, max_c) = (usize::from(min.index), usize::from(max.index));
+                    // (Deletes the characters `a..b`, the cursor left at
+                    // `a`; Undo gives the cursor back as it was, not the
+                    // characters taken selected: review N2.)
+                    let mut delete = |buf: &mut crate::script_view::ScriptBuffer,
+                                      laid: &mut LaidOut,
+                                      a: usize,
+                                      b: usize,
+                                      merge: bool|
+                     -> CCursorRange {
+                        let next =
+                            CCursorRange::one(CCursor { prefer_next_row: true, ..CCursor::new(a) });
+                        if a < b {
+                            let del = CCursorRange::two(CCursor::new(a), CCursor::new(b));
+                            replace(buf, laid, del, "", was, next, now, merge);
+                            text_changed = true;
                         }
-                        any_cursor_edit = true;
-                    }
-                    Key::ArrowRight => {
-                        let cur = usize::from(cursor_range.primary.index);
-                        let c = if modifiers.alt || modifiers.ctrl {
-                            let (li, col) = laid.line_col(cur);
-                            let l = laid.lines[li];
-                            if col < l.char_len {
-                                let rel =
-                                    ccursor_next_word(&buf.text[l.start..l.end], CCursor::new(col));
-                                laid.ccursor_at(li, usize::from(rel.index))
-                            } else if li + 1 < lines {
-                                laid.ccursor_at(li + 1, 0)
-                            } else {
-                                CCursor::new(laid.total_chars)
-                            }
-                        } else if modifiers.mac_cmd {
-                            let (li, _) = laid.line_col(cur);
-                            laid.ccursor_at(li, laid.lines[li].char_len)
-                        } else {
-                            CCursor::new((cur + 1).min(laid.total_chars))
-                        };
-                        cursor_range.primary = c;
-                        cursor_range.h_pos = None;
-                        if !modifiers.shift {
-                            cursor_range.secondary = c;
+                        next
+                    };
+                    match key {
+                        Key::A if modifiers.command => {
+                            cursor_range =
+                                CCursorRange::two(CCursor::new(0), CCursor::new(laid.total_chars));
                         }
-                        any_cursor_edit = true;
-                    }
-                    Key::ArrowUp => {
-                        if modifiers.command {
-                            cursor_range.primary = CCursor::new(0);
-                            cursor_range.h_pos = None;
-                        } else {
-                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
-                            let h_pos = cursor_range.h_pos.unwrap_or_else(|| {
-                                laid.cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
-                                    .min
-                                    .x
-                            });
-                            if li > 0 {
-                                let g = laid.ensure_line(ui, &buf.text, li - 1, palette);
-                                let col =
-                                    g.rows.first().map_or(0, |r| usize::from(r.char_at(h_pos)));
-                                cursor_range.primary = laid.ccursor_at(li - 1, col);
-                                cursor_range.h_pos = Some(h_pos);
-                            } else {
-                                cursor_range.primary = CCursor::new(0);
-                                cursor_range.h_pos = Some(h_pos);
-                            }
-                        }
-                        if !modifiers.shift {
+                        Key::P | Key::N if mac_ctrl => {
+                            let up = *key == Key::P;
+                            vertical(ui, laid, &buf.text, palette, &mut cursor_range, up);
                             cursor_range.secondary = cursor_range.primary;
                         }
-                        any_cursor_edit = true;
-                    }
-                    Key::ArrowDown => {
-                        if modifiers.command {
-                            cursor_range.primary = CCursor::new(laid.total_chars);
-                            cursor_range.h_pos = None;
-                        } else {
-                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
-                            let h_pos = cursor_range.h_pos.unwrap_or_else(|| {
-                                laid.cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
-                                    .min
-                                    .x
-                            });
-                            if li + 1 < lines {
-                                let g = laid.ensure_line(ui, &buf.text, li + 1, palette);
-                                let col =
-                                    g.rows.first().map_or(0, |r| usize::from(r.char_at(h_pos)));
-                                cursor_range.primary = laid.ccursor_at(li + 1, col);
-                                cursor_range.h_pos = Some(h_pos);
-                            } else {
-                                cursor_range.primary = CCursor::new(laid.total_chars);
-                                cursor_range.h_pos = Some(h_pos);
-                            }
+                        Key::A | Key::E | Key::B | Key::F if mac_ctrl => {
+                            let c = match key {
+                                Key::A => line_start_of(laid, cur),
+                                Key::E => line_end_of(laid, cur),
+                                Key::B => cur.saturating_sub(1),
+                                _ => (cur + 1).min(total),
+                            };
+                            cursor_range = CCursorRange::one(CCursor::new(c));
                         }
-                        if !modifiers.shift {
-                            cursor_range.secondary = cursor_range.primary;
-                        }
-                        any_cursor_edit = true;
-                    }
-                    Key::Home => {
-                        let c = if modifiers.ctrl {
-                            CCursor::new(0)
-                        } else {
-                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
-                            laid.ccursor_at(li, 0)
-                        };
-                        cursor_range.primary = c;
-                        cursor_range.h_pos = None;
-                        if !modifiers.shift {
-                            cursor_range.secondary = c;
-                        }
-                        any_cursor_edit = true;
-                    }
-                    Key::End => {
-                        let c = if modifiers.ctrl {
-                            CCursor::new(laid.total_chars)
-                        } else {
-                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
-                            laid.ccursor_at(li, laid.lines[li].char_len)
-                        };
-                        cursor_range.primary = c;
-                        cursor_range.h_pos = None;
-                        if !modifiers.shift {
-                            cursor_range.secondary = c;
-                        }
-                        any_cursor_edit = true;
-                    }
-                    Key::Z | Key::Y
-                        if modifiers.matches_logically(Modifiers::COMMAND)
-                            || modifiers
-                                .matches_logically(Modifiers::COMMAND | Modifiers::SHIFT) =>
-                    {
-                        let redo = *key == Key::Y || modifiers.shift;
-                        if let Some((next_range, at, old_end, new_end)) =
-                            buf.undo.step(&mut buf.text, redo)
+                        Key::ArrowLeft | Key::ArrowRight
+                            if modifiers.is_none() && !cursor_range.is_empty() =>
                         {
-                            buf.invalidate_hash();
-                            let nh = buf.text_hash();
-                            laid.apply_edit(&buf.text, at, old_end, new_end, nh);
-                            cursor_range = next_range;
-                            laid.ime_preedit = None;
-                            text_changed = true;
+                            cursor_range =
+                                CCursorRange::one(if *key == Key::ArrowLeft { min } else { max });
                         }
-                    }
-                    Key::Backspace => {
-                        let cur = usize::from(cursor_range.primary.index);
-                        if !cursor_range.is_empty() {
-                            let min = cursor_range.sorted_cursors()[0];
-                            let next = CCursorRange::one(min);
-                            apply_replace(buf, laid, cursor_range, "", next, now, false);
-                            cursor_range = next;
-                            text_changed = true;
-                        } else if cur > 0 {
-                            let (from_c, merge) = if modifiers.mac_cmd {
-                                let (li, _) = laid.line_col(cur);
-                                (usize::from(laid.ccursor_at(li, 0).index), false)
-                            } else if modifiers.alt || modifiers.ctrl {
-                                let (li, col) = laid.line_col(cur);
-                                if col > 0 {
-                                    let l = laid.lines[li];
-                                    let rel = ccursor_previous_word(
-                                        &buf.text[l.start..l.end],
-                                        CCursor::new(col),
-                                    );
-                                    (
-                                        usize::from(
-                                            laid.ccursor_at(li, usize::from(rel.index)).index,
-                                        ),
-                                        false,
-                                    )
+                        Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End => {
+                            let left = matches!(key, Key::ArrowLeft | Key::Home);
+                            let arrow = matches!(key, Key::ArrowLeft | Key::ArrowRight);
+                            let c = if arrow && (modifiers.alt || modifiers.ctrl) {
+                                // (Words over line ends, as egui: review N10.)
+                                if left {
+                                    word_left(laid, &buf.text, cur)
                                 } else {
-                                    (cur - 1, false)
+                                    word_right(laid, &buf.text, cur)
                                 }
+                            } else if (arrow && modifiers.mac_cmd) || (!arrow && !modifiers.ctrl) {
+                                if left { line_start_of(laid, cur) } else { line_end_of(laid, cur) }
+                            } else if !arrow {
+                                if left { 0 } else { total }
+                            } else if left {
+                                cur.saturating_sub(1)
                             } else {
-                                (cur - 1, true)
+                                (cur + 1).min(total)
                             };
-                            let span =
-                                CCursorRange::two(CCursor::new(from_c), cursor_range.primary);
-                            let next = CCursorRange::one(CCursor::new(from_c));
-                            apply_replace(buf, laid, span, "", next, now, merge);
-                            cursor_range = next;
-                            text_changed = true;
+                            cursor_range.primary = CCursor::new(c);
+                            cursor_range.h_pos = None;
+                            if !modifiers.shift {
+                                cursor_range.secondary = cursor_range.primary;
+                            }
                         }
-                    }
-                    Key::Delete if !modifiers.shift || os != egui::os::OperatingSystem::Windows => {
-                        let cur = usize::from(cursor_range.primary.index);
-                        if !cursor_range.is_empty() {
-                            let min = cursor_range.sorted_cursors()[0];
-                            let next = CCursorRange::one(min);
-                            apply_replace(buf, laid, cursor_range, "", next, now, false);
-                            cursor_range = next;
-                            text_changed = true;
-                        } else if cur < laid.total_chars {
-                            let to_c = if modifiers.mac_cmd {
-                                let (li, _) = laid.line_col(cur);
-                                usize::from(laid.ccursor_at(li, laid.lines[li].char_len).index)
+                        Key::ArrowUp | Key::ArrowDown => {
+                            let up = *key == Key::ArrowUp;
+                            if modifiers.command {
+                                cursor_range.primary = CCursor::new(if up { 0 } else { total });
+                                cursor_range.h_pos = None;
+                            } else {
+                                vertical(ui, laid, &buf.text, palette, &mut cursor_range, up);
+                            }
+                            if !modifiers.shift {
+                                cursor_range.secondary = cursor_range.primary;
+                            }
+                        }
+                        Key::Z | Key::Y
+                            if modifiers.matches_logically(Modifiers::COMMAND)
+                                || modifiers
+                                    .matches_logically(Modifiers::COMMAND | Modifiers::SHIFT) =>
+                        {
+                            let redo = *key == Key::Y || modifiers.shift;
+                            let oh = buf.text_hash();
+                            if let Some((next_range, at, old_end, new_end)) =
+                                buf.undo.step(&mut buf.text, redo)
+                            {
+                                buf.invalidate_hash();
+                                let nh = buf.text_hash();
+                                laid.apply_edit(&buf.text, at, old_end, new_end, oh, nh);
+                                cursor_range = next_range;
+                                text_changed = true;
+                            }
+                        }
+                        // (Back to the line's start, a Mac's Cmd+Backspace
+                        // and Ctrl+U, as egui; at its start, the line end
+                        // before: review N9.)
+                        Key::Backspace | Key::U
+                            if (*key == Key::Backspace && modifiers.mac_cmd)
+                                || (*key == Key::U && modifiers.ctrl) =>
+                        {
+                            let from = line_start_of(laid, min_c);
+                            cursor_range = if from == max_c {
+                                delete(buf, laid, max_c.saturating_sub(1), max_c, false)
+                            } else {
+                                delete(buf, laid, from, max_c, false)
+                            };
+                        }
+                        // (To the line's end, a Mac's Cmd+Delete and
+                        // Ctrl+K; at its end, the line end.)
+                        Key::Delete | Key::K
+                            if (*key == Key::Delete && modifiers.mac_cmd)
+                                || (*key == Key::K && modifiers.ctrl) =>
+                        {
+                            let to = line_end_of(laid, max_c);
+                            cursor_range = if to == min_c {
+                                delete(buf, laid, min_c, (min_c + 1).min(total), false)
+                            } else {
+                                delete(buf, laid, min_c, to, false)
+                            };
+                        }
+                        Key::Backspace | Key::W if *key == Key::Backspace || modifiers.ctrl => {
+                            let word = *key == Key::W || modifiers.alt || modifiers.ctrl;
+                            cursor_range = if !cursor_range.is_empty() {
+                                delete(buf, laid, min_c, max_c, false)
+                            } else if word {
+                                delete(buf, laid, word_left(laid, &buf.text, cur), cur, false)
+                            } else {
+                                delete(buf, laid, cur.saturating_sub(1), cur, true)
+                            };
+                        }
+                        Key::Delete
+                            if !modifiers.shift || os != egui::os::OperatingSystem::Windows =>
+                        {
+                            cursor_range = if !cursor_range.is_empty() {
+                                delete(buf, laid, min_c, max_c, false)
                             } else if modifiers.alt || modifiers.ctrl {
-                                let (li, col) = laid.line_col(cur);
-                                let l = laid.lines[li];
-                                if col < l.char_len {
-                                    let rel = ccursor_next_word(
-                                        &buf.text[l.start..l.end],
-                                        CCursor::new(col),
-                                    );
-                                    usize::from(laid.ccursor_at(li, usize::from(rel.index)).index)
-                                } else {
-                                    cur + 1
-                                }
+                                delete(buf, laid, cur, word_right(laid, &buf.text, cur), false)
                             } else {
-                                cur + 1
+                                // (Key after key one step, as Backspace's:
+                                // review N11.)
+                                delete(buf, laid, cur, (cur + 1).min(total), true)
                             };
-                            let span = CCursorRange::two(cursor_range.primary, CCursor::new(to_c));
-                            let next = CCursorRange::one(CCursor {
-                                prefer_next_row: true,
-                                ..cursor_range.primary
-                            });
-                            apply_replace(buf, laid, span, "", next, now, false);
+                        }
+                        Key::Enter if modifiers.is_none() => {
+                            let next = CCursorRange::one(CCursor::new(min.index + 1));
+                            replace(buf, laid, was, "\n", was, next, now, false);
                             cursor_range = next;
                             text_changed = true;
                         }
+                        _ => {}
                     }
-                    Key::Enter if modifiers.is_none() => {
-                        let min = cursor_range.sorted_cursors()[0];
-                        let next = CCursorRange::one(CCursor::new(min.index + 1));
-                        apply_replace(buf, laid, cursor_range, "\n", next, now, false);
-                        cursor_range = next;
-                        text_changed = true;
-                    }
-                    _ => {}
-                },
+                }
                 Event::AccessKitActionRequest(_)
                     if ctx.accesskit_node_builder(id, |_| ()).is_some() =>
                 {
                     let full = laid.text(ui, &buf.text, palette);
                     cursor_range.on_event(os, ev, &full, id);
-                    any_cursor_edit = true;
                 }
                 _ => {}
             }
+            if cursor_range != was {
+                any_cursor_edit = true;
+            }
         }
+    }
+
+    // The room: what the text needs, after the keys (above).
+    let lines = laid.line_count();
+    let gutter_width = laid.ensure_gutter_width(ui, lines, palette);
+    let (gutter_rect, numbers) =
+        ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
+    name_gutter(&numbers, lines);
+    let est_w = (laid.max_cols as f32 + 1.0) * laid.char_advance;
+    let content_w = laid.max_width.max(est_w);
+    let field_w = (content_w + 20.0).max(ui.available_width());
+    let field_h = (lines as f32 * laid.row_height()).max(room);
+    let (_, field_rect) = ui.allocate_space(egui::vec2(field_w, field_h));
+    let mut response = ui.interact(field_rect, id, egui::Sense::click_and_drag());
+    // (Space or Enter in the editor are no click, as in egui's TextEdit:
+    // Help followed the word at the cursor on Space, and Ctrl+Enter went to
+    // its definition: review N1.)
+    response.flags -= egui::response::Flags::FAKE_PRIMARY_CLICKED;
+    let text_origin = egui::pos2(field_rect.left() + 8.0, field_rect.top());
+
+    // Pointer interaction (preserving right-click selection for context menus).
+    if response.hovered() {
+        ui.set_cursor_icon(egui::CursorIcon::Text);
+        ui.output_mut(|o| o.mutable_text_under_cursor = true);
+    }
+    if let Some(pos) = response.interact_pointer_pos() {
+        let local = egui::pos2(pos.x - text_origin.x, pos.y - text_origin.y);
+        let pointer_cursor = laid.ccursor_from_local_pos(ui, &buf.text, palette, local);
+        let mut moved = true;
+        if response.double_clicked() {
+            use egui::text_selection::text_cursor_state::{
+                ccursor_next_word, ccursor_previous_word,
+            };
+            ctx.memory_mut(|m| m.request_focus(id));
+            let (li, col) = laid.line_col(usize::from(pointer_cursor.index));
+            let l = laid.lines[li];
+            let s = &buf.text[l.start..l.end];
+            let rel = CCursor::new(col);
+            let a = usize::from(ccursor_previous_word(s, rel).index) + l.char_start;
+            let b = usize::from(ccursor_next_word(s, rel).index) + l.char_start;
+            cursor_range = CCursorRange::two(CCursor::new(a), CCursor::new(b));
+        } else if response.triple_clicked() {
+            ctx.memory_mut(|m| m.request_focus(id));
+            let (li, _) = laid.line_col(usize::from(pointer_cursor.index));
+            let l = laid.lines[li];
+            let end =
+                (l.char_start + l.char_len + usize::from(li + 1 < lines)).min(laid.total_chars);
+            cursor_range = CCursorRange::two(CCursor::new(l.char_start), CCursor::new(end));
+        } else if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+            ctx.memory_mut(|m| m.request_focus(id));
+            // (Shift with no cursor before: from the click, as egui; it
+            // selected from the text's start: review N7.)
+            if ui.input(|i| i.modifiers.shift) && prev_cursor_range.is_some() {
+                cursor_range.primary = pointer_cursor;
+                cursor_range.h_pos = None;
+            } else {
+                cursor_range = CCursorRange::one(pointer_cursor);
+            }
+        } else if ui.is_being_dragged(id) && ui.input(|i| i.pointer.primary_down()) {
+            cursor_range.primary = pointer_cursor;
+            cursor_range.h_pos = None;
+        } else if response.hovered()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+        {
+            // (A right press gives the editor the keys, for its menu
+            // (`widgets::text_menu`). In the selection it keeps it, for the
+            // menu's Cut, Copy and Convert Indentation of its lines; outside
+            // it, the caret goes where it was pressed, as a left press puts
+            // it.)
+            ctx.memory_mut(|m| m.request_focus(id));
+            let [min, max] = cursor_range.sorted_cursors();
+            if pointer_cursor.index < min.index || pointer_cursor.index > max.index {
+                cursor_range = CCursorRange::one(pointer_cursor);
+            } else {
+                moved = false;
+            }
+        } else {
+            moved = false;
+        }
+        any_cursor_edit |= moved;
+    }
+
+    // A composition is shown only while the cursor is on it: anything else
+    // that moved the cursor or edited the text ended it (review M2).
+    let preedit = laid.ime_preedit.clone().filter(|(r, _)| {
+        r.as_sorted_char_range() == cursor_range.as_sorted_char_range() && !r.is_empty()
+    });
+    if preedit.is_none() && laid.ime_preedit.is_some() {
+        laid.ime_preedit = None;
+        buf.undo.end_composing();
     }
 
     if text_changed {
@@ -1331,7 +1458,7 @@ pub(crate) fn code_edit(
         .cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
         .translate(text_origin.to_vec2());
     primary_cursor_rect = primary_cursor_rect.expand(1.5);
-    if has_focus && (response.changed() || selection_changed) {
+    if (has_focus && (response.changed() || selection_changed)) || reveal {
         ui.scroll_to_rect(primary_cursor_rect, None);
     }
 
@@ -1382,9 +1509,10 @@ pub(crate) fn code_edit(
         }
     }
 
-    // Visible-only selection rectangles.
+    // Visible-only selection rectangles (a composition is underlined
+    // instead, as egui shows one: review N5).
     let selected_color = ui.visuals().selection.bg_fill;
-    if let Some(r) = final_cursor_range.filter(|r| !r.is_empty()) {
+    if let Some(r) = final_cursor_range.filter(|r| !r.is_empty() && preedit.is_none()) {
         let [min, max] = r.sorted_cursors();
         let (min_li, min_col) = laid.line_col(usize::from(min.index));
         let (max_li, max_col) = laid.line_col(usize::from(max.index));
@@ -1434,16 +1562,53 @@ pub(crate) fn code_edit(
         marks,
     );
 
+    // A composition underlined, its active part more strongly; the caret
+    // where the composition puts its own (none while a part is active), as
+    // egui's `paint_ime_preedit_text_visuals` (review N5).
+    let mut caret = Some(primary_cursor_rect);
+    if let Some((r, active)) = &preedit {
+        let [start, end] = r.sorted_cursors();
+        let (s, e) = (usize::from(start.index), usize::from(end.index));
+        let ime = ui.visuals().ime_composition;
+        let active = active.as_ref().map(|a| {
+            let len = e - s;
+            (s + usize::from(a.start.index).min(len), s + usize::from(a.end.index).min(len))
+        });
+        let mut underline = |from: usize, to: usize, stroke| {
+            let painter = &text_painter;
+            laid.paint_underline(ui, painter, &buf.text, palette, text_origin, (from, to), stroke);
+        };
+        match active {
+            Some((a, b)) if a < b => {
+                underline(s, a, ime.inactive_underline_stroke);
+                underline(a, b, ime.active_underline_stroke);
+                underline(b, e, ime.inactive_underline_stroke);
+                caret = None;
+            }
+            Some((a, _)) => {
+                underline(s, e, ime.inactive_underline_stroke);
+                let rect = laid.cursor_local_rect(ui, &buf.text, palette, CCursor::new(a));
+                caret = Some(rect.translate(text_origin.to_vec2()).expand(1.5));
+            }
+            None => {
+                underline(s, e, ime.inactive_underline_stroke);
+                caret = None;
+            }
+        }
+    }
+
     if has_focus {
         let now = ui.input(|i| i.time);
         if text_changed || any_cursor_edit {
             laid.last_interaction_time = now;
         }
-        if ui.input(|i| i.focused) {
+        if ui.input(|i| i.focused)
+            && let Some(caret) = caret
+        {
             egui::text_selection::visuals::paint_text_cursor(
                 ui,
                 &text_painter,
-                primary_cursor_rect,
+                caret,
                 now - laid.last_interaction_time,
             );
         }
@@ -1696,6 +1861,207 @@ mod tests {
         let (g, _) = frame(&replaced);
         assert_eq!(g.text(), replaced);
         same_as_whole(&ctx, &replaced);
+    }
+
+    /// The lines an edit leaves ([`LaidOut::apply_edit`]) are those the new
+    /// text laid out afresh has ([`LaidOut::sync_full`]): over thousands of
+    /// edits made as the editor makes them (a range replaced, a text
+    /// replaced whole as Replace All and Tab do, Undo and Redo), with
+    /// characters of two bytes and more, CRLF line ends, edits at lines'
+    /// ends and of their line ends, block comments and raw strings opened
+    /// and closed over lines, and the empty text.
+    #[test]
+    fn an_edit_s_lines_are_the_new_text_s_laid_out_afresh() {
+        use crate::script_view::ScriptBuffer;
+        use egui::text::{CCursor, CCursorRange};
+        let ctx = egui::Context::default();
+        const PIECES: [&str; 18] = [
+            "x",
+            "é",
+            "ü€",
+            "𝄞",
+            "\n",
+            "\r\n",
+            "\r",
+            "\t",
+            " ",
+            "/*",
+            "*/",
+            "r\"",
+            "\"",
+            "\"\"",
+            "//",
+            "int n = 1;",
+            "{\n    é;\n}\n",
+            "\n\n",
+        ];
+        // (A small generator of its own: the same edits on every run.)
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = move |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n.max(1) as u64) as usize
+        };
+        // (The palette the window's, as the editor's.)
+        let same = |ui: &Ui, laid: &LaidOut, text: &str, at: &str| {
+            let palette = Palette::for_ui(&ScriptStyle::default(), ui);
+            let mut fresh = LaidOut::default();
+            let h = crate::script_tools::hash(text);
+            fresh.sync_full(ui, text, h, &palette);
+            assert!(laid.in_sync(text, h), "{at}: not in step with {text:?}");
+            assert_eq!(laid.lines, fresh.lines, "{at}: {text:?}");
+            assert_eq!(laid.total_chars, fresh.total_chars, "{at}: {text:?}");
+            assert_eq!(laid.max_cols, fresh.max_cols, "{at}: {text:?}");
+        };
+        let mut edits = 0;
+        run(&ctx, |ui| {
+            let palette = Palette::for_ui(&ScriptStyle::default(), ui);
+            for start in ["", "é", "void main()\r\n{\r\n    int é = 1;\r\n}\r\n", "/* a\nb */ c\n"]
+            {
+                let mut buf = ScriptBuffer::read(b"", (0, 0, 0));
+                buf.set_text(start.to_owned());
+                let mut laid = LaidOut::default();
+                laid.sync_full(ui, &buf.text, buf.text_hash(), &palette);
+                same(ui, &laid, &buf.text, "at first");
+                for round in 0..600 {
+                    let chars = laid.total_chars();
+                    let at = format!("{start:?}, edit {round}");
+                    let was = buf.text_hash();
+                    let (a, b) = (next(chars + 1), next(chars + 1));
+                    let (a, b) = (a.min(b), a.max(b).min(a + 6));
+                    match next(10) {
+                        // (Replace All and Tab: the text replaced whole.)
+                        0 | 1 => {
+                            let mut whole = buf.text.clone();
+                            let piece = PIECES[next(PIECES.len())];
+                            let ba = laid.byte_of_char(&whole, a);
+                            whole.insert_str(ba, piece);
+                            if next(2) == 0 {
+                                whole = whole.replacen('x', "é", 1);
+                            }
+                            let cur = CCursorRange::default();
+                            let (s, o, n) = buf.replace_diff_undo(whole, cur, cur, 0.0);
+                            laid.apply_edit(&buf.text, s, o, n, was, buf.text_hash());
+                        }
+                        // (Undo and Redo.)
+                        2 => {
+                            if let Some((_, s, o, n)) = buf.undo.step(&mut buf.text, next(3) == 0) {
+                                buf.invalidate_hash();
+                                laid.apply_edit(&buf.text, s, o, n, was, buf.text_hash());
+                            }
+                        }
+                        // (A range replaced: typed over, deleted, pasted.)
+                        _ => {
+                            let piece = if next(4) == 0 { "" } else { PIECES[next(PIECES.len())] };
+                            let (ba, bb) =
+                                (laid.byte_of_char(&buf.text, a), laid.byte_of_char(&buf.text, b));
+                            let r = CCursorRange::two(CCursor::new(a), CCursor::new(b));
+                            let (s, o, n) =
+                                buf.replace_range_undo(ba..bb, piece, r, r, 0.0, next(2) == 0);
+                            laid.apply_edit(&buf.text, s, o, n, was, buf.text_hash());
+                        }
+                    }
+                    same(ui, &laid, &buf.text, &at);
+                    edits += 1;
+                }
+                // Back to the start, Undo by Undo: the empty text too.
+                while buf.undo.can_step(false) {
+                    let was = buf.text_hash();
+                    let (_, s, o, n) = buf.undo.step(&mut buf.text, false).unwrap();
+                    buf.invalidate_hash();
+                    laid.apply_edit(&buf.text, s, o, n, was, buf.text_hash());
+                    same(ui, &laid, &buf.text, "undone");
+                }
+                let all = laid.total_chars();
+                let was = buf.text_hash();
+                let r = CCursorRange::two(CCursor::new(0), CCursor::new(all));
+                let end = buf.text.len();
+                let (s, o, n) = buf.replace_range_undo(0..end, "", r, r, 0.0, false);
+                laid.apply_edit(&buf.text, s, o, n, was, buf.text_hash());
+                same(ui, &laid, "", "all deleted");
+            }
+        });
+        assert_eq!(edits, 2400);
+    }
+
+    /// Lines of another text than the one edited (a script rewritten where
+    /// its editor was not drawn) are not stamped as the edited text's: they
+    /// are left to be laid out afresh.
+    #[test]
+    fn an_edit_of_another_text_than_the_lines_one_leaves_them_stale() {
+        let ctx = egui::Context::default();
+        run(&ctx, |ui| {
+            let palette = Palette::for_ui(&ScriptStyle::default(), ui);
+            let before = "int a;\nint b;\nint c;\n";
+            let mut laid = LaidOut::default();
+            laid.sync_full(ui, before, crate::script_tools::hash(before), &palette);
+            // (Rewritten meanwhile, shorter, a character of two bytes first.)
+            let rewritten = "é;\nint c;\n";
+            let edited = "é;\nint total;\n";
+            let (was, now) =
+                (crate::script_tools::hash(rewritten), crate::script_tools::hash(edited));
+            assert!(!laid.in_sync(rewritten, was));
+            laid.apply_edit(edited, 8, 9, 13, was, now);
+            assert!(!laid.in_sync(edited, now), "stamped as the edited text's");
+            laid.sync_full(ui, edited, now, &palette);
+            assert!(laid.in_sync(edited, now));
+            assert_eq!(laid.line_count(), 3);
+        });
+    }
+
+    /// A word move lands where egui's lands in the whole text, from every
+    /// character of texts with blank, indented and CR LF lines (they read
+    /// only the lines back to one with something but spaces: review K's N10).
+    /// The places between a CR and its LF are left out: the editor's lines
+    /// end at the pair, which egui takes as one grapheme.
+    #[test]
+    fn word_moves_land_where_egui_s_do_in_the_whole_text() {
+        use egui::text::CCursor;
+        use egui::text_selection::text_cursor_state::{ccursor_next_word, ccursor_previous_word};
+        let ctx = egui::Context::default();
+        let texts = [
+            "",
+            "\n",
+            "int abc;\n\n  int de;\n",
+            "\n\n\n  x\n\n",
+            "a.b(c);\r\n\r\n\t\tif (é) { n_1 = 2; }\r\n   \r\n",
+            "  \n  \n// note é\n\r\n\"s t\"; x\r",
+            "word",
+            "   ",
+        ];
+        let mut moves = 0;
+        run(&ctx, |ui| {
+            let palette = Palette::for_ui(&ScriptStyle::default(), ui);
+            for text in texts {
+                let mut laid = LaidOut::default();
+                laid.sync_full(ui, text, crate::script_tools::hash(text), &palette);
+                for c in 0..=laid.total_chars {
+                    // (Not between a CR and its LF: one line end to the
+                    // editor, one grapheme to egui.)
+                    if c > 0
+                        && text.chars().nth(c - 1) == Some('\r')
+                        && text.chars().nth(c) == Some('\n')
+                    {
+                        continue;
+                    }
+                    let left = ccursor_previous_word(text, CCursor::new(c)).index;
+                    let right = ccursor_next_word(text, CCursor::new(c)).index;
+                    assert_eq!(
+                        word_left(&laid, text, c),
+                        usize::from(left),
+                        "{text:?} left of {c}"
+                    );
+                    assert_eq!(
+                        word_right(&laid, text, c),
+                        usize::from(right).min(laid.total_chars),
+                        "{text:?} right of {c}"
+                    );
+                    moves += 2;
+                }
+            }
+        });
+        assert!(moves > 150, "{moves}");
     }
 
     /// The line numbers: one a line, each as the number laid out alone

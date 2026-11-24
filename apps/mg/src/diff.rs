@@ -522,3 +522,20 @@ pub(crate) fn check(
     out.failed = wrong > 0 || unread > 0;
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::shown_cell;
+
+    /// How a cell is shown in the text of a diff: a missing one as `****`,
+    /// and one that is empty or holds a space or a tab (which would read as
+    /// two cells) in quotes.
+    #[test]
+    fn a_cell_is_quoted_where_it_would_read_as_two() {
+        assert_eq!(shown_cell(None), "****");
+        assert_eq!(shown_cell(Some("")), "\"\"");
+        assert_eq!(shown_cell(Some("a b")), "\"a b\"");
+        assert_eq!(shown_cell(Some("a\tb")), "\"a\tb\"");
+        assert_eq!(shown_cell(Some("plain")), "plain");
+    }
+}

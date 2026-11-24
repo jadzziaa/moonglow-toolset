@@ -1130,7 +1130,8 @@ enum Cmd {
         /// in --json's output (`map_notes`).
         #[arg(long)]
         map_notes: bool,
-        /// Pixels a tile (default: the pictures' size).
+        /// Pixels a tile, 1 to 1024 (default: the pictures' size, 16 to
+        /// 256); the picture is at most 256 MiB (8192 by 8192 pixels).
         #[arg(long)]
         size: Option<u32>,
     },

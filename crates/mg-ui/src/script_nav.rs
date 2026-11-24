@@ -52,6 +52,9 @@ pub struct Nav {
     /// In-flight background compilation checks keyed by script (`(text_hash, live_gen, rx)`).
     pending_checks:
         HashMap<ResKey, (u64, u64, std::sync::mpsc::Receiver<Option<mg_script::CompileError>>)>,
+    /// How many checks have gone to a worker (for tests: one can come back
+    /// between two frames a test looks at).
+    checks_started: usize,
     /// The Rename Symbol window: the declaration and the new name.
     pub rename: Option<(Declaration, String)>,
     /// The script a declaration was last looked for in (`declaration_at`):
@@ -149,6 +152,11 @@ impl Nav {
     }
 
     /// Whether any background live-check compile is still running.
+    /// How many checks have gone to a worker.
+    pub(crate) fn checks_started(&self) -> usize {
+        self.checks_started
+    }
+
     pub(crate) fn checking(&self) -> bool {
         !self.pending_checks.is_empty()
     }
@@ -487,6 +495,7 @@ impl Moonglow {
             ctx_bg.request_repaint();
         });
         self.script_nav.pending_checks.insert(key, (h, cur_gen, rx));
+        self.script_nav.checks_started += 1;
     }
 
     /// Sets an open script editor's text, as typing would (for tests).

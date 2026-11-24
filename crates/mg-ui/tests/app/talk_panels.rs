@@ -1945,6 +1945,97 @@ fn a_table_made_with_dialog_tlk_shown_takes_its_place() {
     assert!(h.state().game_talk.is_none(), "the game's copy let go of");
 }
 
+/// A line of the module's talk table renamed and saved in the Talk Table
+/// tab: the palette's Find finds the blueprint named by it by its new name
+/// (the review's C-5: what is kept by the load order kept the old one).
+#[test]
+fn a_line_renamed_and_saved_is_found_by_its_new_name() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-renamed-found");
+    let user = user_folder(&dir, &["tlk"]);
+    let line = |text: &str| Line { text: text.into(), ..our_line(1) };
+    let mut t = Table::create("mg_mine", &user.join("tlk"), mg_core::Language::ENGLISH, false);
+    t.add_line(&line("Grimbold the Old")).unwrap();
+    t.save().unwrap();
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_mine".to_vec()));
+    m.set_info(&info).unwrap();
+    // (The game's bandit, named by the module's table's first line.)
+    let game = game_data(&root);
+    let bandit = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap();
+    let mut utc = mg_gff::Gff::read(&bandit).unwrap();
+    let named = |n| mg_gff::Value::LocString(LocString::from_strref(mg_core::StrRef(n)));
+    utc.root.set("FirstName", named(16_777_216));
+    utc.root.set("LastName", named(u32::MAX));
+    utc.root.set("Tag", mg_gff::Value::String(b"C5_NAMED".to_vec()));
+    utc.root.set("TemplateResRef", mg_gff::Value::ResRef(b"c5_named".to_vec()));
+    m.set_gff(ResKey::parse("c5_named", ResType::UTC).unwrap(), &utc).unwrap();
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user.clone()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let file = user.join("tlk/mg_mine.tlk");
+    let found = mg_module::talk::Found {
+        source: mg_module::talk::Source::File(file.clone()),
+        data: std::fs::read(&file).unwrap(),
+    };
+    app.talk = Some(Table::open("mg_mine", found, None).unwrap());
+    app.palette.kind = mg_module::palette::BlueprintKind::Creature;
+    (app.palette.tiles, app.palette.custom) = (false, true);
+    app.palette.filter = "grimbold".into();
+    show_palette(&mut app);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let shown = |h: &Harness<'_, Moonglow>, name: &str| {
+        let palette = right_dock_rect(h);
+        h.query_all_by_label_contains(name).any(|n| palette.contains(n.rect().center()))
+    };
+    assert!(shown(&h, "Grimbold the Old"), "found by its name");
+    h.state_mut().talk.as_mut().unwrap().set_line(0, &line("Hrothgar the Young"), None).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::SaveTalkTable);
+    settle(&mut h);
+    h.state_mut().palette.filter = "hrothgar".into();
+    settle(&mut h);
+    assert!(shown(&h, "Hrothgar the Young"), "found by its new name");
+}
+
+/// Create looks for the file again as it is clicked: one that landed in
+/// the tlk folder since the panel last looked (it looks every two
+/// seconds) is not written over (the review's C-4).
+#[test]
+fn create_writes_over_no_table_that_landed_meanwhile() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-create-landed");
+    let user = user_folder(&dir, &["tlk"]);
+    let path = sample_module(&dir);
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    let field = h
+        .get_all_by_label("New talk table")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+    field.expect("Module's Table's name").scroll_to_me();
+    settle(&mut h);
+    type_into_hint(&mut h, "name", "mg_landed");
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
+    // (Theirs, written as the panel still has none there.)
+    let theirs = user.join("tlk/mg_landed.tlk");
+    std::fs::write(&theirs, b"theirs").unwrap();
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    assert_eq!(std::fs::read(&theirs).unwrap(), b"theirs", "not written over");
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains("is there already")), "said: {log:?}");
+    assert!(h.state().talk.as_ref().is_none_or(|t| t.name != "mg_landed"), "not made");
+}
+
 /// The way out of `dialog.tlk`, More › Module's Table, with no game data
 /// (the tab saying why it is empty) and with no module open.
 #[test]

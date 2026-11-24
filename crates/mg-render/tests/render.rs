@@ -3533,10 +3533,12 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         assert!(differ > 5000, "the turned texture: {differ} pixels differ");
     }
     let mut failures = Vec::new();
-    let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
-    theirs.game_shaders = true;
-    let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     for (name, scene, camera) in &scenes {
+        // (Renderers of the scene's own: a failure, and what is kept from
+        // a frame, are of this scene alone.)
+        let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        theirs.game_shaders = true;
+        let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
         let game = theirs.render_image(&gpu, &assets, scene, camera, 320, 320);
         let drawn = theirs.drawn;
         assert_eq!(theirs.game_shader_failures(), &[], "{name}");
@@ -5840,10 +5842,12 @@ fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
     let (under, beside) = ((32, 32), (32, 6));
     for samples in [1, 4] {
-        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         for (shaders, copies) in [(true, true), (true, false), (false, true)] {
-            r.game_shaders = shaders;
             for material in ["mgflow", "mgplain"] {
+                // (A renderer of the case's own: a failure, and what is
+                // kept from a frame, are of this case alone.)
+                let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+                r.game_shaders = shaders;
                 let targets =
                     mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples, 64, 64);
                 let s = scene(&ground(material));
@@ -5877,6 +5881,92 @@ fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
 /// ground that receives, its one bone posed 3 m east: its shadow falls
 /// where the bone has taken it (as it is drawn), not where it was bound;
 /// and none where the instance doesn't cast.
+/// An idle creature's lights are chosen once: a skinned mesh whose bone
+/// sways a little from frame to frame takes the lights chosen for it in
+/// the first (its posed box's own ball, of its box every frame, had them
+/// chosen anew every frame), and one taken far off has them chosen anew.
+#[test]
+fn a_mesh_a_skin_sways_takes_its_lights_as_chosen() {
+    let Some(gpu) = gpu() else { return };
+    let plate = {
+        let mesh = Mesh {
+            diffuse: [1.0; 3],
+            ambient: [1.0; 3],
+            render: true,
+            vertices: vec![[-0.5, -0.5, 1.0], [0.5, -0.5, 1.0], [0.5, 0.5, 1.0], [-0.5, 0.5, 1.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+            uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
+            faces: vec![
+                Face { vertices: [0, 1, 2], material: 0 },
+                Face { vertices: [0, 2, 3], material: 0 },
+            ],
+            source: vec![0, 1, 2, 3],
+            extra: mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+                bones: vec![1],
+                weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
+                inverse_bind: Vec::new(),
+            }),
+            ..Default::default()
+        };
+        let mut root = Node::new("plate", NodeKind::Dummy);
+        root.children = vec![1, 2];
+        let mut bone = Node::new("bone", NodeKind::Dummy);
+        bone.parent = Some(0);
+        let mut skin = Node::new("skin", NodeKind::Mesh(Box::new(mesh)));
+        skin.parent = Some(0);
+        let model = Model {
+            name: "plate".into(),
+            animation_scale: 1.0,
+            nodes: vec![root, bone, skin],
+            ..Default::default()
+        };
+        Arc::new(GpuModel::new(&gpu, Arc::new(model)))
+    };
+    assert!(plate.meshes.first().is_some_and(|m| m.skin.is_some()));
+    let scene = |bone: Mat4| Scene {
+        instances: vec![Instance {
+            pose: Some(Arc::new(vec![Mat4::IDENTITY, bone, Mat4::IDENTITY])),
+            ..Instance::new(plate.clone(), Mat4::IDENTITY)
+        }],
+        lights: vec![mg_render::PointLight {
+            position: Vec3::new(0.0, 0.0, 3.0),
+            color: Vec3::ONE,
+            cutoff: 10.0,
+            ambient_only: false,
+            priority: 1,
+            casts_shadows: false,
+            shadow_lift: 0.0,
+        }],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu, format, 1);
+    let targets = mg_render::Targets::new(&gpu, format, 1, 32, 32);
+    let mut chosen = Vec::new();
+    for frame in 0..8 {
+        // (A sway: a degree about the plate's middle and a centimeter
+        // over.)
+        let sway = frame as f32 / 8.0;
+        let bone = Mat4::from_translation(Vec3::new(0.01 * sway, 0.0, 1.0))
+            * Mat4::from_rotation_y(sway.to_radians())
+            * Mat4::from_translation(Vec3::new(0.0, 0.0, -1.0));
+        r.render_targets(&gpu, &NoAssets, &scene(bone), &camera, &targets);
+        assert_eq!(r.drawn.meshes, 1);
+        chosen.push(r.drawn.lights_chosen);
+    }
+    assert_eq!(chosen, [1, 0, 0, 0, 0, 0, 0, 0], "chosen once");
+    let away = scene(Mat4::from_translation(Vec3::X * 3.0));
+    r.render_targets(&gpu, &NoAssets, &away, &camera, &targets);
+    assert_eq!(r.drawn.lights_chosen, 1, "carried 3 m away: chosen anew");
+}
+
 #[test]
 fn a_skinned_mesh_casts_as_its_bones_pose_it() {
     let Some(gpu) = gpu() else { return };
@@ -6245,6 +6335,77 @@ fn a_view_keeps_its_own_from_frame_to_frame() {
     r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
     r.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
     assert_eq!(gpu.read_rgba(&other_targets.color).data, alone.data);
+}
+
+/// A fifth view takes over the state of the view drawn longest ago, and
+/// draws as a renderer of its own draws it: the bind groups kept on the
+/// first view's targets (its depth, which the shadows' darkening reads)
+/// are not the fifth's (they went with the state, and the fifth view's
+/// shadows were laid by the first view's depth: a roof over everything in
+/// the first four, so the fifth's ground under its plate was not
+/// darkened), with the sun's map (Fast) and with the stencil volumes
+/// (High).
+#[test]
+fn a_fifth_view_binds_its_own_targets() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |plate_at: f32, roofed: bool| Scene {
+        instances: [
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(plate.clone(), Mat4::from_translation(Vec3::new(plate_at, 0.0, 1.0))),
+        ]
+        .into_iter()
+        .chain(roofed.then(|| {
+            let roof = Mat4::from_translation(Vec3::Z * 3.0) * Mat4::from_scale(Vec3::splat(5.0));
+            Instance::new(ground.clone(), roof)
+        }))
+        .collect(),
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let fifth_scene = scene(0.0, false);
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, format, 4);
+        r.shadow_volumes = volumes;
+        let targets: Vec<_> =
+            (0..5).map(|_| mg_render::Targets::new(&gpu, format, 4, 64, 64)).collect();
+        for (i, t) in targets[..4].iter().enumerate() {
+            r.render_targets(&gpu, &NoAssets, &scene(i as f32 * 0.25, true), &camera, t);
+        }
+        assert_eq!(r.views_kept(), 4);
+        r.render_targets(&gpu, &NoAssets, &fifth_scene, &camera, &targets[4]);
+        assert!(r.kept_for(&targets[0]).is_none(), "the first view's state is the fifth's");
+        let drawn = gpu.read_rgba(&targets[4].color);
+        let name = format!("fifth_view_{}.png", if volumes { "volumes" } else { "map" });
+        save(&drawn, &mg_testkit::output_dir("render").join(name));
+        let mut fresh = Renderer::new(&gpu, format, 4);
+        fresh.shadow_volumes = volumes;
+        let alone = mg_render::Targets::new(&gpu, format, 4, 64, 64);
+        fresh.render_targets(&gpu, &NoAssets, &fifth_scene, &camera, &alone);
+        let expected = gpu.read_rgba(&alone.color);
+        let mut unshadowed = Renderer::new(&gpu, format, 4);
+        let bare = Scene { shadows: None, ..scene(0.0, false) };
+        unshadowed.render_targets(&gpu, &NoAssets, &bare, &camera, &alone);
+        assert!(gpu.read_rgba(&alone.color).data != expected.data, "a shadow to lay");
+        assert!(drawn.data == expected.data, "the fifth view's picture (volumes: {volumes})");
+    }
 }
 
 /// A creature made of parts is one object to the lights' shadows: two of
@@ -7501,8 +7662,11 @@ fn ripple_measured(gpu: &Gpu, side: u32, txi: &str) -> (f32, f32, f32) {
     let (_, still) = shot("still", 0.0);
     let wrap = |d: f32| (d + side as f32 / 2.0).rem_euclid(side as f32) - side as f32 / 2.0;
     let mut pushes: Vec<Vec<[f32; 2]>> = Vec::new();
-    let dt = 0.4_f32;
-    for k in 0..50 {
+    // (0.2 s apart, as the client's pictures were read: the change a
+    // second is the distance between two pictures over their interval,
+    // and the client's figures are of 0.2 s.)
+    let dt = 0.2_f32;
+    for k in 0..100 {
         let (img, sampled) = shot("card", k as f32 * dt);
         if k == 0 {
             save(

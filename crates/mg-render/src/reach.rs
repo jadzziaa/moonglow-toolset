@@ -277,6 +277,8 @@ pub(crate) struct ReachCache {
     now: Vec<u32>,
     /// The choices this frame took.
     taken: usize,
+    /// The choices this frame made anew.
+    pub(crate) made: usize,
     /// The sets of lights chosen, numbered (while the lights stay).
     sets: crate::game::Fast<Box<[u32]>, u32>,
     /// By a set's number, the frame that last asked for it and its number
@@ -333,6 +335,7 @@ impl ReachCache {
         std::mem::swap(&mut self.before, &mut self.now);
         self.now.clear();
         self.taken = 0;
+        self.made = 0;
         self.frame = self.frame.wrapping_add(1);
         self.asked = 0;
     }
@@ -381,6 +384,7 @@ impl ReachCache {
                 std::collections::hash_map::Entry::Occupied(e) => *e.get(),
                 std::collections::hash_map::Entry::Vacant(e) => {
                     grid.reaching(centre, radius, out);
+                    self.made += 1;
                     let lights: Box<[u32]> = out.iter().map(|&(_, _, i)| i).collect();
                     let next = self.sets.len() as u32;
                     let set = *self.sets.entry(lights).or_insert(next);

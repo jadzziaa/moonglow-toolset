@@ -139,6 +139,47 @@ fn the_appearance_gallery_comes_to_rest() {
     settle(&mut h);
 }
 
+/// Opened for one creature, the gallery pictures it in each appearance;
+/// the pictures let go of (Largest textures changed, as the Shaders switch
+/// and the game data read again do), they are made again of it, not left
+/// with nothing to draw (the review's C-1).
+#[test]
+fn a_creature_s_pictures_are_made_again_once_let_go_of() {
+    use mg_ui::appearance_gallery::Kind;
+    let Some((mut h, _)) = area_harness("c1-dressed-again") else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    let key = ResKey::parse("c1_bandit", ResType::UTC).unwrap();
+    let game = h.state().game.clone().unwrap();
+    let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap().into_owned();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "copy",
+        vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
+    )));
+    settle(&mut h);
+    open_gallery(&mut h);
+    {
+        let g = h.state_mut().placeable_gallery.get_or_insert_with(Default::default);
+        (g.kind, g.filter) = (Kind::Creature, String::new());
+        g.target = Some((key, mg_edit::GffPath::root()));
+    }
+    settle(&mut h);
+    // (With MG_SHOT set: the gallery before and after, to look at.)
+    let dir = shot_dir("c1-dressed-again");
+    let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        if let Some(dir) = &dir {
+            h.render().expect("render").save(dir.join(name)).unwrap();
+        }
+    };
+    let made = h.state().thumbnails.creature_pictures();
+    assert!(made.0 > 0 && made.1 == 0, "the creature's pictures made: {made:?}");
+    shot(&mut h, "before.png");
+    h.state_mut().settings.texture_limit = Some(256);
+    settle(&mut h);
+    shot(&mut h, "after.png");
+    let again = h.state().thumbnails.creature_pictures();
+    assert!(again.0 > 0 && again.1 == 0, "made again, with something to draw: {again:?}");
+}
+
 /// Rows of an authored placeables.2da, `MANY` long, in a user folder's
 /// override: names "ThingNNNN", models no file has.
 const MANY: usize = 5000;
@@ -628,6 +669,24 @@ fn preview_row(h: &Harness<'_, Moonglow>) -> Option<u32> {
         mg_ui::model_view::Source::Appearance { row, .. } => Some(*row),
         _ => None,
     })
+}
+
+/// F6 reaches the gallery's Appearance panel in the Right Dock, one stop
+/// of the panes' (U26: F6 there takes the keys from the panes; the
+/// review's C-8: it was left out of the stops).
+#[test]
+fn f6_reaches_the_gallery_s_appearance_panel() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "c8_f6", ResType::UTC) else {
+        return;
+    };
+    gallery_in_tabs(&mut h, key);
+    let mut stops = Vec::new();
+    for _ in 0..12 {
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+        stops.push(mg_ui::palette_view::arrow_keys_are(&h.ctx));
+    }
+    assert!(stops.iter().any(|s| s == "AppearanceFacts"), "F6's stops: {stops:?}");
 }
 
 /// An arrow key moves the gallery's keys: the Preview shows the picture

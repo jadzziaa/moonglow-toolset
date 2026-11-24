@@ -617,6 +617,39 @@ fn each_gallery_comes_to_rest() {
     settle(&mut h);
 }
 
+/// A whole item's icons under its Appearance page take its base item's
+/// room: a tower shield made a medium miscellaneous item (142 icons, many
+/// more than the grid shows at once), its grid's rows are those of a ring
+/// made one (the review's C-7: the shield's size, the first drawn, was
+/// kept for the icons out of sight).
+#[test]
+fn a_whole_item_s_icons_take_the_room_of_its_base_item_s() {
+    let row = |h: &Harness<'_, Moonglow>, key: ResKey| {
+        let id = egui::Id::new(("uti-icons", key, "ModelPart1")).with("row");
+        h.ctx.data(|d| d.get_temp::<f32>(id))
+    };
+    let made_medium = |name: &str, copy: &str| {
+        let (mut h, key) = blueprint_harness(name, copy, ResType::UTI)?;
+        page(&mut h, "Appearance");
+        let before = row(&h, key).expect("the rows before");
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "Base item",
+            vec![mg_edit::Edit::SetField {
+                key,
+                path: mg_edit::GffPath::root(),
+                label: "BaseItem".into(),
+                value: Some(mg_gff::Value::Int(29)),
+            }],
+        )));
+        settle(&mut h);
+        Some((before, row(&h, key).expect("the rows after")))
+    };
+    let Some((tower, from_tower)) = made_medium("nw_ashto001", "c7_tower") else { return };
+    let Some((ring, from_ring)) = made_medium("nw_it_mring001", "c7_ring") else { return };
+    assert!(ring < from_ring && from_ring < tower, "{ring}, {from_ring}, {tower}");
+    assert_eq!(from_tower, from_ring, "a medium item's rows, from a shield's ({tower})");
+}
+
 /// A palette of a few of the game's placeables (a chest, a barrel, a
 /// pyre): their Tags are in their files.
 fn game_things() -> Palette {

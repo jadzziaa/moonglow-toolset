@@ -1198,13 +1198,16 @@ fn larger_text(app: &Moonglow, ui: &mut Ui) -> Option<std::sync::Arc<egui::Style
     let size = app.settings.dialog_font_size?;
     let usual = ui.ctx().global_style();
     let body_size = egui::TextStyle::Body.resolve(ui.style()).size;
-    let key = (size, std::sync::Arc::as_ptr(&usual) as usize, body_size.to_bits());
+    // (Kept by the window's style itself, held: by its address alone,
+    // another style made at the same address took the old one's.)
+    type Kept = ((u8, std::sync::Arc<egui::Style>, u32), std::sync::Arc<egui::Style>);
+    let key = (size, usual.clone(), body_size.to_bits());
     let id = egui::Id::new("dlg-larger-style");
-    let scaled: std::sync::Arc<egui::Style> = match ui
-        .ctx()
-        .data(|d| d.get_temp::<((u8, usize, u32), std::sync::Arc<egui::Style>)>(id))
-    {
-        Some((was, style)) if was == key => style,
+    let same = |was: &(u8, std::sync::Arc<egui::Style>, u32)| {
+        was.0 == key.0 && std::sync::Arc::ptr_eq(&was.1, &key.1) && was.2 == key.2
+    };
+    let scaled: std::sync::Arc<egui::Style> = match ui.ctx().data(|d| d.get_temp::<Kept>(id)) {
+        Some((was, style)) if same(&was) => style,
         _ => {
             let by = f32::from(size.clamp(6, 48)) / body_size;
             let mut style = (**ui.style()).clone();
@@ -3872,8 +3875,11 @@ fn script_preview_cached(
 }
 
 fn journal_summary_kept(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<JournalSummary> {
+    // (Its texts are in the editing language, read through the game's
+    // codepage: kept for those and the load order too.)
     let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
-    crate::blueprint::kept_for_key(ctx, egui::Id::new("dlg-journal-summary"), &ws_key, || {
+    let key = (ws_key, app.load_order, crate::text::edit_language().0, crate::text::game_table());
+    crate::blueprint::kept_for_key(ctx, egui::Id::new("dlg-journal-summary"), &key, || {
         let cats = app
             .ws
             .as_mut()
@@ -4521,6 +4527,34 @@ mod tests {
     use super::*;
     use egui::Key;
     use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// The Journal summary a node's Data panel shows is in the editing
+    /// language as it is now: kept for the module's revision alone, it
+    /// stayed in the language it was first made in (the review's D7).
+    #[test]
+    fn the_journal_summary_follows_the_editing_language() {
+        use mg_core::{Gender, Language, LocString};
+        let mut journal = mg_module::journal::new_journal();
+        let mut cat = mg_module::journal::new_category(&[]);
+        let mut entry = mg_module::journal::new_entry(&[]);
+        let mut text = LocString::from_text(Language::ENGLISH, Gender::Male, b"Hello".to_vec());
+        text.set(Language::FRENCH, Gender::Male, b"Bonjour".to_vec());
+        entry.write(&jrl::categories::entry_list::TEXT, text);
+        cat.items_mut(&jrl::categories::ENTRY_LIST).push(entry);
+        journal.root.items_mut(&jrl::CATEGORIES).push(cat);
+        let mut m = mg_module::Module::new();
+        m.set_gff(ResKey::parse("module", ResType::JRL).unwrap(), &journal).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(m));
+        let ctx = egui::Context::default();
+        let was = crate::text::edit_language();
+        crate::text::set_edit_language(Language::ENGLISH);
+        let english = journal_summary_kept(&mut app, &ctx).entries[0][0].1.clone();
+        crate::text::set_edit_language(Language::FRENCH);
+        let french = journal_summary_kept(&mut app, &ctx).entries[0][0].1.clone();
+        crate::text::set_edit_language(was);
+        assert_eq!((english.as_str(), french.as_str()), ("Hello", "Bonjour"));
+    }
 
     /// The selected row's fill ends at the tree's right edge: a vertical
     /// scroll area clips up and down only, its clip rect as wide as the

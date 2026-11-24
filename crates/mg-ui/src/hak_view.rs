@@ -1324,26 +1324,29 @@ fn columns(left: f32, width: f32) -> [std::ops::RangeInclusive<f32>; 4] {
     })
 }
 
+/// The paths cut by [`cut_start`] for one font, scale and width: kept
+/// while those stay. (By the font's size and the width rounded alone,
+/// another font, interface size or a width half a point narrower kept the
+/// cuts made for the old.)
 #[derive(Clone, Default)]
 struct CutStartCache {
-    font: u32,
-    width: i32,
+    font: Option<egui::FontId>,
+    pixels: u32,
+    width: u32,
     map: std::collections::HashMap<String, String>,
 }
 
 /// `text` cut at its start to `width` (an ellipsis before the end kept):
 /// the board's Source, "…/test-output/screens-hak/mg_chair.mdl".
 fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
-    let font_bits = font.size.to_bits();
-    let width_key = width.round() as i32;
+    let (pixels, width_key) = (ui.ctx().pixels_per_point().to_bits(), width.to_bits());
     let id = egui::Id::new("hak-cut-start-cache");
+    let same = |c: &CutStartCache| {
+        c.font.as_ref() == Some(font) && c.pixels == pixels && c.width == width_key
+    };
     if let Some(cached) = ui.data_mut(|d| {
         let cache = d.get_temp_mut_or_default::<CutStartCache>(id);
-        if cache.font == font_bits && cache.width == width_key {
-            cache.map.get(text).cloned()
-        } else {
-            None
-        }
+        if same(cache) { cache.map.get(text).cloned() } else { None }
     }) {
         return cached;
     }
@@ -1375,9 +1378,10 @@ fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     };
     ui.data_mut(|d| {
         let cache = d.get_temp_mut_or_default::<CutStartCache>(id);
-        if cache.font != font_bits || cache.width != width_key || cache.map.len() >= 256 {
+        if !same(cache) || cache.map.len() >= 256 {
             cache.map.clear();
-            cache.font = font_bits;
+            cache.font = Some(font.clone());
+            cache.pixels = pixels;
             cache.width = width_key;
         }
         cache.map.insert(text.to_string(), result.clone());
@@ -2002,6 +2006,37 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A path cut for one font is not taken for another of the same size,
+    /// nor for another scale (the review's D9: kept by the size alone).
+    #[test]
+    fn a_cut_path_is_kept_for_its_font_and_scale() {
+        let ctx = egui::Context::default();
+        let text = "/home/builder/modules/a-long-name/hak/the_resources_of_the_module.hak";
+        let cut = |ctx: &egui::Context, font: &egui::FontId, fresh: bool| {
+            let mut out = String::new();
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                if fresh {
+                    ui.data_mut(|d| {
+                        d.remove::<CutStartCache>(egui::Id::new("hak-cut-start-cache"))
+                    });
+                }
+                out = cut_start(ui, text, font, 200.0);
+            })
+            .textures_delta
+            .clear();
+            out
+        };
+        let (proportional, mono) =
+            (egui::FontId::proportional(14.0), egui::FontId::monospace(14.0));
+        assert_ne!(cut(&ctx, &proportional, true), cut(&ctx, &mono, true), "the fonts differ");
+        let _ = cut(&ctx, &proportional, true);
+        assert_eq!(cut(&ctx, &mono, false), cut(&ctx, &mono, true), "the monospace font's own");
+        // Another scale.
+        let _ = cut(&ctx, &proportional, true);
+        ctx.set_pixels_per_point(2.0);
+        assert_eq!(cut(&ctx, &proportional, false), cut(&ctx, &proportional, true));
+    }
 
     /// A model's facts, as the Preview lists them, read from its text: a
     /// root and a triangle drawn with one texture, no supermodel.

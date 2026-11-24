@@ -640,12 +640,28 @@ struct ViewState {
     /// (their number): one for the renderer, two views with soft particles
     /// in a frame made it again each.
     particle_depth: Option<(u64, wgpu::BindGroup)>,
+    /// The view whose targets the cached bind groups below bind (its
+    /// copies' number): a state another view takes over
+    /// ([`crate::views::Views::take`]) has them made again on its own.
+    groups_of: Option<u64>,
     /// Cached bind groups on immutable [`Targets`] (`render_targets` only).
     copy_group: Option<wgpu::BindGroup>,
     sun_darken_group: Option<(u64, wgpu::BindGroup)>,
     lights_darken_group: Option<wgpu::BindGroup>,
     vol_copy_group: Option<wgpu::BindGroup>,
     vol_darken_groups: [Option<wgpu::BindGroup>; 2],
+}
+
+impl ViewState {
+    /// Lets go of the bind groups on the targets of the view the state was
+    /// last drawn for.
+    fn forget_groups(&mut self) {
+        self.copy_group = None;
+        self.sun_darken_group = None;
+        self.lights_darken_group = None;
+        self.vol_copy_group = None;
+        self.vol_darken_groups = [None, None];
+    }
 }
 
 /// What the renderer keeps for a view ([`Renderer::kept_for`]).
@@ -706,6 +722,9 @@ pub struct Drawn {
     /// The sun's shadow map was drawn in this frame: not where the view's
     /// map held the frame's casters as they are already.
     pub sun_map_drawn: bool,
+    /// The meshes whose lights were chosen anew: not as an earlier frame
+    /// chose them for the same ball.
+    pub lights_chosen: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -2500,6 +2519,10 @@ impl Renderer {
         // (The view's own: another view's frame since has left them.)
         let view_key = all_copies.map(|c| c.id);
         let mut kept_view = self.views.take(view_key);
+        if kept_view.groups_of != view_key {
+            kept_view.forget_groups();
+            kept_view.groups_of = view_key;
+        }
         let view_key = all_copies.map(|c| (c.id, Arc::downgrade(&c.alive)));
         let mut reach_cache = std::mem::take(&mut kept_view.reach);
         reach_cache.begin(&scene.lights);
@@ -2638,6 +2661,16 @@ impl Renderer {
                     });
                     let model_view = view * world;
                     let radius = world.transform_vector3(half).length();
+                    // (The lights' ball: of a mesh a skin or an animation
+                    // moves, the posed box's ball within a coarser one, so
+                    // that one moving a little, an idle creature's, takes its
+                    // lights as chosen frame after frame while it stays in
+                    // it; its posed box's own ball changes every frame.)
+                    let light_ball = if mesh.skin.is_some() || moved.is_some() {
+                        coarse_ball(centre, radius)
+                    } else {
+                        (centre, radius)
+                    };
                     let mat = &mesh.material;
                     let slots = &surface.slots;
                     let bound = surface.bound;
@@ -2698,8 +2731,7 @@ impl Renderer {
                     // the game's sky program is made with `NO_DISCARD`.)
                     let discard = if is_sky { -1.0 } else { ALPHA_DISCARD };
                     // The 32 most important lights that reach the mesh.
-                    let ball = (centre, radius);
-                    let set = reach_cache.reaching(&mut reach, ball, place, &mut chosen);
+                    let set = reach_cache.reaching(&mut reach, light_ball, place, &mut chosen);
                     let mut light_index = [[0u32; 4]; 8];
                     for (j, (_, _, i)) in chosen.iter().enumerate() {
                         light_index[j / 4][j % 4] = *i;
@@ -3054,6 +3086,7 @@ impl Renderer {
             textures_pending: waiting,
             sun_casters: shadow_plan.as_ref().map_or(0, |p| p.casters.len()),
             light_shadows: light_plan.as_ref().map_or(0, |p| p.lights.len()),
+            lights_chosen: reach_cache.made,
             ..Drawn::default()
         };
         // Opaque (in the order they came), then blended back to front by
@@ -4044,6 +4077,19 @@ fn scene_pass<'e>(
 /// The box around vertices (an animation's, replacing a mesh's).
 fn vertices_box(vertices: &[Vertex]) -> (Vec3, Vec3) {
     crate::reach::box_of(vertices.iter().map(|v| Vec3::from(v.pos))).unwrap_or(crate::reach::NO_BOX)
+}
+
+/// How far apart the centres of [`coarse_ball`]'s balls are, each way.
+const COARSE_BALL: f32 = 0.25;
+
+/// A ball around the ball at `centre` of `radius`, its centre on a grid
+/// [`COARSE_BALL`] apart and its radius a multiple of that: the same for
+/// a ball that moves or grows a little.
+fn coarse_ball(centre: Vec3, radius: f32) -> (Vec3, f32) {
+    let at = (centre / COARSE_BALL).round() * COARSE_BALL;
+    // (The centre moves by at most half the grid's diagonal.)
+    let reach = radius + COARSE_BALL * 0.5 * 3f32.sqrt();
+    (at, (reach / COARSE_BALL).ceil() * COARSE_BALL)
 }
 
 /// The box a skinned mesh bound in the box `min`…`max` lies in, posed by

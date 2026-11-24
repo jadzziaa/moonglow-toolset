@@ -515,6 +515,8 @@ mod tests {
         assert_ne!(p1, p2);
         assert!(p1.is_dir() && p2.is_dir());
         assert_eq!(p1.parent(), Some(crate::build::own_scratch_dir().unwrap().as_path()));
+        // (Under the tests' own folder, not the user's cache.)
+        assert!(p1.starts_with(mg_testkit::test_output()), "{}", p1.display());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

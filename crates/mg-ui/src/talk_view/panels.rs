@@ -860,10 +860,19 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
     if let Some(said) = said {
         ui.add(egui::Label::new(egui::RichText::new(said).color(t.text_3)).wrap());
     }
+    // (Looked for again as it is made: the file looked for above may be
+    // two seconds old, and one that came since is not written over.)
+    let landed = create && made_in.as_ref().is_some_and(|f| f.exists());
+    if landed {
+        let f = made_shown.as_deref().unwrap_or_default();
+        app.log.error(format!("Talk table: {f} is there already: choose it in Module Properties"));
+    }
     if create {
         ui.ctx().data_mut(|d| {
             d.remove_temp::<Option<(std::path::PathBuf, bool, std::time::Instant)>>(exists_id)
         });
+    }
+    if create && !landed {
         let language = app.game.as_deref().map_or(mg_core::Language::ENGLISH, |g| g.language);
         let feminine = app.talk_view.new_feminine;
         let made = match in_project {

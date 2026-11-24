@@ -318,3 +318,44 @@ fn bake_dedups_repeated_objects_skips_noop_and_runs_save_plugins_once() {
     assert_eq!(std::fs::read(&hak_path).unwrap(), hak_bytes);
     assert_eq!(std::fs::read(&rows_path).unwrap(), rows_bytes);
 }
+
+#[test]
+fn a_bake_with_no_edit_left_still_writes_its_missing_files() {
+    let root = mg_testkit::corpus!();
+    let game = crate::shared_game(&root);
+    let scratch = mg_testkit::scratch_dir("mg-bake-no-edit");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let (dir, user) = (scratch.join("bake"), scratch.join("user"));
+    std::fs::create_dir_all(&user).unwrap();
+    let area = module(&dir, &game, Some(RULES));
+    let mg = || {
+        let mut mg = crate::mg_on(&root, Some(&user));
+        mg.arg("--json").arg("bake-walkmesh").arg(&dir).args(["--area", &area.to_string()]);
+        mg.args(["--object", "0"]);
+        mg
+    };
+    let (ok, json) = crate::json_out(&mut mg());
+    assert!(ok, "{json}");
+    // The model lost from the hak, its walkmesh left: the object is on its
+    // row and the module lists the hak, so the bake has no edit to make.
+    let hak_path = user.join("hak/mybaked.hak");
+    let mut hak = mg_module::hak_edit::Hak::open(&hak_path).unwrap();
+    hak.remove(&[mg_module::hak_edit::key_for("mgbk_0001.mdl").unwrap()]);
+    hak.save(None).unwrap();
+    let names = |p: &std::path::Path| -> Vec<String> {
+        let hak = mg_module::hak_edit::Hak::open(p).unwrap();
+        let mut v: Vec<String> = hak.items().iter().map(|i| i.key.to_string()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(names(&hak_path), ["mgbk_0001.pwk"]);
+    let (ok, json) = crate::json_out(&mut mg());
+    assert!(ok, "{json}");
+    assert_eq!(json["edits"], 0, "{json}");
+    assert_eq!(json["files"], serde_json::json!(["mgbk_0001.mdl"]), "{json}");
+    assert_eq!(
+        names(&hak_path),
+        ["mgbk_0001.mdl", "mgbk_0001.pwk"],
+        "the model was not written back"
+    );
+}

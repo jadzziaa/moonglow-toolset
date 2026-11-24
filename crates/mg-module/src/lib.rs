@@ -740,15 +740,19 @@ impl Module {
             for (k, v) in &self.resources {
                 match (known.as_read(k), known.path(k)) {
                     (Some(read), Some(path)) => {
-                        if let Some(st) = known.settled_stamp_matches(path) {
-                            if k.path_in(dir).is_ok_and(|own| own == path) {
-                                let eq_v = known.as_read_arc(k).is_some_and(|r| Arc::ptr_eq(r, v))
-                                    || read == &v[..];
-                                on_disk.insert(*k, eq_v);
-                                if eq_v {
-                                    reuse_stamps.insert(*k, st);
-                                }
-                            }
+                        // A resource as it was read, in its own file whose
+                        // time and size are as they were: not read again.
+                        // (One the module changed is compared byte by byte:
+                        // an outside edit of the same size that kept the
+                        // file's time is a conflict, not written over.)
+                        let unchanged = known.as_read_arc(k).is_some_and(|r| Arc::ptr_eq(r, v))
+                            || read == &v[..];
+                        if unchanged
+                            && k.path_in(dir).is_ok_and(|own| own == path)
+                            && let Some(st) = known.settled_stamp_matches(path)
+                        {
+                            on_disk.insert(*k, true);
+                            reuse_stamps.insert(*k, st);
                             continue;
                         }
                         let now = disk(path);
@@ -1544,6 +1548,32 @@ mod tests {
         let e = m.save().unwrap_err();
         assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == &[dir.join("script.nss")]));
         assert_eq!(std::fs::read(dir.join("script.nss")).unwrap(), b"the editor's again");
+    }
+
+    /// An outside edit of the same size that kept the file's time (a tool
+    /// that restores times, a copy with `cp -p`), of a resource the module
+    /// changed too, stops the save: the time and size alone don't say the
+    /// file is as it was read once the module's own bytes differ.
+    #[test]
+    fn an_outside_edit_keeping_time_and_size_is_a_conflict_where_the_module_changed_it() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-same-stamp");
+        let mut m = sample();
+        m.set(key("script", ResType::NSS), &b"void main() { int a; }"[..]);
+        m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let path = dir.join("script.nss");
+        // (Settled: its time well before it was read.)
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(hour_ago).unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        std::fs::write(&path, b"void main() { int b; }").unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(hour_ago).unwrap();
+        m.set(key("script", ResType::NSS), &b"void main() { int c; }"[..]);
+        let e = m.save().unwrap_err();
+        assert!(
+            matches!(&e, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&path)),
+            "{e}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"void main() { int b; }");
     }
 
     /// A module kept in one file changed outside (Aurora saved it): what

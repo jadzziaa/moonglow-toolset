@@ -125,6 +125,17 @@ fn is_gray(t: ResType, data: &[u8]) -> bool {
     }
 }
 
+/// Whether the plain texture of `image` the load order draws
+/// ([`ResMan::texture`]: by layer class, DDS first in each) is gray, read
+/// from the start of that copy (not the highest layer's copy of its type:
+/// a hak's gray TGA over `override/`'s true-color one, which is the one
+/// drawn); `None` where there is none.
+fn drawn_is_gray(rm: &ResMan, image: ResRef) -> Option<bool> {
+    let (t, layer) = rm.texture_layer(image)?;
+    let start = rm.layers().get(layer)?.container.read_start(&ResKey::new(image, t), 128);
+    Some(start.is_ok_and(|d| is_gray(t, &d)))
+}
+
 /// The MTR a texture name names, if any, and the image it is read from
 /// (the MTR's first texture where it names another, else the name's own).
 fn image_of(rm: &ResMan, name: &str) -> Option<(Option<Mtr>, ResRef)> {
@@ -168,12 +179,7 @@ impl Assets for ResMan {
             && mtr.is_none()
             && self.contains(&ResKey::new(image, ResType::PLT))
         {
-            let prefer_plt = match self.texture_type(image) {
-                None => true,
-                Some(t) => {
-                    self.get_start(&ResKey::new(image, t), 128).is_ok_and(|d| is_gray(t, &d))
-                }
-            };
+            let prefer_plt = drawn_is_gray(self, image).unwrap_or(true);
             if prefer_plt { plt().or_else(&mut plain)? } else { plain().or_else(plt)? }
         } else {
             plain().or_else(plt)?
@@ -188,12 +194,9 @@ impl Assets for ResMan {
         if !self.contains(&ResKey::new(image, ResType::PLT)) {
             return false;
         }
-        match self.texture_type(image) {
+        match drawn_is_gray(self, image) {
             None => true,
-            Some(t) if mtr.is_none() => {
-                self.get_start(&ResKey::new(image, t), 128).is_ok_and(|d| is_gray(t, &d))
-            }
-            Some(_) => false,
+            Some(gray) => mtr.is_none() && gray,
         }
     }
 
@@ -433,5 +436,43 @@ mod tests {
         assert_eq!(drawn("pmd0_head001")[..4], [200, 150, 100, 255], "the PLT over the gray");
         assert_eq!(drawn("pmh0_chest234")[..4], [200, 150, 100, 255], "the PLT over luminance");
         assert_ne!(drawn("pmh0_chest235")[..4], [200, 150, 100, 255], "a gray DXT1 over the PLT");
+    }
+
+    /// Whether the PLT is drawn over a part's TGA is told by the TGA that
+    /// is drawn: `override/`'s true-color one, which a hak's gray copy
+    /// does not override (textures go by layer class, directories first),
+    /// so the TGA, and no colors taken. (The highest layer's copy was read:
+    /// the hak's gray one, and the PLT drawn.) And the other way round.
+    #[test]
+    fn the_drawn_tga_tells_whether_the_plt_is_drawn_over_it() {
+        let key = |n: &str, t| ResKey::new(ResRef::from_str(n).unwrap(), t);
+        let tga = |rgba: Rgba| mg_image::write_tga(&rgba);
+        let gray =
+            |v: u8| [&[0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 8, 8][..], &[v, v]].concat();
+        let mut game = MemContainer::new();
+        game.insert(key("pal_skin01", ResType::TGA), tga(palette_of([200, 150, 100, 255])));
+        let (mut hak, mut over) = (MemContainer::new(), MemContainer::new());
+        hak.insert(key("pmh0_chest201", ResType::PLT), plt_of(&[0]));
+        hak.insert(key("pmh0_chest201", ResType::TGA), gray(9));
+        over.insert(key("pmh0_chest201", ResType::TGA), tga(palette_of([9, 8, 7, 255])));
+        hak.insert(key("pmh0_chest202", ResType::PLT), plt_of(&[0]));
+        hak.insert(key("pmh0_chest202", ResType::TGA), tga(palette_of([9, 8, 7, 255])));
+        over.insert(key("pmh0_chest202", ResType::TGA), gray(9));
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
+        rm.add(priority::HAK, "hak:parts", LayerClass::Erf, hak);
+        let drawn = |name: &str| {
+            let t = Assets::texture(&rm, &colored_name(name, [0; 10])).unwrap().texture;
+            t.to_rgba().data
+        };
+        assert!(!rm.takes_colors("pmh0_chest201"));
+        assert_eq!(drawn("pmh0_chest201")[28..], [9, 8, 7, 255], "override's true-color TGA");
+        assert!(rm.takes_colors("pmh0_chest202"));
+        assert_eq!(
+            drawn("pmh0_chest202")[..4],
+            [200, 150, 100, 255],
+            "the PLT over override's gray"
+        );
     }
 }

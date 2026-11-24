@@ -521,6 +521,19 @@ impl Moonglow {
     /// Removes the open module's recovery copy (saved, or closed without
     /// saving).
     pub(crate) fn forget_recovery(&mut self) {
+        self.forget_own_recovery();
+        // One a session that did not end left for this module (not
+        // recovered, and the module since saved or closed): not another
+        // window's.
+        if let Some((archive, note)) = self.recovery_archive() {
+            Copy { archive, note }.remove();
+        }
+    }
+
+    /// Removes the recovery copy this window wrote (the work undone back
+    /// to what is saved): not one a session that did not end left, which
+    /// the builder may have put off with Later.
+    fn forget_own_recovery(&mut self) {
         self.autosave.forgotten.fetch_add(1, Ordering::AcqRel);
         // The copy this window wrote, and its lock.
         let own = self.autosave.held.take();
@@ -535,12 +548,6 @@ impl Moonglow {
             }
         }
         drop(own);
-        // One a session that did not end left for this module (not
-        // recovered, and the module since saved or closed): not another
-        // window's.
-        if let Some((archive, note)) = self.recovery_archive() {
-            Copy { archive, note }.remove();
-        }
         self.autosave.last = None;
     }
 
@@ -579,7 +586,7 @@ impl Moonglow {
         // no command until the script is saved.)
         if !ws.is_modified() && !self.scripts.values().any(|b| b.is_dirty()) {
             if self.autosave.last.is_some() || self.autosave.held.is_some() {
-                self.forget_recovery();
+                self.forget_own_recovery();
             }
             return None;
         }
@@ -1224,5 +1231,28 @@ mod tests {
             find_all(&dir.join("recovery")).is_empty(),
             "stale recovery copy removed after undoing back to clean"
         );
+    }
+
+    /// Undone back to what is saved, the window's own copy goes, not one
+    /// a session that did not end left for the module (Recover Unsaved
+    /// Work's Later: asked again at the next start).
+    #[test]
+    fn undone_to_clean_keeps_a_crashed_session_s_copy() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-undo-keeps-later");
+        let mut app = changed(&dir);
+        // The copy a session that did not end left, at the module's place.
+        let (archive, note) = app.recovery_archive().unwrap();
+        let module = app.ws.as_ref().unwrap().module.clone();
+        Job { module, archive, note, lock: None }.run().unwrap();
+        assert_eq!(find_all(&dir.join("recovery")).len(), 1);
+        let t0 = std::time::Instant::now();
+        assert!(app.autosave_tick(t0).is_some());
+        app.ws.as_mut().unwrap().undo().unwrap();
+        assert_eq!(app.autosave_tick(t0 + Duration::from_secs(1)), None);
+        assert!(app.autosave.last.is_none());
+        assert_eq!(find_all(&dir.join("recovery")).len(), 1, "the crashed session's copy stays");
+        // Closed: it goes, as before.
+        app.forget_recovery();
+        assert!(find_all(&dir.join("recovery")).is_empty());
     }
 }

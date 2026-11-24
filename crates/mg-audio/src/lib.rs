@@ -380,11 +380,10 @@ pub fn container_of_start(start: &[u8], whole: bool) -> Result<Option<Container>
     }
     let Some(head) = start.get(..12) else { return more(12) };
     if &head[..4] == b"RIFF" && &head[8..12] == b"WAVE" {
-        const MAX_WAVE_PROBE: u64 = 16 * 1024 * 1024;
-        let riff_size = u64::from(u32::from_le_bytes([head[4], head[5], head[6], head[7]]));
-        let riff_end = 8u64 + riff_size;
         // (The chunks walked as `WaveInfo::read` walks them, to the first
-        // `fmt `'s tag, or a `data` chunk before any.)
+        // `fmt `'s tag, or a `data` chunk before any: past the RIFF size,
+        // which it doesn't believe, and asking for as far as a chunk says
+        // it goes, which `read` gives no more of than the file has.)
         let mut pos = 12usize;
         loop {
             let Some(chunk) = start.get(pos..pos.saturating_add(8)) else {
@@ -393,10 +392,9 @@ pub fn container_of_start(start: &[u8], whole: bool) -> Result<Option<Container>
             let size = u64::from(u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]));
             let body = pos + 8;
             match &chunk[..4] {
-                b"fmt " => {
-                    if size < 2 {
-                        return Ok(Some(Container::Wave));
-                    }
+                // (One too short for a tag is walked past, as `WaveInfo::read`
+                // does, to a later `fmt `'s.)
+                b"fmt " if size >= 2 => {
                     // (Its channels too when present, following the tag.)
                     let need = if size >= 4 { 4 } else { 2 };
                     let Some(tag) = start.get(body..body + need) else { return more(body + need) };
@@ -409,10 +407,7 @@ pub fn container_of_start(start: &[u8], whole: bool) -> Result<Option<Container>
                 _ => {}
             }
             let next = body as u64 + size + (size & 1);
-            if next > MAX_WAVE_PROBE || (riff_size >= 4 && next > riff_end) {
-                return Ok(Some(Container::Wave));
-            }
-            pos = next as usize;
+            pos = usize::try_from(next).unwrap_or(usize::MAX);
         }
     }
     // (Past its ID3v2 tags, as `find_mp3` skips them.)
@@ -1463,9 +1458,35 @@ mod tests {
         let two_byte_fmt = riff(&[chunk(b"fmt ", &[1, 0])]);
         assert_eq!(container_of_start(&two_byte_fmt, false), Ok(Some(Container::Wave)));
 
-        // Corrupt JUNK size = u32::MAX must not request multi-gigabyte probes.
+        // A start says what the whole file says, however a size lies: a
+        // chunk claiming 4 GiB (what is read stops at the file's end), a
+        // RIFF size short of the chunks (not believed, as `WaveInfo::read`
+        // and the decoder don't), a `fmt ` too short for a tag before one
+        // that has it.
         let mut bogus = b"RIFF\x24\x00\x00\x00WAVEJUNK".to_vec();
         bogus.extend_from_slice(&u32::MAX.to_le_bytes());
-        assert_eq!(container_of_start(&bogus, false), Ok(Some(Container::Wave)));
+        let mut short_riff = riff(&[
+            chunk(b"JUNK", &[0; 6]),
+            chunk(b"fmt ", &mpeglayer3_fmt(1)),
+            chunk(b"data", &mp3(2, false)),
+        ]);
+        short_riff[4..8].copy_from_slice(&4u32.to_le_bytes());
+        let two_fmts = riff(&[
+            chunk(b"fmt ", &[0x55]),
+            chunk(b"fmt ", &mpeglayer3_fmt(1)),
+            chunk(b"data", &mp3(2, false)),
+        ]);
+        for (name, bytes) in
+            [("bogus", &bogus), ("short riff", &short_riff), ("two fmts", &two_fmts)]
+        {
+            let whole = container(bytes).map(|c| c.0);
+            for first in [1, 12, 20, 4096] {
+                let (told, most) = by_start(bytes, first);
+                assert_eq!(told, whole, "{name}, first ask {first}");
+                assert!(most <= bytes.len(), "{name}");
+            }
+        }
+        assert_eq!(container(&short_riff).map(|c| c.0), Some(Container::Mp3));
+        assert_eq!(container(&two_fmts).map(|c| c.0), Some(Container::Mp3));
     }
 }

@@ -584,7 +584,7 @@ pub struct AreaView {
     /// The objects' walkmesh overlay as last made (its faces and their
     /// edges), and what for.
     object_walk_mesh:
-        Option<(ObjectOverlayKey, std::sync::Arc<egui::Mesh>, std::sync::Arc<egui::Mesh>)>,
+        Option<(ObjectOverlayKey, std::sync::Arc<egui::Mesh>, std::sync::Arc<[egui::Shape]>)>,
     /// How many times the ground's and the objects' walkmesh overlays
     /// have been made (the tests' count of a kept one).
     pub overlay_builds: [u64; 2],
@@ -2874,7 +2874,9 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     // thousand objects took 4 to 15 ms at every edit (`frame_perf`'s
     // `refresh_parts`), noticed in busy areas.
     if same_are {
-        let empty_git_root = mg_gff::Struct::default();
+        // (As `Gff::new` makes a GIT's root, what the area was read from
+        // without one: else every edit read it whole.)
+        let empty_git_root = mg_gff::Struct::new(mg_gff::ROOT_STRUCT_ID);
         let changed = {
             let git_root = ws.doc(&view.git()).map_or(&empty_git_root, |g| &g.root);
             view.read_from
@@ -4547,7 +4549,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     {
         let painter = ui.painter_at(view.rect);
         painter.add(egui::Shape::Mesh(fill.clone()));
-        painter.add(egui::Shape::Mesh(edges.clone()));
+        painter.extend(edges.iter().cloned());
         return;
     }
     let (Some(camera), Some(to_screen)) = (view.camera(), view.projector()) else { return };
@@ -4612,10 +4614,10 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         push_face(&mut mesh, &mut edge_lines, points, baked_fill, baked_stroke);
     }
     let fill = std::sync::Arc::new(mesh);
-    let edges = std::sync::Arc::new(lines_mesh(&edge_lines));
+    let edges = outlines(&edge_lines);
     let painter = ui.painter_at(view.rect);
     painter.add(egui::Shape::Mesh(fill.clone()));
-    painter.add(egui::Shape::Mesh(edges.clone()));
+    painter.extend(edges.iter().cloned());
     view.overlay_builds[1] += 1;
     view.object_walk_mesh = Some((key, fill, edges));
 }
@@ -7265,8 +7267,19 @@ pub(crate) fn lines_mesh(lines: &[([Pos2; 2], Stroke)]) -> egui::Mesh {
 }
 
 /// From how many lines on the boxes of the objects selected or marked
-/// are drawn as one mesh ([`lines_mesh`]): some eighty boxes.
-const BOXES_MESHED: usize = 1000;
+/// are drawn as one mesh ([`lines_mesh`]): some eighty boxes. (Below it
+/// they are egui's own, smoothed; as are the outlines of [`outlines`].)
+pub(crate) const BOXES_MESHED: usize = 1000;
+
+/// Outlines' lines as shapes to paint: egui's own line segments, their
+/// edges smoothed, and past [`BOXES_MESHED`] of them one mesh (laid out
+/// one by one, thousands took longer than the frame has).
+pub(crate) fn outlines(lines: &[([Pos2; 2], Stroke)]) -> std::sync::Arc<[egui::Shape]> {
+    if lines.len() > BOXES_MESHED {
+        return std::sync::Arc::from([egui::Shape::mesh(lines_mesh(lines))]);
+    }
+    lines.iter().map(|&(points, stroke)| egui::Shape::LineSegment { points, stroke }).collect()
+}
 
 /// Makes Q and E's turning under way one command, and turns the view's
 /// model with it at once: what is done after it before the area is read
@@ -9110,6 +9123,20 @@ mod tests {
             assert_eq!(kept != base, posed, "frame {n}");
         }
         assert!(kept == base && last.is_empty(), "nothing posed at the end");
+    }
+
+    /// Outlines are egui's smoothed line segments up to `BOXES_MESHED`
+    /// lines, and one mesh past it (the review's C-13: a walkmesh's few
+    /// edges and a small tile selection were drawn as a mesh, unsmoothed,
+    /// stair-stepped where they slant).
+    #[test]
+    fn outlines_are_smoothed_until_there_are_many() {
+        let line = ([Pos2::new(0.0, 0.0), Pos2::new(10.0, 3.0)], Stroke::NONE);
+        let few = outlines(&vec![line; BOXES_MESHED]);
+        assert_eq!(few.len(), BOXES_MESHED);
+        assert!(few.iter().all(|s| matches!(s, egui::Shape::LineSegment { .. })));
+        let many = outlines(&vec![line; BOXES_MESHED + 1]);
+        assert!(matches!(&many[..], [egui::Shape::Mesh(_)]), "one mesh");
     }
 
     /// Lines as one mesh: a quad a line, as wide as its stroke, in its

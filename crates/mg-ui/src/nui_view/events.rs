@@ -53,7 +53,8 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
     if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
         let typed = Some(buf.mark_saved());
         // (In the file's line ends and codepage, as the editor saves it.)
-        buf.text = text;
+        // (Its history let go: its places are the text's before.)
+        buf.set_text(text);
         let data = Some(buf.mark_saved());
         let store =
             Command::new(format!("Edit {key}"), vec![Edit::SetResource { key, data: typed }]);

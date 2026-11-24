@@ -640,17 +640,16 @@ fn shell_quoted_for(text: &str, windows: bool) -> String {
         return text.to_string();
     }
     if windows {
-        // (Windows' paths have no `"`; escape `%` and double trailing `\` before `"`.)
-        let escaped = text.replace('%', "^%");
-        let tail = escaped.len() - escaped.trim_end_matches('\\').len();
-        let mut out = String::with_capacity(escaped.len() + tail + 2);
-        out.push('"');
-        out.push_str(&escaped);
-        for _ in 0..tail {
-            out.push('\\');
-        }
-        out.push('"');
-        out
+        // (Windows' paths have no `"`. A caret is no escape inside cmd's
+        // quotes, so a `%` is put between quoted parts as `^%`, where cmd
+        // takes the caret away and `%"…"^%` names no variable; and the
+        // backslashes ending a part are doubled before its `"`, as the
+        // program reading its arguments wants.)
+        let quoted = |part: &str| {
+            let tail = part.len() - part.trim_end_matches('\\').len();
+            format!("\"{part}{}\"", "\\".repeat(tail))
+        };
+        text.split('%').map(quoted).collect::<Vec<_>>().join("^%")
     } else {
         format!("'{}'", text.replace('\'', "'\\''"))
     }
@@ -661,7 +660,12 @@ fn shell_quoted_for(text: &str, windows: bool) -> String {
 /// to be), `{part}` the part's name (`data`, `manifests`, `latest`). It
 /// runs in the repository's folder, so `{part}` alone names it.
 pub fn upload_command(template: &str, root: &Path, part: Part) -> String {
-    template.replace("{folder}", &shell_quoted(root)).replace("{part}", part.name())
+    upload_command_for(template, &root.display().to_string(), part, cfg!(windows))
+}
+
+/// [`upload_command`] for the shell of Windows (`cmd`) or the others.
+fn upload_command_for(template: &str, root: &str, part: Part, windows: bool) -> String {
+    template.replace("{folder}", &shell_quoted_for(root, windows)).replace("{part}", part.name())
 }
 
 #[cfg(test)]
@@ -895,7 +899,16 @@ mod tests {
         assert_eq!(shell_quoted_for("a\\b", false), "'a\\b'");
         assert_eq!(shell_quoted_for("C:\\a b\\c", true), "\"C:\\a b\\c\"");
         assert_eq!(shell_quoted_for("C:\\a b\\", true), "\"C:\\a b\\\\\"");
-        assert_eq!(shell_quoted_for("%TEMP%\\out", true), "\"^%TEMP^%\\out\"");
+        // A `%` outside the quotes, escaped, which cmd reads as the path:
+        // `"C:\100"^%" done\\"` is `C:\100% done\` (inside quotes a
+        // caret is kept, and the path was `C:\100^% done\`).
+        assert_eq!(shell_quoted_for("%TEMP%\\out", true), "\"\"^%\"TEMP\"^%\"\\out\"");
+        assert_eq!(shell_quoted_for("C:\\100% done\\", true), "\"C:\\100\"^%\" done\\\\\"");
+        assert_eq!(shell_quoted_for("C:\\a\\%b", true), "\"C:\\a\\\\\"^%\"b\"");
+        assert_eq!(
+            upload_command_for("copy {folder}\\{part} D:\\x", "C:\\100% done", Part::Data, true),
+            "copy \"C:\\100\"^%\" done\"\\data D:\\x"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

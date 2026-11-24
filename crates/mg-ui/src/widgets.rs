@@ -6069,18 +6069,12 @@ fn choices_sig(choices: &[mg_rules::Choice]) -> ChoicesSig {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let len = choices.len();
     len.hash(&mut h);
-    if len <= 16 {
-        for c in choices {
-            c.row.hash(&mut h);
-            c.text.hash(&mut h);
-        }
-    } else {
-        for step in 0..8 {
-            let idx = (step * (len - 1)) / 7;
-            let c = &choices[idx];
-            c.row.hash(&mut h);
-            c.text.hash(&mut h);
-        }
+    // (Every one: a sample of them kept the order of names a renamed row
+    // had before, and took one table's for another's of its length.
+    // Hashing is still far less than sorting them by name.)
+    for c in choices {
+        c.row.hash(&mut h);
+        c.text.hash(&mut h);
     }
     (len, h.finish())
 }
@@ -7166,6 +7160,30 @@ pub(crate) fn header_with_ok_cancel<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The order of names is kept by every row's name (the review's C-6):
+    /// a row renamed among a hundred, between those a sample took, and
+    /// another table of the same length, are told apart.
+    #[test]
+    fn the_name_order_is_kept_by_every_row() {
+        let rows = |renamed: Option<(usize, &str)>| -> Vec<mg_rules::Choice> {
+            (0..100)
+                .map(|row| {
+                    let text = match renamed {
+                        Some((r, t)) if r == row => t.to_string(),
+                        _ => format!("Row {row:03}"),
+                    };
+                    mg_rules::Choice { row, text }
+                })
+                .collect()
+        };
+        let base = choices_sig(&rows(None));
+        assert_ne!(base, choices_sig(&rows(Some((5, "Aardvark")))), "a row renamed");
+        let other: Vec<mg_rules::Choice> =
+            (0..100).map(|row| mg_rules::Choice { row, text: format!("Other {row:03}") }).collect();
+        assert_ne!(base, choices_sig(&other), "another table of the same length");
+        assert_eq!(base, choices_sig(&rows(None)), "the same rows");
+    }
 
     /// A range that runs backwards (the Levelup Wizard's for a class past
     /// level 60, the review's B3) steps as the same range the right way

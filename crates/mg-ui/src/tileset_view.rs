@@ -385,7 +385,19 @@ impl TilesetDoc {
         if let Some(theirs) = self.theirs.take() {
             self.disk = Some(theirs);
             self.saved = None;
+            // (The names the file has now, which Save's palette follows
+            // from: theirs, not those of the text last read or written.)
+            if let Some(names) = self.names_on_disk() {
+                self.saved_names = Some(names);
+            }
         }
+    }
+
+    /// The terrain and crosser names of the file as it is on disk (`None`
+    /// where it can't be read as a tileset).
+    fn names_on_disk(&self) -> Option<[Vec<String>; 2]> {
+        let data = std::fs::read(&self.path).ok()?;
+        Tileset::parse(&data, Codepage::default()).ok().as_ref().map(type_names)
     }
 
     /// How many times the file was walked for its list's and Outliner's
@@ -2516,5 +2528,27 @@ mod tests {
         render_minimaps(&mut app, &mut d);
         assert_eq!(d.get("TILE0", "ImageMap2D").as_deref(), Some("mi_t0"));
         assert!(d.get("TILE1", "ImageMap2D").is_none());
+    }
+
+    /// Keep Moonglow's over a file another program changed: Save's
+    /// palette follows from the names the file has now (theirs), not from
+    /// those last read here (the review's D6).
+    #[test]
+    fn keep_mine_takes_the_names_the_file_has_now() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-keep-mine-names");
+        let path = dir.join("tst01.set");
+        let with = |terrain: &str| {
+            format!("{SET}\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName={terrain}\r\n")
+        };
+        std::fs::write(&path, with("Grass")).unwrap();
+        let disk = crate::problems::fingerprint(with("Grass").as_bytes());
+        let mut d = TilesetDoc::new(1, path.clone(), SetFile::parse(&with("Grass")), Some(disk));
+        assert_eq!(d.saved_names.as_ref().map(|n| n[0].clone()), Some(vec!["Grass".to_string()]));
+        d.change(|f| f.set("GENERAL", "Transition", "5"));
+        // Another program renames the terrain; Moonglow's is kept.
+        std::fs::write(&path, with("Moss")).unwrap();
+        d.theirs = Some(crate::problems::fingerprint(with("Moss").as_bytes()));
+        d.keep_mine();
+        assert_eq!(d.saved_names.as_ref().map(|n| n[0].clone()), Some(vec!["Moss".to_string()]));
     }
 }

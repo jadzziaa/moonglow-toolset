@@ -69,10 +69,9 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     // (The script's symbols as its editor last made them: none before it
     // is first drawn, which draws the panel again once it has them.)
     let symbols = app.script_tools.symbols.get(&key).map(|(_, s)| s.clone());
-    let made = symbols.as_ref().map_or(0, |s| s.ptr_id());
     let shown = app.script_tools.help.as_ref().map(|h| h.name.clone());
     let pass = ui.ctx().cumulative_pass_nr();
-    app.script_tools.reference_drawn = Some((pass, key, made, shown));
+    app.script_tools.reference_drawn = Some((pass, key, symbols.clone(), shown));
     let mut insert: Option<String> = None;
     let t = &mut app.script_tools;
     ui.spacing_mut().item_spacing.y = GAP;
@@ -140,20 +139,8 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         };
         let empty = crate::script_tools::SymbolSet::default();
         let set = symbols.as_ref().unwrap_or(&empty);
-        let cache_key = set.cache_key();
-        let hit = t.ref_cache.as_ref().is_some_and(|c| {
-            c.key == key && c.made == cache_key && c.kind == kind && c.filter == t.filter
-        });
-        if !hit {
-            let mut entries = Vec::new();
-            let mut iter = set.iter();
-            while let Some((is_own, idx, s)) = iter.next_indexed() {
-                if s.kind == kind && filter.finds(&s.name) {
-                    entries.push((is_own, idx));
-                }
-            }
-            t.ref_cache =
-                Some(RefCache { key, made: cache_key, kind, filter: t.filter.clone(), entries });
+        if !t.ref_cache.as_ref().is_some_and(|c| c.fits(key, set, kind, &t.filter)) {
+            t.ref_cache = Some(RefCache::new(key, set, kind, &t.filter, &filter));
         }
         let entries = &t.ref_cache.as_ref().expect("just cached").entries;
         let entry = |&(is_own, idx): &(bool, usize)| -> &Symbol {
@@ -320,14 +307,51 @@ pub(crate) fn verbatim(s: &Symbol) -> String {
     }
 }
 
-/// Cached filtered list of symbols for [`reference`].
+/// Cached filtered list of symbols for [`reference`]: places in the
+/// symbol set it was made from, which it holds (compared by address, as
+/// the set is made again whenever its script or nwscript changes). Keyed
+/// by the sets' addresses alone, a set dropped and another made where it
+/// had been took the old list's places, for other names or past its end:
+/// review D3 of the adversarial branch.
 #[derive(Debug, Clone)]
 pub(crate) struct RefCache {
     pub(crate) key: ResKey,
-    made: (usize, usize),
+    made: crate::script_tools::SymbolSet,
     kind: SymbolKind,
     filter: String,
     entries: Vec<(bool, usize)>,
+}
+
+impl RefCache {
+    /// The `kind` of `set`'s symbols `finds` keeps (the panel's `filter`
+    /// typed), in the order the panel lists them.
+    fn new(
+        key: ResKey,
+        set: &crate::script_tools::SymbolSet,
+        kind: SymbolKind,
+        filter: &str,
+        finds: &mg_core::text::Needle,
+    ) -> RefCache {
+        let mut entries = Vec::new();
+        let mut iter = set.iter();
+        while let Some((is_own, idx, s)) = iter.next_indexed() {
+            if s.kind == kind && finds.finds(&s.name) {
+                entries.push((is_own, idx));
+            }
+        }
+        RefCache { key, made: set.clone(), kind, filter: filter.to_owned(), entries }
+    }
+
+    /// Whether it is the list of `key`'s `set`, `kind` and `filter`.
+    fn fits(
+        &self,
+        key: ResKey,
+        set: &crate::script_tools::SymbolSet,
+        kind: SymbolKind,
+        filter: &str,
+    ) -> bool {
+        self.key == key && self.made.same(set) && self.kind == kind && self.filter == filter
+    }
 }
 
 /// [`verbatim`] laid out as the editor's text is (its colors and font).
@@ -433,6 +457,7 @@ fn comment_lines(doc: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn function(signature: &str, doc: &str) -> Symbol {
         Symbol {
@@ -474,5 +499,31 @@ mod tests {
         assert_eq!(first_doc_line(doc).as_deref(), Some("Returns TRUE if oObject is open."));
         assert_eq!(first_doc_line(""), None);
         assert_eq!(first_doc_line("//\n//   \n"), None);
+    }
+
+    /// The Reference list's cache holds the symbol set its places are in:
+    /// a set made again (the script typed in) is another list, whatever
+    /// address it is given. Keyed by addresses it did not hold, a set made
+    /// where the dropped one had been took its places (review D3).
+    #[test]
+    fn the_reference_list_holds_the_set_it_lists() {
+        use crate::script_tools::SymbolSet;
+        let key = ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
+        let named = |n: &str| Symbol { name: n.into(), ..function("void F()", "") };
+        let spec = Arc::new(vec![named("GetTag")]);
+        let set = SymbolSet { own: Arc::new(vec![named("Mine"), named("Other")]), spec };
+        let all = mg_core::text::Needle::new("");
+        let cache = RefCache::new(key, &set, SymbolKind::Function, "", &all);
+        assert_eq!(cache.entries.len(), 3);
+        assert!(cache.fits(key, &set, SymbolKind::Function, ""));
+        assert!(!cache.fits(key, &set, SymbolKind::Constant, ""));
+        assert!(!cache.fits(key, &set, SymbolKind::Function, "Get"));
+        // The script typed in: its set made again, the old one let go.
+        let old = Arc::downgrade(&set.own);
+        let typed = SymbolSet { own: Arc::new(vec![named("Mine")]), spec: set.spec.clone() };
+        drop(set);
+        assert!(old.upgrade().is_some(), "the list's set is held while the list is");
+        assert!(!Arc::ptr_eq(&old.upgrade().unwrap(), &typed.own));
+        assert!(!cache.fits(key, &typed, SymbolKind::Function, ""));
     }
 }

@@ -552,20 +552,26 @@ impl OwnOps {
         path: &GffPath,
     ) -> Option<GffPath> {
         let (mut then, mut now) = (GffPath::root(), GffPath::root());
+        // (Past an item this fix inserted, nothing is another fix's: what
+        // they took out or replaced at that place was under the item that
+        // was there, which the fix-space path names too.)
+        let mut inside_new = false;
         for step in &path.0 {
             let step_now = match step {
                 Step::Field(_) => step.clone(),
                 Step::Item(list, i) => {
                     let at = (*key, then.clone(), list.clone());
-                    if replaced.contains(&at) {
+                    if !inside_new && replaced.contains(&at) {
                         return None;
                     }
                     let ops = self.0.get(&at).map_or(&[][..], Vec::as_slice);
                     let origin = trace_origin(ops, *i);
-                    let ws_idx = resolve_ws(ops, removed.get(&at), origin, false)?;
+                    let others = if inside_new { None } else { removed.get(&at) };
+                    let ws_idx = resolve_ws(ops, others, origin, false)?;
                     if let Origin::Verify(v) = origin {
                         then.0.push(Step::Item(list.clone(), v));
                     } else {
+                        inside_new = true;
                         then.0.push(step.clone());
                     }
                     now.0.push(Step::Item(list.clone(), ws_idx));
@@ -1274,6 +1280,50 @@ endwalkmeshgeom tst_a01\n";
         let found = attach(&m, vec![finding("other", "inn.git", ""), mine], &plugins);
         assert_eq!(found[0].fix, None);
         assert_eq!(found[1].fix, Some(fix));
+    }
+
+    /// A fix that inserts an item and edits inside it: another fix's
+    /// removals under the original item at that place are not the new
+    /// item's (the review's ccfb8cfe note 3: its edit went one place up).
+    #[test]
+    fn an_edit_inside_an_inserted_item_is_not_moved_by_another_s_removals() {
+        let with_sub = |tag: &str| {
+            let mut s = tagged(tag);
+            s.set("Sub", Value::List(vec![tagged("S0"), tagged("S1")]));
+            s
+        };
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("VarTable", Value::List(vec![with_sub("X0"), with_sub("X1")]));
+        let git = key("inn.git");
+        let mut m = Module::new();
+        m.set_gff(git, &g).unwrap();
+        let x1 = GffPath::root().item("VarTable", 1);
+        let take = Fix {
+            label: "Take X1's first".into(),
+            edits: vec![Edit::remove_item(git, x1.clone(), "Sub", 0)],
+            asks: None,
+        };
+        let set = Edit::SetField {
+            key: git,
+            path: x1.clone().item("Sub", 1),
+            label: "Tag".into(),
+            value: Some(Value::String(b"NEW_S1".to_vec())),
+        };
+        let insert = Fix {
+            label: "Insert and edit inside".into(),
+            edits: vec![
+                Edit::insert_item(git, GffPath::root(), "VarTable", 1, with_sub("NEW")),
+                set,
+            ],
+            asks: None,
+        };
+        let mut ws = Workspace::new(m.clone());
+        let mut guard = Guard::new(&ws.module, [&take, &insert]);
+        let checked = guard.check(&mut ws, &take).unwrap();
+        ws.apply(checked.command()).unwrap();
+        guard.made(&mut ws, &take);
+        let checked = guard.check(&mut ws, &insert).unwrap();
+        assert_eq!(checked, insert, "the new item's own places, as the fix has them");
     }
 
     #[test]

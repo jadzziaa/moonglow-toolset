@@ -338,7 +338,12 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     let folder_width = in_bar(&h, folder).unwrap().rect().width();
     let mut differ = Vec::new();
     let mut dropped = 0;
-    for width in (1400..=2200).step_by(80) {
+    let widths: Vec<i32> = if mg_testkit::full_corpus() {
+        (1400..=2200).step_by(8).collect()
+    } else {
+        (1400..=2200).step_by(80).collect()
+    };
+    for width in widths {
         let width = width as f32;
         h.set_size(egui::vec2(width, 700.0));
         let mut seen = Vec::new();
@@ -655,10 +660,18 @@ fn the_status_bar_holds_at_every_width() {
     let mut stages = std::collections::BTreeMap::<&str, usize>::new();
     // (3440 first, where everything shows, then from the least window up:
     // by 8 to 1600, by 16 to 2560.)
-    let widths = std::iter::once(3440)
-        .chain((420..1600).step_by(32))
-        .chain((1600..=2560).step_by(64))
-        .chain([1392, 1400, 1456, 1520, 2560]);
+    let widths: Vec<i32> = if mg_testkit::full_corpus() {
+        std::iter::once(3440)
+            .chain((420..1600).step_by(8))
+            .chain((1600..=2560).step_by(16))
+            .collect()
+    } else {
+        std::iter::once(3440)
+            .chain((420..1600).step_by(32))
+            .chain((1600..=2560).step_by(64))
+            .chain([1392, 1400, 1456, 1520, 2560])
+            .collect()
+    };
     for width in widths {
         let width = width as f32;
         h.set_size(egui::vec2(width, 600.0));
@@ -816,7 +829,12 @@ fn the_status_bar_holds_at_every_width() {
     // and the folder from 1400 (the window's width's rule, M3 T14).
     h.state_mut().status_for_tests(Some((Vec::new(), Vec::new())));
     h.state_mut().log.clear();
-    for width in [1300, 1348, 1396, 1400, 1448, 1500] {
+    let widths: Vec<i32> = if mg_testkit::full_corpus() {
+        (1300..=1500).step_by(4).collect()
+    } else {
+        vec![1300, 1348, 1396, 1400, 1448, 1500]
+    };
+    for width in widths {
         let width = width as f32;
         h.set_size(egui::vec2(width, 600.0));
         settle(&mut h);
@@ -868,7 +886,8 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let stages = [("none", 0), ("icon", 0), ("icon", 1), ("icon", 2), ("icon", 3), ("words", 3)];
     let mut wrong = Vec::new();
     let mut seen = Vec::new();
-    for width in (300..=1000).step_by(20) {
+    let step = if mg_testkit::full_corpus() { 4 } else { 20 };
+    for width in (300..=1000).step_by(step) {
         let width = width as f32;
         h.set_size(egui::vec2(width, 800.0));
         settle(&mut h);

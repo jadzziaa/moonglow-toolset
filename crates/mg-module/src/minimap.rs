@@ -25,10 +25,14 @@ const SIZE: (u32, u32) = (16, 256);
 /// 32; `doctor::tile_seams` reads as many).
 const MAX_TILES: u32 = 1024;
 
-/// The most pixels a minimap's side has: a 32 by 32 area at the largest
-/// tile asked for (1024).
+/// The most pixels a minimap's side has: 32 tiles at the largest tile
+/// asked for (1024).
 const MAX_PIXELS: u32 = 32 * 1024;
-/// Total RGBA byte limit (`256 MiB`) so large square maps cannot allocate multi-GiB buffers.
+/// The most RGBA bytes a minimap takes (256 MiB, 67,108,864 pixels): the
+/// game's largest area, 32 by 32 tiles, at the largest tile a picture is
+/// taken at unasked (256), or at 1024 a tile an area of 8 by 8. (32 by 32
+/// at 1024 was 4 GiB to hold.) The command line's `--size` and the
+/// manual say so.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A tile's picture, as RGBA (rows bottom first).
@@ -107,13 +111,11 @@ pub fn minimap(
     }
     let w = u64::from(width) * u64::from(size);
     let h = u64::from(height) * u64::from(size);
-    if w > u64::from(MAX_PIXELS)
-        || h > u64::from(MAX_PIXELS)
-        || w.saturating_mul(h).saturating_mul(4) > MAX_BYTES
-    {
+    if w > u64::from(MAX_PIXELS) || h > u64::from(MAX_PIXELS) || w * h * 4 > MAX_BYTES {
         return Err(format!(
-            "the picture would be {w} by {h} pixels: {MAX_PIXELS} a side and {} MiB RGBA at most",
-            MAX_BYTES / (1024 * 1024)
+            "the picture would be {w} by {h} pixels: {MAX_PIXELS} a side and {} pixels (256 MiB) \
+             at most",
+            MAX_BYTES / 4
         ));
     }
     let mut out = Rgba::new(w as u32, h as u32);
@@ -380,15 +382,27 @@ mod tests {
         // A picture too large for its tiles' size is refused too.
         let err = minimap(&rm, &area(1024), &set, Some(1024)).unwrap_err();
         assert!(err.contains("pixels"), "{err}");
-        // Square maps within per-side limit whose total RGBA bytes exceed cap are refused.
-        let mut sq32 = area(32);
-        sq32.set("Height", mg_gff::Value::Int(32));
-        let err = minimap(&rm, &sq32, &set, Some(1024)).unwrap_err();
-        assert!(err.contains("MiB RGBA"), "{err}");
-        let mut sq512 = area(512);
-        sq512.set("Height", mg_gff::Value::Int(512));
-        let err = minimap(&rm, &sq512, &set, Some(64)).unwrap_err();
-        assert!(err.contains("MiB RGBA"), "{err}");
+        // Maps past 256 MiB of RGBA are refused; the sizes the manual gives
+        // are drawn: the game's largest area at the largest tile taken
+        // unasked, a tile of 1024 in an area of 8, and a long thin one.
+        let square = |side: i32| {
+            let mut sq = area(side);
+            sq.set("Height", mg_gff::Value::Int(side));
+            sq
+        };
+        let err = minimap(&rm, &square(32), &set, Some(1024)).unwrap_err();
+        assert!(err.contains("256 MiB"), "{err}");
+        let err = minimap(&rm, &square(512), &set, Some(64)).unwrap_err();
+        assert!(err.contains("256 MiB"), "{err}");
+        let map = minimap(&rm, &square(32), &set, Some(256)).unwrap();
+        assert_eq!((map.width, map.height), (8192, 8192));
+        drop(map);
+        let map = minimap(&rm, &square(8), &set, Some(1024)).unwrap();
+        assert_eq!((map.width, map.height), (8192, 8192));
+        drop(map);
+        let map = minimap(&rm, &area(32), &set, Some(1024)).unwrap();
+        assert_eq!((map.width, map.height), (32768, 1024));
+        drop(map);
         // One the game could hold is drawn: black where a tile has no picture.
         let map = minimap(&rm, &area(2), &set, Some(4)).unwrap();
         assert_eq!((map.width, map.height), (8, 4));

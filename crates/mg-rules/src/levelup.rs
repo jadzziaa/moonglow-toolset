@@ -687,8 +687,12 @@ impl GameData {
         let size = |b: usize| self.inventory_size(b);
         let mut used: u32 =
             creature.list("Equip_ItemList").unwrap_or(&[]).iter().fold(0, |m, e| m | e.id);
-        // The backpack's occupied rectangles (x, y, w, h).
+        // The backpack's occupied rectangles (x, y, w, h), at the rows the
+        // file gives (past row 255 too, where a builder put an item: read
+        // as row 255, as they once were, the gear went on top of it), and
+        // the gear placed so far.
         let mut taken: Vec<(u32, u32, u32, u32)> = Vec::new();
+        let mut given: Vec<(u32, u32, u32, u32)> = Vec::new();
         for e in creature.list("ItemList").unwrap_or(&[]) {
             let b = base_of(e)
                 .or_else(|| e.resref("InventoryRes").and_then(item).and_then(|i| base_of(&i)));
@@ -731,11 +735,24 @@ impl GameData {
                 continue;
             }
             let (w, h) = size(b);
-            let (x, y) = place(&taken, u32::from(INVENTORY_WIDTH), u32::from(w), u32::from(h));
-            if let (Ok(cx), Ok(cy)) = (u16::try_from(x), u16::try_from(y)) {
-                taken.push((x, y, u32::from(w), u32::from(h)));
-                out.push((res, GearPlace::Carry(cx, cy)));
+            let (w, h) = (u32::from(w), u32::from(h));
+            let width = u32::from(INVENTORY_WIDTH);
+            let all: Vec<_> = taken.iter().chain(&given).copied().collect();
+            let (mut x, mut y) = place(&all, width, w, h);
+            if u16::try_from(x).is_err() || u16::try_from(y).is_err() {
+                // No place a file's row can say (items carried down to the
+                // last row a WORD holds): placed as before the rows were
+                // kept, the carried items read as at most row 255, so the
+                // item is given, never dropped.
+                let near: Vec<_> = (taken.iter())
+                    .map(|&(tx, ty, tw, th)| (tx.min(255), ty.min(255), tw, th))
+                    .chain(given.iter().copied())
+                    .collect();
+                (x, y) = place(&near, width, w, h);
             }
+            let (cx, cy) = (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(u16::MAX));
+            given.push((u32::from(cx), u32::from(cy), w, h));
+            out.push((res, GearPlace::Carry(cx, cy)));
         }
         out
     }
@@ -922,6 +939,29 @@ mod tests {
             ("big", GearPlace::Carry(0, 301)),
             ("ring", GearPlace::Equip(16)),
             ("band", GearPlace::Carry(0, 255)),
+        ];
+        assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
+        // A backpack carried full down past the last row a WORD holds:
+        // no place there, and the gear is still given (placed as it was
+        // before rows past 255 were kept), not dropped.
+        let mut deep = Struct::new(0);
+        let stack: Vec<Struct> = (0..=257u16)
+            .map(|i| {
+                let mut s = Struct::new(0);
+                s.set("BaseItem", Value::Int(0));
+                s.set("Repos_PosX", Value::Word(0));
+                s.set("Repos_Posy", Value::Word(i * 255));
+                s
+            })
+            .collect();
+        deep.set("ItemList", Value::List(stack));
+        let gear = game.new_class_gear(&deep, 0, &item);
+        let places: Vec<(String, GearPlace)> =
+            gear.into_iter().map(|(r, at)| (r.to_string(), at)).collect();
+        let expected = [
+            ("big", GearPlace::Carry(0, 510)),
+            ("ring", GearPlace::Equip(16)),
+            ("band", GearPlace::Carry(0, 765)),
         ];
         assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
     }

@@ -89,12 +89,24 @@ impl LightSpec {
     /// Its model's name: [`MODEL_PREFIX`] and a hash of the settings, the
     /// same for the same settings.
     pub fn model_name(&self) -> ResRef {
+        self.hashed_name(f32::round)
+    }
+
+    /// The name Moonglow gave the model of these settings before its
+    /// hundredths were rounded, when they were cut: 0.53 m (52.999996
+    /// hundredths in an f32) was hashed as 52, the name of 0.52 m too. A light placed
+    /// then keeps its row: [`plan`] finds it by this name.
+    fn name_before_rounding(&self) -> ResRef {
+        self.hashed_name(f32::trunc)
+    }
+
+    fn hashed_name(&self, hundredths: fn(f32) -> f32) -> ResRef {
         let s = self.normalized();
         let text = format!(
             "{:?} {} {} {} {} {}",
             s.color,
-            (s.radius * 100.0).round() as u32,
-            (s.multiplier * 100.0).round() as u32,
+            hundredths(s.radius * 100.0) as u32,
+            hundredths(s.multiplier * 100.0) as u32,
             s.shadows,
             s.lights_objects,
             s.priority
@@ -111,8 +123,13 @@ impl LightSpec {
     /// Its model as text: a dummy, a square of 0.2 m drawn by nothing (as
     /// the game's invisible light placeables have), and the light.
     pub fn model_text(&self) -> String {
+        self.model_text_named(self.model_name())
+    }
+
+    /// [`model_text`](Self::model_text), its model named `name`.
+    fn model_text_named(&self, name: ResRef) -> String {
         let s = self.normalized();
-        let n = self.model_name().to_string();
+        let n = name.to_string();
         let [r, g, b] = s.color.map(|c| f32::from(c) / 255.0);
         format!(
             "# A light made by Moonglow Toolset: {} m, multiplier {}\n\
@@ -140,9 +157,14 @@ impl LightSpec {
 
     /// Its model compiled, as the game's own are.
     pub fn model_binary(&self) -> Result<Vec<u8>, String> {
-        let text = self.model_text();
+        self.model_binary_named(self.model_name())
+    }
+
+    /// [`model_binary`](Self::model_binary), its model named `name`.
+    fn model_binary_named(&self, name: ResRef) -> Result<Vec<u8>, String> {
+        let text = self.model_text_named(name);
         let compiled = mg_mdl::compile::compile(text.as_bytes(), &Default::default())
-            .map_err(|e| format!("{}: {e}", self.model_name()))?;
+            .map_err(|e| format!("{name}: {e}"))?;
         Ok(compiled.binary)
     }
 
@@ -266,10 +288,31 @@ pub fn plan(
     }
     let data = layers[top].container.read(&key).map_err(|e| format!("placeables.2da: {e}"))?;
     let mut table = TwoDa::parse(&data, codepage).map_err(|e| format!("placeables.2da: {e}"))?;
-    let model = spec.model_name();
+    // (The row of these settings by their name, or by the name they had
+    // before their hundredths were rounded: a light placed then is the
+    // same light, not a second row.)
+    let row_named = |name: ResRef| {
+        let text = name.to_string();
+        (0..table.len())
+            .find(|&r| table.get(r, "ModelName").is_some_and(|m| m.eq_ignore_ascii_case(&text)))
+            .map(|r| (r, name))
+    };
+    // (The earlier name was shared by two settings a hundredth apart,
+    // 0.52 and 0.53 m: its row is this light's only where its model in the
+    // hak has this radius and multiplier, or, the model not there, the row
+    // has this light's label.)
+    let earlier = spec.name_before_rounding();
+    let this_light = |row: usize| match at
+        .and_then(|i| layers[i].container.read(&ResKey::new(earlier, ResType::MDL)).ok())
+    {
+        Some(model) => model_has(&model, &spec),
+        None => table.get(row, "Label").is_some_and(|l| l == spec.label()),
+    };
+    let found = row_named(spec.model_name())
+        .or_else(|| row_named(earlier).filter(|&(row, _)| this_light(row)));
+    let model = found.map_or(spec.model_name(), |(_, name)| name);
+    let had = found.map(|(r, _)| r);
     let model_text = model.to_string();
-    let had = (0..table.len())
-        .find(|&r| table.get(r, "ModelName").is_some_and(|m| m.eq_ignore_ascii_case(&model_text)));
     let has_model = match at {
         Some(i) => layers[i].container.contains(&ResKey::new(model, ResType::MDL)),
         None => false,
@@ -327,6 +370,19 @@ pub fn plan(
     Ok(Plan { spec, hak, model, row, reused: false, table_from: layers[top].label.clone(), table })
 }
 
+/// Whether a compiled light model has `spec`'s radius and multiplier.
+fn model_has(model: &[u8], spec: &LightSpec) -> bool {
+    let Ok(model) = mg_mdl::Model::read(model) else { return false };
+    let near = |n: &mg_mdl::Node, name: &str, want: f32| {
+        n.value(name).and_then(|v| v.first()).is_some_and(|v| (v - want).abs() < 0.005)
+    };
+    model.nodes.iter().any(|n| {
+        matches!(n.kind, mg_mdl::NodeKind::Light(_))
+            && near(n, "radius", spec.radius)
+            && near(n, "multiplier", spec.multiplier)
+    })
+}
+
 /// Writes what `plan` worked out: the model and placeables.2da into its
 /// hak (made if new; one that is there kept beside itself as `.bak`
 /// first). Nothing for a plan that reuses what is there.
@@ -335,7 +391,7 @@ pub fn write(plan: &Plan, codepage: Codepage) -> Result<(), String> {
         return Ok(());
     }
     use crate::hak_edit::Source;
-    let model = plan.spec.model_binary()?;
+    let model = plan.spec.model_binary_named(plan.model)?;
     let layout = mg_2da::Layout::Aligned;
     let table = plan.table.to_bytes_as(codepage, layout).map_err(|e| e.to_string())?;
     let resources = vec![
@@ -581,6 +637,63 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// A light placed before the hundredths were rounded (its row named by
+    /// them cut) is found again by its settings: re-placed, it reuses its
+    /// row and model, no second row; its model missing, the row is kept and
+    /// the model written under the row's name.
+    #[test]
+    fn a_light_placed_before_rounding_keeps_its_row() {
+        let dir = mg_testkit::scratch_dir("mg-lights-before-rounding");
+        let spec = LightSpec { radius: 0.53, ..Default::default() };
+        let before = spec.name_before_rounding();
+        assert_ne!(before, spec.model_name(), "0.53 (52.999996 hundredths) was cut to 52");
+        let label = spec.label();
+        let rows = table(&[
+            "Chest **** plc_c01 **** 1 0 0",
+            &format!("\"{label}\" **** {before} **** 1 0 1"),
+        ]);
+        let cp = Codepage::default();
+        let with = |model: Option<Vec<u8>>, rows: &[u8]| {
+            let mut hak = MemContainer::new();
+            hak.insert(placeables_key(), rows.to_vec());
+            if let Some(m) = model {
+                hak.insert(ResKey::new(before, ResType::MDL), m);
+            }
+            let mut rm = ResMan::new();
+            rm.add(priority::HAK_USER, "hak:lights", LayerClass::Erf, hak);
+            rm
+        };
+        let lights = HakChoice { name: "lights".into(), path: dir.join("lights.hak"), new: false };
+        let model = spec.model_binary_named(before).unwrap();
+        let p = plan(&with(Some(model), &rows), cp, spec, lights.clone(), None).unwrap();
+        assert_eq!((p.row, p.reused, p.model), (1, true, before));
+        // The model gone from the hak: the row (its label this light's)
+        // kept, its model written again.
+        let p = plan(&with(None, &rows), cp, spec, lights.clone(), None).unwrap();
+        assert_eq!((p.row, p.reused, p.model, p.table.len()), (1, false, before, 2));
+        write(&p, cp).unwrap();
+        let bytes = std::fs::read(dir.join("lights.hak")).unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        assert!(erf.find(&before, ResType::MDL).is_some());
+
+        // The earlier name was also the 0.52 m light's (its name then and
+        // now): its row and model are that light's, and a 0.53 m light
+        // takes a row of its own, never 0.52's.
+        let other = LightSpec { radius: 0.52, ..Default::default() };
+        assert_eq!(other.model_name(), before);
+        let rows52 = table(&[
+            "Chest **** plc_c01 **** 1 0 0",
+            &format!("\"{}\" **** {before} **** 1 0 1", other.label()),
+        ]);
+        for model in [Some(other.model_binary().unwrap()), None] {
+            let p = plan(&with(model, &rows52), cp, spec, lights.clone(), None).unwrap();
+            assert_eq!((p.row, p.reused, p.model), (2, false, spec.model_name()));
+        }
+        // And the 0.52 m light itself finds its row by its own name.
+        let p = plan(&with(None, &rows52), cp, other, lights, None).unwrap();
+        assert_eq!((p.row, p.model), (1, before));
     }
 
     #[test]

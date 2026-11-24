@@ -2024,6 +2024,41 @@ fn a_setting_moved_by_tidy_up_is_kept_when_the_tidy_fails_further_on() {
     assert_eq!(kept.get("name"), Some(&mine), "and in the user's own file");
 }
 
+/// The user's settings file shared with `mg` there and unreadable: what
+/// it keeps is unknown, and nothing of Moonglow's own copy is said to be
+/// kept wrong (the review's C-11: the copy's were said).
+#[test]
+fn an_unreadable_settings_file_says_nothing_of_moonglow_s_copy() {
+    let dir = plugin_project("ui-plugin-settings-unreadable");
+    let plugins = dir.join("installed");
+    let one = plugins.join("one");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::write(
+        one.join("plugin.cfg"),
+        "[plugin]\nid = \"a.one\"\nname = \"One\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"name\"\nlabel = \"Name\"\nscope = \"user\"\n",
+    )
+    .unwrap();
+    std::fs::write(one.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    let values = dir.with_extension("values.json");
+    std::fs::write(&values, "{ not json").unwrap();
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugins);
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
+    app.plugin_values = Some(values);
+    let lost = [("lost".to_string(), serde_json::json!(1))].into_iter().collect();
+    app.settings.plugin_settings.insert("a.one".into(), lost);
+    app.load_plugins();
+    app.open_module(&dir);
+    let p = (app.plugins.installed.iter())
+        .filter_map(|i| i.plugin.as_ref().ok())
+        .find(|p| p.manifest.id == "a.one")
+        .cloned()
+        .expect("the plugin");
+    let faults = app.plugin_settings_faults(&p);
+    assert!(!faults.iter().any(|f| f.contains("\"lost\"")), "{faults:?}");
+}
+
 /// The kinds of setting API 0.5 added, in the form: a number with a
 /// fraction, a list (of choices, and free), a color, text held to a
 /// pattern and a folder chosen by Choose…; kept, those of scope `user`, in
@@ -2904,4 +2939,83 @@ fn plugin_protected_area_cancel_rolls_back_hak_and_confirm_tracks_undo() {
     h.run_steps(3);
     assert_ne!(start_tag(&mut h), "BY_PLUGIN", "Undo reverts area tag");
     assert!(!hak.exists(), "Undo removes hak recorded via FinishPluginApply");
+}
+
+/// A second plugin run while the first is held for the Protected Area
+/// window does not start (it took the first's place, whose hak stayed
+/// written past Cancel), and an event's job waits; Quit with a run held
+/// takes its hak back.
+#[test]
+fn a_second_plugin_run_waits_for_the_protected_area_answer_and_quit_rolls_back() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = project_folder(
+        "ui-plugin-protected-second",
+        &[("moonglow.toml", "[claims]\nprotected = [\"start\"]\n")],
+    );
+    let export = dir.join("export");
+    std::fs::create_dir_all(&export).unwrap();
+    std::fs::write(export.join("note.txt"), "from the plugin").unwrap();
+    let user = user_folder(&dir, &[]);
+    let (first, second) = (user.join("hak/made.hak"), user.join("hak/second.hak"));
+
+    let dialogs = NoDialogs { folders: vec![export.clone(); 4], ..Default::default() };
+    let mut app = game_app_with(&root, Some(user), dialogs);
+    app.open_module(&dir);
+    app.palette_dock = false;
+    app.background_jobs = true;
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+
+    let wait_for = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "missing {label}");
+        }
+        h.run_steps(2);
+    };
+    let run = |h: &mut Harness<'_, Moonglow>, hak: &str| {
+        h.state_mut().plugins.console = format!(
+            r#"
+            local folder = ctx.ui:open_folder({{ title = "The folder to take" }})
+            folder:to_hak("{hak}", "note.txt")
+            ctx.edit:set("start.are", "Tag", "BY_{hak}")
+        "#
+        );
+        h.state_mut().run_console();
+    };
+    let held = |h: &mut Harness<'_, Moonglow>, hak: &str| {
+        run(h, hak);
+        wait_for(h, "Choose Folder…");
+        h.get_by_label("Choose Folder…").click();
+        wait_for(h, "Yes");
+        h.get_by_label("Yes").click();
+        wait_for(h, "Protected Area");
+    };
+
+    held(&mut h, "made");
+    assert!(first.is_file(), "the first run's hak, written while it waits");
+    // The second: not started, and said.
+    run(&mut h, "second");
+    h.run_steps(3);
+    assert!(!h.state().busy(), "the second run did not start");
+    assert!(!second.exists());
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(
+        log.iter().any(|m| m.contains("not run while the Protected Area window waits")),
+        "{log:?}"
+    );
+    // Cancel takes back the first's hak.
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert!(!first.exists(), "Cancel rolls back the held run's hak");
+    assert!(h.query_by_label("Protected Area").is_none());
+
+    // Held again, and the window quit: its hak is taken back.
+    held(&mut h, "made");
+    assert!(first.is_file());
+    h.state_mut().actions.push(mg_ui::Action::Quit);
+    h.run_steps(3);
+    assert!(!first.exists(), "Quit rolls back the held run's hak");
 }

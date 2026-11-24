@@ -48,6 +48,9 @@ pub struct UpdateDraft {
     /// their places in those lists, which are others' once an object is
     /// put in or taken out.
     listed_at: Vec<(ResRef, u64)>,
+    /// Which listing it is (counted across the window's life): the rows
+    /// shown of it are kept for it and the area chosen.
+    listing: u64,
 }
 
 impl UpdateDraft {
@@ -157,7 +160,10 @@ impl Moonglow {
         areas.dedup();
         let listed_at =
             areas.into_iter().map(|a| (a, ws.rewrites(&ResKey::new(a, ResType::GIT)))).collect();
-        self.update_draft = Some(UpdateDraft { blueprints, only: None, shown, objects, listed_at });
+        static LISTINGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let listing = LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.update_draft =
+            Some(UpdateDraft { blueprints, only: None, shown, objects, listed_at, listing });
     }
 
     /// Opens Update Instances for every blueprint of the module (Edit ›
@@ -300,26 +306,10 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             });
             let only = draft.only;
             // (The rows in sight alone are laid out: Update All Instances
-            // lists tens of thousands in a large module.)
-            #[allow(clippy::type_complexity)]
-            type ShownKey = (
-                Option<ResRef>,
-                usize,
-                usize,
-                Option<ResKey>,
-                Vec<(ResRef, u64)>,
-                Option<(ResRef, usize)>,
-                Option<(ResRef, usize)>,
-            );
-            let shown_key: ShownKey = (
-                only,
-                draft.objects.len(),
-                draft.blueprints.len(),
-                draft.blueprints.first().copied(),
-                draft.listed_at.clone(),
-                draft.objects.first().map(|o| (o.area, o.index)),
-                draft.objects.last().map(|o| (o.area, o.index)),
-            );
+            // lists tens of thousands in a large module. Those of the area
+            // chosen, kept for the listing: its objects are listed once.)
+            type ShownKey = (Option<ResRef>, u64);
+            let shown_key: ShownKey = (only, draft.listing);
             let shown_id = egui::Id::new("bulk-update-shown");
             let shown: std::sync::Arc<Vec<usize>> = if let Some((was, cached)) =
                 ui.data(|d| d.get_temp::<(ShownKey, std::sync::Arc<Vec<usize>>)>(shown_id))

@@ -1277,7 +1277,10 @@ struct SearchUiCache {
     ticked_count: usize,
     outside_count: usize,
     together: Option<TogetherGroups>,
-    ticked_fits: Option<((usize, usize), bool)>,
+    /// Whether a plugin's command fits the ticked hits, for the commands
+    /// it was worked out with (held: by their list's address and length,
+    /// another list made at the same address took the old one's answer).
+    ticked_fits: Option<(std::sync::Arc<[crate::plugins::PluginCommand]>, bool)>,
 }
 
 fn ticked_hash(ticked: &[bool]) -> u64 {
@@ -1440,12 +1443,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 });
             let commands = app.plugin_menu_commands_cached();
-            let cmd_sig = (commands.as_ptr() as usize, commands.len());
             // What a plugin's command is run on from a ticked row: every
             // ticked hit's. Whether a command fits it is worked out once,
             // when a ticked row in sight first asks, and kept until the
             // hits, the ticks or the commands change.
-            let mut ticked_fits = cache.ticked_fits.filter(|(g, _)| *g == cmd_sig).map(|(_, f)| f);
+            let for_these = |c: &std::sync::Arc<[crate::plugins::PluginCommand]>| {
+                std::sync::Arc::ptr_eq(c, &commands)
+            };
+            let mut ticked_fits =
+                cache.ticked_fits.as_ref().filter(|(c, _)| for_these(c)).map(|(_, f)| *f);
             let mut menu_actions = Vec::new();
             // (Only the rows in sight are named and laid out; the others
             // take a row's room, as Find References' do.)
@@ -1562,9 +1568,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             );
             app.actions.extend(menu_actions);
             if let Some(fits) = ticked_fits
-                && cache.ticked_fits != Some((cmd_sig, fits))
+                && !cache.ticked_fits.as_ref().is_some_and(|(c, f)| for_these(c) && *f == fits)
             {
-                cache.ticked_fits = Some((cmd_sig, fits));
+                cache.ticked_fits = Some((commands.clone(), fits));
                 cache_dirty = true;
             }
             if cache_dirty {

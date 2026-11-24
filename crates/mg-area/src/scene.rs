@@ -356,10 +356,7 @@ impl<T> Looks<T> {
     }
 }
 
-/// The models an area names that could not be loaded, each once, in
-/// order: its tiles' (each tile's model and whether it is loaded) and
-/// its objects' (what each one's look is missing). Of what the area has
-/// now: a model no tile or object names any more is not among them.
+/// The chunk models (`chunkname`) the emitters of `of` name, lower case.
 fn chunk_names<'a>(
     of: impl Iterator<Item = &'a Arc<GpuModel>>,
 ) -> std::collections::HashSet<String> {
@@ -376,6 +373,10 @@ fn chunk_names<'a>(
     names
 }
 
+/// The models an area names that could not be loaded, each once, in
+/// order: its tiles' (each tile's model and whether it is loaded) and
+/// its objects' (what each one's look is missing). Of what the area has
+/// now: a model no tile or object names any more is not among them.
 fn missing_models<'a>(
     tiles: impl Iterator<Item = (Option<&'a String>, bool)>,
     objects: &[Option<Arc<Vec<String>>>],
@@ -668,9 +669,6 @@ impl AreaScene {
         self.update_with(gpu, area, &models);
         self.keep(models);
         self.settle(area);
-        if let Some(worker) = &mut self.chunk_worker {
-            worker.clear_failed();
-        }
         self.update_grass(gpu, game, area, &area.grass);
     }
 

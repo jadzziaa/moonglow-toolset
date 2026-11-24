@@ -637,6 +637,23 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let Some(game) = f.app.game.clone() else { return };
     let game = game.as_ref();
     let Ok(classes) = game.table("classes") else { return };
+    let class_list = f.root.list("ClassList").unwrap_or(&[]);
+    // The creature's spellcasting classes: (index in ClassList, class row,
+    // name, what it may have).
+    let casters: Vec<(usize, usize, String, mg_rules::SpellSlots)> = class_list
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| {
+            let row = c.integer("Class")?.max(0) as usize;
+            let slots = game.spell_slots(&f.root, c)?;
+            Some((i, row, class_name(game, &classes, row), slots))
+        })
+        .collect();
+    // (Before the warnings: a creature that casts nothing has none.)
+    if casters.is_empty() {
+        ui.weak("None of the creature's classes casts spells.");
+        return;
+    }
     // Aurora's warnings on closing the creature's properties (Options ›
     // General), here while the spells are edited.
     if !f.app.settings.no_spell_warning {
@@ -654,22 +671,6 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                 f.app.settings.no_spell_warning = true;
             }
         }
-    }
-    let class_list = f.root.list("ClassList").unwrap_or(&[]);
-    // The creature's spellcasting classes: (index in ClassList, class row,
-    // name, what it may have).
-    let casters: Vec<(usize, usize, String, mg_rules::SpellSlots)> = class_list
-        .iter()
-        .enumerate()
-        .filter_map(|(i, c)| {
-            let row = c.integer("Class")?.max(0) as usize;
-            let slots = game.spell_slots(&f.root, c)?;
-            Some((i, row, class_name(game, &classes, row), slots))
-        })
-        .collect();
-    if casters.is_empty() {
-        ui.weak("None of the creature's classes casts spells.");
-        return;
     }
     let id = f.id("utc-spells");
     let (mut which, mut level): (usize, Option<usize>) =

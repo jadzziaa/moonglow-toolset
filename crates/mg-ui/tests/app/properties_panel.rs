@@ -650,11 +650,15 @@ fn every_page_of_every_kind_fits_the_panel() {
     h.get_by_label("Right Dock").get_by_label("Properties").click();
     settle(&mut h);
     let mut found = Vec::new();
-    // (Critical dock widths rather than intermediate redundant widths.)
+    // (One of each kind at every width, the least (280) stacked too; two edited together at
+    // the narrow ones, where the pages of lists edited together are drawn.)
     let sizes = [
         (1280.0, 280.0, false),
+        (1600.0, 280.0, false),
         (1600.0, 320.0, false),
+        (1600.0, 400.0, false),
         (1600.0, 480.0, false),
+        (1600.0, 560.0, false),
         (1600.0, 640.0, false),
         (1280.0, 280.0, true),
         (1600.0, 400.0, true),

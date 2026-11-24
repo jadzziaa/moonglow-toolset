@@ -1840,8 +1840,12 @@ pub(crate) fn area_harness_on(
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     // (A look test on a builder's content: an area with room for its
     // groups.)
-    let side = std::env::var("MG_TEST_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
-    area_harness_sized(name, tileset, tile, side)
+    area_harness_sized(name, tileset, tile, test_area_side())
+}
+
+/// The area's side in tiles: 4, or `MG_TEST_SIZE`.
+fn test_area_side() -> u32 {
+    std::env::var("MG_TEST_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(4)
 }
 
 /// [`area_harness_on`] with an area `side` tiles each way.
@@ -1893,7 +1897,11 @@ pub(crate) fn area_ui_app(
 /// Pure-UI area harness (no GPU device or `gpu::hold()`), rendering UI panels,
 /// docks, toolbars, and forms without a 3D viewport.
 pub(crate) fn area_ui_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
-    area_ui_harness_with(name, "ttr01", None, 4, None, &|_, _, _| {})
+    // (As `area_harness_on`: `MG_TEST_SIZE` and `MG_TEST_USER`, for a look test on a builder's
+    // content.)
+    let side = test_area_side();
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    area_ui_harness_with(name, "ttr01", None, side, user, &|_, _, _| {})
 }
 
 /// [`area_ui_harness`] with custom tileset, tile, size, user dir, and module setup.
@@ -3033,7 +3041,8 @@ pub(crate) fn retype(h: &mut Harness<'_, Moonglow>, from: &str, to: &str) {
 }
 
 /// Sweeps `settings.right_dock_width` across `270..=480` with coarse stride 12
-/// and 1px refinement across height transitions to verify monotonic panel height.
+/// and 1px refinement across height transitions to verify monotonic panel height
+/// (every width, with `MOONGLOW_FULL_CORPUS=1`).
 #[track_caller]
 pub(crate) fn sweep_dock_heights(
     h: &mut Harness<'_, Moonglow>,
@@ -3049,7 +3058,9 @@ pub(crate) fn sweep_dock_heights(
     let mut prev: Option<(u32, f32)> = None;
     let mut least: Option<(u32, f32)> = None;
     let mut changes = Vec::new();
-    let coarse: Vec<u32> = (270..480).step_by(12).chain(std::iter::once(480)).collect();
+    // (Every width, as before the fast path, in a full run.)
+    let stride = if mg_testkit::full_corpus() { 1 } else { 12 };
+    let coarse: Vec<u32> = (270..480).step_by(stride).chain(std::iter::once(480)).collect();
     for w in coarse {
         let high = measure(h, w);
         if let Some((pw, ph)) = prev
@@ -3085,7 +3096,8 @@ pub(crate) fn sweep_dock_heights(
         for w in changes {
             for at in w.saturating_sub(2)..=w + 2 {
                 h.state_mut().settings.right_dock_width = Some(at);
-                for high in (700..=900).step_by(20) {
+                let heights_step = if mg_testkit::full_corpus() { 10 } else { 20 };
+                for high in (700..=900).step_by(heights_step) {
                     h.set_size(egui::vec2(1600.0, high as f32));
                     settle(h);
                 }

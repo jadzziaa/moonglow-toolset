@@ -161,17 +161,25 @@ impl Factions {
             global,
             original: Struct::new(new),
         });
-        for f in 0..new {
-            let rep = self.reputation(parent, f).unwrap_or(DEFAULT_REPUTATION);
+        // A parent's missing entries are written with the default as they
+        // are looked up, as Aurora does (`aurora_factions` holds it to its
+        // capture). A parent that is no faction has no entries to write.
+        let valid = parent < new;
+        for f in 0..=new {
+            let rep = if valid { self.lookup(parent, f) } else { DEFAULT_REPUTATION };
             self.reputations.insert((f, new), rep);
         }
-        for f in 0..new {
-            let rep = self.reputation(f, parent).unwrap_or(DEFAULT_REPUTATION);
+        for f in 0..=new {
+            let rep = if valid { self.lookup(f, parent) } else { DEFAULT_REPUTATION };
             self.reputations.insert((new, f), rep);
         }
-        let self_rep = self.reputation(parent, parent).unwrap_or(DEFAULT_REPUTATION);
-        self.reputations.insert((new, new), self_rep);
         new
+    }
+
+    /// How much `perceiver` likes `target`; a missing entry is written with
+    /// the default first, as Aurora does.
+    fn lookup(&mut self, perceiver: u32, target: u32) -> u32 {
+        *self.reputations.entry((target, perceiver)).or_insert(DEFAULT_REPUTATION)
     }
 
     /// Removes a faction (not a standard one): its reputations go, and the
@@ -328,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn of_module_in_decodes_codepage_and_add_never_mutates_parent_entries() {
+    fn of_module_in_decodes_codepage_and_add_writes_parent_entries_as_aurora() {
         let mut g = crate::new::default_factions();
         let cp = Codepage::WINDOWS_1250;
         let list = g.root.list_mut(fac::FACTION_LIST.label).unwrap();
@@ -343,13 +351,17 @@ mod tests {
         fac.reputations.remove(&(4, 4));
         let added = fac.add("New", false, 4);
         assert_eq!(added, 5);
-        // Adding reads parent without mutating absent `(4, 4)`, `(4, added)`, or `(added, 4)` entries on parent.
-        assert_eq!(fac.reputation(4, 4), None);
+        // Aurora writes the parent's missing entries with the default as it
+        // looks them up (its capture `added-guards-bandits-edit.fac`).
+        assert_eq!(fac.reputation(4, 4), Some(DEFAULT_REPUTATION), "parent's own entry written");
         assert_eq!(fac.reputation(added, added), Some(DEFAULT_REPUTATION));
         assert_eq!(fac.reputation(4, added), Some(DEFAULT_REPUTATION));
         assert_eq!(fac.reputation(added, 4), Some(DEFAULT_REPUTATION));
-        // Out-of-range parent yields `parent: None` instead of dangling index.
+        // Out-of-range parent yields `parent: None` instead of a dangling
+        // index, and writes no entries for the faction that is not there.
         let bad = fac.add("Orphan", false, 99);
         assert_eq!(fac.factions[bad as usize].parent, None);
+        assert!(fac.reputations.keys().all(|&(t, p)| t != 99 && p != 99));
+        assert_eq!(fac.reputation(bad, bad), Some(DEFAULT_REPUTATION));
     }
 }

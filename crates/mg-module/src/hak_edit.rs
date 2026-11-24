@@ -577,10 +577,13 @@ impl Hak {
     /// Keeps renamed bytes in a private scratch file until the hak is saved
     /// (and removed once neither the hak nor any view/save/extraction holds it).
     fn stash(&self, key: ResKey, bytes: &[u8]) -> Result<PathBuf, String> {
-        let temp = std::env::temp_dir();
-        // (Once a process: the legacy folders a Moonglow that crashed left.)
-        static SWEPT: std::sync::Once = std::sync::Once::new();
-        SWEPT.call_once(|| _ = sweep_stashes(&temp));
+        // (Once a process: the legacy folders a Moonglow that crashed left.
+        // Not by this crate's tests, which leave the system's folder be.)
+        #[cfg(not(test))]
+        {
+            static SWEPT: std::sync::Once = std::sync::Once::new();
+            SWEPT.call_once(|| _ = sweep_stashes(&std::env::temp_dir()));
+        }
         let mut inner = self.stash.0.lock().unwrap_or_else(|e| e.into_inner());
         let dir = match inner.dir.as_ref().filter(|d| d.is_dir()) {
             Some(dir) => dir.clone(),
@@ -1424,6 +1427,8 @@ mod tests {
         };
         let stash_dir = stash_path.parent().unwrap().to_path_buf();
         assert!(stash_path.is_file());
+        // (Under the tests' own folder, not the user's cache.)
+        assert!(stash_dir.starts_with(mg_testkit::test_output()), "{}", stash_dir.display());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

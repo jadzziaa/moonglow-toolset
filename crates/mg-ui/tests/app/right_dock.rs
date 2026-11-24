@@ -498,7 +498,11 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
     unfold_left_dock(&mut h);
     h.set_size(egui::vec2(1600.0, 900.0));
     settle(&mut h);
-    let widths = [280.0, 300.0, 320.0, 360.0, 400.0, 480.0, 540.0, 600.0];
+    let widths: Vec<f32> = if mg_testkit::full_corpus() {
+        (280..=600).step_by(8).map(|w| w as f32).collect()
+    } else {
+        vec![280.0, 300.0, 320.0, 360.0, 400.0, 480.0, 540.0, 600.0]
+    };
     let set = |h: &mut Harness<'_, Moonglow>, width: f32| {
         right_dock_width(h, width);
         settle(h);
@@ -506,7 +510,8 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
         assert!((dock.width() - width).abs() < 1.5, "{width}: {dock:?}");
     };
     let (wrong, seen) = sweep(&mut h, &widths, &set);
-    assert!(seen > 3_500, "the panel's nodes looked at: {seen}");
+    let floor = if mg_testkit::full_corpus() { 20_000 } else { 3_500 };
+    assert!(seen > floor, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 
@@ -524,9 +529,14 @@ fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
         let dock = right_dock_rect(h).width();
         assert!((dock - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.0, "{window}: the dock {dock}");
     };
-    let windows = [420.0, 600.0, 795.0];
+    let windows: Vec<f32> = if mg_testkit::full_corpus() {
+        (420..=796).step_by(8).map(|w| w as f32).collect()
+    } else {
+        vec![420.0, 600.0, 795.0]
+    };
     let (wrong, seen) = sweep(&mut h, &windows, &set);
-    assert!(seen > 300, "the panel's nodes looked at: {seen}");
+    let floor = if mg_testkit::full_corpus() { 5_000 } else { 300 };
+    assert!(seen > floor, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 

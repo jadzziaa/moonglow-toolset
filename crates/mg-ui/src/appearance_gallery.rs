@@ -491,7 +491,11 @@ fn dressed_kept(
     let key = (at, revision);
     type Kept = (((ResKey, GffPath), Option<u64>), u64);
     let kept: Option<Kept> = ctx.data(|d| d.get_temp(id));
-    if let Some((_, kept)) = kept.filter(|(k, _)| *k == key) {
+    // (And while the pictures still have its fields: let go of with
+    // them, when none was asked for a while, they are given again.)
+    if let Some((_, kept)) = kept.filter(|(k, _)| *k == key)
+        && thumbnails.has_creature(kept)
+    {
         return kept;
     }
     let made = thumbnails.creature(of);

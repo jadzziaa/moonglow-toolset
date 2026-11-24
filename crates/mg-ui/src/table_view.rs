@@ -121,17 +121,21 @@ pub struct TableDoc {
     /// Bumped at every change: what is worked out from the table is kept
     /// until then.
     revision: u64,
+    /// Bumped as the table is read again where it was read from: another
+    /// history, whose count of changes starts again (what is worked out
+    /// for the changes since a count is not carried across it).
+    history: u64,
     /// The rows it is narrowed to besides a Find's (the resource
     /// browser's Rows from: those a layer last changed).
     pub(crate) within: Option<Arc<Vec<usize>>>,
     /// The rows shown, for the table and the Find they were worked out
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, usize, u64, usize, String, bool), Arc<Vec<usize>>)>,
+    shown: Option<((u64, u64, usize, u64, usize, String, bool), Arc<Vec<usize>>)>,
     /// The cells that are wrong, for the table's revision and the other
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
-    faults: Option<((u64, u64, u64, u64, TalkTables, usize), Arc<Vec<CellFault>>)>,
+    faults: Option<((u64, u64, u64, u64, u64, TalkTables, usize), Arc<Vec<CellFault>>)>,
     /// Cached base-game table copy and its own fault coordinates so edits do
     /// not re-parse and re-validate the base game's copy on every change.
     #[allow(clippy::type_complexity)]
@@ -139,8 +143,10 @@ pub struct TableDoc {
         (String, u64, TalkTables),
         Option<Arc<(TwoDa, std::collections::HashSet<(usize, usize)>)>>,
     )>,
-    /// Cached column list keyed on `edit.changes()` to avoid cloning per frame.
-    columns_cache: Option<(u64, Arc<[String]>)>,
+    /// The columns, kept for the revision and the count of changes they
+    /// were taken at ([`TableDoc::columns_cached`]): not copied each frame.
+    #[allow(clippy::type_complexity)]
+    columns_cache: Option<((u64, u64), Arc<[String]>)>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -220,6 +226,7 @@ impl TableDoc {
             walking: None,
             described_at: f64::NEG_INFINITY,
             revision: 0,
+            history: 0,
             within: None,
             shown: None,
             faults: None,
@@ -246,15 +253,18 @@ impl TableDoc {
         self.edit.shared()
     }
 
+    /// The table's columns, kept until it changes: by an edit, or read
+    /// again (a new history, whose count of changes starts again at 0,
+    /// and [`TableDoc::changed`] counts a revision).
     fn columns_cached(&mut self) -> Arc<[String]> {
-        let changes = self.edit.changes();
+        let key = (self.revision, self.edit.changes());
         if let Some((was, cols)) = &self.columns_cache
-            && *was == changes
+            && *was == key
         {
             return cols.clone();
         }
         let cols: Arc<[String]> = Arc::from(self.edit.table().columns());
-        self.columns_cache = Some((changes, cols.clone()));
+        self.columns_cache = Some((key, cols.clone()));
         cols
     }
 
@@ -998,6 +1008,7 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     match parsed {
         Ok(t) if !doc.has_unsaved() => {
             doc.edit = Editing::new(t);
+            doc.history += 1;
             doc.compact = is_compact(&data);
             doc.changed();
             doc.problem = None;
@@ -1258,7 +1269,7 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     let changes = doc.edit.changes();
     let described_ptr = doc.description().as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
     let tlk = talk_tables(app);
-    let key = (doc.revision, changes, others, app.load_order, tlk, described_ptr);
+    let key = (doc.revision, doc.history, changes, others, app.load_order, tlk, described_ptr);
     if let Some((mark, found)) = &doc.faults
         && *mark == key
     {
@@ -1270,10 +1281,12 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     // Incremental path: only small cell edits occurred since previous faults,
     // external factors match, and no self-referencing row flipped emptiness.
     let incremental = doc.faults.as_ref().and_then(|(mark, prev)| {
-        let (_, prev_changes, prev_others, prev_lo, prev_tlk, prev_desc) = *mark;
+        let (_, prev_history, prev_changes, prev_others, prev_lo, prev_tlk, prev_desc) = *mark;
+        // (The same history: a table read again starts another, whose
+        // changes count from 0 again.)
         if prev_changes < changes
-            && (prev_others, prev_lo, prev_tlk, prev_desc)
-                == (others, app.load_order, tlk, described_ptr)
+            && (prev_history, prev_others, prev_lo, prev_tlk, prev_desc)
+                == (doc.history, others, app.load_order, tlk, described_ptr)
         {
             let (touched, emptiness_changed) = doc.edit.cell_rows_since(prev_changes)?;
             let self_ref = kinds.iter().any(|(_, k)| {
@@ -1287,8 +1300,24 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     });
 
     if let Some((touched, prev_found)) = incremental {
+        let mut touched_faults = {
+            let game = app.game.as_deref();
+            let read = |n: &str| game.and_then(|g| g.table(n).ok());
+            let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
+            mg_module::doctor::table_faults_rows(
+                &name,
+                doc.edit.table(),
+                &touched,
+                &kinds,
+                tables,
+                tlk,
+            )
+        };
+        // (The game's own faults taken out of what the rows edited have,
+        // as the whole table's are: whenever they have any, though the
+        // table had none before.)
         let base_pair = if app.game.is_some()
-            && (!prev_found.is_empty()
+            && (!touched_faults.is_empty()
                 || doc.described.as_ref().is_some_and(|d| d.path.is_none() && d.read.is_ok()))
         {
             let game = app.game.clone();
@@ -1304,17 +1333,6 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
             None
         };
         let doc = &app.tables[at];
-        let game = app.game.as_deref();
-        let read = |n: &str| game.and_then(|g| g.table(n).ok());
-        let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
-        let mut touched_faults = mg_module::doctor::table_faults_rows(
-            &name,
-            doc.edit.table(),
-            &touched,
-            &kinds,
-            tables,
-            tlk,
-        );
         if !touched_faults.is_empty()
             && let Some(pair) = &base_pair
         {
@@ -2167,17 +2185,26 @@ fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
     let description = doc.description();
     let described_ptr = description.as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
     let changes = doc.edit.changes();
-    let key = (doc.revision, within, changes, described_ptr, doc.filter.clone(), doc.value_names);
+    let key = (
+        doc.revision,
+        doc.history,
+        within,
+        changes,
+        described_ptr,
+        doc.filter.clone(),
+        doc.value_names,
+    );
     if let Some((k, rows)) = &doc.shown
         && *k == key
     {
         return rows.clone();
     }
     if let Some((prev_k, prev_rows)) = &doc.shown {
-        let (_, prev_within, prev_changes, prev_desc, prev_filter, prev_names) = prev_k;
+        let (_, history, prev_within, prev_changes, prev_desc, prev_filter, prev_names) = prev_k;
+        // (The same history: a table read again starts another.)
         if *prev_changes < changes
-            && (*prev_within, *prev_desc, prev_filter.as_str(), *prev_names)
-                == (within, described_ptr, doc.filter.as_str(), doc.value_names)
+            && (*history, *prev_within, *prev_desc, prev_filter.as_str(), *prev_names)
+                == (doc.history, within, described_ptr, doc.filter.as_str(), doc.value_names)
             && let Some((touched, _)) = doc.edit.cell_rows_since(*prev_changes)
         {
             let mut next = prev_rows.clone();

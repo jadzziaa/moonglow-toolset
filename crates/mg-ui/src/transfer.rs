@@ -1648,6 +1648,25 @@ mod tests {
             .into_owned()
         };
         assert_eq!(tag_now(&mut app), "ORIG");
+        // Another protected change while it is held is refused, not put
+        // in its place (the import's Finish would wait for no window).
+        let retag = mg_edit::Edit::SetField {
+            key: area_key,
+            path: mg_edit::GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"OTHER".to_vec())),
+        };
+        let other = app.apply_or_ask(mg_edit::Command::new("Tag", vec![retag]), None);
+        assert!(other.is_err(), "{other:?}");
+        let ask = app.claims.protected_ask.as_ref().expect("still the import's window");
+        assert!(matches!(ask.then, crate::Action::FinishImport));
+        assert!(!app.claims.held);
+        // And the Rename window asked for it: not opened, the ask kept.
+        let rename = crate::Action::RenameDialog(area_key);
+        assert!(crate::claims::asks_first(&mut app, &rename), "held back");
+        let ask = app.claims.protected_ask.as_ref().expect("still the import's window");
+        assert!(matches!(ask.then, crate::Action::FinishImport));
+        assert_eq!(tag_now(&mut app), "ORIG");
 
         // Cancelling clears pending_import and preserves original module resource.
         app.claims.protected_ask = None;

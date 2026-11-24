@@ -13015,8 +13015,11 @@ fn problems_copy_menus() {
     shoot(&mut h, &board_dir(), "problems_heading_menu");
 }
 
-/// Area editor at 1280 by 800: compact header and tool strip, with
-/// Palette, Preview, and Properties tabs in the Right Dock.
+/// The area editor at 1280 by 800, in front of Module Properties, a
+/// creature and a script: its header's toolbar narrowed to its boxes and
+/// icons (the rest under `…`), the four tools in the strip at its left,
+/// the Left Dock folded to its icon rail, and the Right Dock showing the
+/// Palette (Placeables, Standard) with Properties and Preview behind it.
 #[test]
 #[ignore]
 fn board_narrow() {

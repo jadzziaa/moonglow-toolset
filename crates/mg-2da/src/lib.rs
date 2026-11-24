@@ -602,9 +602,8 @@ impl Layout {
     }
 }
 
-/// Parses an integer cell like the game: optional sign, then decimal digits
-/// or a `0x` hexadecimal number; trailing garbage is ignored. `None` if no
-/// digits.
+/// Whether `f(previous, byte)` holds for a byte of `bytes` outside double
+/// quotes (the previous byte none at a quote's either side).
 fn scan_unquoted_blanks(bytes: &[u8], mut f: impl FnMut(Option<u8>, u8) -> bool) -> bool {
     let mut quoted = false;
     let mut prev: Option<u8> = None;
@@ -624,22 +623,29 @@ fn scan_unquoted_blanks(bytes: &[u8], mut f: impl FnMut(Option<u8>, u8) -> bool)
     false
 }
 
+/// Whether a line has two blanks (spaces or tabs) in a row outside quotes.
 fn has_unquoted_blank_run(line: &[u8]) -> bool {
     scan_unquoted_blanks(line, |prev, cur| {
         matches!(prev, Some(b' ' | b'\t')) && matches!(cur, b' ' | b'\t')
     })
 }
 
+/// Whether a line has a tab outside quotes.
 fn has_unquoted_tab(line: &str) -> bool {
     scan_unquoted_blanks(line.as_bytes(), |_, cur| cur == b'\t')
 }
 
+/// Whether a line is padded outside quotes: two spaces, or a space and a
+/// tab either way round.
 fn has_unquoted_padding_pair(line: &str) -> bool {
     scan_unquoted_blanks(line.as_bytes(), |prev, cur| {
         matches!((prev, cur), (Some(b' '), b' ' | b'\t') | (Some(b'\t'), b' '))
     })
 }
 
+/// Parses an integer cell like the game: optional sign, then decimal digits
+/// or a `0x` hexadecimal number; trailing garbage is ignored. `None` if no
+/// digits.
 pub fn parse_int(s: &str) -> Option<i32> {
     let s = s.trim();
     let (neg, rest) = match s.as_bytes().first() {

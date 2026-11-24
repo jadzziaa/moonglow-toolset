@@ -124,6 +124,23 @@ impl<T: Container + ?Sized> Container for Arc<T> {
     fn unreadable(&self) -> Vec<ResKey> {
         (**self).unreadable()
     }
+
+    /// Read again where this is the container's only holder; one shared
+    /// (the base game's layers, opened once for many stacks) can't be
+    /// changed under the others, and says so rather than staying stale.
+    fn rescan(&mut self) -> Result<(), ResError> {
+        match Arc::get_mut(self) {
+            Some(c) => c.rescan(),
+            None => Err(ResError::Container {
+                path: self.watched().map(Path::to_path_buf).unwrap_or_default(),
+                message: "shared by other resource stacks: it can't be read again in one".into(),
+            }),
+        }
+    }
+
+    fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
+        Arc::get_mut(self).and_then(|c| c.as_mem_mut())
+    }
 }
 
 /// The game reads no resource that starts this far or further into an
@@ -560,5 +577,36 @@ impl ResKey {
         };
         let resref = resref.ok().filter(|r| !r.is_empty())?;
         Some(ResKey::new(resref, restype))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A container held through an `Arc` is read again and changed in
+    /// place as the container itself is, where the `Arc` is its only
+    /// holder; shared, a rescan says it can't, rather than staying stale.
+    #[test]
+    fn an_arc_s_container_rescans_and_changes_in_place() {
+        let dir = mg_testkit::scratch_dir("mg-resman-arc-container");
+        let key = ResKey::from_filename("fresh.nss").unwrap();
+        let mut c: Arc<DirContainer> = Arc::new(DirContainer::open(&dir));
+        let before = c.initial_fingerprint();
+        assert!(!c.contains(&key));
+        std::fs::write(dir.join("fresh.nss"), b"void main() {}").unwrap();
+        c.rescan().unwrap();
+        assert!(c.contains(&key), "read again through the Arc");
+        assert_ne!(c.initial_fingerprint(), before);
+        let shared = c.clone();
+        assert!(c.rescan().is_err(), "shared: not read again under the other holder");
+        drop(shared);
+        assert!(c.rescan().is_ok());
+
+        let mut m: Arc<MemContainer> = Arc::new(MemContainer::new());
+        m.as_mem_mut().unwrap().insert(key, &b"x"[..]);
+        assert!(m.contains(&key));
+        let _held = m.clone();
+        assert!(m.as_mem_mut().is_none());
     }
 }

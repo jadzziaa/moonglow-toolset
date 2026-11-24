@@ -1896,36 +1896,23 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     let painter = ui.painter_at(view.rect);
     let blue = Color32::from_rgb(70, 130, 255);
     // On the ground the pointer picks (some tilesets build theirs above the
-    // tiles' heights).
-    if view.tile_selection.len() >= 16 {
-        let stroke = egui::Stroke::new(2.0, blue);
-        let mut lines = Vec::with_capacity(view.tile_selection.len() * 4);
-        for &(x, y) in &view.tile_selection {
-            let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-            let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z) else {
-                continue;
-            };
-            if crate::area_view::beside(&screen, view.rect) {
-                continue;
-            }
-            for k in 0..screen.len() {
-                lines.push(([screen[k], screen[(k + 1) % screen.len()]], stroke));
-            }
+    // tiles' heights), smoothed, and past `BOXES_MESHED` lines as one mesh
+    // (`outlines`).
+    let stroke = egui::Stroke::new(2.0, blue);
+    let mut lines = Vec::with_capacity(view.tile_selection.len() * 4);
+    for &(x, y) in &view.tile_selection {
+        let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
+        let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z) else {
+            continue;
+        };
+        if crate::area_view::beside(&screen, view.rect) {
+            continue;
         }
-        if !lines.is_empty() {
-            painter
-                .add(egui::Shape::Mesh(std::sync::Arc::new(crate::area_view::lines_mesh(&lines))));
-        }
-    } else {
-        for &(x, y) in &view.tile_selection {
-            let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-            if let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z)
-                && !crate::area_view::beside(&screen, view.rect)
-            {
-                crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, blue));
-            }
+        for k in 0..screen.len() {
+            lines.push(([screen[k], screen[(k + 1) % screen.len()]], stroke));
         }
     }
+    painter.extend(crate::area_view::outlines(&lines).iter().cloned());
     // The pasted block, under the pointer (over the view, not over a
     // window in front of it).
     if view.tile_pasting

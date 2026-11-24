@@ -73,24 +73,14 @@ fn line_series(data: &[Value], step: f32, pixels: f32) -> Option<LineSeries> {
     (min.is_finite() && max > min).then_some((min, max, samples))
 }
 
+/// What a series' points are made from: every value. (Some of them
+/// sampled, a value changed between the samples kept the old line.)
 fn sample_fingerprint(data: &[Value]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     data.len().hash(&mut h);
-    let mut hash_val = |v: &Value| {
+    for v in data {
         v.as_f64().filter(|n| n.is_finite()).map(f64::to_bits).hash(&mut h);
-    };
-    if let Some(first) = data.first() {
-        hash_val(first);
-    }
-    if let Some(last) = data.last() {
-        hash_val(last);
-    }
-    if data.len() > 2 {
-        let step = (data.len() / 16).max(1);
-        for i in (step..data.len()).step_by(step).take(16) {
-            hash_val(&data[i]);
-        }
     }
     h.finish()
 }
@@ -270,6 +260,24 @@ impl Renderer<'_> {
         }
         if let Some(v) = hover {
             response.clone().on_hover_text_at_pointer(format!("{v:.2}"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A value changed anywhere in a long series changes what its line is
+    /// kept by (the review's D8: 18 of them were looked at).
+    #[test]
+    fn every_value_counts_in_a_series_fingerprint() {
+        let data: Vec<Value> = (0..1000).map(|i| Value::from(f64::from(i))).collect();
+        let before = sample_fingerprint(&data);
+        for at in [1, 7, 500, 998] {
+            let mut changed = data.clone();
+            changed[at] = Value::from(-1.0);
+            assert_ne!(sample_fingerprint(&changed), before, "value {at}");
         }
     }
 }

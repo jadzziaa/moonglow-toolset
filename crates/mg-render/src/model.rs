@@ -473,8 +473,8 @@ fn made_tangents_split(
         .collect()
 }
 
-/// A mesh's vertices as uploaded (a vertex on a mirrored seam two, where
-/// the renderer makes its tangents: [`made_tangents`]).
+/// A skinned mesh's bones and weights for each uploaded vertex (by the
+/// original vertex it is a copy of), bones past `bone_count` left out.
 fn skin_vertices(
     originals: &[u32],
     weights: &[[(u16, f32); 4]],
@@ -497,6 +497,8 @@ fn skin_vertices(
         .collect()
 }
 
+/// A mesh's vertices as uploaded (a vertex on a mirrored seam two, where
+/// the renderer makes its tangents: [`made_tangents`]).
 pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
     uploaded(m).vertices
 }

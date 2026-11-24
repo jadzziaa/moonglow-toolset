@@ -603,11 +603,10 @@ fn part_grid(
     // once, and the item copied for each every frame. A whole item's
     // icons are of one size, the first one drawn's; a part alone is as
     // large as it was when last drawn.)
+    // (The whole item's size learned again each frame: kept across them,
+    // its icons kept another base item's size once it was changed.)
+    let mut usual: Option<egui::Vec2> = None;
     let sizes_id = egui::Id::new(id).with("sizes");
-    let usual_id = sizes_id.with("usual");
-    let usual_was: Option<egui::Vec2> =
-        if letter.is_none() { ui.data(|d| d.get_temp(usual_id)) } else { None };
-    let mut usual = usual_was;
     type Sizes = std::collections::HashMap<u16, egui::Vec2>;
     let mut sizes: Sizes = match letter {
         Some(_) => ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default(),
@@ -673,12 +672,6 @@ fn part_grid(
     });
     if learned {
         ui.data_mut(|d| d.insert_temp(sizes_id, sizes));
-    }
-    if letter.is_none()
-        && usual != usual_was
-        && let Some(u) = usual
-    {
-        ui.data_mut(|d| d.insert_temp(usual_id, u));
     }
     if ui.data(|d| d.get_temp::<f32>(row_id)) != Some(tallest) {
         ui.data_mut(|d| d.insert_temp(row_id, tallest));

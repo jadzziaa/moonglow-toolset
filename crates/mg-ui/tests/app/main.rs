@@ -67,6 +67,7 @@ mod resources_panel;
 mod right_dock;
 mod script_bottom;
 mod script_header;
+mod script_keys;
 mod scripts;
 mod search;
 mod shell;

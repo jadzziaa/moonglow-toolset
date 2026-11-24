@@ -136,8 +136,7 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         .join(format!("{}.hak", plan.hak));
     let mut lines: Vec<String> = plan.describe().lines().map(str::to_string).collect();
     let cmd = Command::new("Bake Walkmesh to Transform", edits);
-    let edits_empty = cmd.edits.is_empty();
-    if !a.dry_run && !edits_empty {
+    if !a.dry_run {
         if !plan.files.is_empty() {
             lines.push(format!("Written into {}", hak_path.display()));
         }

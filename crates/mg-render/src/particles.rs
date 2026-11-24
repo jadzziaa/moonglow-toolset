@@ -936,12 +936,7 @@ impl Particles {
     }
 }
 
-/// How much bigger an emitter's particles are drawn than their sizes
-/// say: as much as its node is scaled where it stands (`world`, through a
-/// placed object's visual transform, a creature's `WING_TAIL_SCALE` for
-/// its tail and wings, their own visual transform). Their speed is not:
-/// read in the client, `client_render/part_emitters.rs` (a tail scaled 3
-/// threw squares three times as big, rising as far in their life).
+/// How `world` turns, its scale taken out (none where it is degenerate).
 fn rotation_of(world: Mat4) -> Quat {
     let (x, y, z) = (world.x_axis.truncate(), world.y_axis.truncate(), world.z_axis.truncate());
     let (lx, ly, lz) = (x.length(), y.length(), z.length());
@@ -957,6 +952,12 @@ fn rotation_of(world: Mat4) -> Quat {
     if q.is_finite() { q.normalize() } else { Quat::IDENTITY }
 }
 
+/// How much bigger an emitter's particles are drawn than their sizes
+/// say: as much as its node is scaled where it stands (`world`, through a
+/// placed object's visual transform, a creature's `WING_TAIL_SCALE` for
+/// its tail and wings, their own visual transform). Their speed is not:
+/// read in the client, `client_render/part_emitters.rs` (a tail scaled 3
+/// threw squares three times as big, rising as far in their life).
 fn grown_by(world: Mat4) -> f32 {
     world.x_axis.truncate().length()
 }

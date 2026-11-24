@@ -65,13 +65,18 @@ struct World {
 }
 
 fn world_with(name: &str, clash: bool) -> Option<World> {
+    world_sized(name, clash, 4)
+}
+
+/// [`world_with`] with `Second` `width` tiles wide (4 high).
+fn world_sized(name: &str, clash: bool, width: u32) -> Option<World> {
     let prepare = move |m: &mut Module, game: &mg_rules::GameData, field: ResRef| {
         use mg_module::new::{AreaSpec, add_area};
         let mut rng = fastrand::Rng::with_seed(11);
         let spec = AreaSpec {
             name: "Second".into(),
             tileset: ResRef::from_str("ttr01").unwrap(),
-            width: 4,
+            width,
             height: 4,
         };
         let second = add_area(m, game, &spec, &mut rng).unwrap();
@@ -446,6 +451,65 @@ fn the_lists_hold_transition_triggers_and_two_of_one_tag_are_two() {
     assert!(near(at(&w[wp_before]), (33.0, 33.0)), "in the second's middle");
     assert_eq!(tag_of(&w[wp_before + 1]), "WP_TT_A1");
     assert!(near(at(&w[wp_before + 1]), (5.0, 5.0)));
+}
+
+/// The map follows the Target area box: Second (80 by 40 m) shown after
+/// Field (40 by 40 m), nothing edited between, is Second's own map, its
+/// door picked where Second's map has it; Field again is Field's.
+#[test]
+fn the_map_is_the_target_area_s_when_the_area_changes() {
+    let Some(World { mut h, field, .. }) = world_sized("setup-map-follows", false, 8) else {
+        return;
+    };
+    open_setup(&mut h, trigger_tab(field, 0), None);
+    h.get_by_label("The area's map");
+    show_target_area(&mut h, "second");
+    // TT_DB at (30, 10) of Second's 80 by 40 m: the map is as wide as its
+    // square, half as high, in its middle.
+    let square = h.get_by_label("The area's map").rect();
+    let side = square.width();
+    let top = square.top() + side / 4.0;
+    let p = egui::pos2(square.left() + side * 30.0 / 80.0, top + side / 2.0 * (1.0 - 10.0 / 40.0));
+    // (With MG_SHOT set: the window with Second shown, to look at.)
+    if let Some(dir) = shot_dir("ui-transition-map-follows") {
+        mg_testkit::gpu::hold();
+        h.render().expect("render").save(dir.join("second.png")).unwrap();
+    }
+    press(&h, p, true, egui::Modifiers::NONE);
+    press(&h, p, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert!(
+        h.query_by_label("Leads to the door tagged TT_DB").is_some(),
+        "TT_DB picked on Second's map (not on Field's, kept)"
+    );
+    // Field again: TT_A2's middle, (5, 15) of its 40 by 40 m.
+    show_target_area(&mut h, "field");
+    let map = h.get_by_label("The area's map").rect();
+    let p = egui::pos2(
+        map.left() + map.width() * 5.0 / 40.0,
+        map.bottom() - map.height() * 15.0 / 40.0,
+    );
+    press(&h, p, true, egui::Modifiers::NONE);
+    press(&h, p, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    h.get_by_label("Leads to the trigger tagged TT_A2");
+    cancel(&mut h);
+}
+
+/// Options › General › Show areas by name changed with the window open:
+/// its Target Area lists the areas the new way (the review's C-17: they
+/// were kept as they were listed until the module changed).
+#[test]
+fn the_target_areas_follow_show_areas_by_name() {
+    let Some(World { mut h, field, .. }) = world("setup-area-names") else { return };
+    h.state_mut().settings.area_names = false;
+    settle(&mut h);
+    open_setup(&mut h, trigger_tab(field, 0), None);
+    show_target_area(&mut h, "second");
+    h.state_mut().settings.area_names = true;
+    settle(&mut h);
+    show_target_area(&mut h, "Second");
+    cancel(&mut h);
 }
 
 /// A door to a trigger and a trigger to a door, Both Ways: whatever

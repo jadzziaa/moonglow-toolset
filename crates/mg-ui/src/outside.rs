@@ -69,6 +69,23 @@ pub(crate) struct OutsideState {
 }
 
 impl OutsideState {
+    /// What is known of the module's files let go of (it was closed, or
+    /// another opened). What is not the module's stays: the tileset
+    /// editor's watch (its tabs stay open), the frame a watch asks for and
+    /// a test's walk. (All of it let go of, the tileset watch was made
+    /// again before the window said how to ask for a frame, and changes
+    /// to those files woke the window no more.)
+    pub(crate) fn forget_module(&mut self) {
+        let kept = OutsideState {
+            tilesets: self.tilesets.take(),
+            tileset_heard: self.tileset_heard.take(),
+            repaint: self.repaint.take(),
+            walk: self.walk,
+            ..Default::default()
+        };
+        *self = kept;
+    }
+
     /// What a watch calls when it hears a change: a frame asked for.
     fn on_change(&self) -> Option<mg_module::watch::OnChange> {
         let (ctx, at_once) = self.repaint.clone()?;
@@ -985,5 +1002,29 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             app.outside.conflicts = conflicts;
         }
         None => app.outside.conflicts = conflicts,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A module closed or another opened lets go of what was known of its
+    /// files, not of how a watch asks for a frame (the tileset editor's
+    /// watch, made again on the next frame, was made without it) nor of a
+    /// test's walk.
+    #[test]
+    fn forgetting_the_module_keeps_the_frame_a_watch_asks_for() {
+        let mut state = OutsideState {
+            later: vec![PathBuf::from("a.nss")],
+            repaint: Some((egui::Context::default(), true)),
+            walk: true,
+            ..Default::default()
+        };
+        state.said.insert(7);
+        state.forget_module();
+        assert!(state.later.is_empty() && state.said.is_empty(), "the module's let go of");
+        assert!(state.on_change().is_some(), "a watch made next still wakes the window");
+        assert!(state.walk);
     }
 }

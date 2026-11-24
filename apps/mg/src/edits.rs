@@ -344,20 +344,27 @@ pub(crate) fn run_with_before_save(
         ws.flush()?;
         said = g.before(was, &ws.module, &mut notes)?;
     }
-    if !dry_run && count > 0 {
+    if !dry_run {
+        // `before_save` writes what the edits do not carry (a baked hak): it
+        // runs whether or not the module changed, since a bake can need its
+        // files written with no edit left (an object already on its row).
         if let Err(err) = (|| -> Result<()> {
             before_save()?;
-            // The custom palettes follow the blueprints changed, as a save in
-            // the window brings them up to date.
-            let opened = ws.saved().clone();
-            ws.derive(|m| crate::keep_palettes(gi, m, &opened, &mut notes))?;
-            ws.save()?;
+            if count > 0 {
+                // The custom palettes follow the blueprints changed, as a save in
+                // the window brings them up to date.
+                let opened = ws.saved().clone();
+                ws.derive(|m| crate::keep_palettes(gi, m, &opened, &mut notes))?;
+                ws.save()?;
+            }
             Ok(())
         })() {
             rollback();
             return Err(err);
         }
-        if let (Some(g), Some(was)) = (guard, &was) {
+        if count > 0
+            && let (Some(g), Some(was)) = (guard, &was)
+        {
             g.after(was, &ws.module, &mut notes);
         }
     }

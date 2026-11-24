@@ -140,6 +140,9 @@ pub(crate) struct Watcher {
     /// Whether the last pass hit a transient read error and should re-poll even
     /// if the OS watcher delivers no further event.
     retry: bool,
+    /// The read errors the last pass told of: a standing error is told once
+    /// and re-polled only while the set changes.
+    told: Vec<String>,
     /// Debug files (`.ndb`) are made with the compiled scripts.
     debug: bool,
 }
@@ -240,6 +243,7 @@ impl Watcher {
             watch,
             looked: Instant::now(),
             retry: false,
+            told: Vec::new(),
         };
         // (Its first word is "look at all", and all was just read.)
         let _ = w.watch.take();
@@ -296,6 +300,17 @@ impl Watcher {
         Ok((!step.is_empty()).then_some(step))
     }
 
+    /// The read errors of this pass that the last one did not tell of. A
+    /// pass with errors is tried again (`retry`) only while the set of
+    /// errors changes: one that stays would else be a full step every
+    /// 400 ms, told again each time.
+    fn news_of(&mut self, problems: Vec<String>) -> Vec<String> {
+        let same = problems == self.told;
+        self.retry = !problems.is_empty() && !same;
+        self.told = problems.clone();
+        if same { Vec::new() } else { problems }
+    }
+
     /// Takes up what changed in all of the project's files.
     #[cfg(test)]
     pub(crate) fn step(&mut self, rm: &ResMan) -> Result<Step> {
@@ -319,15 +334,12 @@ impl Watcher {
             Some(files) => self.module.outside_scan_of(files),
             None => self.module.outside_scan(),
         };
-        let (changes, problems) = match scan {
+        let (changes, mut problems) = match scan {
             Some(scan) => self.module.outside_found(scan.run()),
             None => (Vec::new(), Vec::new()),
         };
-        if !problems.is_empty() {
-            self.retry = true;
-        }
-        // (A file half written, say: the next look reads it whole.)
-        step.errors.extend(problems);
+        // (A file half written, say: the next look reads it whole. One that
+        // stays as it is is told once, and not polled again.)
         let (mut changed, mut removed): (Vec<ResKey>, Vec<ResKey>) = (Vec::new(), Vec::new());
         for c in &changes {
             // (Compiled scripts are made here, not taken.)
@@ -375,13 +387,14 @@ impl Watcher {
                 }
                 // (A file half written: the next look reads it whole.)
                 Err(e) => {
-                    step.errors.push(format!("{}: {e:#}", self.project.display()));
+                    problems.push(format!("{}: {e:#}", self.project.display()));
+                    step.errors.extend(self.news_of(problems));
                     self.config = None;
-                    self.retry = true;
                     return Ok(step);
                 }
             }
         }
+        step.errors.extend(self.news_of(problems));
         // The talk table's files (not the module's resources).
         let mut tables_changed: Vec<String> = Vec::new();
         if tables_heard || reread {
@@ -776,5 +789,51 @@ mod tests {
         let recovered = w.look(&rm).unwrap().expect("retried on look");
         assert!(recovered.errors.is_empty(), "{:?}", recovered.errors);
         assert!(!w.retry);
+    }
+
+    /// A project that stays unreadable (its `nasher.cfg` broken) is told
+    /// once, and polled once more for a change of the error: not a full
+    /// step every 400 ms with the same error said again (and the module
+    /// copied, the tests "not run", by the caller, each time).
+    #[test]
+    fn a_standing_error_is_told_once_and_not_polled() {
+        let dir = mg_testkit::scratch_dir("mg-watch-standing-error");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (project, dev) = (dir.join("project"), dir.join("dev"));
+        std::fs::create_dir_all(&dev).unwrap();
+        let mut m = Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+            .unwrap();
+        let rm = ResMan::new();
+        let (mut w, _) =
+            Watcher::start(open(&project, None).unwrap(), &project, None, &dev, None, false, &rm)
+                .unwrap();
+        let good = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+        let _ = w.watch.take();
+        let later = || Instant::now() - Duration::from_millis(500);
+        std::fs::write(project.join("nasher.cfg"), "[broken\n").unwrap();
+        let first = w.step(&rm).unwrap();
+        assert_eq!(first.errors.len(), 1, "{first:?}");
+        assert!(w.retry, "the error is looked at once more");
+        // The same error again: nothing said, nothing more to poll.
+        w.looked = later();
+        assert!(w.look(&rm).unwrap().is_none(), "the error was said again");
+        assert!(!w.retry, "a standing error is polled for ever");
+        // (A standing error is no reason to look again; a change is, and
+        // the same error after it is still not said again.)
+        assert!(w.step(&rm).unwrap().errors.is_empty(), "the error was said again");
+        assert!(!w.retry);
+        // A different error is told, and looked at once more.
+        std::fs::write(project.join("nasher.cfg"), "[a]\n[other\n").unwrap();
+        let step = w.step(&rm).unwrap();
+        assert_eq!(step.errors.len(), 1, "{step:?}");
+        assert!(w.retry);
+        // Mended: the project is read again; a new break is told anew.
+        std::fs::write(project.join("nasher.cfg"), &good).unwrap();
+        assert!(w.step(&rm).unwrap().errors.is_empty());
+        assert!(!w.retry);
+        std::fs::write(project.join("nasher.cfg"), "[broken\n").unwrap();
+        assert_eq!(w.step(&rm).unwrap().errors.len(), 1, "a break after a mend is told again");
     }
 }
