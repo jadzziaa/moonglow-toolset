@@ -3878,7 +3878,7 @@ fn journal_summary_kept(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::A
     // (Its texts are in the editing language, read through the game's
     // codepage: kept for those and the load order too.)
     let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
-    let key = (ws_key, app.load_order, crate::text::edit_language().0, crate::text::game_table());
+    let key = (ws_key, app.game_names(), crate::text::edit_language().0, crate::text::game_table());
     crate::blueprint::kept_for_key(ctx, egui::Id::new("dlg-journal-summary"), &key, || {
         let cats = app
             .ws

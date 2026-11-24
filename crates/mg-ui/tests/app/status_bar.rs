@@ -659,19 +659,18 @@ fn the_status_bar_holds_at_every_width() {
     // (Widths where each stage was seen.)
     let mut stages = std::collections::BTreeMap::<&str, usize>::new();
     // (3440 first, where everything shows, then from the least window up:
-    // by 8 to 1600, by 16 to 2560.)
-    let widths: Vec<i32> = if mg_testkit::full_corpus() {
-        std::iter::once(3440)
-            .chain((420..1600).step_by(8))
-            .chain((1600..=2560).step_by(16))
-            .collect()
-    } else {
-        std::iter::once(3440)
-            .chain((420..1600).step_by(32))
-            .chain((1600..=2560).step_by(64))
-            .chain([1392, 1400, 1456, 1520, 2560])
-            .collect()
-    };
+    // by 32 to 1600, by 64 to 2560, and the widths where a stage begins;
+    // with the full corpus by 8 and 16 as well, still every everyday one.)
+    let mut widths: Vec<i32> = ((420..1600).step_by(32))
+        .chain((1600..=2560).step_by(64))
+        .chain([1392, 1400, 1456, 1520, 2560])
+        .collect();
+    if mg_testkit::full_corpus() {
+        widths.extend((420..1600).step_by(8).chain((1600..=2560).step_by(16)));
+    }
+    widths.sort_unstable();
+    widths.dedup();
+    widths.insert(0, 3440);
     for width in widths {
         let width = width as f32;
         h.set_size(egui::vec2(width, 600.0));

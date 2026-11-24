@@ -266,7 +266,7 @@ pub(crate) fn price(cost: u32, percent: u64) -> u64 {
 
 /// The base items a store can list (those with a store panel), by name.
 fn base_items(f: &Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
-    super::kept_for_key(ctx, egui::Id::new("store-base-items"), &f.app.load_order, || {
+    super::kept_for_key(ctx, egui::Id::new("store-base-items"), &f.app.game_names(), || {
         let Some(game) = f.app.game.as_deref() else { return Default::default() };
         let Ok(table) = game.table("baseitems") else { return Default::default() };
         let named = f.choices("baseitems", Some("Name"), Some("label"));

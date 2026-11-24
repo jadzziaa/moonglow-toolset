@@ -2665,7 +2665,8 @@ impl Renderer {
                     // moves, the posed box's ball within a coarser one, so
                     // that one moving a little, an idle creature's, takes its
                     // lights as chosen frame after frame while it stays in
-                    // it; its posed box's own ball changes every frame.)
+                    // it; its posed box's own ball changes every frame. They
+                    // are chosen for its own ball, as a still mesh's are.)
                     let light_ball = if mesh.skin.is_some() || moved.is_some() {
                         coarse_ball(centre, radius)
                     } else {
@@ -2731,7 +2732,13 @@ impl Renderer {
                     // the game's sky program is made with `NO_DISCARD`.)
                     let discard = if is_sky { -1.0 } else { ALPHA_DISCARD };
                     // The 32 most important lights that reach the mesh.
-                    let set = reach_cache.reaching(&mut reach, light_ball, place, &mut chosen);
+                    let set = reach_cache.reaching(
+                        &mut reach,
+                        light_ball,
+                        (centre, radius),
+                        place,
+                        &mut chosen,
+                    );
                     let mut light_index = [[0u32; 4]; 8];
                     for (j, (_, _, i)) in chosen.iter().enumerate() {
                         light_index[j / 4][j % 4] = *i;
@@ -4085,7 +4092,7 @@ const COARSE_BALL: f32 = 0.25;
 /// A ball around the ball at `centre` of `radius`, its centre on a grid
 /// [`COARSE_BALL`] apart and its radius a multiple of that: the same for
 /// a ball that moves or grows a little.
-fn coarse_ball(centre: Vec3, radius: f32) -> (Vec3, f32) {
+pub(crate) fn coarse_ball(centre: Vec3, radius: f32) -> (Vec3, f32) {
     let at = (centre / COARSE_BALL).round() * COARSE_BALL;
     // (The centre moves by at most half the grid's diagonal.)
     let reach = radius + COARSE_BALL * 0.5 * 3f32.sqrt();

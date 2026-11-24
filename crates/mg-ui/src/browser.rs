@@ -3013,6 +3013,43 @@ mod tests {
         assert!(!app.browser.bytes_shown.is_empty());
     }
 
+    /// The custom talk table read again (its Save) is no load order
+    /// change: a 2DA view in the browser keeps its Find (review U's 1,
+    /// where every talk table Save emptied the views).
+    #[test]
+    fn a_talk_table_read_again_keeps_the_browser_s_2da_views() {
+        use mg_resman::{LayerClass, MemContainer, ResMan, priority};
+        let tlk_key = ResKey::parse("mg_t", ResType::TLK).unwrap();
+        let mut tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+        tlk.entries.push(mg_tlk::TlkEntry::text("Old"));
+        let mut layer = MemContainer::new();
+        layer.insert(tlk_key, tlk.to_bytes().unwrap());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK, "hak:t", LayerClass::Erf, layer);
+        let game = mg_rules::GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut m = mg_module::Module::new();
+        let mut ifo = mg_gff::Gff::new(*b"IFO ");
+        ifo.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_t".to_vec()));
+        m.set_gff(ResKey::parse("module", ResType::IFO).unwrap(), &ifo).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.game = Some(std::sync::Arc::new(game));
+        app.ws = Some(mg_edit::Workspace::new(m));
+
+        let key = ResKey::parse("classes", ResType::TWODA).unwrap();
+        let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
+            .unwrap();
+        let mut doc = crate::table_view::TableDoc::read_only(u32::MAX, key, table);
+        doc.filter = "wizard".into();
+        app.browser.table_views.insert(
+            (key, None),
+            TableView { of: 0, rows_from: None, doc, tab: None, last_used: 0 },
+        );
+        app.reload_custom_tlk();
+        assert!(app.game.as_deref().unwrap().custom_tlk().is_some(), "{:?}", app.log.entries);
+        let view = app.browser.table_views.get(&(key, None)).expect("the view kept");
+        assert_eq!(view.doc.filter, "wizard", "with its Find");
+    }
+
     #[test]
     fn long_text_and_plain_decode_codepage_and_strip_carriage_returns() {
         let lt = LongText::from("ab\r\ncde\r\n".to_string());

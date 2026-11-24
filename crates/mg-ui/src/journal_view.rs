@@ -114,8 +114,8 @@ impl JournalView {
 struct Seen {
     revision: u64,
     /// The game's data it was read with (its talk table), by
-    /// `Moonglow::load_order`.
-    load_order: u64,
+    /// `Moonglow::game_names`.
+    names: (u64, u64),
     /// The language its words are shown in.
     language: mg_core::Language,
     /// The module has `module.jrl`.
@@ -213,15 +213,14 @@ fn set_entries(what: &str, category: usize, list: Vec<Struct>) -> Action {
 /// selection the journal no longer has let go of, the category of an
 /// entry chosen opened out. `None` without a module.
 fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
+    let names = app.game_names();
     let ws = app.ws.as_mut()?;
     let revision = ws.revision();
     let language = crate::text::edit_language();
-    let load_order = app.load_order;
     let game = app.game.clone();
     let view = &mut app.journal_view;
-    let kept = |c: &&Arc<Seen>| {
-        c.revision == revision && c.language == language && c.load_order == load_order
-    };
+    let kept =
+        |c: &&Arc<Seen>| c.revision == revision && c.language == language && c.names == names;
     if let Some(c) = view.copy.as_ref().filter(kept) {
         return Some(c.clone());
     }
@@ -234,7 +233,7 @@ fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
     };
     let game = game.as_deref();
     let seen = cats.as_deref().unwrap_or_default().iter().map(|c| seen_category(game, c)).collect();
-    let copy = Arc::new(Seen { revision, load_order, language, exists, cats, seen });
+    let copy = Arc::new(Seen { revision, names, language, exists, cats, seen });
     // A selection the journal no longer has (an Undo) is let go of.
     let valid = |n: &Node| match *n {
         Node::Category(c) => c < copy.seen.len(),

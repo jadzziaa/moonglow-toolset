@@ -1306,6 +1306,15 @@ pub(crate) fn code_edit(
                                 delete(buf, laid, min_c, to, false)
                             };
                         }
+                        // (A Mac's Ctrl+H, the character before, as egui's;
+                        // on Windows and Linux Ctrl+H is Replace Text.)
+                        Key::H if mac_ctrl => {
+                            cursor_range = if !cursor_range.is_empty() {
+                                delete(buf, laid, min_c, max_c, false)
+                            } else {
+                                delete(buf, laid, cur.saturating_sub(1), cur, true)
+                            };
+                        }
                         Key::Backspace | Key::W if *key == Key::Backspace || modifiers.ctrl => {
                             let word = *key == Key::W || modifiers.alt || modifiers.ctrl;
                             cursor_range = if !cursor_range.is_empty() {

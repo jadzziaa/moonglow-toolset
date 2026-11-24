@@ -268,10 +268,10 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
         app.claims.let_through.clear();
         return Ok(());
     }
-    // (Another held for the window already, a plugin's run or an import,
-    // whose follow-ups wait for its answer: this one is refused, not
-    // put in its place.)
-    if app.claims.protected_ask.is_some() && app.held_for_protected() {
+    // (Another held for the window already, whose follow-ups wait for its
+    // answer: this one is refused, not put in its place. Whatever held it:
+    // a plugin job's change took a builder's Rename's place.)
+    if app.claims.protected_ask.is_some() {
         return Err(EditError::Invalid {
             key: ResKey::new(area, ResType::ARE),
             message: format!(
@@ -342,9 +342,9 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
-    // (Another held for the window already, a plugin's run or an import:
-    // this one is not done, nor put in its place, as in `gate`.)
-    if app.claims.protected_ask.is_some() && app.held_for_protected() {
+    // (Another held for the window already: this one is not done, nor put
+    // in its place, as in `gate`.)
+    if app.claims.protected_ask.is_some() {
         app.log.warn(format!(
             "Not done: {} is protected, and the Protected Area window waits for an answer about \
              another change",
@@ -1093,5 +1093,49 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
     } else if cancel || !open {
         app.claims.protected_ask = None;
         app.cancel_pending_protected();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A change asked about while the Protected Area window asks about
+    /// another, which nothing holds (a builder's Rename), is refused, not
+    /// put in its place: a plugin job's change took the Rename's window
+    /// (review U's 5).
+    #[test]
+    fn a_builder_s_ask_is_not_replaced_by_another_change() {
+        let dir = mg_testkit::scratch_dir("ui-claims-ask-kept");
+        let mod_dir = dir.join("mod");
+        let area = ResKey::parse("start", ResType::ARE).unwrap();
+        let mut are = mg_gff::Gff::new(*b"ARE ");
+        are.root.set("Tag", mg_gff::Value::String(b"ORIG".to_vec()));
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.set(area, are.to_bytes().unwrap());
+        m.save_as(&mg_module::ModuleLocation::Folder(mod_dir.clone())).unwrap();
+        std::fs::write(mod_dir.join("moonglow.toml"), "[claims]\nprotected = [\"start\"]\n")
+            .unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&mod_dir);
+
+        assert!(asks_first(&mut app, &Action::RenameDialog(area)), "asked first");
+        assert!(!app.held_for_protected(), "nothing held");
+        let retag = mg_edit::Edit::SetField {
+            key: area,
+            path: mg_edit::GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"OTHER".to_vec())),
+        };
+        let other = app.apply_or_ask(Command::new("Tag", vec![retag]), None);
+        assert!(other.is_err(), "{other:?}");
+        let ask = app.claims.protected_ask.as_ref().expect("the Rename's window");
+        assert!(matches!(ask.then, Action::RenameDialog(k) if k == area), "{:?}", ask.then);
+        assert!(!app.claims.held);
+        // Nor by another window asked for.
+        assert!(asks_first(&mut app, &Action::DeleteDialog(area)), "held back");
+        let ask = app.claims.protected_ask.as_ref().expect("the Rename's window");
+        assert!(matches!(ask.then, Action::RenameDialog(k) if k == area), "{:?}", ask.then);
     }
 }

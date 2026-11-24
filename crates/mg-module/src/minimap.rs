@@ -35,6 +35,19 @@ const MAX_PIXELS: u32 = 32 * 1024;
 /// manual say so.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
 
+/// A picture of `w` by `h` pixels, if a minimap may be that large
+/// ([`MAX_PIXELS`] a side, [`MAX_BYTES`] of RGBA).
+fn fits(w: u64, h: u64) -> Result<(u32, u32), String> {
+    if w > u64::from(MAX_PIXELS) || h > u64::from(MAX_PIXELS) || w * h * 4 > MAX_BYTES {
+        return Err(format!(
+            "the picture would be {w} by {h} pixels: {MAX_PIXELS} a side and {} pixels (256 MiB) \
+             at most",
+            MAX_BYTES / 4
+        ));
+    }
+    Ok((w as u32, h as u32))
+}
+
 /// A tile's picture, as RGBA (rows bottom first).
 fn picture(rm: &ResMan, name: &str) -> Option<Rgba> {
     let resref = ResRef::from_str(&name.to_ascii_lowercase()).ok()?;
@@ -109,16 +122,8 @@ pub fn minimap(
     if size == 0 || size > 1024 {
         return Err("a tile is 1 to 1024 pixels".into());
     }
-    let w = u64::from(width) * u64::from(size);
-    let h = u64::from(height) * u64::from(size);
-    if w > u64::from(MAX_PIXELS) || h > u64::from(MAX_PIXELS) || w * h * 4 > MAX_BYTES {
-        return Err(format!(
-            "the picture would be {w} by {h} pixels: {MAX_PIXELS} a side and {} pixels (256 MiB) \
-             at most",
-            MAX_BYTES / 4
-        ));
-    }
-    let mut out = Rgba::new(w as u32, h as u32);
+    let (w, h) = fits(u64::from(width) * u64::from(size), u64::from(height) * u64::from(size))?;
+    let mut out = Rgba::new(w, h);
     for px in out.data.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
@@ -382,9 +387,7 @@ mod tests {
         // A picture too large for its tiles' size is refused too.
         let err = minimap(&rm, &area(1024), &set, Some(1024)).unwrap_err();
         assert!(err.contains("pixels"), "{err}");
-        // Maps past 256 MiB of RGBA are refused; the sizes the manual gives
-        // are drawn: the game's largest area at the largest tile taken
-        // unasked, a tile of 1024 in an area of 8, and a long thin one.
+        // Maps past 256 MiB of RGBA are refused.
         let square = |side: i32| {
             let mut sq = area(side);
             sq.set("Height", mg_gff::Value::Int(side));
@@ -394,19 +397,28 @@ mod tests {
         assert!(err.contains("256 MiB"), "{err}");
         let err = minimap(&rm, &square(512), &set, Some(64)).unwrap_err();
         assert!(err.contains("256 MiB"), "{err}");
-        let map = minimap(&rm, &square(32), &set, Some(256)).unwrap();
-        assert_eq!((map.width, map.height), (8192, 8192));
-        drop(map);
-        let map = minimap(&rm, &square(8), &set, Some(1024)).unwrap();
-        assert_eq!((map.width, map.height), (8192, 8192));
-        drop(map);
-        let map = minimap(&rm, &area(32), &set, Some(1024)).unwrap();
-        assert_eq!((map.width, map.height), (32768, 1024));
-        drop(map);
         // One the game could hold is drawn: black where a tile has no picture.
         let map = minimap(&rm, &area(2), &set, Some(4)).unwrap();
         assert_eq!((map.width, map.height), (8, 4));
         assert_eq!(map.pixel(0, 0), [0, 0, 0, 255]);
+    }
+
+    /// A minimap is at most 32,768 pixels a side and 256 MiB of RGBA: the
+    /// sizes the manual gives fit (the game's largest area at the largest
+    /// tile taken unasked, a tile of 1024 in an area of 8, a long thin
+    /// one), a pixel more a side or in all does not. (Checked by the sums
+    /// alone: drawing them took 640 MiB.)
+    #[test]
+    fn a_minimap_fits_in_256_mib_and_32768_pixels_a_side() {
+        for (w, h) in [(32 * 256, 32 * 256), (8 * 1024, 8 * 1024), (32 * 1024, 1024), (32768, 2048)]
+        {
+            assert_eq!(fits(w, h), Ok((w as u32, h as u32)), "{w} by {h}");
+        }
+        for (w, h) in [(8192, 8193), (32769, 1), (1, 32769), (32768, 2049), (32 * 1024, 32 * 1024)]
+        {
+            let err = fits(w, h).unwrap_err();
+            assert!(err.contains("256 MiB"), "{w} by {h}: {err}");
+        }
     }
 
     /// A waypoint at `at` (meters) with a map note, enabled or not, or none.

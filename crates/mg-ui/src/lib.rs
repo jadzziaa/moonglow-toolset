@@ -1360,6 +1360,11 @@ pub struct Moonglow {
     /// from) is kept for this. Reload Resources changes the game data in
     /// place, so its address tells nothing.
     pub(crate) load_order: u64,
+    /// How many times the custom talk table was read again
+    /// (`load_custom_tlk`): what is kept of the game's names (`game_names`)
+    /// is kept for this too. Not a load order change, which would cost the
+    /// browser's 2DA views their Find and selection at every talk table Save.
+    pub(crate) tlk_generation: u64,
     /// The Properties window Escape is Cancel for this frame, as Aurora's
     /// Escape is (`blueprint::window_drawn_but` presses it).
     pub(crate) escape_cancel: Option<Tab>,
@@ -1945,6 +1950,7 @@ impl Moonglow {
             options_applied: 0,
             area_tool_at: 0,
             load_order: 0,
+            tlk_generation: 0,
             escape_cancel: None,
             escape_docked_seen: None,
             escape_taken: false,
@@ -4853,8 +4859,7 @@ impl Moonglow {
         self.area_contents.clear();
         let Some(name) = name else {
             game.set_custom_tlk(None);
-            // (What is kept by the load order names things by it too.)
-            self.load_order_changed();
+            self.tlk_generation += 1;
             return;
         };
         let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
@@ -4885,11 +4890,16 @@ impl Moonglow {
         }
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));
-        // (And what is kept for the load order, which names things by the
-        // talk tables: the palette's Find, the base items' names. A line
-        // renamed and saved was found by its old name until the haks
-        // changed.)
-        self.load_order_changed();
+        // (And what is kept of the game's names: the palette's Find, the
+        // base items' names. A line renamed and saved was found by its old
+        // name until the haks changed.)
+        self.tlk_generation += 1;
+    }
+
+    /// What names read from the game data are kept for: the load order and
+    /// the custom talk table read.
+    pub(crate) fn game_names(&self) -> (u64, u64) {
+        (self.load_order, self.tlk_generation)
     }
 
     /// What the module uses of its haks, worked out as a job and shown

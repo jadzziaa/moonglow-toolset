@@ -397,7 +397,10 @@ impl TilesetDoc {
     /// where it can't be read as a tileset).
     fn names_on_disk(&self) -> Option<[Vec<String>; 2]> {
         let data = std::fs::read(&self.path).ok()?;
-        Tileset::parse(&data, Codepage::default()).ok().as_ref().map(type_names)
+        // (Read as the editor's text is, `read`: from the bytes, a
+        // non-ASCII name read otherwise than Save's and was taken as renamed.)
+        let file = SetFile::parse(&Codepage::default().decode(&data));
+        read(&file).ok().as_deref().map(type_names)
     }
 
     /// How many times the file was walked for its list's and Outliner's
@@ -407,14 +410,15 @@ impl TilesetDoc {
         self.walks.get()
     }
 
-    /// The text's fingerprint as it is (made once a revision).
+    /// The text's fingerprint as it is, of the bytes Save writes
+    /// (`bytes_of`, as the file's on disk are; made once a revision).
     pub fn fingerprint(&self) -> u64 {
         if let Some((at, hash)) = self.hashed.get()
             && at == self.revision
         {
             return hash;
         }
-        let hash = crate::problems::fingerprint(self.file.text().as_bytes());
+        let hash = crate::problems::fingerprint(&bytes_of(&self.file.text()));
         self.hashed.set(Some((self.revision, hash)));
         hash
     }
@@ -432,14 +436,28 @@ impl TilesetDoc {
                 self.path.display()
             ));
         }
+        // (Written in the codepage it was read in, `open_path`; a letter
+        // that has none there is not written as another.)
+        let text = self.file.text();
+        let Some(data) = Codepage::default().encode(&text) else {
+            let lacking = crate::text::unwritable(Codepage::default(), &text);
+            let shown: String = lacking.iter().take(12).collect();
+            let more = if lacking.len() > 12 { "…" } else { "" };
+            return Err(format!(
+                "{}: {shown}{more} can't be written in {}, which the game reads a tileset in: \
+                 change them to save",
+                self.path.display(),
+                crate::text::codepage_name(Codepage::default())
+            ));
+        };
         let was = self.saved_names.clone();
         // (Whole or not at all, as every file Moonglow keeps: the `.set`,
         // and the palette beside it below.)
-        mg_module::write_replacing(&self.path, self.file.text().as_bytes())
+        mg_module::write_replacing(&self.path, &data)
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.saved = Some(self.undo.len());
         // (Written here: not a change outside when the watch hears it.)
-        self.disk = Some(crate::problems::fingerprint(self.file.text().as_bytes()));
+        self.disk = Some(crate::problems::fingerprint(&data));
         self.seen = stat(&self.path);
         self.said = None;
         let now = self.tileset().map(type_names);
@@ -516,9 +534,15 @@ impl TilesetDoc {
 /// The file as a tileset (shared: a page holds it while it changes the
 /// file, without a copy of every tile each frame).
 fn read(file: &SetFile) -> Result<Arc<Tileset>, String> {
-    Tileset::parse(file.text().as_bytes(), Codepage::default())
-        .map(Arc::new)
-        .map_err(|e| e.to_string())
+    // (The text itself, as UTF-8: decoded once already, from the file.)
+    let utf8 = Codepage::for_label("utf-8").unwrap_or_default();
+    Tileset::parse(file.text().as_bytes(), utf8).map(Arc::new).map_err(|e| e.to_string())
+}
+
+/// The text as the file's bytes: Windows-1252, as `open_path` read it (a
+/// letter it has none for as `?`, which Save refuses to write).
+fn bytes_of(text: &str) -> Vec<u8> {
+    Codepage::default().encode_lossy(text)
 }
 
 /// Tools › Tilesets › New Tileset…: a new `.set` with its general
@@ -535,7 +559,7 @@ pub fn new_tileset(app: &mut Moonglow) {
         }
     };
     let file = edit::skeleton(&name);
-    if let Err(e) = mg_module::write_replacing(&path, file.text().as_bytes()) {
+    if let Err(e) = mg_module::write_replacing(&path, &bytes_of(&file.text())) {
         app.log.error(format!("{}: {e}", path.display()));
         return;
     }
@@ -631,7 +655,7 @@ pub(crate) fn changed_on_disk(app: &mut Moonglow, path: &Path, take: bool) {
         return;
     }
     // (The text here already: the file is as saved.)
-    if crate::problems::fingerprint(text.as_bytes()) == d.fingerprint() {
+    if text == d.file.text() {
         d.disk = Some(disk);
         d.theirs = None;
         d.saved = Some(d.undo.len());
@@ -2346,7 +2370,7 @@ fn check(app: &mut Moonglow, d: &mut TilesetDoc) {
     };
     let stem = d.path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
     let Some(key) = ResKey::parse(&stem, ResType::SET) else { return };
-    let findings = mg_module::doctor::examine_tileset(&game.resman, key, d.file.text().as_bytes());
+    let findings = mg_module::doctor::examine_tileset(&game.resman, key, &bytes_of(&d.file.text()));
     panels::to_problems(app, d, &findings);
 }
 
@@ -2550,5 +2574,90 @@ mod tests {
         d.theirs = Some(crate::problems::fingerprint(with("Moss").as_bytes()));
         d.keep_mine();
         assert_eq!(d.saved_names.as_ref().map(|n| n[0].clone()), Some(vec!["Moss".to_string()]));
+    }
+
+    /// Keep Moonglow's over a file with a terrain named in Windows-1252
+    /// (`Forêt`): its names are read as the editor reads its own text, so
+    /// Save takes nothing as renamed (review U's 3).
+    #[test]
+    fn keep_mine_reads_a_non_ascii_name_as_the_editor_does() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-keep-mine-1252");
+        let path = dir.join("tst01.set");
+        let text =
+            format!("{SET}\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName=Forêt\r\n");
+        let data = Codepage::default().encode(&text).unwrap().into_owned();
+        std::fs::write(&path, &data).unwrap();
+        let disk = crate::problems::fingerprint(&data);
+        let opened = SetFile::parse(&Codepage::default().decode(&data));
+        let mut d = TilesetDoc::new(1, path.clone(), opened, Some(disk));
+        d.change(|f| f.set("GENERAL", "Transition", "5"));
+        d.theirs = Some(disk ^ 1);
+        d.keep_mine();
+        assert_eq!(d.saved_names, d.tileset().map(type_names), "nothing renamed");
+    }
+
+    /// A file in Windows-1252 (`Forêt`, its 0xEA) opened and saved
+    /// untouched is written back byte for byte, its fingerprint the file's
+    /// (lossless editing: it was written as UTF-8).
+    #[test]
+    fn save_writes_back_the_windows_1252_it_read() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-save-1252");
+        let path = dir.join("tst01.set");
+        let text =
+            format!("{SET}\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName=Forêt\r\n");
+        let data = Codepage::default().encode(&text).unwrap().into_owned();
+        assert!(data.contains(&0xEA));
+        std::fs::write(&path, &data).unwrap();
+        let disk = crate::problems::fingerprint(&data);
+        let opened = SetFile::parse(&Codepage::default().decode(&data));
+        let mut d = TilesetDoc::new(1, path.clone(), opened, Some(disk));
+        assert_eq!(d.fingerprint(), disk, "the text's fingerprint is the file's");
+        assert_eq!(d.tileset().map(|t| t.terrains[0].name.as_str()), Some("Forêt"));
+        d.save().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+        assert_eq!(d.disk, Some(disk));
+    }
+
+    /// A name Windows-1252 can't write (`Łąka`): Save refuses, saying
+    /// which letters, and the file stays as it was.
+    #[test]
+    fn save_refuses_letters_windows_1252_cannot_write() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-save-unwritable");
+        let path = dir.join("tst01.set");
+        let text =
+            format!("{SET}\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName=Grass\r\n");
+        std::fs::write(&path, &text).unwrap();
+        let disk = crate::problems::fingerprint(text.as_bytes());
+        let mut d = TilesetDoc::new(1, path.clone(), SetFile::parse(&text), Some(disk));
+        d.change(|f| f.set("TERRAIN0", "Name", "Łąka"));
+        let e = d.save().unwrap_err();
+        assert!(e.contains("Łą") && e.contains("Windows-1252"), "{e}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert!(d.is_dirty());
+        assert_eq!(d.tileset().map(|t| t.terrains[0].name.as_str()), Some("Łąka"));
+    }
+
+    /// Another program writes the very text that is unsaved here, with a
+    /// Windows-1252 letter (`Forêt`): the file is as saved, nothing asked.
+    #[test]
+    fn a_file_written_outside_as_the_text_here_is_as_saved() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-outside-1252");
+        let path = dir.join("tst01.set");
+        let with = |terrain: &str| {
+            format!("{SET}\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName={terrain}\r\n")
+        };
+        std::fs::write(&path, with("Grass")).unwrap();
+        let disk = crate::problems::fingerprint(with("Grass").as_bytes());
+        let mut d = TilesetDoc::new(1, path.clone(), SetFile::parse(&with("Grass")), Some(disk));
+        d.change(|f| f.set("TERRAIN0", "Name", "Forêt"));
+        assert!(d.is_dirty());
+        let data = Codepage::default().encode(&d.file.text()).unwrap().into_owned();
+        std::fs::write(&path, &data).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.tilesets.push(d);
+        changed_on_disk(&mut app, &path, false);
+        let d = &app.tilesets[0];
+        assert!(!d.is_dirty() && d.theirs.is_none());
+        assert_eq!(d.disk, Some(crate::problems::fingerprint(&data)));
     }
 }

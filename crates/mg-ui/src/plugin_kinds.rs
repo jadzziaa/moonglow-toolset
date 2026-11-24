@@ -322,6 +322,9 @@ impl Moonglow {
             ));
             return;
         }
+        if self.plugin_run_refused(&p.manifest.name, &decl.title, false) {
+            return;
+        }
         let to = if decl.folder {
             self.dialogs.pick_folder(&title, None)
         } else {
@@ -357,6 +360,9 @@ impl Moonglow {
             self.log.error(format!("{} has no importer {id}", p.manifest.name));
             return;
         };
+        if self.plugin_run_refused(&p.manifest.name, &decl.title, false) {
+            return;
+        }
         let title = decl.title.trim_end_matches('…').to_string();
         let from = match decl.folder {
             true => self.dialogs.pick_folder(&title, None),

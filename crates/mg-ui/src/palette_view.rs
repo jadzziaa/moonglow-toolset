@@ -73,7 +73,7 @@ struct FoldCache {
     kind: BlueprintKind,
     custom: bool,
     revision: Option<u64>,
-    load_order: u64,
+    names: (u64, u64),
     fields: Arc<Vec<(ResRef, [String; 3])>>,
 }
 
@@ -185,11 +185,11 @@ pub struct PaletteView {
     /// model to show (a sound, a trigger, an encounter, a store, a
     /// waypoint).
     about: Option<(ResKey, Vec<String>)>,
-    /// The last search's finds: (palette, search, revision), blueprints,
-    /// and how found.
+    /// The last search's finds: (palette, search, revision, the game's
+    /// names), blueprints, and how found.
     #[allow(clippy::type_complexity)]
     found: Option<(
-        (BlueprintKind, bool, String, Option<u64>),
+        (BlueprintKind, bool, String, Option<u64>, (u64, u64)),
         Arc<std::collections::HashSet<ResRef>>,
         Needle,
     )>,
@@ -1126,7 +1126,7 @@ fn found(
     tags: &Arc<HashMap<ResRef, String>>,
 ) -> (Arc<std::collections::HashSet<ResRef>>, Needle) {
     let revision = app.ws.as_ref().map(|w| w.revision());
-    let key = (kind, custom, app.palette.filter.clone(), revision);
+    let key = (kind, custom, app.palette.filter.clone(), revision, app.game_names());
     if let Some((k, f, find)) = &app.palette.found
         && *k == key
     {
@@ -1139,7 +1139,7 @@ fn found(
             && c.kind == kind
             && c.custom == custom
             && c.revision == revision
-            && c.load_order == app.load_order
+            && c.names == app.game_names()
     });
     if !cached_fields {
         let built: Vec<(ResRef, [String; 3])> = palette
@@ -1156,7 +1156,7 @@ fn found(
             kind,
             custom,
             revision,
-            load_order: app.load_order,
+            names: app.game_names(),
             fields: Arc::new(built),
         });
     }
@@ -1178,7 +1178,7 @@ fn found(
     }
     // The same search of the same palette, the module changed: what it
     // finds now that it didn't (their categories open).
-    if let Some(((k, c, f, _), was, _)) = &app.palette.found
+    if let Some(((k, c, f, _, _), was, _)) = &app.palette.found
         && (*k, *c, f) == (key.0, key.1, &key.2)
     {
         app.palette.arrived = hits.difference(was).copied().collect();
@@ -4051,5 +4051,67 @@ mod tests {
         assert_eq!(copy("nw_chicken", &taken), "ab_nw_chicken001");
         assert_eq!(copy("ab_chicken001", &|n| n == "ab_chicken001"), "ab_chicken002");
         assert_eq!(copy("abcdefghijklmnop", &|_| false), "ab_abcdefghij001");
+    }
+
+    /// The custom talk table read again (its Save) is found by its new
+    /// lines, and is no load order change: the browser keeps its views
+    /// (review U's 1, where every Save emptied them).
+    #[test]
+    fn a_talk_table_read_again_is_found_by_its_new_lines_and_keeps_the_browser() {
+        use mg_resman::{LayerClass, MemContainer, ResMan, priority};
+        let tlk_key = ResKey::parse("mg_t", mg_core::ResType::TLK).unwrap();
+        let layer = |text: &str| {
+            let mut tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+            tlk.entries.push(mg_tlk::TlkEntry::text(text));
+            let mut c = MemContainer::new();
+            c.insert(tlk_key, tlk.to_bytes().unwrap());
+            c
+        };
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK, "hak:old", LayerClass::Erf, layer("Old sword"));
+        let game = mg_rules::GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut m = mg_module::Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_t".to_vec()));
+        m.set_gff(ResKey::parse("module", mg_core::ResType::IFO).unwrap(), &ifo).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.game = Some(Arc::new(game));
+        app.ws = Some(mg_edit::Workspace::new(m));
+        app.reload_custom_tlk();
+        assert!(app.game.as_deref().unwrap().custom_tlk().is_some(), "{:?}", app.log.entries);
+
+        let blueprint = PaletteBlueprint {
+            resref: ResRef::from_str("sword").unwrap(),
+            name: mg_module::palette::PaletteName::StrRef(0x0100_0000),
+            cr: None,
+            faction: None,
+        };
+        let palette = Arc::new(Palette {
+            nodes: vec![PaletteNode {
+                name: mg_module::palette::PaletteName::StrRef(0),
+                id: Some(1),
+                children: Vec::new(),
+                blueprints: vec![blueprint],
+            }],
+        });
+        let tags: Tags = Default::default();
+        let kind = BlueprintKind::Item;
+        let finds = |app: &mut Moonglow, filter: &str| {
+            app.palette.filter = filter.into();
+            found(app, &palette, kind, false, &tags).0.len()
+        };
+        assert_eq!(finds(&mut app, "old"), 1);
+
+        // The table saved with the line renamed, read again.
+        let game = Arc::get_mut(app.game.as_mut().unwrap()).unwrap();
+        game.resman.add(priority::HAK_USER, "hak:new", LayerClass::Erf, layer("New sword"));
+        let pictured = (tlk_key, None);
+        app.browser.pictures.insert(pictured.clone(), 1.0);
+        let load_order = app.load_order;
+        app.reload_custom_tlk();
+        assert_eq!(finds(&mut app, "old"), 0, "the same search, found again");
+        assert_eq!(finds(&mut app, "new"), 1, "by the new line");
+        assert_eq!(app.load_order, load_order, "no load order change");
+        assert!(app.browser.pictures.contains_key(&pictured), "the browser keeps its own");
     }
 }

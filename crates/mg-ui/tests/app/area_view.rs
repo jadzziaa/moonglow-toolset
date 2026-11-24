@@ -1499,6 +1499,29 @@ fn an_edit_of_some_objects_reads_only_those_again() {
     as_whole(&mut h);
 }
 
+/// An area without a GIT is not read whole again at a change of another
+/// resource made outside the edit history (a compiled script), which the
+/// view compares the GIT for: the stand-in it was read with and the one
+/// compared were told apart by their roots' ids alone (review C's C-12).
+#[test]
+fn an_area_without_a_git_is_not_read_whole_at_another_edit() {
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        m.remove(&ResKey::new(area, ResType::GIT));
+    };
+    let Some((mut h, area)) = area_harness_with("no-git", "ttr01", None, 4, None, &prepare) else {
+        return;
+    };
+    h.run_steps(3);
+    let reads = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].whole_reads;
+    let before = reads(&h);
+    let script = ResKey::parse("mg_other", ResType::NCS).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.derive(|m| m.set(script, b"NCS V1.0".to_vec())).unwrap();
+    h.run_steps(2);
+    assert!(before > 0, "read once first");
+    assert_eq!(reads(&h), before, "not read whole");
+}
+
 /// A paste shows its ghost as soon as Ctrl+V is pressed, the pointer
 /// still (it was drawn only once the pointer moved), and Q and E turn it
 /// before it is put down, about where it goes, as they turn a blueprint

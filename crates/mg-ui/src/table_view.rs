@@ -131,11 +131,11 @@ pub struct TableDoc {
     /// The rows shown, for the table and the Find they were worked out
     /// for ([`shown_rows`]).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, u64, usize, u64, usize, String, bool), Arc<Vec<usize>>)>,
+    shown: Option<(ShownFor, Arc<Vec<usize>>)>,
     /// The cells that are wrong, for the table's revision and the other
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
-    faults: Option<((u64, u64, u64, u64, u64, TalkTables, usize), Arc<Vec<CellFault>>)>,
+    faults: Option<((u64, u64, u64, u64, u64, TalkTables, Same<Description>), Arc<Vec<CellFault>>)>,
     /// Cached base-game table copy and its own fault coordinates so edits do
     /// not re-parse and re-validate the base game's copy on every change.
     #[allow(clippy::type_complexity)]
@@ -1267,9 +1267,9 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
         .fold(0, u64::wrapping_add);
     let doc = &app.tables[at];
     let changes = doc.edit.changes();
-    let described_ptr = doc.description().as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
+    let described = Same(doc.description());
     let tlk = talk_tables(app);
-    let key = (doc.revision, doc.history, changes, others, app.load_order, tlk, described_ptr);
+    let key = (doc.revision, doc.history, changes, others, app.load_order, tlk, described);
     if let Some((mark, found)) = &doc.faults
         && *mark == key
     {
@@ -1281,14 +1281,14 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     // Incremental path: only small cell edits occurred since previous faults,
     // external factors match, and no self-referencing row flipped emptiness.
     let incremental = doc.faults.as_ref().and_then(|(mark, prev)| {
-        let (_, prev_history, prev_changes, prev_others, prev_lo, prev_tlk, prev_desc) = *mark;
+        let (_, prev_history, prev_changes, prev_others, prev_lo, prev_tlk, prev_desc) = mark;
         // (The same history: a table read again starts another, whose
         // changes count from 0 again.)
-        if prev_changes < changes
-            && (prev_history, prev_others, prev_lo, prev_tlk, prev_desc)
-                == (doc.history, others, app.load_order, tlk, described_ptr)
+        if *prev_changes < changes
+            && (*prev_history, *prev_others, *prev_lo, *prev_tlk, prev_desc)
+                == (doc.history, others, app.load_order, tlk, &key.6)
         {
-            let (touched, emptiness_changed) = doc.edit.cell_rows_since(prev_changes)?;
+            let (touched, emptiness_changed) = doc.edit.cell_rows_since(*prev_changes)?;
             let self_ref = kinds.iter().any(|(_, k)| {
                 matches!(k, ColumnKind::Row(target) if target.eq_ignore_ascii_case(&name))
                     || matches!(k, ColumnKind::RowBy { .. })
@@ -2175,22 +2175,40 @@ fn notes(app: &Moonglow, ui: &mut Ui, at: usize) {
     });
 }
 
-/// The rows shown: all, or those with the filter's text in a cell.
+/// What the rows shown were worked out for: the revision, the history,
+/// the rows looked within, the changes, the description, the Find and
+/// whether by value names.
+type ShownFor = (u64, u64, Same<Vec<usize>>, u64, Same<Description>, String, bool);
+
+/// An `Arc` in a cache key, told by `Arc::ptr_eq` and held: by its address
+/// alone, another made where a freed one was was taken for it (review C-19).
+#[derive(Debug, Clone)]
+struct Same<T>(Option<Arc<T>>);
+
+impl<T> PartialEq for Same<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 /// The rows shown: those a Find finds, else every row. Worked out once
 /// for the table as it is and the Find as it is typed (a large table's
 /// every cell was looked through at each frame), and again when either
 /// changes.
 fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
-    let within = doc.within.as_ref().map_or(0, |w| Arc::as_ptr(w) as usize);
+    let within = Same(doc.within.clone());
     let description = doc.description();
-    let described_ptr = description.as_ref().map_or(0, |d| Arc::as_ptr(d) as usize);
     let changes = doc.edit.changes();
-    let key = (
+    let key: ShownFor = (
         doc.revision,
         doc.history,
         within,
         changes,
-        described_ptr,
+        Same(description.clone()),
         doc.filter.clone(),
         doc.value_names,
     );
@@ -2203,8 +2221,8 @@ fn shown_rows(doc: &mut TableDoc) -> Arc<Vec<usize>> {
         let (_, history, prev_within, prev_changes, prev_desc, prev_filter, prev_names) = prev_k;
         // (The same history: a table read again starts another.)
         if *prev_changes < changes
-            && (*history, *prev_within, *prev_desc, prev_filter.as_str(), *prev_names)
-                == (doc.history, within, described_ptr, doc.filter.as_str(), doc.value_names)
+            && (*history, prev_within, prev_desc, prev_filter.as_str(), *prev_names)
+                == (doc.history, &key.2, &key.4, doc.filter.as_str(), doc.value_names)
             && let Some((touched, _)) = doc.edit.cell_rows_since(*prev_changes)
         {
             let mut next = prev_rows.clone();
@@ -4215,6 +4233,32 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The rows shown and the faults are kept for the description they
+    /// were worked out with, held: by its address alone, another read
+    /// where a freed one was was taken for it (review C-19).
+    #[test]
+    fn the_rows_shown_and_the_faults_hold_their_description() {
+        let key = ResKey::parse("spells", mg_core::ResType::TWODA).unwrap();
+        let table =
+            TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 a\n", mg_core::Codepage::default()).unwrap();
+        let mut doc = TableDoc::read_only(u32::MAX, key, table);
+        let text = mg_module::table_desc::game_description("spells").expect("Moonglow's own");
+        let desc = Arc::new(Description::read(text, &|_| None).unwrap());
+        doc.described = Some(Described {
+            path: None,
+            modified: None,
+            read: Ok(desc.clone()),
+            files: Default::default(),
+            tables: Default::default(),
+        });
+        shown_rows(&mut doc);
+        assert_eq!(Arc::strong_count(&desc), 3, "the rows shown hold it");
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.tables.push(doc);
+        faults(&mut app, 0);
+        assert_eq!(Arc::strong_count(&desc), 4, "and the faults");
+    }
 
     /// A row's faults, taken by halving from the faults in their order,
     /// are those a look through all of them finds (the grid looked every

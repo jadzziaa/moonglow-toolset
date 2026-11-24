@@ -246,8 +246,10 @@ impl<'a> LightGrid<'a> {
 /// and their priorities: all a mesh's choice depends on): a large area's
 /// thousands of meshes, each trying the lights of the squares it stands
 /// on, were the larger part of a frame of the camera turning. A mesh is
-/// known by its ball, to the bit: what one takes is what
-/// [`LightGrid::reaching`] gives it.
+/// known by its key, a ball to the bit: what one takes is what
+/// [`LightGrid::reaching`] gave its own ball when the choice was made (a
+/// moving mesh's key is a coarser ball than its own, so that it keeps
+/// its lights while it moves a little).
 ///
 /// A mesh asks by its place among the scene's (mostly what it was the
 /// frame before): its choice is first looked for where the mesh in its
@@ -362,15 +364,17 @@ impl ReachCache {
         }
     }
 
-    /// [`LightGrid::reaching`], as it was for the same ball since the
-    /// lights were last as they are (`grid` made of those lights), for the
-    /// mesh at `place` among the scene's; and the number of the set of
+    /// [`LightGrid::reaching`] for the ball `exact`, as it was for the same
+    /// `key` since the lights were last as they are (`grid` made of those
+    /// lights), for the mesh at `place` among the scene's; and the number
+    /// of the set of
     /// lights it comes to (the same for every choice of the same lights,
     /// while they stay).
     pub(crate) fn reaching(
         &mut self,
         grid: &mut LightGrid<'_>,
         (centre, radius): (Vec3, f32),
+        exact: (Vec3, f32),
         place: usize,
         out: &mut Vec<Reaching>,
     ) -> u32 {
@@ -383,7 +387,10 @@ impl ReachCache {
             None => match self.by_ball.entry(ball) {
                 std::collections::hash_map::Entry::Occupied(e) => *e.get(),
                 std::collections::hash_map::Entry::Vacant(e) => {
-                    grid.reaching(centre, radius, out);
+                    // (Ranked from the mesh's own ball: the key's centre is
+                    // moved and its radius grown, which, with more lights
+                    // reaching than are taken, takes others.)
+                    grid.reaching(exact.0, exact.1, out);
                     self.made += 1;
                     let lights: Box<[u32]> = out.iter().map(|&(_, _, i)| i).collect();
                     let next = self.sets.len() as u32;
@@ -611,7 +618,13 @@ mod tests {
             // (Some meshes of a frame not drawn in the next, some twice.)
             let these = meshes.iter().skip(frame % 3).chain(&meshes[..5]);
             for (place, (centre, radius)) in these.enumerate() {
-                let set = cache.reaching(&mut grid, (*centre, *radius), place, &mut out);
+                let set = cache.reaching(
+                    &mut grid,
+                    (*centre, *radius),
+                    (*centre, *radius),
+                    place,
+                    &mut out,
+                );
                 assert_eq!(out, every(&lights, *centre, *radius), "frame {frame}");
                 let taken: Vec<u32> = out.iter().map(|&(_, _, i)| i).collect();
                 assert_eq!(*sets.entry(taken).or_insert(set), set, "frame {frame}");
@@ -626,6 +639,27 @@ mod tests {
             }
             assert_eq!(grid.built, !known, "frame {frame}");
         }
+    }
+
+    /// A moving mesh, known by a coarser ball than its own, takes the
+    /// lights its own ball reaches: of 33, the 32 nearest it, not those
+    /// nearest the coarse ball's centre (moved a little away from them).
+    #[test]
+    fn a_mesh_known_by_a_coarse_ball_takes_its_own_ball_s_lights() {
+        let exact = (Vec3::new(0.1, 0.0, 0.0), 0.5);
+        let key = crate::renderer::coarse_ball(exact.0, exact.1);
+        assert_eq!(key.0, Vec3::ZERO);
+        // (One a little nearer the coarse centre, 32 nearer the mesh's.)
+        let mut lights = vec![light(Vec3::new(-2.45, 0.0, 0.0), 10.0, 1)];
+        lights.extend((0..MAX_LIGHTS).map(|_| light(Vec3::new(2.5, 0.0, 0.0), 10.0, 1)));
+        assert_ne!(every(&lights, key.0, key.1), every(&lights, exact.0, exact.1));
+        let mut cache = ReachCache::default();
+        let mut out = Vec::new();
+        cache.begin(&lights);
+        let mut grid = LightGrid::new(&lights);
+        cache.reaching(&mut grid, key, exact, 0, &mut out);
+        assert_eq!(out, every(&lights, exact.0, exact.1));
+        assert!(out.iter().all(|&(_, _, i)| i != 0), "the far one left out");
     }
 
     /// The choices no mesh took lately are let go once they are many more
@@ -650,13 +684,19 @@ mod tests {
         let mut grid = LightGrid::new(&lights);
         let mut sets = Vec::new();
         for (place, (centre, radius)) in meshes.iter().enumerate() {
-            sets.push(cache.reaching(&mut grid, (*centre, *radius), place, &mut out));
+            sets.push(cache.reaching(
+                &mut grid,
+                (*centre, *radius),
+                (*centre, *radius),
+                place,
+                &mut out,
+            ));
         }
         assert_eq!(cache.choices.len(), meshes.len());
         cache.begin(&lights);
         let mut grid = LightGrid::new(&lights);
         for (place, (centre, radius)) in meshes[100..110].iter().enumerate() {
-            cache.reaching(&mut grid, (*centre, *radius), place + 3, &mut out);
+            cache.reaching(&mut grid, (*centre, *radius), (*centre, *radius), place + 3, &mut out);
         }
         // Those ten are kept, the rest let go.
         cache.begin(&lights);
@@ -664,7 +704,13 @@ mod tests {
         assert_eq!(cache.by_ball.len(), 10);
         let mut grid = LightGrid::new(&lights);
         for (place, (centre, radius)) in meshes[100..110].iter().enumerate() {
-            let set = cache.reaching(&mut grid, (*centre, *radius), place + 3, &mut out);
+            let set = cache.reaching(
+                &mut grid,
+                (*centre, *radius),
+                (*centre, *radius),
+                place + 3,
+                &mut out,
+            );
             assert_eq!(out, every(&lights, *centre, *radius));
             assert_eq!(set, sets[100 + place]);
         }

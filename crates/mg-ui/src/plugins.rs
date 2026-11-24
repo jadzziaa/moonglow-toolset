@@ -1836,8 +1836,36 @@ impl Moonglow {
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_console(&code, Input { selection, ..input }, host)
         };
+        if self.plugin_run_refused("Console", "Console", true) {
+            return;
+        }
         self.plugins.console_output.clear();
         self.run_plugin("Console".into(), "Console".into(), true, None, None, run);
+    }
+
+    /// Whether a plugin's run can't start now, and why said (to the
+    /// console as well for its own): another job under way, whose
+    /// question, form and answers are left as they are; or a command held
+    /// for the Protected Area window, whose edits and written haks wait
+    /// for that answer (a second held run took the first's place). Asked
+    /// before an exporter's or importer's file dialog and before the
+    /// console is emptied, so nothing is asked or lost for a run refused.
+    pub(crate) fn plugin_run_refused(&mut self, name: &str, title: &str, console: bool) -> bool {
+        let heading = title.trim_end_matches('…').trim_end_matches("...").trim();
+        let text = if let Some(job) = &self.job {
+            format!("{name}: {heading}: waiting for {} to finish", job.title)
+        } else if self.held_for_protected() {
+            format!(
+                "{name}: {heading}: not run while the Protected Area window waits for an answer"
+            )
+        } else {
+            return false;
+        };
+        if console {
+            self.plugins.console_output.push((Level::Warning, text.clone()));
+        }
+        self.log.warn(text);
+        true
     }
 
     /// A job running a plugin's code (`run`), with the window as its host.
@@ -1853,22 +1881,9 @@ impl Moonglow {
         run: impl FnOnce(Input, Rc<dyn Host>) -> Result<Outcome, PluginError> + Send + 'static,
     ) {
         let heading = title.trim_end_matches('…').trim_end_matches("...").trim().to_string();
-        // Another job under way: this one does not start, and what the
-        // running one waits on (its question, its form, the answers
-        // given for it) is left as it is. (They were let go of first: a
-        // plugin's job waiting for an answer was never shown its
-        // question again, and waited until it was called off.)
-        if let Some(job) = &self.job {
-            self.log.warn(format!("{name}: {heading}: waiting for {} to finish", job.title));
-            return;
-        }
-        // Nor while a command is held for the Protected Area window: its
-        // edits and the haks it wrote wait for that answer, and a second
-        // held run took the first's place (its haks left written).
-        if self.held_for_protected() {
-            self.log.warn(format!(
-                "{name}: {heading}: not run while the Protected Area window waits for an answer"
-            ));
+        // (Another job's question let go of first was never shown again:
+        // its job waited until it was called off.)
+        if self.plugin_run_refused(&name, &title, console) {
             return;
         }
         // (An event's job that changes nothing says nothing.)
@@ -2165,8 +2180,8 @@ impl Moonglow {
     }
 
     /// Whether a plugin's run or an import is held for the Protected Area
-    /// window: no other plugin runs, and no other command is held, until
-    /// it is answered.
+    /// window: no other plugin runs until it is answered. (No other
+    /// command is held while the window asks about any: `claims::gate`.)
     pub(crate) fn held_for_protected(&self) -> bool {
         self.plugins.pending_apply.is_some() || self.pending_import.is_some()
     }
@@ -3530,6 +3545,61 @@ mod tests {
         assert!(app.job.is_none());
         app.cancel_pending_plugin_apply();
         assert!(!app.held_for_protected());
+    }
+
+    /// Dialogs a test must not be shown.
+    struct NoneAsked;
+    impl crate::Dialogs for NoneAsked {
+        fn open_file(&mut self, _: crate::FileKind, _: Option<&Path>) -> Option<PathBuf> {
+            panic!("a file asked for")
+        }
+        fn save_file(&mut self, _: crate::FileKind, _: Option<&Path>) -> Option<PathBuf> {
+            panic!("a file asked for")
+        }
+        fn pick_folder(&mut self, _: &str, _: Option<&Path>) -> Option<PathBuf> {
+            panic!("a folder asked for")
+        }
+        fn open_files(&mut self, _: crate::FileKind, _: Option<&Path>) -> Vec<PathBuf> {
+            panic!("files asked for")
+        }
+    }
+
+    /// While a run is held for the Protected Area window, an exporter and
+    /// an importer ask for no file they won't use, and the console keeps
+    /// what it showed and says why it did not run (review U's 4).
+    #[test]
+    fn a_held_run_asks_nothing_and_keeps_the_console() {
+        let mut app = Moonglow::new(None, Box::new(NoneAsked));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples");
+        app.plugin_dir = Some(examples);
+        app.load_plugins();
+        app.enable_plugin("example.creature-sheet", true);
+        app.plugins.pending_apply = Some(PendingPluginApply {
+            plugin: None,
+            name: "First".into(),
+            title: "Apply".into(),
+            console: false,
+            cmd: Command::new("Apply", vec![]),
+            resources: 1,
+            written: Vec::new(),
+            settings: None,
+        });
+        app.run_plugin_export("example.creature-sheet", "creatures-csv");
+        app.run_plugin_import("example.creature-sheet", "creatures-csv");
+        let held =
+            |m: &String| m.ends_with("not run while the Protected Area window waits for an answer");
+        let said = app.log.entries.iter().filter(|(_, m)| held(m)).count();
+        assert_eq!(said, 2, "{:?}", app.log.entries);
+        app.plugins.console_output.push((Level::Info, "earlier".into()));
+        app.plugins.console = "print(1)".into();
+        app.run_console();
+        let shown: Vec<&String> = app.plugins.console_output.iter().map(|(_, m)| m).collect();
+        assert_eq!(shown.len(), 2, "{shown:?}");
+        assert_eq!(shown[0], "earlier");
+        assert!(held(shown[1]), "{shown:?}");
+        assert!(app.job.is_none());
+        app.cancel_pending_plugin_apply();
     }
 
     /// A number field whose value lies outside its limits (one kept from

@@ -464,10 +464,10 @@ fn shift_click_in_a_fresh_editor_puts_the_cursor_there() {
 }
 
 /// A Mac's Ctrl+A, E, B, F, P and N move the cursor (line start and end,
-/// a character, a line), and Ctrl+K, Ctrl+U and Ctrl+W delete to the line's
-/// end, to its start and the word before, as egui's TextEdit has them
-/// (review K's N8); Cmd+Backspace at a line's start and Cmd+Delete at its
-/// end take the line end (N9).
+/// a character, a line), and Ctrl+K, Ctrl+U, Ctrl+W and Ctrl+H delete to
+/// the line's end, to its start, the word before and the character before,
+/// as egui's TextEdit has them (review K's N8, S's 3); Cmd+Backspace at a
+/// line's start and Cmd+Delete at its end take the line end (N9).
 #[test]
 fn a_mac_s_control_keys_move_and_delete() {
     use egui::Key;
@@ -498,6 +498,9 @@ fn a_mac_s_control_keys_move_and_delete() {
     press(&mut h, MAC_CMD, Key::Delete);
     assert_eq!(text(&h, key), "int ;", "Cmd+Delete took the line end");
     assert_eq!(cursor(&h, key), (5, 5));
+    press(&mut h, ctrl, Key::H);
+    assert_eq!(text(&h, key), "int ", "Ctrl+H took the character before");
+    assert_eq!(cursor(&h, key), (4, 4));
 }
 
 /// Ctrl+K and Ctrl+U on Windows and Linux too, as egui has them (Ctrl+H
@@ -514,6 +517,9 @@ fn ctrl_k_and_ctrl_u_delete_to_the_line_s_end_and_start() {
     put(&mut h, key, 5, 5);
     press(&mut h, CTRL, egui::Key::W);
     assert_eq!(text(&h, key), "\nint de;\n", "Ctrl+W took no word");
+    // Nor Ctrl+H, Replace Text's, a character.
+    press(&mut h, CTRL, egui::Key::H);
+    assert_eq!(text(&h, key), "\nint de;\n", "Ctrl+H took no character");
 }
 
 /// Word moves and word deletes go over line ends, as egui's (they stopped

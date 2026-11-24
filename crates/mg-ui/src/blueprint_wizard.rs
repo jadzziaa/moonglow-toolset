@@ -485,7 +485,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let types = crate::blueprint::kept_for_key(
                     ui.ctx(),
                     egui::Id::new("blueprint-wizard-item-types"),
-                    &app.load_order,
+                    &app.game_names(),
                     || std::sync::Arc::new(item_types(game)),
                 );
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {

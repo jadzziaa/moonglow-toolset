@@ -101,9 +101,9 @@ pub const MAX_VERTICES: usize = 65_535;
 pub const MAX_RESREF: usize = 16;
 /// A node's name: 32 characters, the most nwn.wiki's MDL page gives (the
 /// game's compiler keeps a longer name's first 32). Not proven in the
-/// engine: no model of the game's has a name of more than 28, and
-/// Moonglow's binary writer keeps a NUL in the field, refusing more than
-/// 31.
+/// engine: no model of the game's has a name of more than 28. Moonglow's
+/// binary writer keeps a NUL in the 32-byte field, so it cuts a name of 32
+/// to 31 without a word: the lint warns of that.
 pub const MAX_NODE_NAME: usize = 32;
 pub const MAX_LIGHTNING_SEGMENTS: f32 = 9.0;
 
@@ -182,6 +182,16 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
                         at,
                         Severity::Warning,
                         format!("node names are at most {MAX_NODE_NAME} characters"),
+                    );
+                } else if name.len() == MAX_NODE_NAME {
+                    l.push(
+                        at,
+                        Severity::Warning,
+                        format!(
+                            "node name of {MAX_NODE_NAME} characters: Moonglow's compiler cuts \
+                             it to {}",
+                            MAX_NODE_NAME - 1
+                        ),
                     );
                 }
                 if !in_anim {
@@ -952,7 +962,8 @@ donemodel box\n";
 
     #[test]
     /// The linter's limit is the 32 characters nwn.wiki's MDL page gives
-    /// (the branch's 31 was the binary writer's, unproven in the engine).
+    /// (the branch's 31 was the binary writer's, unproven in the engine);
+    /// a name of exactly 32 is warned of, as Moonglow's writer cuts it.
     fn node_name_limit_is_the_wiki_s_32() {
         let with_name = |len: usize| {
             let name = "n".repeat(len);
@@ -961,7 +972,11 @@ donemodel box\n";
                  node dummy {name}\n  parent w\nendnode\nendmodelgeom w\ndonemodel w\n"
             )
         };
-        assert!(messages(&with_name(32)).is_empty());
+        assert!(messages(&with_name(31)).is_empty());
+        let msgs = messages(&with_name(32));
+        assert_eq!(msgs.len(), 1, "{msgs:?}");
+        assert_eq!(msgs[0].1, Severity::Warning);
+        assert!(msgs[0].2.contains("cuts it to 31"), "{msgs:?}");
         let msgs = messages(&with_name(33));
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].2.contains("32"), "{:?}", msgs);

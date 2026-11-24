@@ -5877,10 +5877,6 @@ fn a_material_that_samples_the_framebuffer_is_drawn_after_the_shadows() {
     }
 }
 
-/// Creature shadows: a skinned plate that only casts, a metre over a
-/// ground that receives, its one bone posed 3 m east: its shadow falls
-/// where the bone has taken it (as it is drawn), not where it was bound;
-/// and none where the instance doesn't cast.
 /// An idle creature's lights are chosen once: a skinned mesh whose bone
 /// sways a little from frame to frame takes the lights chosen for it in
 /// the first (its posed box's own ball, of its box every frame, had them
@@ -5967,6 +5963,10 @@ fn a_mesh_a_skin_sways_takes_its_lights_as_chosen() {
     assert_eq!(r.drawn.lights_chosen, 1, "carried 3 m away: chosen anew");
 }
 
+/// Creature shadows: a skinned plate that only casts, a metre over a
+/// ground that receives, its one bone posed 3 m east: its shadow falls
+/// where the bone has taken it (as it is drawn), not where it was bound;
+/// and none where the instance doesn't cast.
 #[test]
 fn a_skinned_mesh_casts_as_its_bones_pose_it() {
     let Some(gpu) = gpu() else { return };

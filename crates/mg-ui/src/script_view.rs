@@ -1110,13 +1110,44 @@ fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
     if ctx.read_response(id).is_some() {
         ctx.memory_mut(|m| m.request_focus(id));
     } else {
-        ctx.data_mut(|d| d.insert_temp(focus_when_drawn(id), true));
+        ctx.data_mut(|d| {
+            let waiting = d.get_temp_mut_or_default::<Vec<ResKey>>(focus_when_drawn());
+            if !waiting.contains(&key) {
+                waiting.push(key);
+            }
+        });
     }
 }
 
-/// Where [`set_cursor`] leaves the keys for an editor not drawn.
-fn focus_when_drawn(id: egui::Id) -> egui::Id {
-    id.with("focus when drawn")
+/// Where [`set_cursor`] leaves the keys for the editors not drawn: the
+/// scripts', until each is drawn or its tab closed (`forget_closed`).
+fn focus_when_drawn() -> egui::Id {
+    egui::Id::new("scripts to focus when drawn")
+}
+
+/// Whether `key`'s editor was left the keys while it was not drawn; no
+/// longer after.
+fn take_focus_left(ctx: &egui::Context, key: ResKey) -> bool {
+    ctx.data_mut(|d| {
+        let waiting = d.get_temp_mut_or_default::<Vec<ResKey>>(focus_when_drawn());
+        let had = waiting.len();
+        waiting.retain(|k| *k != key);
+        waiting.len() != had
+    })
+}
+
+/// What is kept for scripts whose tabs are closed is let go of: their
+/// laid-out text (a galley a line: megabytes a script, kept for every
+/// script ever opened until the module closed), and the keys left for
+/// their editors (a script Find went to behind another tab, its tab closed
+/// and opened again later, took the keys and scrolled then).
+fn forget_closed(app: &mut Moonglow, ctx: &egui::Context) {
+    let Moonglow { laid_out, dock, .. } = app;
+    let open = |k: &ResKey| dock.find_tab(&Tab::Script(*k)).is_some();
+    if !laid_out.is_empty() {
+        laid_out.retain(|k, _| open(k));
+    }
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<ResKey>>(focus_when_drawn()).retain(open));
 }
 
 /// The editor's cursor as a character range (start, end).
@@ -1675,9 +1706,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let reveal = stepped.is_some() || buf.text_hash() != h;
     // (The keys `set_cursor` left for this editor while it was not drawn,
     // its cursor brought into sight with them.)
-    let left_focus = ctx.data_mut(|d| d.remove_temp::<bool>(focus_when_drawn(editor_id(key))));
-    let reveal = reveal || left_focus.is_some();
-    if left_focus.is_some() {
+    let left_focus = take_focus_left(&ctx, key);
+    let reveal = reveal || left_focus;
+    if left_focus {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }
     let h = buf.text_hash();
@@ -3334,6 +3365,26 @@ mod tests {
         crate::text::set_edit_language(Language::ENGLISH);
     }
 
+    /// The keys left for a script's editor not drawn (Find went to it
+    /// behind another tab) are let go of when its tab is closed: opened
+    /// again later, it took them and scrolled (review S's 1).
+    #[test]
+    fn the_keys_left_for_a_closed_script_are_let_go_of() {
+        let ctx = egui::Context::default();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let (kept, closed) = (
+            ResKey::parse("kept", ResType::NSS).unwrap(),
+            ResKey::parse("closed", ResType::NSS).unwrap(),
+        );
+        app.dock.main_surface_mut().push_to_first_leaf(Tab::Script(kept));
+        set_cursor(&ctx, kept, 0, 0);
+        set_cursor(&ctx, closed, 0, 0);
+        forget_closed(&mut app, &ctx);
+        assert!(!take_focus_left(&ctx, closed), "its tab closed");
+        assert!(take_focus_left(&ctx, kept), "its tab open");
+        assert!(!take_focus_left(&ctx, kept), "taken once");
+    }
+
     /// A CRLF script (BioWare's, the new scripts') is edited with plain
     /// newlines, no `\r` for the cursor to stop on at each line's end
     /// (Jasperre's report), and written back as it was: untouched, byte
@@ -3770,13 +3821,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
 /// Script, Save As.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    // A script whose tab is closed keeps no laid-out text (a galley a
-    // line: megabytes a script, kept for every script ever opened until
-    // the module closed).
-    if !app.laid_out.is_empty() {
-        let Moonglow { laid_out, dock, .. } = app;
-        laid_out.retain(|k, _| dock.find_tab(&Tab::Script(*k)).is_some());
-    }
+    forget_closed(app, &ctx);
     open_script_ui(app, &ctx);
     if app.script_tools.search.open {
         let mut s = app.script_tools.search.clone();

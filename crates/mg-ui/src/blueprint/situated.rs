@@ -659,9 +659,9 @@ struct TransitionPick {
     confirm: bool,
     /// Cached sorted target areas and area labels for the active dialog,
     /// and what they were listed for: the module's revision, the destinations'
-    /// count, whether areas are shown by name (Options) and the load order
-    /// (a talk table read again bumps it: the names may be its lines).
-    cached_areas_for: Option<(u64, usize, bool, u64)>,
+    /// count, whether areas are shown by name (Options) and the game's names
+    /// (`Moonglow::game_names`: the names may be the talk table's lines).
+    cached_areas_for: Option<(u64, usize, bool, (u64, u64))>,
     cached_areas: std::sync::Arc<Vec<mg_core::ResRef>>,
     cached_area_names: std::sync::Arc<std::collections::HashMap<mg_core::ResRef, String>>,
 }
@@ -816,7 +816,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
     let current_tag = f.root.string("Tag").unwrap_or_default().to_vec();
     let ws_rev = f.app.ws.as_ref().map_or(0, |ws| ws.revision());
     let listed_for =
-        Some((ws_rev, state.destinations.len(), f.app.settings.area_names, f.app.load_order));
+        Some((ws_rev, state.destinations.len(), f.app.settings.area_names, f.app.game_names()));
     if state.cached_areas_for != listed_for {
         let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
         areas.dedup();
