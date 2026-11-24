@@ -45,6 +45,23 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.2.0" date="2026-11-24">
+      <description>
+        <p>Script Help back under the text, the error found as you type
+        shown whole, completion and tips that show a name's
+        declaration, Find in read-only texts, a right-click menu in
+        every text field, Copy and Copy All in every list of results,
+        Interface size up to 300% with View, Interface Size and zoom
+        keys, an option for Smooth scrolling, and colored icons.</p>
+        <p>The zoom keys now change the Interface size setting, a
+        comment after a declaration documents that declaration, and Go
+        to Definition opens a game script at the line. The script editor
+        is Moonglow's own and quick with very large scripts, large
+        modules and dense areas draw faster, and the tileset editor
+        saves names in Windows-1252, as the game reads them. See the
+        release notes.</p>
+      </description>
+    </release>
     <release version="5.1.0" date="2026-11-23">
       <description>
         <p>An outline color of its own for each placed encounter
