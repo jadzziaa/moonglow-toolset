@@ -665,8 +665,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the client's since 2026-11-02: a tile's or a static placeable's meshes
   naming the same textures take the first one's alpha and `NO_DISCARD`,
   [the findings](findings.md), "Static geometry is drawn in buckets";
-  a bucket of several models' meshes, two static placeables of one
-  texture, is not read, and Moonglow keeps each model's apart.)
+  two static placeables of one texture keep each model's apart in the
+  client too, as Moonglow does: `batch8d_bucket_models`, 2026-11-25.)
   - Moonglow's own shader in the builders' areas (TDoD's 690 DXT1
     textures with transparent texels black, its 21 materials naming maps
     without a render hint) waits on those areas' files (`tdod.mod` here
@@ -683,13 +683,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (`particleSoftness` 10 over the emitter's larger size, a `Linked`
     emitter's and a lightning bolt's too: read on 2026-10-30,
     `reading_soft_particles_of_lightning_and_linked`, and Moonglow's bolt
-    made soft); a Lighten particle's foot fades a little more than the
-    client's (6.2 of 255 away over its last rows). (S)
-  - **Particles' size:** a still emitter's square particles are drawn
-    upright, as in the client, 28 pixels a side against the client's 30
-    in `surfaces_in_the_client` (the fitted camera's error, or the size:
-    not told apart); a spinning one starts upright and turns by
-    `particleRot` radians a second, read and drawn on 2026-10-30. (S)
+    made soft). A particle's foot fades about half a row of pixels
+    earlier in Moonglow than in the client, the same in every blend
+    (the fade painted into the color by a patched `fsparticle`: 0.5 at
+    2.1 rows from the edge against 2.65, `batch8d_soft_foot`,
+    2026-11-25; Lighten fades no more than the others, as the old
+    reading's edge made it seem). Unsettled: the depth lookup, the
+    multisampled depth's resolve, or the camera. (S)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -745,8 +745,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   overlap; a ribbon behind one is hidden too); its texture's soft edges
   blended as they are, writing their depth as the client's do. Two
   models' such meshes are put in order by their instances' places
-  (where each stands from the eye), the meshes of one in its order:
-  how the client orders two models' was not read. Each see-through mesh
+  (where each stands from the eye), the meshes of one in its order, as
+  the client orders two dynamic placeables' and two static ones' of
+  textures of their own (`batch8d_see_through_order`, 2026-11-25). Not
+  explained: two static placeables whose textures dynamic placeables
+  share as well are not drawn farthest first in the client (the nearer
+  drawn first, the farther hidden), by no listing order, model, texture
+  or row name tried; nor is it read whether the order is the
+  instance's origin's or its mesh's. Each see-through mesh
   of alpha 1 costs two draws. On macOS the solid part's discarded
   fragments wrote their depth (the plant's edge hid the ground again)
   until the shader stopped at each discard: seen and mended on the CI's
@@ -830,13 +836,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Read in the client, not yet** (the review of November 2026's
   fixes; the client run of 10 November read R18's chunks and R29's
   tangents, not these):
-  - a body part of a two-digit phenotype, its own textures (M10: the
-    name is read as `skeleton` writes it);
-  - a creature holding an item that names no model, drawn without it
-    (M13), and the sandboxed client's CD key copy removed when its run
-    ends (F22, held by its guard's own test).
-  (S, waits on a client run) (the review of November 2026, M10, M13,
-  F22)
+  - the sandboxed client's CD key copy removed when its run ends (F22,
+    held by its guard's own test, `joined::the_cd_key_s_copy_goes_with_the_run`):
+    a joined run with `MG_CLIENT_CDKEY` set, then `cdkey.ini` looked for
+    in its scratch user folder. A subagent's shell refuses the variable
+    pointing into the NWN user folder, so it waits on a run by hand.
+  (M10 and M13 read on 2026-11-25, `batch8d`: a phenotype 15 part as
+  the client draws it; an item naming no model is drawn without it,
+  where the client never finishes loading the area, [findings](findings.md).)
+  (S, waits on a client run) (the review of November 2026, F22)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in

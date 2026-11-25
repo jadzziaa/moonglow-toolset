@@ -1373,6 +1373,27 @@ is `default` too, the area's, not `chrome1`.
   (`Instance::env_map_default`).
 - **Wiki:** missing.
 
+### The eighth client batch's smaller readings
+
+- **An item that names no model stops the area from loading.** A
+  creature holding one (an empty `ItemClass` and `DefaultModel`, a
+  class of no model, or a part number past the class's models) leaves
+  the client on the loading screen: its log says "CreateItem: Model …
+  nor the default model could be loaded", then "Message type mismatch".
+  Moonglow draws the creature without the item.
+- **A two-digit phenotype's part** (phenotype 15, `pmh15`) takes its
+  textures as a phenotype 0 part does: its own PLT on every mesh, else
+  phenotype 0's by the fallback, else what its mesh names.
+- **Two static placeables of one texture** keep each model's
+  `NO_DISCARD` and opacity: the client's buckets do not reach across
+  models.
+- **A particle's size** is right: beside a card of its width at the
+  same depth it is as wide in both (1.00); the fitted camera of
+  `surfaces_in_the_client` draws the whole picture 3 to 5 percent
+  smaller.
+- **Checked:** `batch8d.rs` in `client_render` (2026-11-25).
+- **Wiki:** missing (the item without a model).
+
 ### A texture replacement's new name: its material, or the old texture kept
 
 `ReplaceObjectTexture` (and the `TextureReplace` field it saves) draws
