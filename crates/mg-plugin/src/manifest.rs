@@ -1455,8 +1455,8 @@ severity = "error"
         }
         let e = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.6\"")).unwrap_err();
         assert!(e.contains("plugin API 0.7") && e.contains("\"fix-tags\""), "{e}");
-        let later = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.10\"")).unwrap_err();
-        assert!(later.contains("0.10"), "{later}");
+        let later = Manifest::parse(&text.replace("api = \"0.7\"", "api = \"0.11\"")).unwrap_err();
+        assert!(later.contains("0.11"), "{later}");
     }
 
     /// API 0.5: a command for placed objects alone or blueprints alone,
