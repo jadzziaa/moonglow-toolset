@@ -1695,13 +1695,22 @@ fn hit_row(ui: &mut Ui, t: &mg_uikit::Tokens, hit: &Hit, selected: bool, width: 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter_at(rect);
         let lit = selected;
-        if lit {
+        if lit && !hit.enabled {
+            painter.rect(
+                rect,
+                0.0,
+                t.hover_row,
+                egui::Stroke::new(1.0, t.line_soft),
+                egui::StrokeKind::Inside,
+            );
+        } else if lit {
             painter.rect_filled(rect, 0.0, t.accent_fill);
         } else if r.hovered() {
             painter.rect_filled(rect, 0.0, t.hover_row);
         }
         let (color, dim) = match (hit.enabled, lit) {
-            (false, _) => (t.text_off, t.text_off),
+            (false, true) => (t.text_off, t.text_3),
+            (false, false) => (t.text_off, t.text_off),
             (true, true) => (t.on_fill, t.on_fill),
             (true, false) => (t.text, t.text_3),
         };
@@ -1738,8 +1747,17 @@ fn hit_row(ui: &mut Ui, t: &mg_uikit::Tokens, hit: &Hit, selected: bool, width: 
         let name_w = name.size().x;
         painter.galley(egui::pos2(x, rect.center().y - name.size().y / 2.0), name, color);
         let left = room - name_w - 12.0;
-        if !hit.detail.is_empty() && left > 24.0 {
-            let detail = elided(ui, &hit.detail, small, dim, left);
+        let shown_detail = if lit && !hit.enabled && !hit.why.is_empty() {
+            if hit.detail.is_empty() {
+                hit.why.clone()
+            } else {
+                format!("{} · {}", hit.detail, hit.why)
+            }
+        } else {
+            hit.detail.clone()
+        };
+        if !shown_detail.is_empty() && left > 24.0 {
+            let detail = elided(ui, &shown_detail, small, dim, left);
             let at = egui::pos2(x + name_w + 12.0, rect.center().y - detail.size().y / 2.0);
             painter.galley(at, detail, dim);
         }

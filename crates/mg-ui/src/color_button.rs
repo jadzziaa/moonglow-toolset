@@ -280,6 +280,7 @@ fn show_color_button(ui: &mut Ui, color: Color32, open: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ColorButton));
     if ui.is_rect_visible(rect) {
+        let t = mg_uikit::tokens(ui.ctx());
         let visuals =
             if open { ui.visuals().widgets.open } else { *ui.style().interact(&response) };
         let rect = rect.expand(visuals.expansion);
@@ -289,9 +290,17 @@ fn show_color_button(ui: &mut Ui, color: Color32, open: bool) -> Response {
         ui.painter().rect_stroke(
             rect,
             corner,
-            (stroke_width, visuals.bg_fill),
+            (stroke_width, t.swatch_line),
             egui::StrokeKind::Inside,
         );
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.expand(2.0),
+                corner,
+                egui::Stroke::new(1.0, t.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
     }
     response
 }

@@ -874,7 +874,7 @@ fn widgets_keys_searches_and_arrows() {
         bearing: 90.0,
         changed: [false; 4],
         visual: mg_area::VisualTransform::default(),
-        visual_changed: false,
+        visual_changed: mg_ui::area_tools::VisualChanged::default(),
         speed: 1.0,
         speed_changed: false,
         kept: Vec::new(),

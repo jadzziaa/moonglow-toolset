@@ -417,7 +417,24 @@ impl egui::Widget for KitButton {
             let (fill, text, chevron, ring) = self.colors(&t, state, enabled);
             let painter = crate::controls::box_painter(ui, enabled);
             let corners = self.corners.unwrap_or(metrics::RADIUS.into());
-            painter.rect(rect, corners, fill, ring, egui::StrokeKind::Inside);
+            let focused = enabled && response.has_focus();
+            let accent_filled = fill == t.accent_fill || fill == t.accent_fill_hover;
+            let outer_ring = if focused && !accent_filled {
+                Stroke::new(1.0, t.accent)
+            } else if !accent_filled {
+                ring
+            } else {
+                Stroke::NONE
+            };
+            painter.rect(rect, corners, fill, outer_ring, egui::StrokeKind::Inside);
+            if focused && accent_filled {
+                painter.rect_stroke(
+                    rect.shrink(1.5),
+                    corners,
+                    Stroke::new(1.5, t.on_fill),
+                    egui::StrokeKind::Inside,
+                );
+            }
             let y = rect.center().y;
             if self.icon_only {
                 let icon = self.icon.unwrap_or(Icon::Help);

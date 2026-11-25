@@ -571,8 +571,9 @@ impl<'a> GalleryCell<'a> {
                 }
             }
         }
-        // The rim, inside the tile over the picture: hovered, selected
-        // (with the keys or without), the keys' cursor.
+        // The rim, outside the picture against the panel (so Light theme
+        // accent stays legible instead of vanishing into dark `thumb_bg`):
+        // hovered, selected (with the keys or without), the keys' cursor.
         let (width, color) = match (selected, state.keys, hovered, state.cursor && state.keys) {
             (true, true, _, _) => (2.0, t.accent),
             (true, false, _, _) => (2.0, t.text_3),
@@ -580,7 +581,7 @@ impl<'a> GalleryCell<'a> {
             (false, _, true, _) => (1.0, t.raised_hover),
             _ => (1.0, t.line),
         };
-        painter.rect_stroke(tile, radius, Stroke::new(width, color), StrokeKind::Inside);
+        painter.rect_stroke(tile, radius, Stroke::new(width, color), StrokeKind::Outside);
         if self.no_model && tile.width() >= 40.0 {
             let font = FontId::proportional(DETAIL_SIZE);
             let galley = painter.layout_no_wrap("No model".into(), font, t.thumb_badge_text);

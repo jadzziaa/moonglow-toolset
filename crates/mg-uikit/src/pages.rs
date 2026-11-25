@@ -389,12 +389,12 @@ fn list_row_ui(ui: &mut Ui, icon: Icon, name: &str, on: bool, marked: bool) -> R
             painter.rect_filled(mark, 0.0, t.line_soft);
         }
         if response.has_focus() {
-            painter.rect_stroke(
-                rect.shrink(0.5),
-                metrics::RADIUS,
-                Stroke::new(1.0, t.accent),
-                egui::StrokeKind::Inside,
-            );
+            let (ring_rect, stroke) = if on {
+                (rect.shrink(1.5), Stroke::new(1.5, t.on_fill))
+            } else {
+                (rect.shrink(0.5), Stroke::new(1.0, t.accent))
+            };
+            painter.rect_stroke(ring_rect, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
         }
         let x = rect.left() + PAGE_ROW_INDENT;
         let square = Rect::from_center_size(
@@ -1334,9 +1334,16 @@ fn page_ui(ui: &mut Ui, icon: Icon, name: &str, on: bool) -> Response {
             (false, ButtonState::Rest) => (egui::Color32::TRANSPARENT, t.text_2),
             (false, _) => (t.raised, t.text),
         };
-        let ring = if response.has_focus() { Stroke::new(1.0, t.accent) } else { Stroke::NONE };
         let painter = ui.painter();
-        painter.rect(rect, metrics::RADIUS, fill, ring, egui::StrokeKind::Inside);
+        painter.rect(rect, metrics::RADIUS, fill, Stroke::NONE, egui::StrokeKind::Inside);
+        if response.has_focus() {
+            let (ring_rect, stroke) = if on {
+                (rect.shrink(1.5), Stroke::new(1.5, t.on_fill))
+            } else {
+                (rect, Stroke::new(1.0, t.accent))
+            };
+            painter.rect_stroke(ring_rect, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
+        }
         let square = Rect::from_center_size(rect.center(), vec2(metrics::ICON, metrics::ICON));
         icon.paint(painter, square, color);
     }

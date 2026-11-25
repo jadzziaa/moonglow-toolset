@@ -278,6 +278,18 @@ fn paint_hued_icon_button(
     icon.paint(painter, square, color);
 }
 
+fn paint_icon_focus(painter: &egui::Painter, t: &Tokens, rect: Rect, on: bool, focused: bool) {
+    if !focused {
+        return;
+    }
+    let (ring_rect, stroke) = if on {
+        (rect.shrink(1.5), Stroke::new(1.5, t.on_fill))
+    } else {
+        (rect, Stroke::new(1.0, t.accent))
+    };
+    painter.rect_stroke(ring_rect, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
+}
+
 fn icon_button_ui(ui: &mut Ui, icon: Icon, tooltip: &str, on: Option<bool>) -> Response {
     let size = Vec2::splat(metrics::ICON_BUTTON);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -289,7 +301,9 @@ fn icon_button_ui(ui: &mut Ui, icon: Icon, tooltip: &str, on: Option<bool>) -> R
     if ui.is_rect_visible(rect) {
         let tokens = ui.tokens();
         let state = ButtonState::of(&response);
-        paint_icon_button(ui.painter(), &tokens, rect, icon, state, on == Some(true));
+        let active = on == Some(true);
+        paint_icon_button(ui.painter(), &tokens, rect, icon, state, active);
+        paint_icon_focus(ui.painter(), &tokens, rect, active, enabled && response.has_focus());
     }
     response.on_hover_text(tooltip).on_disabled_hover_text(tooltip)
 }
@@ -776,11 +790,19 @@ impl egui::Widget for IconButton {
                         let square =
                             Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
                         self.icon.paint(painter, square, tokens.on_fill);
+                        paint_icon_focus(
+                            painter,
+                            &tokens,
+                            rect,
+                            true,
+                            enabled && response.has_focus(),
+                        );
                     } else {
                         let state = ButtonState::of(&response);
                         let hue = self.hued.then(|| crate::hues::hue(ui.ctx(), self.icon));
                         let (p, i) = (ui.painter(), self.icon);
                         paint_hued_icon_button(p, &tokens, rect, i, state, on, hue.flatten());
+                        paint_icon_focus(p, &tokens, rect, on, enabled && response.has_focus());
                     }
                 }
                 self.described(response)

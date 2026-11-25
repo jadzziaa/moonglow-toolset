@@ -163,10 +163,8 @@ impl SideDoc for tileset_view::TilesetDoc {
 
 /// The tips of a side editor's OK and Cancel, at its header's end: OK's
 /// and Cancel's.
-pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
-    "Save and close the window",
-    "Close the window without saving, asking about unsaved changes first",
-];
+pub(crate) const OK_CANCEL_TIPS: [&str; 2] =
+    ["Save and close the window", "Close without saving uncommitted changes"];
 
 /// What a side editor's OK or Cancel (`pressed`) does, at its header's end
 /// (a script's, M4's U12; a hak's, the last at its foot, U21): `before` run first,
@@ -545,6 +543,17 @@ impl Moonglow {
                 self.side_closing.push_back(tab.clone());
             }
             return false;
+        }
+        if let Tab::Script(key) = tab {
+            let dirty = self.scripts.get(key).is_some_and(|b| b.is_dirty());
+            if dirty {
+                if !self.side_closing.contains(tab) {
+                    self.side_closing.push_back(tab.clone());
+                }
+                return false;
+            }
+            self.forget_side(tab);
+            return true;
         }
         match self.side_doc(tab) {
             Some(d) if d.has_unsaved() => {

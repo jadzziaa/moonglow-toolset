@@ -3609,7 +3609,7 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     let a = h.state_mut().adjust.as_mut().expect("the window");
     assert_eq!(a.objects, [(ObjectKind::Placeable, 0)]);
     a.visual = mirror;
-    a.visual_changed = true;
+    a.visual_changed = mg_ui::area_tools::VisualChanged::all();
     h.get_by_label("Apply").click();
     h.run_steps(3);
     assert_eq!(visual(&mut h, 0), Some(mirror), "Apply wrote it");
@@ -3617,7 +3617,7 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     // Then the scale alone, and OK.
     let a = h.state_mut().adjust.as_mut().unwrap();
     a.visual.scale = Vec3::splat(0.5);
-    a.visual_changed = true;
+    a.visual_changed.scale = true;
     h.get_by_label("OK").click();
     h.run_steps(3);
     let half = VisualTransform { scale: Vec3::splat(0.5), ..mirror };
@@ -3754,7 +3754,7 @@ fn adjust_location_says_an_uneven_scale_is_kept() {
     // A turn alone: ScaleY and ScaleZ kept.
     let a = h.state_mut().adjust.as_mut().unwrap();
     a.visual.rotate.x = 30.0;
-    a.visual_changed = true;
+    a.visual_changed.rotate[0] = true;
     h.get_by_label("Apply").click();
     h.run_steps(3);
     let turned = VisualTransform { rotate: Vec3::new(30.0, 0.0, 0.0), ..uneven };
@@ -7416,7 +7416,7 @@ fn adjust_location_moves_the_object_as_its_numbers_change() {
             bearing: o.rotation.to_degrees().rem_euclid(360.0),
             changed: [false; 4],
             visual: o.visual.unwrap_or_default(),
-            visual_changed: false,
+            visual_changed: mg_ui::area_tools::VisualChanged::default(),
             speed: 1.0,
             speed_changed: false,
             kept: Vec::new(),

@@ -355,8 +355,20 @@ fn paint_eye(ui: &Ui, response: &Response, eye: &Eye, marked: bool) {
         };
         let p = ui.painter();
         if response.hovered() || response.has_focus() {
-            let fill = if themed { t.raised } else { v.widgets.hovered.weak_bg_fill };
+            let fill = match (themed, marked) {
+                (true, true) => t.accent_fill_hover,
+                (true, false) => t.raised,
+                (false, _) => v.widgets.hovered.weak_bg_fill,
+            };
             p.rect_filled(rect, 3.0, fill);
+        }
+        if response.has_focus() {
+            let ring = if themed {
+                if marked { t.on_fill } else { t.accent }
+            } else {
+                v.selection.stroke.color
+            };
+            p.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, ring), egui::StrokeKind::Inside);
         }
         let icon = if eye.shown { Icon::Eye } else { Icon::EyeOff };
         icon.paint(p, Rect::from_center_size(rect.center(), vec2(EYE_ICON, EYE_ICON)), color);

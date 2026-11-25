@@ -119,7 +119,7 @@ fn a_newer_release_found_at_start_opens_the_window_asking() {
     assert!(h.state().updates.window, "the window, open");
     assert_eq!(h.get_all_by_label(&told).count(), 1, "told once: the notice waits");
     h.get_by_label("Install Now");
-    h.get_by_label("Later");
+    h.get_by_label("Install on Exit");
     assert!(!h.state().settings.update_auto_install);
     // Closed, the daily check while Moonglow runs doesn't open it again.
     close_window(&mut h);
@@ -647,7 +647,7 @@ fn later_installs_the_update_as_moonglow_closes() {
     let (app, image) = app_updating(&dir, &server, Some(key.public()));
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
-    click_in_sight(&mut h, "Later");
+    click_in_sight(&mut h, "Install on Exit");
     h.run_steps(2);
     h.get_by_label(
         "Moonglow 99.0.0 is downloaded and verified: it is installed when Moonglow closes.",

@@ -924,6 +924,8 @@ pub struct Moonglow {
     /// Tilesets open in the tileset editor.
     pub tilesets: Vec<tileset_view::TilesetDoc>,
     pub(crate) next_tileset: u32,
+    pub(crate) tileset_ask: Option<tileset_view::TilesetAsk>,
+    pub(crate) minimap_job: Option<tileset_view::MinimapJob>,
     /// The side editors' tabs (a hak's, a 2DA's, a tileset's) closed with
     /// unsaved changes, waiting in turn for the question to be answered
     /// (`side_doc::closing_window`).
@@ -1807,6 +1809,8 @@ impl Moonglow {
             publish: None,
             tilesets: Vec::new(),
             next_tileset: 0,
+            tileset_ask: None,
+            minimap_job: None,
             side_closing: Default::default(),
             side_then: None,
             side_failed: None,
@@ -2679,6 +2683,7 @@ impl Moonglow {
         plugins::project_window(self, ui.ctx());
         plugins::settings_window(self, ui.ctx());
         plugins::remove_window(self, ui.ctx());
+        tileset_view::windows(self, ui.ctx());
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());

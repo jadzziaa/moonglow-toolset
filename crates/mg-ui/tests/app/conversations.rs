@@ -61,6 +61,26 @@ fn a_talk_table_line_counts_the_text_shown() {
         false => count,
     };
     assert!(count.starts_with("Line: 30 letters, 5 words."), "{count}");
+    // The Text field shows the talk-table string inline, and Token… inserts into it instead of wiping it.
+    let text_field = h
+        .query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput))
+        .find(|n| {
+            n.accesskit_node().value().is_some_and(|v| v.contains("Well met, traveler. Rest here."))
+        })
+        .expect("Text field displays talk-table text inline");
+    let _ = text_field;
+    h.get_by_label("Token…").click();
+    settle(&mut h);
+    h.get_by_label("<CUSTOM100>").click();
+    settle(&mut h);
+    let updated = h
+        .query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput))
+        .find(|n| {
+            n.accesskit_node().value().is_some_and(|v| {
+                v.contains("Well met, traveler. Rest here.") && v.contains("<CUSTOM100>")
+            })
+        });
+    assert!(updated.is_some(), "Token… kept talk-table text alongside <CUSTOM100>");
 }
 
 #[test]

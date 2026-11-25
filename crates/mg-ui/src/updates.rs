@@ -703,9 +703,10 @@ impl Offer {
             Offer::InstallNow => {
                 ("Install Now", "Download, verify and install it, then ask to restart")
             }
-            Offer::Later => {
-                ("Later", "Download and verify it now, and install it when Moonglow closes")
-            }
+            Offer::Later => (
+                "Install on Exit",
+                "Download and verify it now, and install it when Moonglow closes",
+            ),
             Offer::ReleasePage => {
                 ("Release Page", "What is new in it, and its downloads (opens the browser)")
             }
@@ -982,7 +983,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
                     get(app, r.clone(), true);
                 }
                 if ui
-                    .button("Later")
+                    .button("Install on Exit")
                     .on_hover_text(
                         "Download and verify it now, and install it when Moonglow closes",
                     )

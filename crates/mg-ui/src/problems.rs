@@ -1038,8 +1038,12 @@ fn problem(
         ui.painter().rect_filled(room, 2.0, t.accent_fill);
     }
     if look.ringed {
-        let ring = egui::Stroke::new(1.0, t.accent);
-        ui.painter().rect_stroke(room, 2.0, ring, egui::StrokeKind::Inside);
+        let (ring_rect, ring) = if look.selected {
+            (room.shrink(1.5), egui::Stroke::new(1.5, t.on_fill))
+        } else {
+            (room, egui::Stroke::new(1.0, t.accent))
+        };
+        ui.painter().rect_stroke(ring_rect, 2.0, ring, egui::StrokeKind::Inside);
     }
     // (A right click chooses it too: Ctrl+C after its menu copies it.)
     did.chosen = row.clicked() || row.secondary_clicked();

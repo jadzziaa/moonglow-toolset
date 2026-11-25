@@ -179,6 +179,7 @@ pub(crate) const SHARED_MAKERS: &[(&str, &str, &[&str])] = &[
             "hak_view.rs:extracting_window#1",
             "model_view.rs:export_window#1",
             "nui_view.rs:windows#1",
+            "tileset_view.rs:windows#1",
         ],
     ),
     (

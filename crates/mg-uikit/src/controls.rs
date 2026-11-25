@@ -650,13 +650,14 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
         w.hovered.bg_fill = t.slider_thumb;
         w.active.bg_fill = t.slider_thumb;
         for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
-            state.fg_stroke = Stroke::new(1.0, t.text_2);
+            state.fg_stroke = Stroke::new(1.0, t.text);
         }
         v.selection.bg_fill = t.accent_fill;
         let layer = ui.layer_id();
         let first = ui.ctx().graphics_mut(|g| g.entry(layer).next_idx());
         let r = ui.add(slider);
-        rail_as_well(ui.ctx(), layer, first, t.slider_thumb, t.inset);
+        let end = ui.ctx().graphics_mut(|g| g.entry(layer).next_idx());
+        rail_as_well(ui.ctx(), layer, first, end, t.slider_thumb, t.inset, t.slider_thumb_ring);
         r
     })
     .inner
@@ -664,23 +665,39 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
 
 /// The slider's rail, the first shape painted on `layer` from `first`, a
 /// rectangle filled `thumb` (egui fills the rail as the thumb at rest),
-/// filled `well` instead; nothing where the slider painted nothing (out
-/// of sight).
+/// filled `well` instead, and its circular thumb stroked with `ring`;
+/// nothing where the slider painted nothing (out of sight).
 fn rail_as_well(
     ctx: &egui::Context,
     layer: egui::LayerId,
     first: egui::layers::ShapeIdx,
+    end: egui::layers::ShapeIdx,
     thumb: egui::Color32,
     well: egui::Color32,
+    ring: egui::Color32,
 ) {
+    let thumb_stroke =
+        if ring == Color32::TRANSPARENT { Stroke::NONE } else { Stroke::new(1.0, ring) };
     ctx.graphics_mut(|g| {
-        g.entry(layer).mutate_shape(first, |s| {
-            if let egui::Shape::Rect(rail) = &mut s.shape
-                && rail.fill == thumb
-            {
-                rail.fill = well;
+        let Some(list) = g.get_mut(layer) else { return };
+        if first.0 < end.0 {
+            list.mutate_shape(first, |s| {
+                if let egui::Shape::Rect(rail) = &mut s.shape
+                    && rail.fill == thumb
+                {
+                    rail.fill = well;
+                }
+            });
+            for idx in first.0..end.0 {
+                list.mutate_shape(egui::layers::ShapeIdx(idx), |s| {
+                    if let egui::Shape::Circle(circle) = &mut s.shape
+                        && circle.fill == thumb
+                    {
+                        circle.stroke = thumb_stroke;
+                    }
+                });
             }
-        });
+        }
     });
 }
 

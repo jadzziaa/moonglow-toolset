@@ -3296,6 +3296,42 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn light_and_dark_syntax_colors_stay_readable_on_code_select() {
+        let luminance = |color: Color32| -> f32 {
+            let ch = |u: u8| {
+                let s = f32::from(u) / 255.0;
+                if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * ch(color.r()) + 0.7152 * ch(color.g()) + 0.0722 * ch(color.b())
+        };
+        let contrast = |a: Color32, b: Color32| -> f32 {
+            let (l1, l2) = (luminance(a), luminance(b));
+            (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05)
+        };
+
+        let light = mg_uikit::Tokens::LIGHT;
+        let light_colors = Palette::defaults(false, light.syn_text);
+        for (i, &fg) in light_colors.iter().enumerate() {
+            let on_select = contrast(fg, light.code_select);
+            let on_accent = contrast(fg, light.accent_fill);
+            let min = match i {
+                0 | 2..=5 => 4.5,
+                1 | 6 => 3.3,
+                _ => 2.6,
+            };
+            assert!(
+                on_select >= min && on_select > on_accent,
+                "light syntax[{i}] contrast on code_select={on_select:.2}, accent_fill={on_accent:.2}"
+            );
+        }
+        assert!(contrast(light_colors[0], light.code_select) >= 7.0);
+
+        let dark = mg_uikit::Tokens::DARK;
+        let dark_colors = Palette::defaults(true, dark.syn_text);
+        assert!(contrast(dark_colors[0], dark.code_select) >= 5.5);
+    }
+
     /// A step of the history that does not fit the text (the text set
     /// from elsewhere, its history kept: its place past the end, inside a
     /// character, or not over what it put there) lets the history go and

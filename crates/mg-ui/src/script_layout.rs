@@ -1487,6 +1487,13 @@ pub(crate) fn code_edit(
         (((clip.bottom() - text_origin.y) / row_h).ceil().max(0.0) as usize + 1).min(lines);
     let first_vis = first_vis.min(last_vis);
 
+    let code_tokens = match palette.background {
+        Some(g) if crate::script_view::ground_is_dark([g.r(), g.g(), g.b()]) => {
+            mg_uikit::Tokens::DARK
+        }
+        Some(_) => mg_uikit::Tokens::LIGHT,
+        None => mg_uikit::tokens(&ctx),
+    };
     let (cursor_line, cursor_col) = laid.line_col(usize::from(cursor_range.primary.index));
     let ppp = ctx.pixels_per_point();
     let current = final_cursor_range.filter(|r| r.is_empty()).map(|_| cursor_line);
@@ -1495,32 +1502,25 @@ pub(crate) fn code_edit(
         egui::Rangef::new(y, y + row_h)
     });
     if let Some(y) = current_band {
-        let t = match palette.background {
-            Some(g) if crate::script_view::ground_is_dark([g.r(), g.g(), g.b()]) => {
-                mg_uikit::Tokens::DARK
-            }
-            Some(_) => mg_uikit::Tokens::LIGHT,
-            None => mg_uikit::tokens(&ctx),
-        };
         let sight = clip.x_range();
         under_shapes.push(egui::Shape::rect_filled(
             egui::Rect::from_x_y_ranges(sight, y),
             0.0,
-            t.current_line,
+            code_tokens.current_line,
         ));
         let text_x = egui::Rangef::new(gutter_rect.right().max(sight.min), sight.max);
         for edge in crate::script_view::hairlines(y, ppp) {
             under_shapes.push(egui::Shape::rect_filled(
                 egui::Rect::from_x_y_ranges(text_x, edge),
                 0.0,
-                t.current_line_edge,
+                code_tokens.current_line_edge,
             ));
         }
     }
 
     // Visible-only selection rectangles (a composition is underlined
     // instead, as egui shows one: review N5).
-    let selected_color = ui.visuals().selection.bg_fill;
+    let selected_color = code_tokens.code_select;
     if let Some(r) = final_cursor_range.filter(|r| !r.is_empty() && preedit.is_none()) {
         let [min, max] = r.sorted_cursors();
         let (min_li, min_col) = laid.line_col(usize::from(min.index));

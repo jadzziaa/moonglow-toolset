@@ -1708,7 +1708,7 @@ once a day while it runs, unless Tools › Options › Updates says not to
 (a copy a package manager updates never asks by itself: see [When
 Moonglow doesn't install it](#installing-an-update)). When a newer
 release is out, this window opens on it, with its notes, **Install
-Now**, **Later** and **Don't Remind Me About This Version** (a later
+Now**, **Install on Exit** and **Don't Remind Me About This Version** (a later
 version is told again), and under them **Always install updates**
 (Options › Updates › Install updates automatically: this release
 downloaded at once and installed as Moonglow closes, and later ones
@@ -1718,10 +1718,10 @@ Welcome page, its Status says so instead, without Don't Remind Me and
 the close button, where the Status is in sight; where the page is
 scrolled past it, or a floating editor stands over it, the line under
 the Top Bar tells it), with **What's New…** (the window again),
-**Install Now**, **Later**, **Don't Remind Me About This Version** and
+**Install Now**, **Install on Exit**, **Don't Remind Me About This Version** and
 **Close Update Notice** (its close button) to close it until the next
 check. For a copy Moonglow doesn't install, the window says why in
-place of Install Now and Later, and the line offers **Release Page** in
+place of Install Now and Install on Exit, and the line offers **Release Page** in
 their place.
 
 ### Installing an update
@@ -1738,7 +1738,7 @@ window or the notice:
   first, as Exit does, then closes Moonglow, installs the update and
   starts it again with the module that was open. **Later** leaves it for
   the next start.
-- **Later** downloads and verifies the package now and installs it when
+- **Install on Exit** downloads and verifies the package now and installs it when
   Moonglow closes, so the next start is the new version. If Moonglow
   doesn't close normally (it crashes, or the computer is turned off),
   nothing is installed, and the notice offers the update again.

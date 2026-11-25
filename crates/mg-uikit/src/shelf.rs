@@ -276,9 +276,17 @@ fn tool_ui(ui: &mut Ui, tool: &Tool) -> Response {
             (true, false, ButtonState::Rest) => (egui::Color32::TRANSPARENT, t.text_2),
             (true, false, _) => (t.raised, t.text),
         };
-        let ring = if response.has_focus() { Stroke::new(1.0, t.accent) } else { Stroke::NONE };
+        let ring = if response.has_focus() {
+            if tool.on { Stroke::new(1.5, t.on_fill) } else { Stroke::new(1.0, t.accent) }
+        } else {
+            Stroke::NONE
+        };
         let painter = crate::controls::box_painter(ui, enabled);
-        painter.rect(rect, metrics::RADIUS, fill, ring, egui::StrokeKind::Inside);
+        painter.rect(rect, metrics::RADIUS, fill, Stroke::NONE, egui::StrokeKind::Inside);
+        if ring != Stroke::NONE {
+            let ring_rect = if tool.on { rect.shrink(1.5) } else { rect };
+            painter.rect_stroke(ring_rect, metrics::RADIUS, ring, egui::StrokeKind::Inside);
+        }
         let square = Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
         tool.icon.paint(&painter, square, color);
     }

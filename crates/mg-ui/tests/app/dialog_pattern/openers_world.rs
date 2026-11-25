@@ -158,6 +158,13 @@ pub(crate) fn openers() -> Vec<Opener> {
         .field(0)
         .off(|h| clear_field(h, "Create Set", 0)),
         Opener::new("bake_view.rs:save_window#1", "Baked Models No Longer Used", bake, open_tidy),
+        Opener::new(
+            "tileset_view.rs:minimap_progress#1",
+            "Render Minimap Pictures",
+            ui_area,
+            |h| mg_ui::tileset_view::hold_minimap_for_tests(h.state_mut()),
+        )
+        .job(),
         Opener::new("tile_select.rs:panel#1", "Select a Color", wide, |h| {
             let area = area_of(h);
             area_click(h, "Select Tiles");

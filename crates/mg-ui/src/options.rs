@@ -35,8 +35,8 @@ pub enum OptionsPage {
 /// Options › General › Show duplicate tags warning, on hover.
 const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or copy gives a second object a tag you set";
 
-const CLOSE_CANCELS_TIP: &str = "Closing a window with OK and Cancel sets back its changes, as \
-                                 Cancel does";
+const CLOSE_CANCELS_TIP: &str = "Closing a properties, blueprint, conversation, journal, faction or \
+                                 NUI tab or window sets back its changes, as Cancel does";
 
 /// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
 /// writes (`GameInstall::user_folder`), said under the user folder where

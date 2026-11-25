@@ -2797,7 +2797,7 @@ struct Look {
 /// theme's do against black).
 pub(crate) fn default_colors(dark: bool) -> ([u8; 3], [u8; 3]) {
     match dark {
-        true => ([210, 70, 70], [90, 140, 230]),
+        true => ([245, 110, 114], [110, 168, 245]),
         false => ([180, 30, 30], [25, 85, 200]),
     }
 }
@@ -3153,7 +3153,12 @@ fn draw_flat_row(
         }),
         false => cond.is_some().then(|| {
             let font = egui::TextStyle::Body.resolve(ui.style());
-            (vec!["?".to_string()], font, ui.visuals().weak_text_color())
+            let color = if chosen {
+                mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85)
+            } else {
+                ui.visuals().weak_text_color()
+            };
+            (vec!["?".to_string()], font, color)
         }),
     };
     // (The selected row filled the whole width of the tree, the board's
@@ -3422,11 +3427,29 @@ fn text_panel(
     // text in another language (English first), marked as not its own.
     let other =
         (english.is_empty() && ls.strref.is_none()).then(|| crate::text::elsewhere(&ls)).flatten();
-    let shown = other.as_ref().map_or(english, |(_, text)| text.clone());
+    let shown = other
+        .as_ref()
+        .map(|(_, text)| text.clone())
+        .or_else(|| from_tlk.clone())
+        .unwrap_or(english);
     // (The board's memo, two lines high, growing with what it holds.)
     let memo = |app: &mut Moonglow, ui: &mut Ui| {
         let width = ui.available_width();
-        crate::widgets::commit_loc_text_in(&mut app.buffers, ui, id, &shown, Some(2), width, None)
+        ui.scope(|ui| {
+            if from_tlk.is_some() {
+                ui.visuals_mut().override_text_color = Some(crate::blueprint::talk_table_color(ui));
+            }
+            crate::widgets::commit_loc_text_in(
+                &mut app.buffers,
+                ui,
+                id,
+                &shown,
+                Some(2),
+                width,
+                None,
+            )
+        })
+        .inner
     };
     let typed = match &other {
         Some((language, _)) => crate::widgets::borrowed_field(
@@ -4615,10 +4638,22 @@ mod tests {
             0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b)
         }
         let against_white = |c: [u8; 3]| 1.05 / (luminance(c) + 0.05);
+        let contrast_on = |fg: [u8; 3], bg: Color32| {
+            let l1 = luminance(fg);
+            let l2 = luminance([bg.r(), bg.g(), bg.b()]);
+            (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05)
+        };
         let (light, dark) = (default_colors(false), default_colors(true));
         for (l, d) in [(light.0, dark.0), (light.1, dark.1)] {
             assert!(against_white(l) >= 4.5, "{l:?}: {}", against_white(l));
             assert!(against_white(l) > against_white(d));
+            for bg in [
+                mg_uikit::Tokens::DARK.inset,
+                mg_uikit::Tokens::DARK.panel,
+                mg_uikit::Tokens::DARK.hover_row,
+            ] {
+                assert!(contrast_on(d, bg) >= 4.5, "{d:?} on {bg:?}: {}", contrast_on(d, bg));
+            }
         }
     }
 

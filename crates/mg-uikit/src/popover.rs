@@ -1124,7 +1124,7 @@ fn paint_switch_with(
     let track = match (on, enabled) {
         (true, true) => t.accent_fill,
         (true, false) => t.accent_fill_off,
-        (false, true) => t.raised_hover,
+        (false, true) => t.switch_off,
         (false, false) => t.raised,
     };
     painter.rect_filled(rect, rect.height() / 2.0, track);
@@ -1133,7 +1133,7 @@ fn paint_switch_with(
     let knob = match (on, enabled) {
         (true, true) => t.on_fill,
         (true, false) => t.on_fill_off,
-        (false, true) => t.text_2,
+        (false, true) => t.switch_knob,
         (false, false) => t.text_off,
     };
     painter.circle_filled(pos2(cx, rect.center().y), r, knob);

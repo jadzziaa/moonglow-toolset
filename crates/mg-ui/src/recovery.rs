@@ -206,7 +206,10 @@ pub fn age(time: u64) -> String {
     let s = now().saturating_sub(time);
     match s {
         0..60 => "less than a minute ago".into(),
-        60..7200 => format!("{} minutes ago", s / 60),
+        60..7200 => {
+            let m = s / 60;
+            if m == 1 { "1 minute ago".into() } else { format!("{m} minutes ago") }
+        }
         7200..172_800 => format!("{} hours ago", s / 3600),
         _ => format!("{} days ago", s / 86_400),
     }
@@ -724,9 +727,12 @@ impl Moonglow {
 const RECOVER_WIDTH: f32 = 548.0;
 
 pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
+    let confirm_id = egui::Id::new("mg-recovery-confirm-discard");
     if app.recoveries.is_empty() {
+        ui.ctx().data_mut(|d| d.remove_temp::<PathBuf>(confirm_id));
         return;
     }
+    let mut confirm: Option<PathBuf> = ui.ctx().data(|d| d.get_temp(confirm_id));
     let mut open = true;
     let (mut recover, mut discard, mut later) = (None, None, false);
     let footed = crate::widgets::dialog(ui.ctx(), "Recover Unsaved Work", &mut open)
@@ -735,7 +741,12 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
             // (The board's 548 points wide, less the body's margins and the
             // window's edges, where the screen has the room.)
             crate::widgets::fit_min_width(ui, RECOVER_WIDTH - 24.0 - 2.0);
-            ui.label("Moonglow closed without saving these modules. Their unsaved work was kept:");
+            let lead = if app.recoveries.len() == 1 {
+                "Moonglow closed without saving this module. Its unsaved work was kept:"
+            } else {
+                "Moonglow closed without saving these modules. Their unsaved work was kept:"
+            };
+            ui.label(lead);
             // (The board's grid: the name takes what the times and the
             // buttons leave, so the times stand in one column.)
             let font = egui::TextStyle::Body.resolve(ui.style());
@@ -747,45 +758,95 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
             };
             let ages: Vec<String> = app.recoveries.iter().map(|c| age(c.note.time)).collect();
             let time_w = ages.iter().map(|a| width(ui, a)).fold(0.0, f32::max);
-            let button =
-                |ui: &egui::Ui, words: &str| width(ui, words) + 2.0 * ui.spacing().button_padding.x;
+            let pad_x = mg_uikit::metrics::CONTROL_PADDING_X.max(ui.spacing().button_padding.x);
+            let button = |ui: &egui::Ui, words: &str| width(ui, words) + 2.0 * pad_x;
             let gap = 12.0;
-            let buttons = button(ui, "Recover") + button(ui, "Discard");
-            let name_w = (ui.available_width() - time_w - buttons - 3.0 * gap).max(80.0);
-            mg_uikit::with_rows(ui, |ui| {
-                egui::Grid::new("recoveries").num_columns(4).spacing([gap, 0.0]).show(ui, |ui| {
-                    for (i, c) in app.recoveries.iter().enumerate() {
-                        let place = c
-                            .note
-                            .module
-                            .as_ref()
-                            .map_or_else(|| "never saved".to_string(), |p| p.display().to_string());
-                        let height = ui.spacing().interact_size.y;
-                        let layout = egui::Layout::left_to_right(egui::Align::Center);
-                        ui.allocate_ui_with_layout(egui::vec2(name_w, height), layout, |ui| {
-                            ui.set_min_width(name_w);
-                            let name = egui::RichText::new(&c.note.name).strong();
-                            ui.add(egui::Label::new(name).truncate()).on_hover_text(place);
-                        });
-                        ui.label(&ages[i]);
-                        if ui
-                            .button("Recover")
-                            .on_hover_text("Open it, and save to keep it")
-                            .clicked()
-                        {
-                            recover = Some(i);
-                        }
-                        if ui
-                            .button("Discard")
-                            .on_hover_text("Throw the unsaved work away")
-                            .clicked()
-                        {
-                            discard = Some(i);
-                        }
-                        ui.end_row();
-                    }
-                })
-            });
+            let row_buttons = |c: &Copy| -> f32 {
+                if confirm.as_ref() == Some(&c.archive) {
+                    button(ui, "Confirm Discard") + button(ui, "Keep")
+                } else {
+                    button(ui, "Recover") + button(ui, "Discard")
+                }
+            };
+            let buttons = app.recoveries.iter().map(row_buttons).fold(0.0, f32::max);
+            let body_w =
+                (RECOVER_WIDTH - 24.0 - 2.0).min(crate::widgets::body_room_width(ui.ctx()));
+            let name_w = (body_w - time_w - buttons - 3.0 * gap - 2.0).max(80.0);
+            let mut show_grid = |ui: &mut egui::Ui| {
+                mg_uikit::with_rows(ui, |ui| {
+                    egui::Grid::new("recoveries").num_columns(4).spacing([gap, 0.0]).show(
+                        ui,
+                        |ui| {
+                            for (i, c) in app.recoveries.iter().enumerate() {
+                                let place = c.note.module.as_ref().map_or_else(
+                                    || "never saved".to_string(),
+                                    |p| p.display().to_string(),
+                                );
+                                let height = ui.spacing().interact_size.y;
+                                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(name_w, height),
+                                    layout,
+                                    |ui| {
+                                        ui.set_min_width(name_w);
+                                        let name = egui::RichText::new(&c.note.name).strong();
+                                        ui.add(egui::Label::new(name).truncate())
+                                            .on_hover_text(place);
+                                    },
+                                );
+                                ui.label(&ages[i]);
+                                if confirm.as_ref() == Some(&c.archive) {
+                                    if ui
+                                        .button("Confirm Discard")
+                                        .on_hover_text("Permanently delete this unsaved copy")
+                                        .clicked()
+                                    {
+                                        discard = Some(i);
+                                        confirm = None;
+                                    }
+                                    if ui
+                                        .button("Keep")
+                                        .on_hover_text("Keep this recovery copy")
+                                        .clicked()
+                                    {
+                                        confirm = None;
+                                    }
+                                } else {
+                                    let recover_btn = ui.add(
+                                        mg_uikit::KitButton::new(None, "Recover")
+                                            .look(if i == 0 {
+                                                mg_uikit::ButtonLook::Primary
+                                            } else {
+                                                mg_uikit::ButtonLook::Raised
+                                            })
+                                            .tip("Open it, and save to keep it"),
+                                    );
+                                    if recover_btn.clicked() {
+                                        recover = Some(i);
+                                    }
+                                    if ui
+                                        .button("Discard")
+                                        .on_hover_text("Throw the unsaved work away")
+                                        .clicked()
+                                    {
+                                        confirm = Some(c.archive.clone());
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        },
+                    );
+                });
+            };
+            if app.recoveries.len() > 8 {
+                egui::ScrollArea::vertical()
+                    .id_salt("recoveries-scroll")
+                    .max_height(320.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| show_grid(ui));
+            } else {
+                show_grid(ui);
+            }
             ((), crate::widgets::Foot::new().leave("Later").tip("Ask again at the next start"))
         });
     if let Some(f) = footed {
@@ -795,6 +856,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
         // (As an action: the open module's unsaved work is asked about
         // first, and the copy stays listed until it is opened.)
         app.actions.push(crate::Action::Recover(app.recoveries[i].clone()));
+        confirm = None;
     }
     if let Some(i) = discard {
         let copy = app.recoveries.remove(i);
@@ -807,7 +869,15 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
     }
     if later || !open {
         app.recoveries.clear();
+        confirm = None;
     }
+    ui.ctx().data_mut(|d| {
+        if let Some(path) = confirm {
+            d.insert_temp(confirm_id, path);
+        } else {
+            d.remove_temp::<PathBuf>(confirm_id);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1254,5 +1324,40 @@ mod tests {
         // Closed: it goes, as before.
         app.forget_recovery();
         assert!(find_all(&dir.join("recovery")).is_empty());
+    }
+
+    #[test]
+    fn discard_requires_confirmation_before_deleting_archive() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable as _;
+        let dir = mg_testkit::scratch_dir("ui-recovery-confirm-discard");
+        let mut app = changed(&dir);
+        let archive = app.write_recovery().unwrap();
+        let copy = find_all(&dir.join("recovery")).into_iter().next().unwrap();
+        drop(app);
+
+        let mut viewer = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        viewer.recovery_dir = Some(dir.join("recovery"));
+        viewer.recoveries = vec![copy];
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(800.0, 500.0))
+            .build_ui_state(|ui, app: &mut Moonglow| window(app, ui), viewer);
+        h.run_steps(2);
+        // First click arms confirmation; archive remains on disk.
+        h.get_by_label("Discard").click();
+        h.run_steps(2);
+        assert!(archive.is_file(), "single Discard click must not delete archive");
+        h.get_by_label("Confirm Discard");
+        // Keep cancels confirmation.
+        h.get_by_label("Keep").click();
+        h.run_steps(2);
+        assert!(archive.is_file());
+        assert!(h.query_by_label("Confirm Discard").is_none());
+        // Arm again and confirm deletion.
+        h.get_by_label("Discard").click();
+        h.run_steps(2);
+        h.get_by_label("Confirm Discard").click();
+        h.run_steps(2);
+        assert!(!archive.exists(), "Confirm Discard deletes archive");
     }
 }

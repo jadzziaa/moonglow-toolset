@@ -71,6 +71,7 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("tag_clash.rs:window#1", &["Retag", "Keep Tags"], None),
     ("talk_typed.rs:window#1", &["Use Line 0", "Add a Line", "Keep in the File"], None),
     ("tile_select.rs:panel#1", &[], None),
+    ("tileset_view.rs:minimap_progress#1", &["Cancel"], None),
     ("transfer.rs:ask_ui#1", &["Append", "Overwrite", "Cancel"], None),
     ("transfer.rs:ui#1", &["Export 1…", "Export 1 as Files…", "Cancel"], None),
     ("transfer.rs:ui#2", &["Import", "Cancel"], None),

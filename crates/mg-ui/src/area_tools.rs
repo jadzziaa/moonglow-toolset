@@ -36,6 +36,49 @@ pub(crate) fn kept_while_shown<T: Clone + Send + Sync + 'static>(
 /// position, a turn, a translation): any number.
 const FAR: std::ops::RangeInclusive<f32> = f32::MIN..=f32::MAX;
 
+/// Which parts of an object's [`mg_area::VisualTransform`] were changed in
+/// Adjust Location: only those parts are applied across a multi-object
+/// selection so editing Scale does not overwrite another object's rotation
+/// or translation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VisualChanged {
+    pub scale: bool,
+    pub rotate: [bool; 3],
+    pub translate: [bool; 3],
+}
+
+impl VisualChanged {
+    /// Whether any visual transform field was edited.
+    pub fn any(self) -> bool {
+        self.scale || self.rotate.iter().any(|&c| c) || self.translate.iter().any(|&c| c)
+    }
+
+    /// Marks every component as changed (for callers/tests setting a full transform).
+    pub fn all() -> Self {
+        Self { scale: true, rotate: [true; 3], translate: [true; 3] }
+    }
+}
+
+/// Applies only the components marked in `changed` from `edited` onto `base`.
+fn merge_visual(
+    mut base: mg_area::VisualTransform,
+    edited: mg_area::VisualTransform,
+    changed: VisualChanged,
+) -> mg_area::VisualTransform {
+    if changed.scale {
+        base.scale = edited.scale;
+    }
+    for i in 0..3 {
+        if changed.rotate[i] {
+            base.rotate[i] = edited.rotate[i];
+        }
+        if changed.translate[i] {
+            base.translate[i] = edited.translate[i];
+        }
+    }
+    base
+}
+
 /// The Adjust Location window's values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustLocation {
@@ -48,9 +91,9 @@ pub struct AdjustLocation {
     /// Which of X, Y, Z and the bearing were changed (only those are set
     /// on every object).
     pub changed: [bool; 4],
-    /// The visual transform (EE), and whether it was changed.
+    /// The visual transform (EE), and which of its fields were changed.
     pub visual: mg_area::VisualTransform,
-    pub visual_changed: bool,
+    pub visual_changed: VisualChanged,
     /// How fast the model's animations play (the visual transform's
     /// `AnimationSpeed`, 1 as made), and whether it was changed.
     pub speed: f32,
@@ -81,13 +124,13 @@ pub struct AdjustLocation {
 impl AdjustLocation {
     /// Whether any field has unapplied edits.
     pub fn has_changes(&self) -> bool {
-        self.changed.iter().any(|&c| c) || self.visual_changed || self.speed_changed
+        self.changed.iter().any(|&c| c) || self.visual_changed.any() || self.speed_changed
     }
 
     /// Marks all fields as clean after saving.
     pub(crate) fn clear_changes(&mut self) {
         self.changed = [false; 4];
-        self.visual_changed = false;
+        self.visual_changed = VisualChanged::default();
         self.speed_changed = false;
     }
 
@@ -107,7 +150,7 @@ fn empty_adjust(area: ResRef) -> AdjustLocation {
         bearing: 0.0,
         changed: [false; 4],
         visual: mg_area::VisualTransform::default(),
-        visual_changed: false,
+        visual_changed: VisualChanged::default(),
         speed: 1.0,
         speed_changed: false,
         kept: Vec::new(),
@@ -177,7 +220,7 @@ pub(crate) fn adjust_start(area: ResRef, (position, facing): (Vec3, f32)) -> Adj
         bearing: (facing - std::f32::consts::FRAC_PI_2).to_degrees().rem_euclid(360.0),
         changed: [false; 4],
         visual: mg_area::VisualTransform::default(),
-        visual_changed: false,
+        visual_changed: VisualChanged::default(),
         speed: 1.0,
         speed_changed: false,
         kept: Vec::new(),
@@ -209,7 +252,7 @@ pub fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation> {
         bearing: first.rotation.to_degrees().rem_euclid(360.0),
         changed: [false; 4],
         visual: first.visual.unwrap_or_default(),
-        visual_changed: false,
+        visual_changed: VisualChanged::default(),
         speed: first.scopes.iter().find(|s| s.scope == 0).map_or(1.0, |s| s.speed),
         speed_changed: false,
         kept: kept_notes(first.kind, &first.scopes),
@@ -309,7 +352,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                             });
                         if r.changed() {
                             a.visual.scale = Vec3::splat(scale);
-                            a.visual_changed = true;
+                            a.visual_changed.scale = true;
                             // (Written alike from now on.)
                             a.uneven = 0;
                         }
@@ -338,13 +381,13 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                             let r = crate::widgets::spin_draft(ui, turn, FAR, 1.0, |d| {
                                 d.speed(1.0).max_decimals(1)
                             });
-                            a.visual_changed |= r.changed();
+                            a.visual_changed.rotate[i] |= r.changed();
                             crate::widgets::field_label(ui, format!("{axis} translation"));
                             let to = &mut a.visual.translate[i];
                             let r = crate::widgets::spin_draft(ui, to, FAR, 0.1, |d| {
                                 d.speed(0.01).max_decimals(2)
                             });
-                            a.visual_changed |= r.changed();
+                            a.visual_changed.translate[i] |= r.changed();
                             ui.end_row();
                         }
                     });
@@ -382,6 +425,9 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         let text = egui::RichText::new(note).color(ui.visuals().warn_fg_color);
                         ui.add(egui::Label::new(text).wrap());
                     });
+                } else if !empty && a.has_changes() {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    ui.weak("Clicking outside applies changes. Cancel or Esc discards them.");
                 }
             });
             let can = !empty && read_only.is_none();
@@ -640,8 +686,9 @@ pub(crate) fn previewed(a: &AdjustLocation, objects: &[mg_area::AreaObject]) -> 
         if p != o.position || rotation != o.rotation {
             moved.push((i, p, rotation));
         }
-        if a.visual_changed && o.takes_visual_transform() {
-            visual.push((i, a.visual));
+        if a.visual_changed.any() && o.takes_visual_transform() {
+            let base = o.visual.unwrap_or_default();
+            visual.push((i, merge_visual(base, a.visual, a.visual_changed)));
         }
     }
     (moved, visual)
@@ -710,12 +757,15 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
         }
         let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
         edits.extend(mg_area::edit::move_edits_on(git, o, s, p, rotation, Some(&on)));
-        if (a.visual_changed || a.speed_changed) && o.takes_visual_transform() {
+        if (a.visual_changed.any() || a.speed_changed) && o.takes_visual_transform() {
             // (What wasn't changed here, each its own: a speed alone
-            // changed leaves the object's transform as it was.)
-            let v = match a.visual_changed {
-                true => a.visual,
-                false => o.visual.unwrap_or_default(),
+            // changed leaves the object's transform as it was, and editing
+            // one visual field leaves the others intact on each object.)
+            let base = o.visual.unwrap_or_default();
+            let v = if a.visual_changed.any() {
+                merge_visual(base, a.visual, a.visual_changed)
+            } else {
+                base
             };
             let speed = a.speed_changed.then_some(a.speed);
             edits.extend(mg_area::edit::visual_transform_edits_with(git, o, s, v, speed));
@@ -1324,7 +1374,7 @@ mod tests {
     /// sets it: Y alone moves both north and leaves their X and turns.
     #[test]
     fn the_view_shows_what_the_window_changes_on_each_object() {
-        let (objects, mut a) = two();
+        let (mut objects, mut a) = two();
         assert_eq!(previewed(&a, &objects), (Vec::new(), Vec::new()), "nothing changed yet");
         a.position.y = 25.0;
         a.changed[1] = true;
@@ -1343,9 +1393,19 @@ mod tests {
         assert!(moved.iter().all(|m| (m.2 - 90f32.to_radians()).abs() < 1e-6), "{moved:?}");
         // A visual transform, given to each that takes one.
         a.visual.scale = Vec3::splat(2.0);
-        a.visual_changed = true;
+        a.visual_changed.scale = true;
         let (_, visual) = previewed(&a, &objects);
         assert_eq!(visual.iter().map(|v| v.0).collect::<Vec<_>>(), [0, 1]);
+        // Editing Scale alone preserves distinct rotations and translations on each object.
+        objects[1].visual = Some(mg_area::VisualTransform {
+            scale: Vec3::ONE,
+            rotate: Vec3::new(15.0, 25.0, 35.0),
+            translate: Vec3::new(1.0, 2.0, 3.0),
+        });
+        let (_, visual) = previewed(&a, &objects);
+        assert_eq!(visual[1].1.scale, Vec3::splat(2.0));
+        assert_eq!(visual[1].1.rotate, Vec3::new(15.0, 25.0, 35.0));
+        assert_eq!(visual[1].1.translate, Vec3::new(1.0, 2.0, 3.0));
         // An object no longer there (deleted while the window was open).
         a.objects.push((ObjectKind::Placeable, 7));
         assert_eq!(previewed(&a, &objects).0.len(), 2);

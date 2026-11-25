@@ -1704,3 +1704,40 @@ fn a_script_window_s_pane_sizes_are_kept_for_the_next() {
     assert!((wide3 - wide2).abs() < 2.0, "the next window's side pane: {wide3}, not {wide2}");
     assert!((high3 - high2).abs() < 2.0, "the next window's bottom pane: {high3}, not {high2}");
 }
+
+#[test]
+fn closing_a_dirty_script_tab_asks_to_save_and_dont_save_drops_edits() {
+    let (mut h, keys) = scripts_window(
+        Mode::Tabs,
+        "ui-script-dirty-close-guard",
+        &[("aaa", "void main()\n{\n}\n")],
+        1600.0,
+    );
+    let key = keys[0];
+    h.state_mut().script_tools.jump = Some((key, 0));
+    settle(&mut h);
+    h.event(egui::Event::Text("/* dirty */ ".into()));
+    settle(&mut h);
+    assert!(
+        h.state().script_text(key).unwrap().starts_with("/* dirty */ "),
+        "script edited in buffer"
+    );
+
+    // Closing the tab via `Action::CloseTabs` (matching `×` / Ctrl+W) prompts first.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Script(key)]));
+    settle(&mut h);
+    h.get_by_label("Unsaved Changes");
+    h.get_by_label("Don't Save").click();
+    settle(&mut h);
+
+    assert!(h.query_by_label("Unsaved Changes").is_none());
+    assert!(h.state().dock.find_tab(&Tab::Script(key)).is_none(), "tab closed");
+    // Reopening reads the unmodified module script back (dirty buffer was dropped).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    settle(&mut h);
+    assert_eq!(
+        h.state().script_text(key).as_deref(),
+        Some("void main()\n{\n}\n"),
+        "dirty buffer discarded on Don't Save"
+    );
+}
