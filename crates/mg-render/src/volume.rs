@@ -887,6 +887,7 @@ impl ShadowVolumes {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         (target_view, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        mask: &crate::shadow::Mask,
         format: (wgpu::TextureFormat, u32),
         (sun, lights): (Option<&Plan>, Option<&LightPlan>),
         camera: &Camera,
@@ -948,9 +949,9 @@ impl ShadowVolumes {
             pipelines.darken(
                 gpu,
                 encoder,
-                (target_view, stencil, depth),
-                set,
-                lit,
+                (target_view, mask),
+                (stencil, depth),
+                (set, lit),
                 darken_cache.as_deref_mut().map(|slots| &mut slots[usize::from(lit)]),
             );
         }
@@ -1167,11 +1168,14 @@ impl Pipelines {
                     module: &module,
                     entry_point: Some("fs"),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: color,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: color,
+                            blend: Some(blend),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(crate::shadow::MASK_TARGET),
+                    ],
                 }),
                 primitive: Default::default(),
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -1271,9 +1275,9 @@ impl Pipelines {
         &self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
-        (target, stencil, depth): (&wgpu::TextureView, &wgpu::TextureView, &wgpu::TextureView),
-        set: &Set,
-        lights: bool,
+        (target, mask): (&wgpu::TextureView, &crate::shadow::Mask),
+        (stencil, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        (set, lights): (&Set, bool),
         darken_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
         let mut scratch = None;
@@ -1296,12 +1300,15 @@ impl Pipelines {
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow volume darkening"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                depth_slice: None,
-            })],
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    depth_slice: None,
+                }),
+                Some(mask.attachment(false)),
+            ],
             // (Read only: the counts tested, nothing written.)
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: stencil,

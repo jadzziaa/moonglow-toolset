@@ -428,6 +428,7 @@ impl Program {
         let image = e.append(Expression::GlobalVariable(mask), Span::UNDEFINED);
         let level = e.append(Expression::Literal(Literal::I32(0)), Span::UNDEFINED);
         let one = e.append(Expression::Literal(Literal::F32(1.0)), Span::UNDEFINED);
+        let one_u = e.append(Expression::Literal(Literal::U32(1)), Span::UNDEFINED);
         let mut emitter = Emitter::default();
         emitter.start(e);
         let xy = e.append(
@@ -443,8 +444,31 @@ impl Program {
             },
             Span::UNDEFINED,
         );
+        let coords = e.append(
+            Expression::As { expr: xy, kind: ScalarKind::Uint, convert: Some(4) },
+            Span::UNDEFINED,
+        );
+        // (Within the mask: white is a texel alone, where none is laid.)
+        let size = e.append(
+            Expression::ImageQuery { image, query: naga::ImageQuery::Size { level: None } },
+            Span::UNDEFINED,
+        );
+        let ones = e.append(
+            Expression::Splat { size: naga::VectorSize::Bi, value: one_u },
+            Span::UNDEFINED,
+        );
+        let last = e.append(
+            Expression::Binary { op: BinaryOperator::Subtract, left: size, right: ones },
+            Span::UNDEFINED,
+        );
         let pixel = e.append(
-            Expression::As { expr: xy, kind: ScalarKind::Sint, convert: Some(4) },
+            Expression::Math {
+                fun: naga::MathFunction::Min,
+                arg: coords,
+                arg1: Some(last),
+                arg2: None,
+                arg3: None,
+            },
             Span::UNDEFINED,
         );
         let texel = e.append(
