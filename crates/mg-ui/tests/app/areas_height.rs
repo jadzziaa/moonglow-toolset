@@ -349,3 +349,45 @@ fn the_handle_stays_held_out_of_sight_and_at_all_its_rows() {
     assert_eq!(h.state().settings.areas_height, AreasHeight::Open);
     assert!(handle(&h).is_none(), "twelve rows fit");
 }
+
+/// The Module panel's settled frame with 2,000 areas (a builder has
+/// 1,850) fitted, dragged to 30 rows and opened out, at the top and with
+/// area_1000 brought into view: the median of 60 frames each, printed
+/// (`--ignored --nocapture`). Opened out costs no more than a well: rows
+/// out of sight take their room only, as in the well.
+#[test]
+#[ignore]
+fn frame_times_with_two_thousand_areas() {
+    let mut h = many("ui-areas-height-perf", 2000, (1280.0, 900.0), None);
+    let mut medians = Vec::new();
+    for height in [AreasHeight::Fit, AreasHeight::Rows(30), AreasHeight::Open] {
+        for middle in [false, true] {
+            h.state_mut().settings.areas_height = height;
+            h.state_mut().tree_cursor = None;
+            let to = if middle { 1000 } else { 0 };
+            let key = ResKey::new(areas(&h)[to], ResType::ARE);
+            h.state_mut().tree_reveal = Some((key, false));
+            settle(&mut h);
+            h.hover_at(egui::pos2(1000.0, 500.0));
+            settle(&mut h);
+            // (The row brought into view is drawn, in sight.)
+            let label = key.resref.to_string();
+            let row = h.get_by_label("Module Tree Rows").get_by_label(&label);
+            assert!(row.rect().bottom() <= view_bottom(&h) + 0.5, "{height:?} {label}");
+            let mut times: Vec<f64> = (0..60)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    h.step();
+                    t.elapsed().as_secs_f64() * 1000.0
+                })
+                .collect();
+            times.sort_by(f64::total_cmp);
+            let median = times[30];
+            println!("{height:?}, {}: {median:.2} ms", if middle { "middle" } else { "top" });
+            medians.push((height, median));
+        }
+    }
+    let fit = medians[0].1.max(medians[1].1);
+    let open = medians[4].1.max(medians[5].1);
+    assert!(open < fit * 1.5 + 1.0, "opened out {open:.2} ms, fitted {fit:.2} ms");
+}
