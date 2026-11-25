@@ -2124,6 +2124,29 @@ pub(crate) fn rest_turn_keys(h: &mut Harness<'_, Moonglow>, area: ResRef) {
     panic!("Q and E's turning was never made a command");
 }
 
+/// Whether the camera of `area`'s view looks at object `(kind, index)` as
+/// Focus Selection frames it: over where it stands (within half a meter,
+/// as its turned model's box may lie a little aside), at the height of
+/// the middle of the box its model is drawn and selected by (a
+/// waypoint's flag, about a meter up; `focus_frames.rs`).
+pub(crate) fn camera_on(
+    h: &Harness<'_, Moonglow>,
+    area: ResRef,
+    kind: mg_area::ObjectKind,
+    index: usize,
+) -> bool {
+    let view = &h.state().area_views[&area];
+    let Some(model) = view.model.as_ref() else { return false };
+    let Some(i) = model.objects.iter().position(|o| o.kind == kind && o.index == index) else {
+        return false;
+    };
+    let at = model.objects[i].position;
+    let Some((min, max)) = view.box_of(i) else { return false };
+    let target = view.orbit.unwrap().target;
+    let middle = at.z + (min.z + max.z) * 0.5;
+    (target - at).truncate().length() < 0.5 && (target.z - middle).abs() < 0.05
+}
+
 pub(crate) fn screen(h: &Harness<'_, Moonglow>, area: ResRef, p: glam::Vec3) -> egui::Pos2 {
     h.state().area_views[&area].screen_pos(p).expect("in view")
 }
