@@ -3439,6 +3439,117 @@ fn creature_inventory_options() {
     shoot(&mut h, &dir, "creature-inventory-options-selected");
 }
 
+/// Several items carried at once: a creature's armor, sword and a potion
+/// of its backpack selected (Ctrl) and dragged, the count beside the
+/// pointer (`inventory-several-dragged.png`); a chest's rows selected
+/// two at a time (`inventory-several-chest.png`).
+#[test]
+#[ignore]
+fn inventory_several_carried() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_inventory_warning = true;
+    let game = app.game.as_deref().unwrap();
+    let entry = |id: u32, r: &str| {
+        let mut s = mg_gff::Struct::new(id);
+        s.set("InventoryRes", mg_gff::Value::resref(mg_core::ResRef::from_str(r).unwrap()));
+        s.set("Repos_PosX", mg_gff::Value::Word(id as u16));
+        s.set("Repos_Posy", mg_gff::Value::Word(0));
+        s
+    };
+    let read = |name: &str, t: ResType| {
+        mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap()
+    };
+    let mut bandit = read("nw_bandit001", ResType::UTC);
+    let pack = vec![entry(0, "nw_it_mpotion001"), entry(1, "nw_it_torch001")];
+    bandit.root.set("ItemList", mg_gff::Value::List(pack));
+    let mut chest = read("plc_chest1", ResType::UTP);
+    let held = ["nw_wswls001", "nw_it_mpotion001", "nw_it_torch001", "nw_wswdg001"];
+    let held = held.iter().enumerate().map(|(i, r)| entry(i as u32, r)).collect();
+    chest.root.set("HasInventory", mg_gff::Value::Byte(1));
+    chest.root.set("ItemList", mg_gff::Value::List(held));
+    let mut m = mg_module::Module::new();
+    let (utc, utp) = (
+        ResKey::parse("nw_bandit001", ResType::UTC).unwrap(),
+        ResKey::parse("plc_chest1", ResType::UTP).unwrap(),
+    );
+    m.set_gff(utc, &bandit).unwrap();
+    m.set_gff(utp, &chest).unwrap();
+    let path = dir.join("inventory-several.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    for key in [utc, utp] {
+        app.blueprint_pages.insert((key, GffPath::root()), "Inventory");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1500.0, 1300.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    settle(&mut h);
+    // (Each in a window of its own, side by side.)
+    let windows = [(utc, (10.0, 40.0), (900.0, 1240.0)), (utp, (920.0, 40.0), (570.0, 740.0))];
+    for (key, at, size) in windows {
+        let dock = &mut h.state_mut().dock;
+        let found = dock.find_tab(&mg_ui::Tab::Blueprint(key)).unwrap();
+        let tab = dock.remove_tab(found).unwrap();
+        let surface = dock.add_window(vec![tab]);
+        let w = dock.get_window_state_mut(surface).unwrap();
+        w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
+    }
+    settle(&mut h);
+    for (key, at, size) in windows {
+        place(&mut h, &mg_ui::Tab::Blueprint(key), at, size);
+    }
+    settle(&mut h);
+    // A row's name (not its icon) in the window at the left or the right.
+    let row = |h: &Harness<'_, Moonglow>, label: &str, right: bool| -> egui::Pos2 {
+        h.query_all_by_label(label)
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.rect())
+            .filter(|r| (r.left() > 915.0) == right && r.width() > 80.0)
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap_or_else(|| panic!("no {label}"))
+            .center()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui::Modifiers| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let button = egui::PointerButton::Primary;
+            let e = egui::Event::PointerButton { pos: at, button, pressed, modifiers };
+            h.event_modifiers(e, modifiers);
+        }
+        h.run_steps(2);
+    };
+    let at = row(&h, "Padded Armor", false);
+    click(&mut h, at, egui::Modifiers::NONE);
+    let at = row(&h, "Longsword", false);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    let at = row(&h, "Potion of Cure Light Wounds", false);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    let at = row(&h, "Potion of Cure Light Wounds", true);
+    click(&mut h, at, egui::Modifiers::NONE);
+    let at = row(&h, "Torch", true);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    shoot(&mut h, &dir, "inventory-several-chest");
+    // The sword dragged towards the chest, held over its list.
+    let from = row(&h, "Longsword", false);
+    let to = row(&h, "Dagger", true) + egui::vec2(0.0, 60.0);
+    h.hover_at(from);
+    h.run_steps(1);
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "inventory-several-dragged");
+}
+
 /// A creature's Inventory page with what the game takes off it marked: a
 /// commoner (no proficiency) with a cloak limited to bards, sorcerers and
 /// wizards, a longsword and a club, the cloak's tip saying why

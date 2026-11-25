@@ -2015,11 +2015,33 @@ fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
 
 /// An item equipped from where it was (the backpack, another slot,
 /// another object's inventory): itself, and the edits that take it from
-/// there (none for a copy), made with the equipping as one step.
+/// there (none for a copy), made with the equipping as one step; `gone`:
+/// the item each of those takes; `along`: the items dragged with it from
+/// another object, which go to the backpack in the same step.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Moving {
     item: Struct,
     taken: Vec<Edit>,
+    gone: Vec<Struct>,
+    along: Vec<Struct>,
+}
+
+impl Moving {
+    /// One item, taken by `taken` (none, or its one removal).
+    fn one(item: Struct, taken: Vec<Edit>) -> Moving {
+        let gone = vec![item.clone(); taken.len()];
+        Moving { item, taken, gone, along: Vec::new() }
+    }
+
+    /// The step's name: Equip; with items carried along, a move of them
+    /// all (copies of them: their adding).
+    fn name(moving: Option<&Moving>) -> String {
+        match moving.map(|m| (m.along.len(), m.taken.is_empty())) {
+            None | Some((0, _)) => "Equip".into(),
+            Some((n, false)) => format!("Move {} items", n + 1),
+            Some((n, true)) => format!("Add {} items", n + 1),
+        }
+    }
 }
 
 /// The Missing Feats question kept while it is asked: the slot, the item's
@@ -2027,14 +2049,16 @@ pub(super) struct Moving {
 /// last drawn in.
 type Asked = (u32, ResRef, Vec<u16>, Option<Moving>, u64);
 
-/// Whether the item `moving` is to take from where it was is still there:
-/// each of its removals finds that item at its place.
+/// Whether the items `moving` is to take from where they were are still
+/// there: each of its removals finds its item at its place (as the
+/// removals before it leave the list: several from one list go from the
+/// last place to the first).
 fn still_there(f: &mut Form<'_>, moving: &Moving) -> bool {
-    moving.taken.iter().all(|e| {
+    moving.taken.iter().zip(&moving.gone).all(|(e, gone)| {
         let Edit::RemoveItem { key, path, list, index } = e else { return true };
         let Some(Ok(doc)) = f.app.ws.as_mut().map(|ws| ws.doc(key)) else { return false };
         let items = path.get(&doc.root).and_then(|s| s.list(list));
-        items.and_then(|l| l.get(*index)) == Some(&moving.item)
+        items.and_then(|l| l.get(*index)) == Some(gone)
     })
 }
 
@@ -2056,7 +2080,8 @@ fn after_taken(f: &Form<'_>, items: &[Struct], of: &str, taken: &[Edit]) -> Vec<
 
 /// The edits that equip `r` in slot `bit`: `moving` taken from where it
 /// was and put there as it is, else a new item of blueprint `r`. What
-/// the slot held goes to the end of the backpack (`backpack`), as it is.
+/// the slot held goes to the end of the backpack (`backpack`), as it is;
+/// after it, the items carried along with `moving`.
 pub(super) fn equip_edits(
     f: &mut Form<'_>,
     (equipped, backpack): (&[Struct], &[Struct]),
@@ -2069,7 +2094,7 @@ pub(super) fn equip_edits(
     let taken = moving.map_or(&[][..], |m| &m.taken[..]);
     e.extend(taken.iter().cloned());
     let equipped = after_taken(f, equipped, "Equip_ItemList", taken);
-    let backpack = after_taken(f, backpack, "ItemList", taken);
+    let mut backpack = after_taken(f, backpack, "ItemList", taken);
     let s = match moving {
         Some(m) => mg_module::instances::equipped_item(&f.carried(&m.item, bit), bit),
         // A placed creature holds the whole item; a blueprint its resref.
@@ -2085,10 +2110,17 @@ pub(super) fn equip_edits(
         }
     };
     // One item per slot; the list is kept in slot order.
+    let mut to_backpack = Vec::new();
     if let Some(i) = equipped.iter().position(|s| s.id == bit) {
         e.push(remove(key, base.clone(), "Equip_ItemList", i));
-        let held = f.inventory_item(&backpack, &inventory::Added::Item(equipped[i].clone()));
-        e.push(insert(key, base.clone(), "ItemList", backpack.len(), held));
+        to_backpack.push(equipped[i].clone());
+    }
+    to_backpack.extend(moving.map_or(&[][..], |m| &m.along[..]).iter().cloned());
+    // (Each at the first free place among those before it.)
+    for item in to_backpack {
+        let held = f.inventory_item(&backpack, &inventory::Added::Item(item));
+        e.push(insert(key, base.clone(), "ItemList", backpack.len(), held.clone()));
+        backpack.push(held);
     }
     let at = equipped.iter().filter(|s| s.id < bit).count();
     e.push(insert(key, base, "Equip_ItemList", at, s));
@@ -2135,9 +2167,12 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // Dropped on a slot (the slot, and what was dropped); an equipped item
     // taken off by its menu.
     let mut slot_drop: Option<(u32, inventory::Dragged)> = None;
-    let (mut adds, mut taken): (Vec<inventory::Added>, Vec<Edit>) = (Vec::new(), Vec::new());
-    // The blueprint of an equipped item to find in the palette.
-    let (mut unequip, mut copy, mut find) = (None, None, None);
+    let mut incoming = inventory::Incoming::default();
+    // The blueprint of an equipped item to find in the palette; an equipped
+    // item's Copy and Cut (with those selected, where it is one of them).
+    let (mut unequip, mut copy, mut cut, mut find) = (None, None, None, None);
+    // Equipped items dropped on the backpack together: taken off into it.
+    let mut stow_all: Vec<usize> = Vec::new();
     let whose = inventory::owner(key, &base);
     // (The palette's rows offer Equip here, and a dragged one is equipped
     // where it is dropped.)
@@ -2158,6 +2193,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             items.get(i).map(|e| (list, i, e))
         })
         .collect();
+    // (As a drag, Copy or Cut carries them.)
+    let chosen_all: Vec<inventory::Carried> = picked
+        .iter()
+        .map(|&(list, index, item)| inventory::Carried { list, index, item: item.clone() })
+        .collect();
+    let worn_chosen: Vec<inventory::Carried> =
+        chosen_all.iter().filter(|c| c.list == "Equip_ItemList").cloned().collect();
+    let carry = |i: usize| {
+        let row =
+            inventory::Carried { list: "Equip_ItemList", index: i, item: equipped[i].clone() };
+        inventory::carried_with(row, &chosen_all)
+    };
     let mut options = OptionsOut::default();
     let mut pick_item = None;
     // (Side by side; in a room too narrow for both, the Properties panel
@@ -2248,17 +2295,24 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         if let Some(i) = at {
                             let resref = inventory::entry_resref(&equipped[i]);
                             if r.drag_started() {
+                                let mut more = carry(i);
+                                more.retain(|c| (c.list, c.index) != ("Equip_ItemList", i));
                                 r.dnd_set_drag_payload(inventory::Dragged::Equipped {
                                     owner: whose,
                                     source: (key, base.clone()),
                                     index: i,
                                     resref,
                                     item: equipped[i].clone(),
+                                    more,
                                 });
                             }
                             mg_uikit::context_menu(&r, |ui| {
                                 if ui.button("To Backpack").clicked() {
                                     stow = Some((i, resref));
+                                    ui.close();
+                                }
+                                if ui.button("Cut").clicked() {
+                                    cut = Some(i);
                                     ui.close();
                                 }
                                 if ui.button("Copy").clicked() {
@@ -2311,6 +2365,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     row: &mut row,
                     infinite: false,
                     selected: &in_pack,
+                    also: &worn_chosen,
                     equip: true,
                     copied,
                     palette: &names,
@@ -2321,19 +2376,32 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     pick_item = Some(("ItemList", i));
                 }
                 // The creature's own: an equipped item dropped on the
-                // backpack comes off into it; Equip from a row's menu.
-                if let Some(inventory::Dragged::Equipped { owner, index, resref, .. }) =
-                    &out.dropped
-                    && *owner == whose
-                {
-                    stow = Some((*index, *resref));
+                // backpack comes off into it (those dragged with it too,
+                // the backpack's own staying where they are); Equip from a
+                // row's menu.
+                match &out.dropped {
+                    Some(inventory::Dragged::Equipped { owner, index, resref, more, .. })
+                        if *owner == whose && more.is_empty() =>
+                    {
+                        stow = Some((*index, *resref));
+                    }
+                    Some(d) if d.owner() == Some(whose) => {
+                        let worn = d.carried().into_iter().filter(|c| c.list == "Equip_ItemList");
+                        stow_all = worn.map(|c| c.index).collect();
+                    }
+                    _ => {}
+                }
+                // (A move within the backpack keeps the lists' lengths:
+                // the places selected then hold other items.)
+                if !out.moved.is_empty() {
+                    ui.data_mut(|d| d.remove::<Selected>(item_id));
                 }
                 if let Some((i, inventory::Ask::Equip)) = out.asked {
                     wear = backpack.get(i).map(|e| (i, inventory::entry_resref(e), None));
                 }
                 // And what every inventory does: pasted, dragged from the
                 // palette or from another object's inventory, copied, moved.
-                (adds, taken) = f.list_events(ui, &backpack, &mut out, whose, &path);
+                incoming = f.list_events(ui, &backpack, &mut out, whose, &path);
             }
         });
     });
@@ -2377,8 +2445,11 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             Err(why) => f.app.log.warn(why),
         }
     }
-    if let Some(item) = copy.and_then(|i: usize| equipped.get(i)) {
-        f.copy_item(ui, item);
+    if let Some(i) = copy.filter(|&i: &usize| i < equipped.len()) {
+        let _ = f.copy_items(ui, &carry(i));
+    }
+    if let Some(i) = cut.filter(|&i: &usize| i < equipped.len()) {
+        f.cut_items(ui, &(key, base.clone()), &carry(i));
     }
     if let Some(i) = unequip {
         edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
@@ -2395,10 +2466,51 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // Ctrl is held, which copies it.
     // (Whether it was a drop, and of the creature's primary weapon.)
     let dropped = slot_drop.is_some();
-    let from_primary = slot_drop.as_ref().is_some_and(|(_, d)| {
+    let mut from_primary = slot_drop.as_ref().is_some_and(|(_, d)| {
         matches!(d, inventory::Dragged::Equipped { owner, index, .. }
             if *owner == whose && equipped.get(*index).is_some_and(|s| s.id == PRIMARY))
     });
+    // Several dropped on a slot: the one the drag began on goes in it
+    // where it fits, else the first of them that does; the rest, from
+    // another object, go to the backpack in the same step (the creature's
+    // own stay where they are). None fitting: nothing changes.
+    if let Some((bit, d)) = slot_drop.take_if(|(_, d)| d.count() > 1) {
+        ui.data_mut(|d| d.remove::<Selected>(item_id));
+        let carried = d.carried();
+        let lead = d.lead();
+        let mut order: Vec<&inventory::Carried> = carried.iter().collect();
+        order.sort_by_key(|c| Some((c.list, c.index)) != lead);
+        let fits = |f: &mut Form<'_>, c: &inventory::Carried| {
+            item_slots(f, inventory::entry_resref(&c.item), Some(&c.item)) & bit != 0
+        };
+        let pick = order.into_iter().find(|c| fits(f, c)).cloned();
+        let own = d.owner() == Some(whose);
+        match pick {
+            None => {
+                f.app.log.error(format!("None of the {} items goes in that slot", carried.len()))
+            }
+            Some(c) if own => {
+                let at = |s: &Struct| s.id;
+                let worn = (c.list == "Equip_ItemList").then(|| equipped.get(c.index).map(at));
+                from_primary = worn == Some(Some(PRIMARY));
+                // (One of its own worn there already stays.)
+                if worn != Some(Some(bit)) {
+                    let r = inventory::entry_resref(&c.item);
+                    let taken = vec![remove(key, base.clone(), c.list, c.index)];
+                    moving = Some(Moving::one(c.item, taken));
+                    (equip, chosen) = (Some(bit), Some(r));
+                }
+            }
+            Some(c) => {
+                let (taken, gone) = f.taking(ui, &d).into_iter().unzip();
+                let is_c = |o: &&inventory::Carried| (o.list, o.index) == (c.list, c.index);
+                let along = carried.iter().filter(|o| !is_c(o)).map(|o| o.item.clone()).collect();
+                let r = inventory::entry_resref(&c.item);
+                moving = Some(Moving { item: c.item, taken, gone, along });
+                (equip, chosen) = (Some(bit), Some(r));
+            }
+        }
+    }
     match slot_drop {
         Some((bit, inventory::Dragged::Palette(r))) => (equip, chosen) = (Some(bit), Some(r)),
         Some((bit, inventory::Dragged::Listed { owner, index, resref, .. })) if owner == whose => {
@@ -2409,7 +2521,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         {
             if equipped.get(index).is_some_and(|s| s.id != bit) {
                 let taken = vec![remove(key, base.clone(), "Equip_ItemList", index)];
-                moving = Some(Moving { item, taken });
+                moving = Some(Moving::one(item, taken));
                 (equip, chosen) = (Some(bit), Some(resref));
             }
         }
@@ -2417,7 +2529,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             if let inventory::Dragged::Listed { resref, item, .. }
             | inventory::Dragged::Equipped { resref, item, .. } = &d
             {
-                moving = Some(Moving { item: item.clone(), taken: f.taking(ui, &d) });
+                let (taken, gone) = f.taking(ui, &d).into_iter().unzip();
+                moving = Some(Moving { item: item.clone(), taken, gone, along: Vec::new() });
                 (equip, chosen) = (Some(bit), Some(*resref));
             }
         }
@@ -2434,7 +2547,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         match slot {
             Ok(bit) => {
                 let taken = vec![remove(key, base.clone(), "ItemList", i)];
-                moving = Some(Moving { item: item.clone(), taken });
+                moving = Some(Moving::one(item.clone(), taken));
                 (equip, chosen) = (Some(bit), Some(r));
                 ui.data_mut(|d| d.remove::<Selected>(item_id));
             }
@@ -2451,6 +2564,31 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             insert(key, base.clone(), "ItemList", backpack.len(), item),
         ];
         apply(f, "Unequip to backpack", moved);
+        ui.data_mut(|d| d.remove::<Selected>(item_id));
+    }
+    // Several taken off together: out of their slots and into the
+    // backpack, in their order, as they are, in one step.
+    if !stow_all.is_empty() {
+        let worn: Vec<inventory::Carried> = (stow_all.iter())
+            .filter_map(|&i| {
+                let item = equipped.get(i)?.clone();
+                Some(inventory::Carried { list: "Equip_ItemList", index: i, item })
+            })
+            .collect();
+        let source = (key, base.clone());
+        let mut moved: Vec<Edit> =
+            inventory::removals(&source, &worn).into_iter().map(|(e, _)| e).collect();
+        let mut pack = backpack.clone();
+        for c in &worn {
+            let item = f.inventory_item(&pack, &inventory::Added::Item(c.item.clone()));
+            moved.push(insert(key, base.clone(), "ItemList", pack.len(), item.clone()));
+            pack.push(item);
+        }
+        let what = match worn.len() {
+            1 => "Unequip to backpack".to_string(),
+            n => format!("Unequip {n} items to backpack"),
+        };
+        apply(f, &what, moved);
         ui.data_mut(|d| d.remove::<Selected>(item_id));
     }
     if let Some((list, i)) = open {
@@ -2504,7 +2642,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             if missing.is_empty() {
                 if !stays {
                     let e = equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref());
-                    apply(f, "Equip", e);
+                    apply(f, &Moving::name(moving.as_ref()), e);
                 }
             } else {
                 let asked: Asked = (bit, r, missing, moving, ui.ctx().cumulative_pass_nr());
@@ -2588,14 +2726,14 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             feat.set("Feat", Value::Word(missing[0]));
             let mut e = vec![insert(key, base.clone(), "FeatList", count, feat)];
             e.extend(equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref()));
-            apply(f, "Equip", e);
+            apply(f, &Moving::name(moving.as_ref()), e);
         }
         if yes || no {
             ui.data_mut(|d| d.remove::<Asked>(ask));
         }
     }
-    adds.extend(add.map(inventory::Added::Blueprint));
-    f.apply_list(&base, &backpack, adds, taken, edits);
+    incoming.adds.extend(add.map(inventory::Added::Blueprint));
+    f.apply_list(&base, &backpack, incoming, edits);
 }
 
 #[cfg(test)]

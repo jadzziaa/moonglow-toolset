@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T19:46:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:08:28Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -332,27 +332,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Godly, whose Weight Reduction would tell the table), read against
   `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
   since 2026-10-30.) (a second builder's review, October 2026)
-- **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
-  as pictures with Find, and every portrait; the inventory's Equip to a
-  free slot, To Backpack and Open Blueprint; talk-table text in its own
-  color; a Variables window that is sized; drag and drop and right-click
-  menus in the inventory, items dragged between inventories and within
-  a list, Copy and Paste; an item moved as it is, in one step; what a
-  taken slot held sent to the backpack, as Aurora does; Copy and Paste
-  carrying the item as it is, as a drag does; drags between two
-  objects' windows under test both ways, a slot's item onto a chest and
-  a chest's onto a taken slot; a weapon dropped on the secondary weapon
-  slot while the primary is free going in the primary, as Aurora puts a
-  longsword, a dagger and a hand axe, a torch in the secondary, and the
-  primary's own dragged there staying in the primary; the Creature
-  Wizard's categories without Familiars, as Aurora's: 2026-10-30; new
-  strings written to a talk-table range, 2026-11-02: [Text typed into the
-  talk table](typed-text-proposal.md)). Left:
-  - **Several items at once:** the inventory selects several (Ctrl,
-    Shift), but a drag, Copy and Paste carry one: `Dragged` and
-    `item_clip` hold one item each place; carrying the selection is a
-    drag of many rows, and where each lands (slots, grid places). (M)
-  (a second builder's review, October 2026)
 - **The feats' order in the Levelup Wizard's spell capture, the
   owner's call:** the capture that settled the review's G8
   (`levelup/spells-after.mod`) was made through Aurora's creature

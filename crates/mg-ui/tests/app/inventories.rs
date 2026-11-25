@@ -66,6 +66,7 @@ fn items_pasted_into_a_store_share_the_page_they_make() {
     assert_eq!(swords.len(), 2);
     assert_ne!(at[0], at[1], "each at a place of its own");
     assert!(swords.iter().all(|i| i.integer("Infinite") == Some(0)));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste 2 items"));
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(field(&mut h, &key).list("StoreList").unwrap().len(), 1, "one step");
@@ -160,7 +161,7 @@ fn placeable_editor_fills_its_inventory() {
     // ask).
     assert_eq!(
         menu_items(&h, "Properties"),
-        ["Copy", "Paste", "Remove", "Find in Palette", "Properties"]
+        ["Cut", "Copy", "Paste", "Remove", "Find in Palette", "Properties"]
     );
     h.get_by_label("Copy").click();
     h.run();
@@ -464,7 +465,7 @@ fn find_in_palette_chooses_an_item_s_blueprint() {
     open_menu(&mut h, at);
     assert_eq!(
         menu_items(&h, "Properties"),
-        ["To Backpack", "Copy", "Remove", "Find in Palette", "Properties"]
+        ["To Backpack", "Cut", "Copy", "Remove", "Find in Palette", "Properties"]
     );
     h.get_by_label("Find in Palette").click();
     settle(&mut h);
@@ -1153,25 +1154,7 @@ fn menu_of(h: &mut Harness<'_, Moonglow>, label: &str, choice: &str) {
         .map(|n| n.rect().center())
         .min_by(|a, b| a.x.total_cmp(&b.x))
         .unwrap_or_else(|| panic!("no {label} to click"));
-    h.hover_at(row);
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: row,
-            button: egui::PointerButton::Secondary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        });
-    }
-    h.run_steps(3);
-    // (The menu's: the one nearest below where it was opened.)
-    let item = h
-        .query_all_by_label(choice)
-        .map(|n| n.rect())
-        .filter(|r| r.top() >= row.y - 4.0)
-        .min_by(|a, b| a.center().distance(row).total_cmp(&b.center().distance(row)))
-        .unwrap_or_else(|| panic!("no {choice} in the menu"));
-    click_pos(h, item.center());
-    h.run_steps(6);
+    menu_of_at(h, row, choice);
 }
 
 /// The two lists of the creature at `path` in `area`'s GIT: its equipment
@@ -1815,4 +1798,447 @@ fn the_missing_feats_question_goes_when_its_item_has_moved() {
     assert!(h.query_by_label("Missing Feats").is_none(), "the question went with its place");
     let left = vec![pack[1].clone(), pack[2].clone()];
     assert_eq!(creature_items(&mut h, area, &bandit), (worn, left), "the last item still held");
+}
+
+/// The buttons labeled `label` (rows' names, wider than their icons) in
+/// the creature's window at the left, or the chest's at the right, top to
+/// bottom.
+fn named_rows(h: &Harness<'_, Moonglow>, label: &str, right: bool) -> Vec<egui::Rect> {
+    let mut rows: Vec<egui::Rect> = h
+        .query_all_by_label(label)
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect())
+        .filter(|r| (r.left() > 920.0) == right && r.width() > 80.0)
+        .collect();
+    rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    rows
+}
+
+/// A click at `at` with `modifiers` held (Ctrl, Shift: a row added to
+/// those selected).
+fn click_with(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui::Modifiers) {
+    h.hover_at(at);
+    press(h, at, true, modifiers);
+    press(h, at, false, modifiers);
+    settle(h);
+}
+
+/// [`drag_pos`], and whether `label` showed while the pointer was held
+/// at `to`.
+fn drag_seeing(
+    h: &mut Harness<'_, Moonglow>,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    label: &str,
+) -> bool {
+    h.hover_at(from);
+    h.run_steps(1);
+    press(h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for k in 1..=5 {
+        h.hover_at(from + (to - from) * (k as f32 / 5.0));
+        h.run_steps(1);
+    }
+    let seen = h.query_by_label(label).is_some();
+    press(h, to, false, egui::Modifiers::NONE);
+    settle(h);
+    seen
+}
+
+/// The bandit's backpack and the chest's list (beside it, at the right),
+/// with the chest's items and the bandit's lists, for the tests of several
+/// items at once.
+struct Several {
+    h: Harness<'static, Moonglow>,
+    area: ResRef,
+    git: ResKey,
+    chest: mg_edit::GffPath,
+    bandit: mg_edit::GffPath,
+}
+
+impl Several {
+    fn new(name: &str, held: &dyn Fn(&mg_rules::GameData) -> Vec<mg_gff::Struct>) -> Option<Self> {
+        let (mut h, area) = area_ui_harness(name)?;
+        let git = ResKey::new(area, ResType::GIT);
+        let chest = chest_of_three(&mut h, area);
+        let bandit = bandit_holding(&mut h, area, held);
+        let tab = Tab::Instance { area, path: chest.clone() };
+        h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        settle(&mut h);
+        // (Tall enough for the palette and the chest's rows under it.)
+        own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 1000.0));
+        settle(&mut h);
+        Some(Several { h, area, git, chest, bandit })
+    }
+
+    fn in_chest(&mut self) -> Vec<mg_gff::Struct> {
+        let ws = self.h.state_mut().ws.as_mut().unwrap();
+        let root = &ws.doc(&self.git).unwrap().root;
+        self.chest.get(root).unwrap().list("ItemList").unwrap_or(&[]).to_vec()
+    }
+
+    fn tags_in_chest(&mut self) -> Vec<String> {
+        self.in_chest().iter().map(tag).collect()
+    }
+
+    fn creature(&mut self) -> (Vec<mg_gff::Struct>, Vec<mg_gff::Struct>) {
+        creature_items(&mut self.h, self.area, &self.bandit)
+    }
+
+    fn all(&mut self) -> ((Vec<mg_gff::Struct>, Vec<mg_gff::Struct>), Vec<mg_gff::Struct>) {
+        (self.creature(), self.in_chest())
+    }
+
+    /// The step Undo would take back.
+    fn last_step(&self) -> Option<&str> {
+        self.h.state().ws.as_ref().unwrap().can_undo()
+    }
+
+    fn undo(&mut self) {
+        self.h.state_mut().actions.push(mg_ui::Action::Undo);
+        settle(&mut self.h);
+    }
+
+    /// The chest's row `n` (from the top).
+    fn chest_row(&self, n: usize) -> egui::Pos2 {
+        named_rows(&self.h, "Longsword", true)[n].center()
+    }
+
+    /// Where the creature's backpack takes a drop: under its heading.
+    fn backpack(&self) -> egui::Pos2 {
+        let heading = self
+            .h
+            .query_all_by_label("Backpack")
+            .map(|n| n.rect())
+            .min_by(|a, b| a.left().total_cmp(&b.left()))
+            .unwrap();
+        heading.left_bottom() + egui::vec2(80.0, 40.0)
+    }
+
+    /// The creature's slot named `slot`.
+    fn slot(&self, slot: &str) -> egui::Pos2 {
+        let r = self.h.query_all_by_label(slot).map(|n| n.rect());
+        r.min_by(|a, b| a.left().total_cmp(&b.left())).unwrap().center()
+    }
+}
+
+/// An item's tag.
+fn tag(item: &mg_gff::Struct) -> String {
+    String::from_utf8_lossy(item.string("Tag").unwrap_or_default()).into_owned()
+}
+
+/// Several of a creature's items selected (its armor, then two of its
+/// backpack's, with Ctrl) and dragged onto a chest's list go in all,
+/// in their order (the slots', then the backpack's), each as it is, taken
+/// from the creature in one step, "Move 3 items"; the count shows beside
+/// the pointer while they are dragged. A row not selected is dragged
+/// alone, as before.
+#[test]
+fn several_items_dragged_onto_a_chest_go_in_their_order() {
+    let held = |game: &mg_rules::GameData| {
+        vec![
+            own_item(game, "nw_it_mneck020", 0, ("MG_AMULET", "Amulet Probe")),
+            own_item(game, "nw_it_torch001", 1, ("MG_TORCH", "Torch Probe")),
+            own_item(game, "nw_it_mring022", 2, ("MG_RING", "Ring Probe")),
+        ]
+    };
+    let Some(mut s) = Several::new("several-to-chest", &held) else { return };
+    let before = s.all();
+    let armor = before.0.0.iter().find(|i| i.id == 0x2).unwrap().clone();
+    let (amulet, ring) = (before.0.1[0].clone(), before.0.1[2].clone());
+    let armor_row = named_rows(&s.h, "Padded Armor", false)[0].center();
+    click_with(&mut s.h, armor_row, egui::Modifiers::NONE);
+    for name in ["Ring Probe", "Amulet Probe"] {
+        let at = named_rows(&s.h, name, false)[0].center();
+        click_with(&mut s.h, at, egui::Modifiers::COMMAND);
+    }
+    s.h.get_by_label("Selected Items: 3");
+    // Dragged by the ring onto the chest's last row.
+    let from = named_rows(&s.h, "Ring Probe", false)[0].center();
+    let to = s.chest_row(2);
+    assert!(drag_seeing(&mut s.h, from, to, "3 items"), "the count beside the pointer");
+    let held = s.in_chest();
+    assert_eq!(held.len(), 6, "all three: {:?}", s.h.state().log.entries);
+    for (moved, was) in held[3..].iter().zip([&armor, &amulet, &ring]) {
+        assert_eq!(as_held_anywhere(moved), as_held_anywhere(was), "as it is, in order");
+    }
+    let (worn, pack) = s.creature();
+    assert!(!worn.iter().any(|i| i.id == 0x2), "the armor taken off");
+    assert_eq!(pack.iter().map(tag).collect::<Vec<_>>(), ["MG_TORCH"], "the two taken out");
+    assert_eq!(s.last_step(), Some("Move 3 items"));
+    s.undo();
+    assert_eq!(s.all(), before, "one step");
+    // A row not among those selected: dragged alone.
+    let armor_row = named_rows(&s.h, "Padded Armor", false)[0].center();
+    click_with(&mut s.h, armor_row, egui::Modifiers::NONE);
+    let at = named_rows(&s.h, "Amulet Probe", false)[0].center();
+    click_with(&mut s.h, at, egui::Modifiers::COMMAND);
+    let from = named_rows(&s.h, "Torch Probe", false)[0].center();
+    let to = s.chest_row(2);
+    assert!(!drag_seeing(&mut s.h, from, to, "2 items"), "one item: no count");
+    assert_eq!(s.tags_in_chest(), ["ITEM_A", "ITEM_B", "ITEM_C", "MG_TORCH"]);
+    assert_eq!(s.last_step(), Some("Move item"));
+}
+
+/// The other way, between the two windows: a chest's rows selected (a
+/// click, then Shift) and dragged into a creature's backpack go in, in
+/// their order, as they are, taken from the chest in one step; dragged
+/// within the chest onto a row, they move before it together.
+#[test]
+fn several_chest_items_dragged_into_a_backpack() {
+    let Some(mut s) = Several::new("several-to-backpack", &|_| Vec::new()) else { return };
+    let before = s.all();
+    // Within the chest: the second and third before the first.
+    let (b, c) = (s.chest_row(1), s.chest_row(2));
+    click_with(&mut s.h, b, egui::Modifiers::NONE);
+    click_with(&mut s.h, c, egui::Modifiers::SHIFT);
+    let (from, to) = (s.chest_row(2), s.chest_row(0));
+    drag_seeing(&mut s.h, from, to, "2 items");
+    assert_eq!(s.tags_in_chest(), ["ITEM_B", "ITEM_C", "ITEM_A"], "moved together");
+    assert_eq!(s.last_step(), Some("Move 2 items"));
+    s.undo();
+    assert_eq!(s.all(), before, "one step");
+    // Into the bandit's backpack.
+    let (a, c) = (s.chest_row(0), s.chest_row(2));
+    click_with(&mut s.h, a, egui::Modifiers::NONE);
+    click_with(&mut s.h, c, egui::Modifiers::COMMAND);
+    let (from, to) = (s.chest_row(2), s.backpack());
+    assert!(drag_seeing(&mut s.h, from, to, "2 items"));
+    let (_, pack) = s.creature();
+    assert_eq!(pack.len(), 2, "carried: {:?}", s.h.state().log.entries);
+    for (moved, was) in pack.iter().zip([&before.1[0], &before.1[2]]) {
+        assert_eq!(as_held_anywhere(moved), as_held_anywhere(was), "as it is, in order");
+    }
+    // Each at a place of its own in the grid.
+    let place = |i: &mg_gff::Struct| (i.integer("Repos_PosX"), i.integer("Repos_Posy"));
+    assert_ne!(place(&pack[0]), place(&pack[1]));
+    assert_eq!(s.tags_in_chest(), ["ITEM_B"], "taken from the chest");
+    assert_eq!(s.last_step(), Some("Move 2 items"));
+    s.undo();
+    assert_eq!(s.all(), before, "one step");
+}
+
+/// Several dropped on a slot: the one the drag began on goes in it where
+/// it fits (else the first of them that does), the rest from another
+/// object into the backpack after what the slot held, one step; none
+/// fitting, nothing changes and the log says so. The Missing Feats
+/// question asks about the one for the slot: No leaves all where they
+/// were, Yes moves all, one step. The creature's own others stay put.
+#[test]
+fn several_items_dropped_on_a_slot() {
+    use mg_edit::{Command, Edit};
+    let held = |game: &mg_rules::GameData| {
+        vec![
+            own_item(game, "nw_it_mneck020", 0, ("MG_AMULET", "Amulet Probe")),
+            own_item(game, "nw_it_mring022", 1, ("MG_RING", "Ring Probe")),
+        ]
+    };
+    let Some(mut s) = Several::new("several-on-a-slot", &held) else { return };
+    let featless = Edit::SetField {
+        key: s.git,
+        path: s.bandit.clone(),
+        label: "FeatList".into(),
+        value: Some(mg_gff::Value::List(Vec::new())),
+    };
+    s.h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("No feats", vec![featless])));
+    settle(&mut s.h);
+    let before = s.all();
+    let own_sword = before.0.0.iter().find(|i| i.id == 0x10).unwrap().clone();
+    // All three of the chest's selected.
+    let (a, c) = (s.chest_row(0), s.chest_row(2));
+    click_with(&mut s.h, a, egui::Modifiers::NONE);
+    click_with(&mut s.h, c, egui::Modifiers::SHIFT);
+    // On the helmet's slot: none goes there.
+    let (from, to) = (s.chest_row(1), s.slot("Helmet"));
+    drag_seeing(&mut s.h, from, to, "3 items");
+    assert_eq!(s.all(), before, "nothing changed");
+    let said = s.h.state().log.entries.iter().any(|(_, m)| m.contains("None of the 3 items"));
+    assert!(said, "{:?}", s.h.state().log.entries);
+    // On the primary weapon's slot: the creature lacks the feat; No.
+    let (from, to) = (s.chest_row(1), s.slot("Primary Weapon"));
+    drag_seeing(&mut s.h, from, to, "3 items");
+    assert!(s.h.query_by_label("Missing Feats").is_some(), "asked");
+    settle(&mut s.h);
+    assert!(s.h.query_by_label("Missing Feats").is_some(), "still asked a frame later");
+    s.h.get_by_label("No").click();
+    settle(&mut s.h);
+    assert_eq!(s.all(), before, "No: all where they were");
+    // Again, Yes: the second sword (the one dragged) worn, the bandit's own
+    // to the backpack, the first and third after it.
+    let (from, to) = (s.chest_row(1), s.slot("Primary Weapon"));
+    drag_seeing(&mut s.h, from, to, "3 items");
+    s.h.get_by_label("Yes").click();
+    settle(&mut s.h);
+    let (worn, pack) = s.creature();
+    let on = worn.iter().find(|i| i.id == 0x10).expect("a primary weapon");
+    assert_eq!(tag(on), "ITEM_B", "{:?}", s.h.state().log.entries);
+    let tags: Vec<_> = pack.iter().map(tag).collect();
+    assert_eq!(tags, ["MG_AMULET", "MG_RING", &tag(&own_sword), "ITEM_A", "ITEM_C"]);
+    assert_eq!(as_held_anywhere(&pack[2]), as_held_anywhere(&own_sword), "its own, as it is");
+    assert!(s.in_chest().is_empty(), "all taken from the chest");
+    assert_eq!(s.last_step(), Some("Move 3 items"));
+    s.undo();
+    assert_eq!(s.all(), before, "one step");
+    // The creature's own ring and amulet dragged by the ring onto the
+    // amulet's slot: the amulet goes in it, the ring stays.
+    let at = named_rows(&s.h, "Amulet Probe", false)[0].center();
+    click_with(&mut s.h, at, egui::Modifiers::NONE);
+    let at = named_rows(&s.h, "Ring Probe", false)[0].center();
+    click_with(&mut s.h, at, egui::Modifiers::COMMAND);
+    let (from, to) = (named_rows(&s.h, "Ring Probe", false)[0].center(), s.slot("Amulet"));
+    drag_seeing(&mut s.h, from, to, "2 items");
+    let (worn, pack) = s.creature();
+    let on = worn.iter().find(|i| i.id == 0x200).expect("an amulet");
+    assert_eq!(tag(on), "MG_AMULET", "{:?}", s.h.state().log.entries);
+    assert_eq!(pack.iter().map(tag).collect::<Vec<_>>(), ["MG_RING"], "the ring stays");
+}
+
+/// Copy and Cut carry the rows selected (a row's menu, or Ctrl+X over
+/// the list), in their order, as they are; Paste adds them all, in one
+/// step, "Paste 2 items". A row's menu on a row not selected copies that
+/// row alone. Cut takes them all in one step.
+#[test]
+fn several_items_copied_cut_and_pasted() {
+    let Some(mut s) = Several::new("several-copied", &|_| Vec::new()) else { return };
+    let before = s.all();
+    let (a, c) = (s.chest_row(0), s.chest_row(2));
+    click_with(&mut s.h, a, egui::Modifiers::NONE);
+    click_with(&mut s.h, c, egui::Modifiers::COMMAND);
+    // Copy, from the third's menu (the chest's rows at the right).
+    let row = s.chest_row(2);
+    s.h.hover_at(row);
+    for pressed in [true, false] {
+        s.h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(&mut s.h);
+    let menu: Vec<_> = s.h.query_all_by_label("Cut").map(|n| n.rect()).collect();
+    assert!(!menu.is_empty(), "Cut in the row's menu");
+    s.h.get_by_label("Copy").click();
+    settle(&mut s.h);
+    let clip: Vec<_> = s.h.state().item_clip.iter().map(tag).collect();
+    assert_eq!(clip, ["ITEM_A", "ITEM_C"], "both, in their order");
+    // Pasted into the bandit's backpack.
+    let paste =
+        s.h.query_all_by_label("Paste (2)")
+            .map(|n| n.rect())
+            .min_by(|a, b| a.left().total_cmp(&b.left()))
+            .expect("the backpack's Paste");
+    click_pos(&s.h, paste.center());
+    settle(&mut s.h);
+    let (_, pack) = s.creature();
+    assert_eq!(pack.iter().map(tag).collect::<Vec<_>>(), ["ITEM_A", "ITEM_C"]);
+    assert_eq!(as_held_anywhere(&pack[1]), as_held_anywhere(&before.1[2]), "as it is");
+    assert_eq!(s.last_step(), Some("Paste 2 items"));
+    assert_eq!(s.in_chest().len(), 3, "copies: the chest keeps them");
+    s.undo();
+    assert_eq!(s.all(), before, "one step");
+    // Copy on the second, not selected: that one alone.
+    let row = s.chest_row(1);
+    menu_of_at(&mut s.h, row, "Copy");
+    let clip: Vec<_> = s.h.state().item_clip.iter().map(tag).collect();
+    assert_eq!(clip, ["ITEM_B"]);
+    // Cut, from the first's menu: both selected, taken in one step.
+    let row = s.chest_row(0);
+    menu_of_at(&mut s.h, row, "Cut");
+    assert_eq!(s.tags_in_chest(), ["ITEM_B"], "{:?}", s.h.state().log.entries);
+    let clip: Vec<_> = s.h.state().item_clip.iter().map(tag).collect();
+    assert_eq!(clip, ["ITEM_A", "ITEM_C"]);
+    assert_eq!(s.last_step(), Some("Cut 2 items"));
+    // Pasted back into the chest (its Paste, at the right): three rows
+    // again, and the places selected before the Cut not selected again
+    // (they hold other items now). Copy on the first copies it alone.
+    let paste =
+        s.h.query_all_by_label("Paste (2)")
+            .map(|n| n.rect())
+            .max_by(|a, b| a.left().total_cmp(&b.left()))
+            .expect("the chest's Paste");
+    click_pos(&s.h, paste.center());
+    settle(&mut s.h);
+    assert_eq!(s.tags_in_chest(), ["ITEM_B", "ITEM_A", "ITEM_C"]);
+    let row = s.chest_row(0);
+    menu_of_at(&mut s.h, row, "Copy");
+    let clip: Vec<_> = s.h.state().item_clip.iter().map(tag).collect();
+    assert_eq!(clip, ["ITEM_B"], "no selection left from before");
+    s.undo();
+    s.undo();
+    assert_eq!(s.all(), before, "one step each");
+    // Ctrl+X (the Cut event) over the list: the one selected.
+    let b = s.chest_row(1);
+    click_with(&mut s.h, b, egui::Modifiers::NONE);
+    s.h.hover_at(b);
+    s.h.event(egui::Event::Cut);
+    settle(&mut s.h);
+    assert_eq!(s.tags_in_chest(), ["ITEM_A", "ITEM_C"]);
+    assert_eq!(s.last_step(), Some("Cut item"));
+    assert!(s.creature().1.is_empty(), "the creature's lists not cut");
+}
+
+/// Opens the context menu of the row at `row` and clicks its `choice`
+/// (the menu's: not there before it opened; it may open above the row,
+/// near the window's foot).
+fn menu_of_at(h: &mut Harness<'_, Moonglow>, row: egui::Pos2, choice: &str) {
+    let before: Vec<egui::Rect> = h.query_all_by_label(choice).map(|n| n.rect()).collect();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(h);
+    let item = h
+        .query_all_by_label(choice)
+        .map(|n| n.rect())
+        .filter(|r| !before.contains(r))
+        .min_by(|a, b| a.center().distance(row).total_cmp(&b.center().distance(row)))
+        .unwrap_or_else(|| panic!("no {choice} in the menu"));
+    click_pos(h, item.center());
+    settle(h);
+}
+
+/// A store's page selects several (a click, then Ctrl) and cuts them
+/// together (Ctrl+X over the page): both copied, in their order, taken
+/// in one step.
+#[test]
+fn a_store_s_items_are_cut_together() {
+    let Some((mut h, key)) = blueprint_harness("nw_storebar01", "store_cut", ResType::UTM) else {
+        return;
+    };
+    settle(&mut h);
+    h.get_by_label("Inventory…").click();
+    settle(&mut h);
+    let page = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let s = field(h, &key);
+        let pages = s.list("StoreList").unwrap();
+        pages.iter().find_map(|p| p.list("ItemList").filter(|l| l.len() >= 2)).unwrap().to_vec()
+    };
+    let before = field(&mut h, &key);
+    let held = page(&mut h);
+    // (The page shown first: the first with items, which has two or more.)
+    let mut rows: Vec<egui::Rect> = h
+        .query_all_by_label_contains(" gp")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect())
+        .collect();
+    rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    assert!(rows.len() >= 2, "rows: {rows:?}");
+    click_with(&mut h, rows[0].center(), egui::Modifiers::NONE);
+    click_with(&mut h, rows[1].center(), egui::Modifiers::COMMAND);
+    h.hover_at(rows[1].center());
+    h.event(egui::Event::Cut);
+    settle(&mut h);
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!(ws.can_undo(), Some("Cut 2 items"), "{:?}", h.state().log.entries);
+    assert_eq!(h.state().item_clip, held[..2].to_vec(), "both, as they are, in order");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(field(&mut h, &key), before, "one step");
 }

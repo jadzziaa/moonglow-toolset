@@ -144,6 +144,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
         Holder::Placeable => &[],
     };
     let mut adds: Vec<Added> = Vec::new();
+    let mut pasted = false;
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
     let mut equip: Option<(u32, ResRef)> = None;
     let mut slot_out: Option<(u32, bool)> = None;
@@ -161,6 +162,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                 .clicked()
             {
                 adds.extend(f.app.item_clip.iter().cloned().map(Added::Item));
+                pasted = true;
             }
             return;
         }
@@ -261,6 +263,8 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
             adds.push(Added::Blueprint(r));
         }
     });
+    // (Several pasted: a step that says how many.)
+    let added_name = inventory::adding_name("Add item", adds.len(), false, pasted);
     if !adds.is_empty() {
         let mut out = lists::Outcome::default();
         for t in targets.iter() {
@@ -277,7 +281,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
             }
             out.changed += 1;
         }
-        change = Some(("Add item", out, "Added to"));
+        change = Some((&added_name, out, "Added to"));
     }
     if let Some((bit, r)) = equip {
         let mut out = lists::Outcome::default();

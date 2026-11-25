@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:08:28Z }
 ---
 
 # Blueprints
@@ -436,7 +436,8 @@ restrictions show the first one's mode (≠ where others are in the
 other); a base item added goes to the stores in that mode, and a mode
 clicked moves each store's items to it. An inventory lists each item
 blueprint they hold, with how many the first holds: an item picked in
-the palette (**Add Item**), pasted (**Paste**) or dropped from the
+the palette (**Add Item**), pasted (**Paste**: every item copied, in its
+order, one step) or dropped from the
 palette goes to each at its own first free place (a store's on the
 page of its kind; a placeable without an inventory is left); a
 creature's equipment shows each slot's item, ≠
@@ -1060,8 +1061,8 @@ A domain or school left **Not set** is the game's to choose.
   in the secondary; so one dragged there from the primary stays in the
   primary, though a missing feat is still asked about). A
   right click on an item anywhere offers the same (**Equip** or **To
-  Backpack**, **Copy**, **Remove**, **Find in Palette**, and last, as in
-  Aurora's menus, **Properties**), and on the palette's
+  Backpack**, **Cut**, **Copy**, **Remove**, **Find in Palette**, and
+  last, as in Aurora's menus, **Properties**), and on the palette's
   items **Add to Backpack**, **Equip** and **Properties**. Properties
   opens the item's blueprint: you can edit the module's blueprints and
   view the game's. **Find in Palette** chooses the item's blueprint in
@@ -1083,7 +1084,8 @@ A domain or school left **Not set** is the game's to choose.
   made from its blueprint there, as a blueprint holds only that (and the
   other way round). Drag a row onto
   another row of its own list to move it to that place. **Copy** (a
-  row's right-click menu, or Ctrl+C with the pointer over it) and
+  row's right-click menu, or Ctrl+C with the pointer over it), **Cut**
+  (the menu, or Ctrl+X: copied and taken out, in one step) and
   **Paste** (the menu, **Paste (n)** in the list's heading, or Ctrl+V
   over the list) carry an item from any inventory to any other, in any
   module open after it, as a drag carries it: a placed object's own item
@@ -1103,6 +1105,25 @@ A domain or school left **Not set** is the game's to choose.
   Alignment: either kind fits). An item's worth and the creature's
   level are no matter. A store's items can be marked
   **Infinite** (its Inventory's column).
+- **Several items at once:** Ctrl+click adds an item to those selected
+  (or takes it away) and Shift+click selects the items from the one
+  clicked last, in any inventory: a creature's slots and backpack
+  together, a placeable's contents, a store's page. Drag one of those
+  selected, or Copy or Cut it, and all of them go, in their order (a
+  creature's slots first, then its backpack), each as it is, in one step
+  that says how many (**Move 3 items**, **Paste 3 items**, **Cut 3
+  items**); while they are dragged, how many shows beside the pointer.
+  An item not selected is dragged, copied or cut alone. Onto a list
+  they all go in, each at the first free place after those before it;
+  onto a row of their own list they move before it together; onto a
+  creature's own backpack, those of its slots come off into it. Onto a
+  creature's slot, one goes in the slot: the one the drag began on
+  where it goes there, else the first of them that does (the slot's own
+  rules, the free primary weapon slot and the missing feat question
+  included); the rest, from another object, go to the backpack after
+  what the slot held, and the creature's own stay where they are. If
+  none goes in that slot, nothing changes and the Log says so. (Aurora
+  selects one item at a time.)
 - **Dropable and Pickpocketable:** under the palette, as in Aurora's
   inventory, **Options** shows the item selected (**Selected Item**) and
   its **Dropable** and **Pickpocketable** boxes, grayed until you click

@@ -175,8 +175,11 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let items = root.list("ItemList").unwrap_or(&[]);
     let names = f.blueprint_names(BlueprintKind::Item);
     let mut add = None;
-    let (mut adds, mut taken) = (Vec::new(), Vec::new());
+    let mut incoming = inventory::Incoming::default();
     let mut edits = Vec::new();
+    // (Ctrl and Shift select several, to drag, copy or cut together.)
+    let chosen_id = egui::Id::new(("item-rows-selected", key, base.to_string()));
+    let selected = inventory::selected_rows(ui, chosen_id, items.len());
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             add = f.item_picker(ui, "Add Item");
@@ -188,7 +191,8 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         let look = inventory::ItemLook {
             row: &mut row,
             infinite: false,
-            selected: &[],
+            selected: &selected,
+            also: &[],
             equip: false,
             copied,
             palette: &names,
@@ -197,12 +201,17 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added here.
         let whose = inventory::owner(key, &base);
-        (adds, taken) = f.list_events(ui, items, &mut out, whose, &base);
+        // (A move within the list keeps its length: the places selected
+        // then hold other items.)
+        inventory::select_rows(ui, chosen_id, items.len(), out.clicked, !out.moved.is_empty());
+        incoming = f.list_events(ui, items, &mut out, whose, &base);
         edits = out.edits;
     });
     f.root = root;
-    adds.extend(add.map(inventory::Added::Blueprint));
-    let items =
-        if adds.is_empty() { Vec::new() } else { f.root.list("ItemList").unwrap_or(&[]).to_vec() };
-    f.apply_list(&base, &items, adds, taken, edits);
+    incoming.adds.extend(add.map(inventory::Added::Blueprint));
+    let items = match incoming.adds.is_empty() {
+        true => Vec::new(),
+        false => f.root.list("ItemList").unwrap_or(&[]).to_vec(),
+    };
+    f.apply_list(&base, &items, incoming, edits);
 }
