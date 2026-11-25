@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -504,7 +504,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     11 to 12 of 255 over it, its mean color within 2, the client showing
     the basin's floor through the water, its pattern and all, where
     Moonglow's surface is smooth. Not read: what the client's refraction
-    takes there (the copy's detail, what is drawn before the copy). (S–M:
+    takes there (the copy's detail, what is drawn before the copy). The
+    same shows under the sun's shadows (2026-11-25,
+    `shadows_on_see_through` with `MG_SEE_THROUGH_WATER=53`: ttr01's
+    shallow pool): the client's water darkens by 0.26 where its ground
+    does by 0.39, its shadowed floor seen through it; Moonglow's by
+    0.002, Fast and High, either switch, its floor (darkened under the
+    water, as the client's) hidden. Deep water darkens by 0.002 in the
+    client and 0.000 in Moonglow. (S–M:
     `fswater` over a patterned floor, the client's beside Moonglow's)
 
 - **Tier A of the game's shaders (M2 of [the shaders
@@ -724,14 +731,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     darkens by the light's share of the light there, as the client's,
     since 2026-11-02: [the findings](findings.md), "A light's shadow
     takes the light's share".);
-  - what is drawn after the shadows receives none: the area's grass
-    (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
-    shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
-    grass sparser and darkened), the solid parts of a tile's see-through
-    meshes (alpha-blended leaves), shiny water drawn after the
-    framebuffer's copy; the client's volumes darken whatever was drawn
-    before its plane (M: those drawn later would read the map
-    themselves).
+  (Grass and the see-through meshes of tiles and static placeables,
+  their solid and soft parts, take the shadows as the client's since
+  2026-11-25: [the findings](findings.md), "Grass and a tile's
+  see-through meshes take the shadows"; water takes none, as the
+  client's, but for a shallow pool's floor, the fountain's entry
+  above.)
   (The sun's and moon's casters cast from the faces whose front faces
   the light only, as the client's, since 2026-11-02: [the
   findings](findings.md), "A face casts the sun's shadow from its front
