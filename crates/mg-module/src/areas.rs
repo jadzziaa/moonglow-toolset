@@ -481,7 +481,8 @@ pub struct StaticPlan {
     /// Left dynamic: tilted, scaled or moved by a visual transform.
     pub transformed: usize,
     /// Left dynamic: with a script, a conversation, a trap or an
-    /// inventory, or switched on (its animation state).
+    /// inventory, switched on (its animation state), or a light that
+    /// flickers.
     pub active: usize,
     /// Left dynamic: with variables (those the project names, else any),
     /// which scripts set or read on it.
@@ -512,6 +513,9 @@ pub enum Kept {
     ResRef(String),
     /// A script names its tag: the first that does, and the line.
     Script(ResRef, usize),
+    /// A light Moonglow made that flickers (`crate::lights`): the game
+    /// plays no static placeable's flicker.
+    Flickers,
 }
 
 impl Kept {
@@ -525,6 +529,7 @@ impl Kept {
             Kept::Tag(p) => format!("the project keeps tags {p} dynamic"),
             Kept::ResRef(p) => format!("the project keeps blueprints {p} dynamic"),
             Kept::Script(script, line) => format!("{script}.nss names its tag (line {line})"),
+            Kept::Flickers => "its light flickers, which a static placeable doesn't".into(),
         }
     }
 }
@@ -563,6 +568,10 @@ fn kept(p: &Struct, rules: &StaticRules, codepage: Codepage) -> Option<Kept> {
     let on = |label: &str| p.integer(label).unwrap_or(0) != 0;
     if on("Useable") {
         return Some(Kept::Useable);
+    }
+    let row = p.integer("Appearance").and_then(|r| u32::try_from(r).ok());
+    if row.is_some_and(|r| rules.flickering_rows.contains(&r)) {
+        return Some(Kept::Flickers);
     }
     if crate::placement::is_transformed(p) {
         return Some(Kept::Transformed);
@@ -682,7 +691,7 @@ pub fn static_plan_in(git: &Struct, rules: &StaticRules, codepage: Codepage) -> 
         match &why {
             Kept::Useable => plan.useable += 1,
             Kept::Transformed => plan.transformed += 1,
-            Kept::Active(_) => plan.active += 1,
+            Kept::Active(_) | Kept::Flickers => plan.active += 1,
             Kept::Variable(_) => plan.variables += 1,
             Kept::Tag(_) | Kept::ResRef(_) => plan.project += 1,
             Kept::Script(..) => plan.scripted += 1,
@@ -1355,6 +1364,30 @@ mod tests {
             p.set(label, value.clone());
         }
         p
+    }
+
+    /// A flickering light Moonglow made stays dynamic, as the game plays
+    /// no static placeable's flicker: its row among the rules' flickering
+    /// rows (read from placeables.2da), the steady light's row not.
+    #[test]
+    fn make_static_leaves_a_flickering_light_dynamic() {
+        let mut git = Struct::new(0);
+        let lights = Value::List(vec![
+            placeable("STEADY", &[("Appearance", Value::Dword(6))]),
+            placeable("TORCH", &[("Appearance", Value::Dword(7))]),
+        ]);
+        git.set("Placeable List", lights);
+        assert_eq!(static_plan(&git, &StaticRules::default()).convert, [0, 1]);
+        let t = b"2DA V2.0\n\n Label ModelName Static\n\
+                  0 A plc_a 0\n1 B plc_b 0\n2 C plc_c 0\n3 D plc_d 0\n4 E plc_e 0\n5 F plc_f 0\n\
+                  6 Steady mgl_000000000001 1\n7 Torch mgl_000000000002 0\n";
+        let table = mg_2da::TwoDa::parse(t, Codepage::default()).unwrap();
+        let rules = StaticRules::default().with_flickering_rows(&table);
+        assert_eq!(rules.flickering_rows.iter().copied().collect::<Vec<_>>(), [7]);
+        let plan = static_plan(&git, &rules);
+        assert_eq!((plan.convert.as_slice(), plan.active), ([0].as_slice(), 1));
+        assert_eq!(plan.kept, [(1, Kept::Flickers)]);
+        assert!(Kept::Flickers.describe().contains("flickers"));
     }
 
     /// A VarTable of one string variable.

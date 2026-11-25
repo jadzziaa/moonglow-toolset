@@ -13159,7 +13159,9 @@ fn board_main_areas_together() {
 
 /// `board_main` with Custom Light open (M4's U29): the area view's menu's
 /// Add Light Here › Custom Light… on the ground at the view's center, the
-/// Right Dock's section beside it; the rest as the Main board.
+/// Right Dock's section beside it; the rest as the Main board. Then
+/// `board_main_custom_light_flicker`: its Flicker a torch's, the note that
+/// says it is placed dynamic under the settings.
 #[test]
 #[ignore]
 fn board_main_custom_light() {
@@ -13207,6 +13209,10 @@ fn board_main_custom_light() {
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker));
     rest_pointer(&mut h);
     shoot(&mut h, &board_dir(), "board_main_custom_light");
+    h.state_mut().light_draft.as_mut().unwrap().spec.flicker = mg_module::lights::Flicker::Torch;
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_custom_light_flicker");
 }
 
 /// `board_main` with Problems open (M4's U28): Build Module's findings of

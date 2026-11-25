@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:08:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -468,26 +468,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   it is that driver on Polaris cards, and the pink is not what Heed
   reports of his interiors (findings, "The lit check's pink on Heed's
   Vulkan"). (S) (Heed's reports, October 2026)
-- **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
-  way B is built behind its option (Custom Light…, `mg_module::lights`;
-  the server reads the hak, finds the model in it and places the row:
-  `engine_custom_light.rs`), and the client answered the proposal's two
-  questions (2026-10-29, the third client batch): a `LightColor` light
-  and a model's light node light creatures and placeables as they light
-  tiles, so the Custom Light section's "Lights creatures and placeables too" starts
-  ticked; a draw takes as many lights as the client's Max Lights (32 by
-  default). Not built: a flicker (the node's color or multiplier keyed in
-  the model's `default` animation). Read for it (2026-10-30, the fourth
-  client batch, `reading_static_placeable_default_animation`): the
-  client plays a dynamic placeable's `default` (a light's color keyed
-  red, blue, red over 2 s cycled, the floor with it) and not a static
-  one's (it stayed red), so a flickering light is a dynamic placeable;
-  the area view holds a static placeable still since, and plays a
-  dynamic one's light node keys and its meshes' self-illumination keys
-  since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
-  client batch). Left: the flicker itself in the Custom Light section (Custom Light…
-  writing the keyed `default` and a dynamic placeable). (S) (from
-  builders' reports after 1.16.2)
 - **A drag when a key changes the mode, the owner's call:** a drag under
   way is dropped, not committed, when a key changes the mode (the
   review's A12); committing it would be the other way. Asked. (S) (the
@@ -1807,7 +1787,10 @@ is not taken for a new gap.
   colour) is drawn as it is at that moment. A part's light nodes are taken
   in the part's rest pose. The model viewer's **Lights** shows the base
   model's light nodes (animated), the appearance's light and, since
-  2026-11-10, its parts' (a tail's effect's) as they stand. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
+  2026-11-10, its parts' (a tail's effect's) as they stand. Since
+  2026-10-30 the area view plays a dynamic placeable's base model's
+  light keys (`point_lights_at`), which Custom Light's flicker
+  (2026-11-25) shows by. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
 - **Moonglow draws the rooms the player can't see:** in an interior the
   client draws only the tiles the player's tile sees (the tileset's
   visibility); the area view draws every tile, as Aurora does. Comparing

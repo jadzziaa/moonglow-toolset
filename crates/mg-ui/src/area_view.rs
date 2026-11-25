@@ -1566,6 +1566,16 @@ impl AreaView {
             .or_else(|| model.objects.iter().position(is))
     }
 
+    /// The point lights its scene casts `t` seconds into its objects'
+    /// animations, lit as the area first shows (`View::of`): a flickering
+    /// light Moonglow made changes with `t` where its placeable is dynamic,
+    /// and holds still where it is static.
+    pub fn lights_at(&self, t: f32) -> Vec<mg_render::PointLight> {
+        let (Some(scene), Some(model)) = (&self.scene, &self.model) else { return Vec::new() };
+        let view = mg_area::View { time: t, lit: true, animate: true, ..mg_area::View::of(model) };
+        scene.scene(model, &view).lights
+    }
+
     /// The placed object `index` of `kind` as a light with nothing to see
     /// ([`AreaScene::bare_light`]), if it is one.
     pub fn bare_light(&self, kind: ObjectKind, index: usize) -> Option<mg_area::BareLight> {
@@ -6455,7 +6465,8 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
 
 /// The placeable an appearance dragged from the Placeable Gallery makes,
 /// at `placement`: a plain, static one (as the Placeable Wizard makes it)
-/// named and tagged for the appearance.
+/// named and tagged for the appearance; dynamic where the row is a
+/// flickering light Moonglow made (`mg_module::lights`).
 fn appearance_item(
     app: &Moonglow,
     dragged: &crate::appearance_gallery::DraggedAppearance,
@@ -6467,6 +6478,11 @@ fn appearance_item(
     blueprint.root.set("Appearance", mg_gff::Value::Dword(dragged.row as u32));
     let tag = mg_module::blueprints::tag(&dragged.name);
     blueprint.root.set("Tag", mg_gff::Value::String(crate::text::encode(&tag)));
+    // (A flickering light Moonglow made is dynamic, as the game plays no
+    // static placeable's flicker.)
+    if let Ok(table) = game.table("placeables") {
+        mg_module::lights::dynamic_if_flickering(&mut blueprint.root, &table);
+    }
     let none = |_: ResRef| None;
     let placing = Placing { game, item: &none };
     instance(&placing, ResType::UTP, &blueprint.root, placement, &[])
@@ -8104,6 +8120,7 @@ fn editing_items(
                                 light.row,
                                 &format!("Light, {}", light.name),
                                 at,
+                                false,
                             );
                             ui.close();
                         }
@@ -8514,31 +8531,72 @@ pub(crate) fn light_toggle(ui: &mut egui::Ui, light: &StockLight, on: bool) -> e
 /// Puts light `light` over the ground point `at`: a plain, static
 /// placeable of that appearance, selected.
 fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Vec3) {
-    add_light_row(app, view, light.row, &format!("Light, {}", light.name), at);
+    add_light_row(app, view, light.row, &format!("Light, {}", light.name), at, false);
 }
 
 /// Puts a light of placeables.2da row `row` (named `name`) over the ground
 /// point `at`, as [`add_light`] puts one of the game's: a light Moonglow
-/// made too (`mg_module::lights`).
+/// made too (`mg_module::lights`). `flickers`: a light just written that
+/// flickers, made dynamic whether or not the game data read again has its
+/// row yet (else the row tells it).
 pub(crate) fn add_light_row(
     app: &mut Moonglow,
     view: &mut AreaView,
     row: usize,
     name: &str,
     at: Vec3,
+    flickers: bool,
 ) {
     use mg_module::instances::Placement;
     let at = view.snapped(at) + Vec3::Z * LIGHT_HEIGHT;
     let dragged = crate::appearance_gallery::DraggedAppearance { row, name: name.to_string() };
     let placement = Placement { position: at.to_array(), rotation: 0.0 };
-    let Some(item) = appearance_item(app, &dragged, placement) else { return };
+    let Some(mut item) = appearance_item(app, &dragged, placement) else { return };
+    if flickers {
+        mg_module::lights::make_flickering(&mut item);
+    }
     let what = format!("Add {}", dragged.name);
     append_object(app, view, ObjectKind::Placeable, item, what, "light");
 }
 
-/// Gives every selected object placeables.2da row `row` (one command).
-pub(crate) fn set_appearance(app: &mut Moonglow, view: &AreaView, what: &str, row: usize) {
-    set_on_selection(app, view, what, "Appearance", Value::Dword(row as u32));
+/// Change Light: every selected light given placeables.2da row `row`, a
+/// light Moonglow made, in one command; dynamic where it flickers (the
+/// game plays no static placeable's flicker; Plot too, which a static one
+/// is by itself), static again where it no longer does, and otherwise as
+/// it was.
+pub(crate) fn change_light(app: &mut Moonglow, view: &AreaView, row: usize, flickers: bool) {
+    let table = app.game.as_deref().and_then(|g| g.table("placeables").ok());
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(git) = ws.doc(&view.git()) else { return };
+    let mut edits = Vec::new();
+    for &(kind, index) in &view.selection {
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        let set = |label: &str, value: Value| mg_edit::Edit::SetField {
+            key: view.git(),
+            path: path.clone(),
+            label: label.into(),
+            value: Some(value),
+        };
+        edits.push(set("Appearance", Value::Dword(row as u32)));
+        let placed = path.get(&git.root);
+        let was =
+            placed.and_then(|p| p.integer("Appearance")).and_then(|r| usize::try_from(r).ok());
+        let flickered =
+            was.zip(table.as_deref()).is_some_and(|(r, t)| mg_module::lights::row_flickers(t, r));
+        let is_static = placed.and_then(|p| p.integer("Static")).unwrap_or(0) != 0;
+        if flickers {
+            let plot = placed.and_then(|p| p.integer("Plot")).unwrap_or(0) != 0;
+            if is_static {
+                edits.push(set("Static", Value::Byte(0)));
+            }
+            if !plot {
+                edits.push(set("Plot", Value::Byte(1)));
+            }
+        } else if !flickers && flickered && !is_static {
+            edits.push(set("Static", Value::Byte(1)));
+        }
+    }
+    app.actions.push(Action::Apply(Command::new("Change Light", edits)));
 }
 
 /// The lights Moonglow made that the game data has (placeables.2da rows

@@ -7317,8 +7317,13 @@ impl Moonglow {
             .game
             .as_deref()
             .map_or(mg_core::Codepage::WINDOWS_1252, mg_rules::GameData::text_codepage);
+        // (Lights Moonglow made that flicker stay dynamic.)
+        let table = self.game.as_deref().and_then(|g| g.table("placeables").ok());
         let Some(ws) = self.ws.as_mut() else { return };
-        let rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
+        let mut rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
+        if let Some(t) = table {
+            rules = rules.with_flickering_rows(&t);
+        }
         let mut edits = Vec::new();
         let (mut made, mut within) = (0, 0);
         let mut left = mg_module::areas::StaticPlan::default();
@@ -7344,7 +7349,11 @@ impl Moonglow {
                 use mg_module::areas::Kept;
                 if matches!(
                     why,
-                    Kept::Variable(_) | Kept::Tag(_) | Kept::ResRef(_) | Kept::Script(..)
+                    Kept::Variable(_)
+                        | Kept::Tag(_)
+                        | Kept::ResRef(_)
+                        | Kept::Script(..)
+                        | Kept::Flickers
                 ) {
                     let tag = list[*i].string("Tag").map(text::decode).unwrap_or_default();
                     named.push(format!("{tag} in {area}: {}", why.describe()));

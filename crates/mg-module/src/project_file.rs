@@ -197,6 +197,11 @@ pub struct StaticRules {
     /// placeable whose tag a script names stays dynamic
     /// ([`StaticRules::with_scripts`]; none until it is called).
     pub scripts: crate::areas::ScriptStrings,
+    /// Not of the file: placeables.2da's rows of flickering lights
+    /// (`crate::lights::flickering_rows`), which stay dynamic, as the game
+    /// plays no static placeable's flicker
+    /// ([`StaticRules::with_flickering_rows`]; none until it is called).
+    pub flickering_rows: std::collections::BTreeSet<u32>,
 }
 
 impl StaticRules {
@@ -204,6 +209,13 @@ impl StaticRules {
     /// ([`crate::areas::ScriptStrings::of`]).
     pub fn with_scripts(mut self, module: &crate::Module) -> StaticRules {
         self.scripts = crate::areas::ScriptStrings::of(module);
+        self
+    }
+
+    /// These rules, with the rows of placeables.2da `table` (the copy the
+    /// game reads) that are flickering lights.
+    pub fn with_flickering_rows(mut self, table: &mg_2da::TwoDa) -> StaticRules {
+        self.flickering_rows = crate::lights::flickering_rows(table);
         self
     }
 }
@@ -215,6 +227,7 @@ impl Default for StaticRules {
             keep_tags: Patterns::default(),
             keep_resrefs: Patterns::default(),
             scripts: Default::default(),
+            flickering_rows: Default::default(),
         }
     }
 }

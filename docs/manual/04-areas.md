@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T18:56:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
 ---
 
 # Areas
@@ -682,8 +682,31 @@ light's **Color**, **Radius** (its light ends at twice it), a
 **Multiplier** that lengthens its reach (the game lengthens a model
 light's reach by it, not its brightness), its **Priority** (1 to 5:
 where more lights shine at one place than the game draws, those of
-priority 1 are kept), whether creatures' shadows are cast from it, and
-whether it lights creatures and placeables as well as the ground.
+priority 1 are kept), its **Flicker**, whether creatures' shadows are
+cast from it, and whether it lights creatures and placeables as well as
+the ground.
+
+**Flicker** is **None** (a steady light, as the game's own are) or one
+of four: **Candle** (slight and quick), **Torch** (deeper), **Fire**
+(deep and quick, as flames leap) and **Pulse** (a slow, even swelling
+and fading). A flickering light's model keys its light's color in its
+`default` animation, a short cycle the game plays over and over. The
+game plays a placeable's `default` only where the placeable is
+dynamic, and holds a static one's still, so a flickering light is
+placed as a dynamic placeable (its placed instance's **Static**
+unticked, and its placeables.2da row's `Static` 0), and the section
+says so under the settings. It is placed **Plot** too: a static
+placeable can't be destroyed, but a dynamic one can (a fireball takes
+placeables), and a light should not be. A dynamic placeable costs the game more
+than a static one (the game merges static ones into the area's tiles as
+it loads: [Static placeables, many at
+once](#static-placeables-many-at-once)), so keep flicker for the lights
+that need it. Ticking
+**Static** on a flickering light stops its flicker, in the area view
+as in the game; **Make Placeables Static** leaves flickering lights
+dynamic, and says so. A blueprint made of a flickering light's row
+must have **Static** unticked too. A steady light writes exactly what
+it wrote before lights could flicker.
 
 Two actions are at the top of the section: the main one and **Cancel**.
 The main one is **Write and Place**, or **Place** where a light of the
@@ -731,7 +754,10 @@ ring where its light ends when it is selected, and the view lit by it.
 Lights made so are listed on the palette's Lights, under the game's,
 and on Add Light Here. **Change Light…** on a selected one gives it
 other settings: another row (and model), written as Custom Light writes
-them; Undo gives it its row back (what was written stays in the hak).
+them, the light made dynamic where it now flickers and static again
+where it no longer does; Undo gives it its row back (what was written
+stays in the hak). The area view plays a dynamic light's flicker while
+**Animations** is on.
 
 **An encounter's spawn points**: each spawn point is drawn as a
 3D wireframe prism oriented the way what spawns there faces, with its
@@ -2168,6 +2194,8 @@ it left, and why. Left dynamic are placeables that:
   can't be destroyed;
 - have saved shader parameters (Properties › Visuals), which a static
   placeable doesn't show;
+- are lights Custom Light made that flicker (its **Flicker**), which a
+  static placeable doesn't;
 - have local variables: scripts set and read them (a lore stone, a
   lamp, a workbench), and what they do to the placeable a static one
   doesn't show. The server keeps a static placeable as an object, found

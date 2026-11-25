@@ -3,7 +3,7 @@ type: Proposal
 title: 'Lights placed on the fly: a proposal'
 description: Placing a light in an area without making a custom placeable by hand first - what the game offers for lights, what was built and measured (the stock light placeables from the area's right-click menu, their reach in the client), and the open proposal - lights of any color and reach by generated content, scripted light effects, and the two questions measured in the client for way B's defaults.
 tags: [proposal, lights, placeables, areas, custom-content]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T01:56:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
 sources:
   - id: request
     resource: human:august, relaying the builder dafena (Discord, 2026-10-07)
@@ -30,7 +30,7 @@ lights are [measured](#measured-for-way-b) (2026-10-29).
 | Way | What the builder gets | What the module needs | State |
 | --- | --- | --- | --- |
 | A. Stock light placeables | Seven colors, fixed reach | Nothing: base game | built |
-| B. Generated content | Any color, reach, brightness, shadows (no flicker yet) | A hak Moonglow writes (models and a placeables.2da), the builder's choice | built, behind an option off by default |
+| B. Generated content | Any color, reach, brightness, shadows, a flicker | A hak Moonglow writes (models and a placeables.2da), the builder's choice | built, behind an option off by default |
 | C. Scripted effects | The game's fixed light effects, switchable in play | A script on an invisible object | not recommended |
 
 ## What the game offers
@@ -125,9 +125,15 @@ Areas, and the project file's `[lights]` (`generated`, `hak`,
 the builder's choice in the window, which says what it writes and that
 the players must have the hak before it writes. The placeables.2da is
 the copy the game reads with the row added, so no merge is needed; a
-hak below another's copy is refused. Not built: the flicker, and taking
-rows and models out that no light uses (the [deferred
-list](deferred.md) has both, with the client's two questions). What
+hak below another's copy is refused. The flicker is built too
+(2026-11-25): **Flicker** (None, Candle, Torch, Fire, Pulse) keys the
+light node's `color` over a short cycle in the model's `default`
+animation, and the light is placed as a dynamic placeable (its row
+`Static` 0, its instance dynamic), as the client plays a dynamic
+placeable's `default` and holds a static one's still (measured
+2026-10-30, `reading_static_placeable_default_animation`); a steady
+light writes what it did before. Not built: taking rows and models out
+that no light uses (the [deferred list](deferred.md) has it). What
 follows is the proposal as it was.
 
 A light editor (color by picker, radius, multiplier, shadows on or off,
@@ -196,8 +202,11 @@ features.
 ## Order of what is left
 
 Both questions are measured (2026-10-30, the third client batch) and way B is built,
-behind an option that is off by default (the owner's word, 2026-10-30); nothing
-of this proposal is left to do but the flicker, which the deferred list keeps.
+behind an option that is off by default (the owner's word, 2026-10-30), its
+flicker with it (2026-11-25). Nothing of this proposal is left to do. A
+generated flickering light has not been watched in the client yet: the
+flicker's keys are of the kind the client was measured playing (a light
+node's `colorkey` in a dynamic placeable's `default`).
 
 ## Decisions wanted
 

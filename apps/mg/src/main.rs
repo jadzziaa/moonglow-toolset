@@ -954,8 +954,9 @@ enum Cmd {
         remove_var: Vec<String>,
         /// Make each area's placeables static, where nothing is lost by
         /// it: not those that are Useable, are tilted, scaled or moved by
-        /// a visual transform, or have a script, a conversation, a trap,
-        /// an inventory or an animation switched on. The game loads and
+        /// a visual transform, have a script, a conversation, a trap, an
+        /// inventory or an animation switched on, or are flickering lights
+        /// Moonglow made. The game loads and
         /// draws static placeables more cheaply.
         #[arg(long, conflicts_with = "dynamic_placeables")]
         static_placeables: bool,
@@ -4489,6 +4490,11 @@ fn cmd_areas(cli: &Cli) -> Result<Output> {
     // The game's data where there is a game: the areas' names as
     // the module tree shows them, and the rows named.
     let game = game_data_if_any(cli, &m, &mut out);
+    // (Lights Moonglow made that flicker stay dynamic, as the game's
+    // placeables.2da tells them: the game plays no static one's flicker.)
+    if *static_placeables && let Some(t) = game.as_ref().and_then(|g| g.table("placeables").ok()) {
+        m.project_file.make_static.flickering_rows = mg_module::lights::flickering_rows(&t);
+    }
     // A surface material by surfacemat.2da's label (the module's
     // haks' over the game's).
     let material = |name: &str| -> Option<u32> {
