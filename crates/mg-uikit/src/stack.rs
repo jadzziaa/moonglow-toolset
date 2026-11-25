@@ -141,7 +141,9 @@ impl<P: Copy + PartialEq> StackLayout<P> {
 
     /// `dragged` dropped at `zone`: the layout it makes, normalized. A
     /// zone that names no section, or a section that holds `dragged`
-    /// alone, leaves it as it was.
+    /// alone, leaves it as it was; on an empty stack the panel is its one
+    /// section. `dragged` may be another stack's (moved between docks):
+    /// take it out of that one only where it is in the result ([`find`](Self::find)).
     pub fn apply(&self, rules: &StackRules<'_, P>, dragged: P, zone: StackZone) -> Self {
         let norm = self.normalized(rules);
         // (A panel of the section other than the dragged one, to find the
@@ -166,13 +168,16 @@ impl<P: Copy + PartialEq> StackLayout<P> {
                 return self.apply(rules, dragged, StackZone::Into { col, sec });
             }
             StackZone::Column { last } => {
-                let at = if last { rest.columns.len().min(1) } else { 0 };
-                match rest.columns.len() >= 2 {
+                let at = if last { rest.columns.len().saturating_sub(1) } else { 0 };
+                match rest.columns.len() >= rules.most_columns.max(1) {
                     true => rest.columns[at].insert(0, vec![dragged]),
                     false if last => rest.columns.push(vec![vec![dragged]]),
                     false => rest.columns.insert(0, vec![vec![dragged]]),
                 }
             }
+            // (An empty stack, another dock's panel let go on it: its
+            // one section.)
+            _ if rest.columns.is_empty() => rest.columns.push(vec![vec![dragged]]),
             StackZone::Into { col, sec }
             | StackZone::Above { col, sec }
             | StackZone::Below { col, sec } => {
@@ -289,8 +294,11 @@ pub struct DropTarget<D> {
 /// The docks a dragged panel may be dropped on, each its [`StackDrop`]:
 /// an application that keeps panels in their own dock registers that
 /// dock alone (a drop over any other lands nowhere); one that moves them
-/// between docks registers each, takes the panel out of its old dock's
-/// layout and applies the zone to the new one's.
+/// between docks registers each, applies the zone to the new dock's
+/// layout and, where the panel is in what that makes, takes it out of
+/// the old one's ([`StackLayout::without`]). Such docks' [`StackRules`]
+/// name in `all` none of the panels they may give away (`&[]`): a panel
+/// named there is put back by [`StackLayout::normalized`].
 #[derive(Debug)]
 pub struct DockDrop<'a, D, P> {
     docks: Vec<(D, StackDrop<'a, P>)>,
@@ -599,11 +607,38 @@ mod tests {
         let both = DockDrop::new().dock(Dock::Right, right).dock(Dock::Left, left);
         let hit = both.target(Properties, Pos2::new(-100.0, 10.0)).expect("over the Left Dock");
         assert_eq!((hit.dock, hit.zone), (Dock::Left, StackZone::Into { col: 0, sec: 0 }));
-        // (And the layouts: out of one, into the other.)
-        let from = cols(&[&[&[Palette, Preview], &[Properties]]]).without(Properties);
+        // (And the layouts, the zone found applied: into the empty Left
+        // Dock, then out of the Right Dock, which names nothing in `all`.)
         let open = StackRules::<P> { all: &[], most_columns: 2, default: StackLayout::default };
-        let to = StackLayout::default().apply(&open, Properties, StackZone::Column { last: true });
-        assert_eq!((from, to), (cols(&[&[&[Palette, Preview]]]), cols(&[&[&[Properties]]])));
+        let to = StackLayout::default().apply(&open, Properties, hit.zone);
+        assert_eq!(to, cols(&[&[&[Properties]]]));
+        assert!(to.find(Properties).is_some(), "taken out of the Right Dock only then");
+        let from = cols(&[&[&[Palette, Preview], &[Properties]]]).without(Properties);
+        assert_eq!(from.normalized(&open), cols(&[&[&[Palette, Preview]]]));
+        // (Into a dock that holds panels: it joins the section.)
+        let left = cols(&[&[&[Palette]]]);
+        let joined = left.apply(&open, Properties, StackZone::Into { col: 0, sec: 0 });
+        assert_eq!(joined, cols(&[&[&[Palette, Properties]]]));
+        // (A dock whose rules name the panel puts it back: why `all: &[]`.)
+        assert_eq!(from.normalized(&RULES), cols(&[&[&[Palette, Preview, Properties]]]));
+    }
+
+    #[test]
+    fn a_column_drop_keeps_to_the_rules_count() {
+        let one = StackRules { most_columns: 1, ..RULES };
+        let stacked = cols(&[&[&[Palette, Preview], &[Properties]]]);
+        let top = stacked.apply(&one, Properties, StackZone::Column { last: true });
+        assert_eq!(top, cols(&[&[&[Properties], &[Palette, Preview]]]), "one column: its top");
+        let three = StackRules { most_columns: 3, ..RULES };
+        let made = two().apply(&three, Preview, StackZone::Column { last: true });
+        assert_eq!(made, cols(&[&[&[Palette]], &[&[Properties]], &[&[Preview]]]));
+        let full = made.apply(&three, Palette, StackZone::Column { last: true });
+        assert_eq!(full, cols(&[&[&[Properties]], &[&[Preview]], &[&[Palette]]]));
+        let past = cols(&[&[&[Palette]], &[&[Properties]], &[&[Preview]]]);
+        let at_top = past.apply(&three, Palette, StackZone::Column { last: false });
+        assert_eq!(at_top, cols(&[&[&[Palette]], &[&[Properties]], &[&[Preview]]]));
+        let last_top = past.apply(&three, Properties, StackZone::Column { last: true });
+        assert_eq!(last_top, cols(&[&[&[Palette]], &[&[Preview]], &[&[Properties]]]), "its own room");
     }
 
     #[test]
