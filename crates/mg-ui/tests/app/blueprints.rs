@@ -5059,3 +5059,94 @@ fn a_placeable_makes_its_conversation_and_a_missing_one_is_offered() {
     let made = ResKey::parse("not_there_yet", ResType::DLG).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&made));
 }
+
+/// A door blueprint's Advanced page has New with the field empty too.
+#[test]
+fn a_door_makes_its_conversation_with_new() {
+    let Some((mut h, key)) = blueprint_harness("nw_door_ttr_01", "mg_door_talk", ResType::UTD)
+    else {
+        return;
+    };
+    give_conversation(&mut h, key, "");
+    page(&mut h, "Advanced");
+    settle(&mut h);
+    let new = field_button(&h, "New").expect("New with the field empty");
+    assert!(!new.accesskit_node().is_disabled());
+    new.click();
+    settle(&mut h);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let dlg = ResKey::parse("mg_door_talk", ResType::DLG).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert!(h.state().dock.find_tab(&Tab::Dialog(dlg)).is_some());
+    assert_eq!(field(&mut h, &key).resref("Conversation").unwrap().to_string(), "mg_door_talk");
+}
+
+/// A creature placed in an area: its Properties' New makes the
+/// conversation, sets the instance's field in the area's GIT and opens
+/// it, one Undo step for both (Redo puts both back); the blueprint it was
+/// placed from is not touched.
+#[test]
+fn a_placed_creature_makes_its_conversation_with_new() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_ui_harness("placed-conversation") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let bp = ResKey::parse("mg_hen_bp", ResType::UTC).unwrap();
+    let path = mg_edit::GffPath::root().item("Creature List", 0);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named("nw_chicken", ResType::UTC).unwrap().into_owned();
+        let mut creature = Gff::read(&data).unwrap().root;
+        creature.set("Conversation", mg_gff::Value::resref(ResRef::EMPTY));
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTC, &creature, at, &[]).unwrap();
+        let make = mg_edit::Edit::SetResource { key: bp, data: Some(data) };
+        let put = mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![make, put])));
+        app.blueprint_pages.insert((git, path.clone()), "Basic");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    }
+    h.run_steps(4);
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path: path.clone() }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(1000.0, 700.0));
+    }
+    settle(&mut h);
+    let blueprint_before = field(&mut h, &bp);
+    let placed = |h: &mut Harness<'_, Moonglow>| {
+        let root = field(h, &git);
+        path.get(&root).unwrap().resref("Conversation").unwrap().to_string()
+    };
+    let depth = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().undo_depth();
+    let before = depth(&h);
+    field_button(&h, "New").expect("New on the instance").click();
+    settle(&mut h);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let name = placed(&mut h);
+    assert!(!name.is_empty(), "the instance's field is set");
+    let dlg = ResKey::parse(&name, ResType::DLG).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert!(h.state().dock.find_tab(&Tab::Dialog(dlg)).is_some(), "the editor is open");
+    assert_eq!(depth(&h), before + 1, "one command for both");
+    assert_eq!(field(&mut h, &bp), blueprint_before, "the blueprint is as it was");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(depth(&h), before, "one Undo takes both");
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert_eq!(placed(&mut h), "");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert_eq!(placed(&mut h), name);
+    assert_eq!(field(&mut h, &bp), blueprint_before);
+}
