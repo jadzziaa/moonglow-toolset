@@ -6,7 +6,9 @@
 //! ([`Pictures::show`]); after the frame the application makes those
 //! wanted, within a [`Budget`], and lets go of the unseen
 //! ([`Pictures::let_go_unseen`]). No threads and no GPU: the application
-//! reads, draws and frees, and what it keeps (`V`) is its own.
+//! reads, draws and frees, and what it keeps (`V`) is its own; or a
+//! [`PicturePainter`] paints them on the caller's thread into egui
+//! textures ([`PaintedPictures`]).
 //!
 //! ```
 //! use mg_uikit::pictures::{Budget, Pictures};
@@ -176,6 +178,193 @@ impl Budget {
     }
 }
 
+/// What a painter made of a picture asked for ([`PicturePainter::paint`]).
+#[derive(Clone, Debug)]
+pub enum Painted {
+    Ready(egui::ColorImage),
+    /// Not yet (its shaders still being made): asked again after
+    /// [`Retry::again`], in a frame it is still shown in.
+    Later,
+    /// None to be had, and why: never asked again.
+    Failed(String),
+}
+
+/// A picture as a gallery's cell shows it ([`PaintedPictures::get`]).
+#[derive(Clone, Copy)]
+pub enum Picture<'a> {
+    Ready(&'a egui::TextureHandle),
+    /// Not made yet (or still being made): the kind's icon.
+    Waiting,
+    /// "No picture", the reason its tip.
+    Failed(&'a str),
+}
+
+/// What paints pictures on the caller's thread, once a frame
+/// ([`PaintedPictures::pump`]): a painter that owns the window's GPU
+/// device, which cannot go to other threads. `as_drawn`: waited for
+/// past [`Retry::give_up`], take it as it is drawn. A closure is one.
+pub trait PicturePainter<K> {
+    fn paint(&mut self, key: K, as_drawn: bool) -> Painted;
+}
+
+impl<K, F: FnMut(K, bool) -> Painted + ?Sized> PicturePainter<K> for F {
+    fn paint(&mut self, key: K, as_drawn: bool) -> Painted {
+        self(key, as_drawn)
+    }
+}
+
+/// When a picture painted [`Painted::Later`] is asked for again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Retry {
+    /// After this long (50 ms).
+    pub again: Duration,
+    /// Waited for this long (20 s), it is asked for as drawn, and failed
+    /// if it is still not.
+    pub give_up: Duration,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Retry { again: Duration::from_millis(50), give_up: Duration::from_secs(20) }
+    }
+}
+
+/// A picture made by a [`PicturePainter`]: its texture, or why there is
+/// none.
+pub struct PaintedPicture(Result<egui::TextureHandle, String>);
+
+impl std::fmt::Debug for PaintedPicture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Ok(texture) => write!(f, "Ready({:?})", texture.id()),
+            Err(reason) => write!(f, "Failed({reason:?})"),
+        }
+    }
+}
+
+impl std::fmt::Debug for Picture<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Picture::Ready(texture) => write!(f, "Ready({:?})", texture.id()),
+            Picture::Waiting => write!(f, "Waiting"),
+            Picture::Failed(reason) => write!(f, "Failed({reason:?})"),
+        }
+    }
+}
+
+/// [`Pictures`] whose pictures a [`PicturePainter`] paints on the
+/// caller's thread into egui textures: the asking and letting go as
+/// [`Pictures`]'s, and those painted [`Painted::Later`] waited for while
+/// they are shown.
+#[derive(Debug)]
+pub struct PaintedPictures<K> {
+    pub pictures: Pictures<K, PaintedPicture>,
+    pub retry: Retry,
+    /// Those painted Later: when first and last asked.
+    tries: HashMap<K, (Instant, Instant)>,
+}
+
+impl<K> Default for PaintedPictures<K> {
+    fn default() -> Self {
+        PaintedPictures {
+            pictures: Pictures::default(),
+            retry: Retry::default(),
+            tries: HashMap::new(),
+        }
+    }
+}
+
+impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
+    /// A new frame ([`Pictures::begin_frame`]).
+    pub fn begin_frame(&mut self) {
+        self.pictures.begin_frame();
+    }
+
+    /// `key`'s picture shown this frame, as its cell shows it.
+    pub fn get(&mut self, key: K) -> Picture<'_> {
+        self.pictures.show(key, |_| false);
+        match self.pictures.get(&key) {
+            Some(PaintedPicture(Ok(texture))) => Picture::Ready(texture),
+            Some(PaintedPicture(Err(reason))) => Picture::Failed(reason),
+            None => Picture::Waiting,
+        }
+    }
+
+    /// After a frame: paints those it asked for and lacks, within
+    /// `budget`, one painted Later again only once [`Retry::again`] has
+    /// passed (and as drawn past [`Retry::give_up`]); those no longer
+    /// shown stop being waited for. Asks for another frame where more
+    /// wait. Past `keep` made, the longest unseen are let go of.
+    pub fn pump(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &mut (impl PicturePainter<K> + ?Sized),
+        budget: Budget,
+        keep: usize,
+    ) {
+        let wanted = self.pictures.take_wanted();
+        self.tries.retain(|k, _| wanted.contains(k));
+        let (started, mut painted, mut left, mut waiting) = (Instant::now(), 0, Vec::new(), false);
+        for key in wanted {
+            if self.pictures.get(&key).is_some() {
+                continue;
+            }
+            let now = Instant::now();
+            let try_at = self.tries.get(&key).copied();
+            if try_at.is_some_and(|(_, last)| now.duration_since(last) < self.retry.again) {
+                waiting = true;
+                left.push(key);
+                continue;
+            }
+            if !budget.more(painted, started) {
+                left.push(key);
+                continue;
+            }
+            let as_drawn =
+                try_at.is_some_and(|(first, _)| now.duration_since(first) >= self.retry.give_up);
+            painted += 1;
+            let made = match painter.paint(key, as_drawn) {
+                Painted::Ready(image) => {
+                    Ok(ctx.load_texture(format!("picture-{key:?}"), image, Default::default()))
+                }
+                Painted::Failed(reason) => Err(reason),
+                Painted::Later if as_drawn => {
+                    Err(format!("Not drawn within {} s", self.retry.give_up.as_secs()))
+                }
+                Painted::Later => {
+                    let first = try_at.map_or(now, |(first, _)| first);
+                    self.tries.insert(key, (first, now));
+                    waiting = true;
+                    left.push(key);
+                    continue;
+                }
+            };
+            self.tries.remove(&key);
+            self.pictures.insert(key, PaintedPicture(made));
+        }
+        if waiting {
+            ctx.request_repaint_after(self.retry.again);
+        }
+        if !left.is_empty() || painted > 0 {
+            ctx.request_repaint();
+        }
+        self.pictures.set_wanted(left);
+        self.pictures.let_go_unseen(keep);
+    }
+
+    /// Lets go of every picture, and of what was waited for.
+    pub fn forget(&mut self) {
+        self.pictures.forget();
+        self.tries.clear();
+    }
+
+    /// Lets go of one picture (its subject edited).
+    pub fn forget_one(&mut self, key: K) {
+        self.pictures.remove(&key);
+        self.tries.remove(&key);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +411,68 @@ mod tests {
         all.sort();
         assert_eq!(all, [40, 50]);
         assert!(p.is_empty() && p.wanted().is_empty());
+    }
+
+    #[test]
+    fn painted_pictures_wait_for_later_and_keep_failures() {
+        let ctx = egui::Context::default();
+        let retry = Retry { again: Duration::ZERO, give_up: Duration::from_secs(3600) };
+        let mut p: PaintedPictures<u32> = PaintedPictures { retry, ..Default::default() };
+        let asked: std::cell::RefCell<Vec<(u32, bool)>> = Default::default();
+        let mut painter = |key: u32, as_drawn: bool| {
+            asked.borrow_mut().push((key, as_drawn));
+            match key {
+                1 => Painted::Ready(egui::ColorImage::filled([2, 2], egui::Color32::RED)),
+                2 => Painted::Failed("no model".into()),
+                _ => Painted::Later,
+            }
+        };
+        let frame = |p: &mut PaintedPictures<u32>,
+                     painter: &mut dyn FnMut(u32, bool) -> Painted,
+                     keys: &[u32]| {
+            p.begin_frame();
+            for k in keys {
+                let _ = p.get(*k);
+            }
+            p.pump(&ctx, painter, Budget::default(), PICTURES_KEPT);
+        };
+        frame(&mut p, &mut painter, &[1, 2, 3]);
+        assert!(matches!(p.get(1), Picture::Ready(_)));
+        assert!(matches!(p.get(2), Picture::Failed("no model")));
+        assert!(matches!(p.get(3), Picture::Waiting));
+        frame(&mut p, &mut painter, &[1, 2, 3]);
+        assert_eq!(
+            *asked.borrow(),
+            [(1, false), (2, false), (3, false), (3, false)],
+            "a failure not asked again"
+        );
+        // (Out of sight: no longer waited for, its first try forgotten.)
+        frame(&mut p, &mut painter, &[1]);
+        assert!(p.tries.is_empty());
+        // (Past the limit: asked as drawn, and failed if still Later.)
+        p.retry.give_up = Duration::ZERO;
+        frame(&mut p, &mut painter, &[3]);
+        frame(&mut p, &mut painter, &[3]);
+        assert_eq!(asked.borrow().last(), Some(&(3, true)));
+        assert!(matches!(p.get(3), Picture::Failed(r) if r.starts_with("Not drawn")));
+    }
+
+    #[test]
+    fn a_later_is_asked_again_only_after_its_wait() {
+        let ctx = egui::Context::default();
+        let mut p: PaintedPictures<u32> = PaintedPictures::default();
+        let mut count = 0;
+        let mut painter = |_: u32, _: bool| {
+            count += 1;
+            Painted::Later
+        };
+        for _ in 0..3 {
+            p.begin_frame();
+            let _ = p.get(7);
+            p.pump(&ctx, &mut painter, Budget::default(), PICTURES_KEPT);
+        }
+        assert_eq!(count, 1, "three frames within 50 ms: asked once");
+        assert_eq!(p.pictures.wanted(), &[7]);
     }
 
     #[test]
