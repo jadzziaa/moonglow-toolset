@@ -106,7 +106,7 @@ use super::*;
 
 /// A texture authored for the rows.
 #[derive(Clone, Copy)]
-enum Tex {
+pub(super) enum Tex {
     /// A TGA of one color (RGB).
     Tga([u8; 3]),
     /// A TGA of one gray (8 bits, uncompressed: as the game's own gray
@@ -217,7 +217,7 @@ fn file_of(t: Tex) -> (&'static str, Vec<u8>) {
     }
 }
 
-const RED: [u8; 3] = [230, 20, 20];
+pub(super) const RED: [u8; 3] = [230, 20, 20];
 const GREEN: [u8; 3] = [20, 210, 20];
 const BLUE: [u8; 3] = [30, 60, 255];
 const YELLOW: [u8; 3] = [240, 230, 20];
@@ -228,7 +228,7 @@ const PINK: [u8; 3] = [255, 150, 200];
 /// purple (`mg_pltx`), Hair's cyan (another part's PLT).
 const PALETTES: [(&str, [u8; 3]); 3] =
     [("pal_cloth01", [255, 120, 0]), ("pal_leath01", [120, 0, 230]), ("pal_hair01", [0, 220, 220])];
-const OWN_PLT: Tex = Tex::Plt(4);
+pub(super) const OWN_PLT: Tex = Tex::Plt(4);
 /// A material of the name a mesh names (`mg_nma`): a normal map of 2
 /// stripes, no texture0.
 const NAMED_MTR: &str = "renderhint NormalAndSpecMapped\ntexture1 mg_stripe2\n";
@@ -243,18 +243,18 @@ const OWN_MTR: Tex = Tex::Mtr("renderhint NormalAndSpecMapped\ntexture1 mg_strip
 /// and 298 for its PLT) and the files of the part's name that exist
 /// (as `pmh0_` of the part's name where `human` is set: found only by
 /// the fallback).
-struct Row {
-    label: &'static str,
-    skeleton: &'static str,
-    n: u16,
-    meshes: &'static [&'static str],
-    own: &'static [Tex],
-    human: bool,
-    armored: bool,
+pub(super) struct Row {
+    pub(super) label: &'static str,
+    pub(super) skeleton: &'static str,
+    pub(super) n: u16,
+    pub(super) meshes: &'static [&'static str],
+    pub(super) own: &'static [Tex],
+    pub(super) human: bool,
+    pub(super) armored: bool,
     /// Other files for the override, by name.
-    extra: &'static [(&'static str, Tex)],
+    pub(super) extra: &'static [(&'static str, Tex)],
     /// Textures of the part's name in a hak (`mg_parts`) the module has.
-    hak: &'static [Tex],
+    pub(super) hak: &'static [Tex],
 }
 
 const ROWS: [Row; 70] = [
@@ -1062,7 +1062,7 @@ const GROUPS: [&str; 17] = [
 const CLOSE: [&str; 2] = ["4578", "%+#="];
 
 /// An uncompressed 24-bit TGA of one color.
-fn flat_tga(w: u16, h: u16, [r, g, b]: [u8; 3]) -> Vec<u8> {
+pub(super) fn flat_tga(w: u16, h: u16, [r, g, b]: [u8; 3]) -> Vec<u8> {
     let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     t.extend(w.to_le_bytes());
     t.extend(h.to_le_bytes());
@@ -1200,7 +1200,7 @@ fn part_mdl(name: &str, bitmaps: &[String], head: bool) -> String {
 
 /// The override's files for the rows: their models and textures, the
 /// shared textures and the flat palettes.
-fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
+pub(super) fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
     let mut files: Vec<(String, Vec<u8>)> = vec![
         ("mg_red.tga".into(), flat_tga(8, 8, RED)),
         ("mg_green.tga".into(), flat_tga(8, 8, GREEN)),
@@ -1306,7 +1306,7 @@ fn hak(rows: &[&Row]) -> Option<Vec<u8>> {
 
 /// The creature of `row` placed `x` meters east in the reading's area,
 /// wearing `armor` where the row says.
-fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
+pub(super) fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
     use mg_module::instances::{Placement, Placing, instance};
     let robe = row.skeleton.strip_suffix("robe");
     let (appearance, race, phenotype) = match robe.unwrap_or(row.skeleton) {
@@ -1314,6 +1314,7 @@ fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
         "pme0" => (1, 1, 0),
         "pmd0" => (0, 0, 0),
         "pmh2" => (6, 6, 2),
+        "pmh15" => (6, 6, 15),
         _ => (6, 6, 0),
     };
     let bp = Gff::read(&r.game.resman.get_named("nw_commale", ResType::UTC).unwrap()).unwrap();
@@ -1421,7 +1422,7 @@ fn helmet(game: &GameData, n: u16) -> Gff {
 }
 
 /// The x of the `i`th of `k` creatures.
-fn x_of(i: usize, k: usize) -> f32 {
+pub(super) fn x_of(i: usize, k: usize) -> f32 {
     20.0 + (i as f32 - (k as f32 - 1.0) / 2.0) * 0.8
 }
 
@@ -1692,7 +1693,7 @@ fn part_textures_renamed_look() {
 /// Moonglow's area view of the group's scene (in `dir`), from about where
 /// the client looks, kept as `<group>_<side>.png` and `_on.png`.
 #[allow(clippy::too_many_arguments)]
-fn moonglow(
+pub(super) fn moonglow(
     dir: &Path,
     are: &Gff,
     git: &Gff,

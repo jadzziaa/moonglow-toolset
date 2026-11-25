@@ -67,26 +67,26 @@ const READ_EMITTERS: [Emitter; 13] = [
 
 /// The particles on the floor, half under it: what each is, where, its
 /// blend and its colour.
-const FLOOR_EMITTERS: [(&str, [f32; 3], &str, [f32; 3]); 3] = [
+pub(super) const FLOOR_EMITTERS: [(&str, [f32; 3], &str, [f32; 3]); 3] = [
     ("floor Normal", [-1.6, 0.0, 0.0], "Normal", [1.0, 0.55, 0.25]),
     ("floor Punch-Through", [0.0, 0.0, 0.0], "Punch-Through", [0.3, 0.9, 0.4]),
     ("floor Lighten", [1.6, 0.0, 0.0], "Lighten", [0.4, 0.5, 1.0]),
 ];
 
 /// The floor particles' size.
-const FLOOR_SIZE: f32 = 1.2;
+pub(super) const FLOOR_SIZE: f32 = 1.2;
 
 /// The rows of a floor particle's foot compared, from its edge up.
 const FOOT_ROWS: usize = 8;
 
 /// Where the placeable stands (its model's origin; turned by nothing).
-const SOFT_AT: [f32; 3] = [20.0, 23.0, 0.0];
+pub(super) const SOFT_AT: [f32; 3] = [20.0, 23.0, 0.0];
 
 /// One still particle (made once a second, living 30: the same place),
 /// textured white. (A Lighten one lives 0.9 s: a few in one place add up
 /// to white. A motion-blurred one drifts, 1 cm a second, to have a
 /// direction.)
-fn one(
+pub(super) fn one(
     name: &str,
     at: [f32; 3],
     size: (f32, f32),
@@ -213,7 +213,12 @@ fn emitter_name(i: usize) -> &'static str {
 
 /// The scene's module in `dir` (its user folder: the model, the white
 /// texture, a `placeables.2da` with the placeable's row, `settings`).
-fn soft_module(root: &Path, dir: &Path, read: bool, settings: &str) -> (GameData, Gff, Gff) {
+pub(super) fn soft_module(
+    root: &Path,
+    dir: &Path,
+    read: bool,
+    settings: &str,
+) -> (GameData, Gff, Gff) {
     use mg_module::instances::{Placement, Placing, instance};
     let over = dir.join("user/override");
     std::fs::create_dir_all(&over).unwrap();
