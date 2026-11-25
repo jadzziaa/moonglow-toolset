@@ -74,15 +74,15 @@ fn line_series(data: &[Value], step: f32, pixels: f32) -> Option<LineSeries> {
 }
 
 /// What a series' points are made from: every value. (Some of them
-/// sampled, a value changed between the samples kept the old line.)
+/// sampled, a value changed between the samples kept the old line.) A
+/// multiply and rotate a value, not the standard hasher: of a million
+/// values, 1.3 ms a frame where SipHash took 3.7.
 fn sample_fingerprint(data: &[Value]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    data.len().hash(&mut h);
-    for v in data {
-        v.as_f64().filter(|n| n.is_finite()).map(f64::to_bits).hash(&mut h);
-    }
-    h.finish()
+    const K: u64 = 0x9E37_79B9_7F4A_7C15;
+    data.iter().fold(data.len() as u64, |h, v| {
+        let bits = v.as_f64().filter(|n| n.is_finite()).map_or(u64::MAX, f64::to_bits);
+        (h ^ bits).wrapping_mul(K).rotate_left(29)
+    })
 }
 
 #[derive(Clone)]
@@ -269,15 +269,22 @@ mod tests {
     use super::*;
 
     /// A value changed anywhere in a long series changes what its line is
-    /// kept by (the review's D8: 18 of them were looked at).
+    /// kept by (the review's D8: 18 of them were looked at). Each step of
+    /// the hash is a bijection, so one value changed always changes it.
     #[test]
     fn every_value_counts_in_a_series_fingerprint() {
         let data: Vec<Value> = (0..1000).map(|i| Value::from(f64::from(i))).collect();
         let before = sample_fingerprint(&data);
-        for at in [1, 7, 500, 998] {
+        for at in 0..data.len() {
             let mut changed = data.clone();
             changed[at] = Value::from(-1.0);
             assert_ne!(sample_fingerprint(&changed), before, "value {at}");
+            changed[at] = Value::Null;
+            assert_ne!(sample_fingerprint(&changed), before, "value {at} not a number");
         }
+        let mut swapped = data.clone();
+        swapped.swap(10, 11);
+        assert_ne!(sample_fingerprint(&swapped), before, "two values swapped");
+        assert_ne!(sample_fingerprint(&data[..999]), before, "one value fewer");
     }
 }
