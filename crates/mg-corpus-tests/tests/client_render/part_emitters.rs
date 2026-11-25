@@ -360,3 +360,101 @@ fn part_emitters_look() {
         print_log(&dir);
     }
 }
+
+/// The torch's light as the client draws it (`docs/deferred.md`, "A
+/// creature holding a torch"): in a dark room a commoner holding
+/// `nw_it_torch001` (facing the camera) and boxes of 0.5 m around him
+/// ([`LIGHT_BOXES`]: flat tops of one color, which the light scales) from
+/// high above (`MG_LIGHT_CAMERA`, `facing,distance,pitch`: pitch 10 is
+/// nearly straight down). Three pictures, each `light_<run>.png` in
+/// `target/test-output/part_emitters/`: `locate` (the room lit well, no
+/// torch, the boxes magenta: where each is), `torch` and `bare` (the same
+/// dark room with the torch and without, the boxes white). The boxes'
+/// tops' brightness in `torch` against `bare` is the torch's light at
+/// their distance; `MG_RUNS=torch,bare` for some. The pictures are
+/// measured by hand.
+#[test]
+#[ignore]
+fn part_emitters_torch_light() {
+    let _ = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let (placeables, boxed) = super::readings::placeables_with(&base, &[("mg_lbox", 0)]);
+    let kept = mg_testkit::test_output().join("part_emitters");
+    std::fs::create_dir_all(&kept).unwrap();
+    let only = std::env::var("MG_RUNS").ok();
+    let camera = std::env::var("MG_LIGHT_CAMERA").unwrap_or_else(|_| "90,30,10".into());
+    let c: Vec<f32> = camera.split(',').map(|v| v.parse().unwrap()).collect();
+    let dark = Lighting { ambient: 0x202020, diffuse: 0x303030, main_light: 0, only_tile: None };
+    let lit = Lighting { ambient: 0x606060, diffuse: 0x909090, main_light: 0, only_tile: None };
+    for (run, light, torch) in
+        [("locate", lit, false), ("torch", dark, true), ("bare", dark, false)]
+    {
+        if only.as_deref().is_some_and(|o| !o.split(',').any(|g| g == run)) {
+            continue;
+        }
+        let color: [u8; 3] = if run == "locate" { [255, 0, 255] } else { [255, 255, 255] };
+        let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 24, 0];
+        tga.extend([color[2], color[1], color[0]].repeat(64));
+        let slab = super::part_textures::box_node(
+            "mg_lbox",
+            "top",
+            "mg_lboxtex",
+            [-0.25, -0.25, 0.0],
+            [0.25, 0.25, 0.3],
+        );
+        let files: Vec<(&str, Vec<u8>)> = vec![
+            ("mg_lboxtex.tga", tga),
+            ("mg_lbox.mdl", model_with("mg_lbox", &[slab], &[]).into_bytes()),
+            ("placeables.2da", placeables.clone().into_bytes()),
+        ];
+        let mut r = Reading::new(&format!("part_emitters_light_{run}"), "tic01", light, &files);
+        let equip: &[(u32, &str)] = if torch { &[(0x20, "nw_it_torch001")] } else { &[] };
+        let fields = [("Appearance_Head", Value::Byte(1))];
+        put_creature(&mut r, "nw_commale", [LIGHT_AT[0], LIGHT_AT[1], 0.0], 180.0, &fields, equip);
+        for (dx, dy) in LIGHT_BOXES {
+            r.place(boxed, [LIGHT_AT[0] + dx, LIGHT_AT[1] + dy, 0.0], 0.0, &[]);
+        }
+        let entry = super::readings::enter(INVISIBLE, (c[0], c[1], c[2]));
+        let dir = r.dir.clone();
+        let (_, shot) = r.shoot(&entry, SETTINGS);
+        print_log(&dir);
+        save_png(&shot, &kept.join(format!("light_{run}.png")));
+    }
+    eprintln!("pictures: {}", kept.display());
+}
+
+/// Where the torch-bearer of [`part_emitters_torch_light`] stands.
+const LIGHT_AT: [f32; 2] = [20.0, 22.2];
+
+/// The boxes' offsets from him (east and north, meters): east and west
+/// along his row at their distances, and north and south of him.
+const LIGHT_BOXES: [(f32, f32); 26] = [
+    (1.0, 0.0),
+    (2.0, 0.0),
+    (3.0, 0.0),
+    (4.0, 0.0),
+    (5.0, 0.0),
+    (6.0, 0.0),
+    (8.0, 0.0),
+    (-1.5, 0.0),
+    (-2.5, 0.0),
+    (-3.5, 0.0),
+    (-4.5, 0.0),
+    (-5.5, 0.0),
+    (-7.0, 0.0),
+    (0.0, 2.0),
+    (0.0, 4.0),
+    (0.0, 6.0),
+    (0.0, 8.0),
+    (0.0, 10.0),
+    (0.0, 12.0),
+    (0.0, -2.0),
+    (0.0, -4.0),
+    (0.0, -6.0),
+    (0.0, -8.0),
+    (0.0, -10.0),
+    (0.0, -12.0),
+    (0.0, -14.0),
+];

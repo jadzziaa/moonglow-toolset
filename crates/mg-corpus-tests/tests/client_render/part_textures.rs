@@ -49,6 +49,12 @@
 //! TGA (n, o, A, B) or a DDS of one luminance channel (Q). Such a DDS
 //! alone the client draws in colors of no rule (R, S, T, U: 60 blue, 128
 //! dark red, 0 and 255 black), where Moonglow draws it gray.
+//! The same with the whole chain of levels written (2026-11-25): the fixture's
+//! one level was not the cause. A rename by `ReplaceObjectTexture`
+//! ([`part_textures_renamed_look`], 2026-11-25) is drawn with the new
+//! name's material (its `texture0` over a TGA or PLT of the name) and is
+//! dropped, the old texture kept, where the name's MTR has no `texture0`
+//! or the name has no file.
 //!
 //! Helmets, seen (2026-11-13, GitHub issue 45: the game's hood
 //! `helm_033`, whose mesh names `helm`, a texture that is nowhere, drawn
@@ -113,7 +119,9 @@ enum Tex {
     /// A standard DDS (DXT1) of one gray.
     DdsGray(u8),
     /// A standard uncompressed DDS of one channel (luminance, 8 bits) of
-    /// one gray.
+    /// one gray, with the whole chain of levels (8, 4, 2 and 1 texels
+    /// wide; written with one level until 2026-11-25, which the client
+    /// may read past: the learning of 2026-10-21).
     DdsLuminance(u8),
     /// An MTR, its text.
     Mtr(&'static str),
@@ -126,6 +134,42 @@ enum Tex {
     Stripes(u8),
     /// A 32-bit TGA of one color and one alpha.
     Tga32([u8; 3], u8),
+}
+
+/// A standard uncompressed DDS of one channel (luminance, 8 bits) of one
+/// gray, with the whole chain of levels.
+fn luminance_dds(v: u8) -> Vec<u8> {
+    let mut h = b"DDS ".to_vec();
+    let mut u = |x: u32| h.extend(x.to_le_bytes());
+    // (Size; flags: caps, height, width, pixel format, pitch, level
+    // count; the pitch; no depth; the levels.)
+    u(124);
+    u(0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x2_0000);
+    u(8);
+    u(8);
+    u(8);
+    u(0);
+    u(4);
+    for _ in 0..11 {
+        u(0);
+    }
+    // The pixel format: luminance, 8 bits, the mask its byte.
+    u(32);
+    u(0x2_0000);
+    u(0);
+    u(8);
+    u(0xFF);
+    u(0);
+    u(0);
+    u(0);
+    u(0x1000 | 0x8 | 0x40_0000);
+    for _ in 0..4 {
+        u(0);
+    }
+    for w in [8usize, 4, 2, 1] {
+        h.extend(vec![v; w * w]);
+    }
+    h
 }
 
 /// A texture's file: its extension and contents.
@@ -148,37 +192,7 @@ fn file_of(t: Tex) -> (&'static str, Vec<u8>) {
             ("dds", super::programs::dds(b"DXT1", block))
         }
         Tex::DdsGray(v) => file_of(Tex::Dds([v, v, v])),
-        Tex::DdsLuminance(v) => {
-            let mut h = b"DDS ".to_vec();
-            let mut u = |x: u32| h.extend(x.to_le_bytes());
-            // (Size; flags: caps, height, width, pixel format, pitch; the
-            // pitch; no depth or levels.)
-            u(124);
-            u(0x1 | 0x2 | 0x4 | 0x8 | 0x1000);
-            u(8);
-            u(8);
-            u(8);
-            u(0);
-            u(0);
-            for _ in 0..11 {
-                u(0);
-            }
-            // The pixel format: luminance, 8 bits, the mask its byte.
-            u(32);
-            u(0x2_0000);
-            u(0);
-            u(8);
-            u(0xFF);
-            u(0);
-            u(0);
-            u(0);
-            u(0x1000);
-            for _ in 0..4 {
-                u(0);
-            }
-            h.extend([v; 64]);
-            ("dds", h)
-        }
+        Tex::DdsLuminance(v) => ("dds", luminance_dds(v)),
         Tex::Mtr(text) => ("mtr", text.as_bytes().to_vec()),
         Tex::Plt(layer) => ("plt", flat_plt(layer)),
         Tex::Stripes(bands) => {
@@ -1508,6 +1522,171 @@ fn part_textures_look() {
         moonglow(&dir, &r_are, &r_git, &haks, group, &side, &kept, &client, camera);
     }
     eprintln!("pictures: {}", kept.display());
+}
+
+/// What each of [`RENAMES`] is renamed to: `mg_rn1` to `mg_rn6` (its
+/// files: [`RENAMES`]' `extra`).
+const RENAMED: [&str; 6] = ["mg_rn1", "mg_rn2", "mg_rn3", "mg_rn4", "mg_rn5", "mg_rn6"];
+
+/// The creatures (a chest box naming the red TGA `mg_red`, no PLT of its
+/// name) and the placeables (a box of the same model, `mg_rnbox`) whose
+/// `mg_red` is replaced by `ReplaceObjectTexture`, each by a name with
+/// other files:
+/// 1. an MTR (`texture0` pink) and a blue TGA;
+/// 2. an MTR (`texture0` pink) and a PLT (Cloth 1: orange);
+/// 3. a blue TGA alone;
+/// 4. an MTR with no `texture0` (a normal map) and a blue TGA;
+/// 5. that MTR alone;
+/// 6. no file at all.
+const RENAMES: [Row; 6] = [
+    Row {
+        label: "r1: renamed to an MTR (texture0 pink) beside a blue TGA",
+        skeleton: "pmh0",
+        n: 190,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[("mg_rn1", Tex::Mtr("texture0 mg_pink\n")), ("mg_rn1", Tex::Tga(BLUE))],
+        hak: &[],
+    },
+    Row {
+        label: "r2: renamed to an MTR (texture0 pink) beside a PLT (orange)",
+        skeleton: "pmh0",
+        n: 191,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[("mg_rn2", Tex::Mtr("texture0 mg_pink\n")), ("mg_rn2", OWN_PLT)],
+        hak: &[],
+    },
+    Row {
+        label: "r3: renamed to a blue TGA alone",
+        skeleton: "pmh0",
+        n: 192,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[("mg_rn3", Tex::Tga(BLUE))],
+        hak: &[],
+    },
+    Row {
+        label: "r4: renamed to an MTR without texture0 beside a blue TGA",
+        skeleton: "pmh0",
+        n: 193,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[("mg_rn4", OWN_MTR), ("mg_rn4", Tex::Tga(BLUE))],
+        hak: &[],
+    },
+    Row {
+        label: "r5: renamed to an MTR without texture0, alone",
+        skeleton: "pmh0",
+        n: 194,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[("mg_rn5", OWN_MTR)],
+        hak: &[],
+    },
+    Row {
+        label: "r6: renamed to a name with no file",
+        skeleton: "pmh0",
+        n: 195,
+        meshes: &["mg_red"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+];
+
+/// A creature's and a placeable's `ReplaceObjectTexture` of a texture a
+/// mesh names (the deferred list's "A body part's name given in place of
+/// its mesh's"): [`RENAMES`], west to east, the creatures (chests) at
+/// 22.2 north and the placeables (the same boxes) behind them, each
+/// renamed by the entry script (`ReplaceObjectTexture(o, "mg_red",
+/// "mg_rnN")`, found by tag), the client's picture
+/// `renamed_client.png`; then Moonglow's area view of the same with the
+/// replacement given as the objects' `TextureReplace` field (the client
+/// reads field and script alike, `batch6_replaced_textures`).
+/// Pictures in `target/test-output/part_textures/renamed_*.png`.
+#[test]
+#[ignore]
+fn part_textures_renamed_look() {
+    let _ = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let kept = mg_testkit::test_output().join("part_textures");
+    std::fs::create_dir_all(&kept).unwrap();
+    let side = std::env::var("MG_SIDE").unwrap_or_else(|_| "moonglow".into());
+    let rows: Vec<&Row> = RENAMES.iter().collect();
+    let mut files = overrides(&rows);
+    // (The placeables' model: the chest box.)
+    let model = part_mdl("mg_rnbox", &["mg_red".to_string()], false)
+        .replace("classification character", "classification other");
+    files.push(("mg_rnbox.mdl".into(), model.into_bytes()));
+    let base = {
+        let root = mg_testkit::nwn_root().unwrap();
+        GameData::open(&GameInstall::new(&root, None, "en")).unwrap()
+    };
+    let (table, first) = super::readings::placeables_with(&base, &[("mg_rnbox", 0)]);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let refs: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("part_textures_renamed", "tic01", light, &refs);
+    let items = HashMap::new();
+    for (i, row) in rows.iter().enumerate() {
+        place(&mut r, row, x_of(i, rows.len()), &items);
+        let mut list = r.git.root.list("Creature List").map(<[_]>::to_vec).unwrap_or_default();
+        list.last_mut().unwrap().set("Tag", Value::String(format!("MG_RN{}", i + 1).into_bytes()));
+        r.git.root.set("Creature List", Value::List(list));
+        let tag = Value::String(format!("MG_RN{}", i + 1).into_bytes());
+        r.place(first, [x_of(i, rows.len()), 23.6, 0.0], 180.0, &[("Tag", tag)]);
+    }
+    let script = "object o = GetFirstObjectInArea(area);\n    \
+        while (GetIsObjectValid(o)) {\n        string t = GetTag(o);\n        \
+        if (GetStringLeft(t, 5) == \"MG_RN\") {\n            \
+        ReplaceObjectTexture(o, \"mg_red\", \"mg_rn\" + GetStringRight(t, 1));\n            \
+        Log(\"renamed \" + t);\n        }\n        o = GetNextObjectInArea(area);\n    }";
+    let entry = enter(&format!("{INVISIBLE}\n    {script}"), (90.0, 5.0, 75.0));
+    let dir = r.dir.clone();
+    let (are, mut git) = (r.are.clone(), r.git.clone());
+    let client_png = kept.join("renamed_client.png");
+    let client = if std::env::var_os("MG_MOONGLOW_ONLY").is_some() {
+        r.save(&entry, SETTINGS);
+        common::read_png(&client_png)
+    } else {
+        let (_, shot) = r.shoot(&entry, SETTINGS);
+        print_log(&dir);
+        save_png(&shot, &client_png);
+        shot
+    };
+    // (Moonglow's side: the replacement as the field.)
+    let field = |new: &str| {
+        let mut e = mg_gff::Struct::new(0);
+        e.set("OldTexture", Value::resref(ResRef::from_str("mg_red").unwrap()));
+        e.set("NewTexture", Value::resref(ResRef::from_str(new).unwrap()));
+        let mut t = mg_gff::Struct::new(9);
+        t.set("TextureReplaceLi", Value::List(vec![e]));
+        Value::Struct(t)
+    };
+    for list in ["Creature List", "Placeable List"] {
+        let mut objects = git.root.list(list).map(<[_]>::to_vec).unwrap_or_default();
+        for o in &mut objects {
+            let tag = o.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+            if let Some(i) = tag.and_then(|t| t.strip_prefix("MG_RN")?.parse::<usize>().ok()) {
+                o.set("TextureReplace", field(RENAMED[i - 1]));
+            }
+        }
+        git.root.set(list, Value::List(objects));
+    }
+    moonglow(&dir, &are, &git, &[], "renamed", &side, &kept, &client, "4.6,74,1.0,48");
 }
 
 /// Moonglow's area view of the group's scene (in `dir`), from about where
