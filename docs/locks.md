@@ -33,7 +33,7 @@ shared mode.
 | File | `${MOONGLOW_ORACLE:-$HOME/.local/share/moonglow-oracle}/locks/display.lock` |
 | Mode | exclusive, held for the run's life |
 | Made | on first use, never deleted (deleting a lock file splits it into two locks) |
-| Holder line | the holder writes one line into the file: `PID 1234, started 09:12:05, <command>, in <cwd>` |
+| Holder line | the holder writes one line into the file: `PID 1234, started 09:12:05, <command>, in <cwd>` (on Windows a lock is mandatory, so the line can't be read while the file is held: a waiter says "held by someone"; the display is Linux's alone) |
 
 Take it **before** restarting the display (`headless.sh stop`, `start`) and
 before `headless.sh check`, and keep the descriptor open for as long as

@@ -272,6 +272,9 @@ mod tests {
         let _ = std::io::stdin().read_line(&mut rest);
     }
 
+    // (Unix only: on Windows a lock is mandatory, so the holder's line can't
+    // be read while the file is held; the display is Linux's alone anyway.)
+    #[cfg(unix)]
     #[test]
     fn the_display_is_exclusive_across_processes_and_says_who_holds_it() {
         let dir = scratch("exclusive");
