@@ -112,7 +112,7 @@ display, the last 1,000 (`mg_display_history` in `tools/locks.sh`), so a
 run that failed can be set beside what happened to the display at the time:
 
 - `headless.sh start` when it launches a session (its display and session PID, or that it did not start), and `headless.sh stop`;
-- `run-client.sh` at the client's start (the display, the scratch folder, the arguments) and at its end, with the exit status (a `kill -9` of the script leaves no end line: the sandbox dies with it);
+- `run-client.sh` at the client's start (the display, the scratch folder, the arguments) and at its end, with the exit status (a SIGTERM or SIGINT to the script stops the client and still writes the end, which is how the client tests stop it, `common::stop_client`; a `kill -9` of the script leaves no end line: the sandbox dies with it);
 - `run-server-and-client.sh` at its start.
 
 Each line gives the UTC time, the PID, the event, the lock's state (held
