@@ -218,8 +218,7 @@ fn client_driven(dir: &Path, steps: &str, after: Duration) -> bool {
         ready &= ok;
         std::thread::sleep(after);
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    common::stop_client(&mut child);
     ready
 }
 

@@ -1492,8 +1492,7 @@ fn our_clients(dir: &Path) -> Vec<String> {
 
 /// Stops the client started (its sandbox, then any client of `dir` left).
 fn stop(child: &mut Child, dir: &Path) {
-    let _ = child.kill();
-    let _ = child.wait();
+    common::stop_client(child);
     for _ in 0..20 {
         let left = our_clients(dir);
         if left.is_empty() {

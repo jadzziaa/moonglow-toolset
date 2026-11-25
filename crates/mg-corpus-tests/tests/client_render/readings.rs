@@ -286,8 +286,7 @@ pub(super) fn client_after(
             winshot("client_then.png");
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    common::stop_client(&mut child);
     (first, said)
 }
 
