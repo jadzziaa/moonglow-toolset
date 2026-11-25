@@ -165,8 +165,11 @@ undocumented_unsafe_blocks = "warn"
 [profile.dev]
 debug = "line-tables-only"
 
+# Strip DWARF from third-party dependencies in dev/test builds: otherwise each
+# linked test executable embeds ~330 MB of duplicated dependency DWARF.
 [profile.dev.package."*"]
 opt-level = 2
+debug = 0
 
 [profile.test]
 opt-level = 1

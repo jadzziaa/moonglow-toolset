@@ -208,16 +208,32 @@ pub fn test_output() -> PathBuf {
 
 /// A builder's files that a report came with, where they are on this
 /// machine (they are not the project's, and never committed): the folder
-/// `name` in `MOONGLOW_BUILDER_FILES`, else in the main checkout's
-/// `target/builder-files/` (`~/Projects/moonglow-toolset`). `None` where
-/// it isn't: a test of them skips.
+/// `name` in `MOONGLOW_BUILDER_FILES`, else `~/.local/share/moonglow-builder-files`
+/// (outside `target/` so `cargo clean` cannot wipe it), else in the main
+/// checkout's `target/builder-files/`. `None` where it isn't: a test of
+/// them skips.
 pub fn builder_files(name: &str) -> Option<PathBuf> {
-    let base = match env::var_os("MOONGLOW_BUILDER_FILES") {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => PathBuf::from(env::var_os("HOME")?)
-            .join("Projects/moonglow-toolset/target/builder-files"),
-    };
-    Some(base.join(name)).filter(|d| d.is_dir())
+    builder_files_in(
+        env::var_os("MOONGLOW_BUILDER_FILES").filter(|d| !d.is_empty()).map(PathBuf::from),
+        env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from),
+        name,
+    )
+}
+
+fn builder_files_in(
+    env_dir: Option<PathBuf>,
+    home: Option<PathBuf>,
+    name: &str,
+) -> Option<PathBuf> {
+    let mut bases = Vec::new();
+    if let Some(dir) = env_dir {
+        bases.push(dir);
+    }
+    if let Some(home) = home {
+        bases.push(home.join(".local/share/moonglow-builder-files"));
+        bases.push(home.join("Projects/moonglow-toolset/target/builder-files"));
+    }
+    bases.into_iter().map(|b| b.join(name)).find(|d| d.is_dir())
 }
 
 /// A fresh, empty scratch directory for a test under `target/test-output/`
@@ -355,6 +371,37 @@ mod tests {
         std::fs::write(d.join("x"), b"1").unwrap();
         let d = scratch_dir("mg-testkit-self");
         assert_eq!(std::fs::read_dir(d).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn builder_files_checks_env_override_and_finds_existing_folder() {
+        let root = scratch_dir("mg-testkit-builder-files");
+        let env_dir = root.join("env");
+        let home = root.join("home");
+        let xdg = home.join(".local/share/moonglow-builder-files");
+        let legacy = home.join("Projects/moonglow-toolset/target/builder-files");
+        std::fs::create_dir_all(env_dir.join("sample")).unwrap();
+        std::fs::create_dir_all(xdg.join("sample")).unwrap();
+        std::fs::create_dir_all(legacy.join("sample")).unwrap();
+        std::fs::create_dir_all(xdg.join("xdg-only")).unwrap();
+        std::fs::create_dir_all(legacy.join("legacy-only")).unwrap();
+
+        assert_eq!(
+            builder_files_in(Some(env_dir.clone()), Some(home.clone()), "sample"),
+            Some(env_dir.join("sample"))
+        );
+        assert_eq!(builder_files_in(None, Some(home.clone()), "sample"), Some(xdg.join("sample")));
+        assert_eq!(
+            builder_files_in(None, Some(home.clone()), "xdg-only"),
+            Some(xdg.join("xdg-only"))
+        );
+        assert_eq!(
+            builder_files_in(None, Some(home.clone()), "legacy-only"),
+            Some(legacy.join("legacy-only"))
+        );
+        assert!(
+            builder_files_in(Some(env_dir), Some(home), "__missing_builder_folder__").is_none()
+        );
     }
 
     /// A scratch folder is emptied by each call: two tests (or two calls of
