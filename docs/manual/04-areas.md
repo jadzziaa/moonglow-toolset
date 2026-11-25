@@ -2375,9 +2375,9 @@ half written, cut short or gone keeps what the editor has, and the log
 says so once. The areas and the Tiles palette draw a tileset from the
 game data, so one in the override, a development folder or a hak is
 redrawn when that is read again; one kept inside the module is redrawn
-when its `.set` there changes: imported, or changed on disk in a module
-folder or project at once, written by a plugin once the module is next
-saved.
+when its `.set` there changes: imported, changed on disk in a module
+folder or project, written by a plugin (once its command is done), or
+put back or again by Undo and Redo.
 
 To use the tileset, put the `.set`, palette, models, walkmeshes, textures
 and minimap pictures in a hak (Tools › Haks › Build Hak from Folder…).

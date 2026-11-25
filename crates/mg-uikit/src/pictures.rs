@@ -304,7 +304,10 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
     ) {
         let wanted = self.pictures.take_wanted();
         self.tries.retain(|k, _| wanted.contains(k));
-        let (started, mut painted, mut left, mut waiting) = (Instant::now(), 0, Vec::new(), false);
+        let (started, mut painted, mut left) = (Instant::now(), 0, Vec::new());
+        // (Those waiting their turn ask for a frame after the wait; those
+        // over the budget, and those made, for the next at once.)
+        let (mut waiting, mut at_once) = (false, false);
         for key in wanted {
             if self.pictures.get(&key).is_some() {
                 continue;
@@ -317,6 +320,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
                 continue;
             }
             if !budget.more(painted, started) {
+                at_once = true;
                 left.push(key);
                 continue;
             }
@@ -341,11 +345,12 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
             };
             self.tries.remove(&key);
             self.pictures.insert(key, PaintedPicture(made));
+            at_once = true;
         }
         if waiting {
             ctx.request_repaint_after(self.retry.again);
         }
-        if !left.is_empty() || painted > 0 {
+        if at_once {
             ctx.request_repaint();
         }
         self.pictures.set_wanted(left);
@@ -460,19 +465,30 @@ mod tests {
     #[test]
     fn a_later_is_asked_again_only_after_its_wait() {
         let ctx = egui::Context::default();
-        let mut p: PaintedPictures<u32> = PaintedPictures::default();
+        let retry = Retry { again: Duration::from_secs(3600), give_up: Duration::from_secs(7200) };
+        let mut p: PaintedPictures<u32> = PaintedPictures { retry, ..Default::default() };
         let mut count = 0;
         let mut painter = |_: u32, _: bool| {
             count += 1;
             Painted::Later
         };
-        for _ in 0..3 {
-            p.begin_frame();
-            let _ = p.get(7);
-            p.pump(&ctx, &mut painter, Budget::default(), PICTURES_KEPT);
+        // (The frame each pump asks for: after the wait, never at once
+        // while it only waits.)
+        let mut delays = Vec::new();
+        for _ in 0..4 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let ctx = ui.ctx();
+                p.begin_frame();
+                let _ = p.get(7);
+                p.pump(ctx, &mut painter, Budget::default(), PICTURES_KEPT);
+            });
+            delays.push(out.viewport_output[&egui::ViewportId::ROOT].repaint_delay);
+            out.textures_delta.clear();
         }
-        assert_eq!(count, 1, "three frames within 50 ms: asked once");
+        assert_eq!(count, 1, "four frames within the wait: asked once");
         assert_eq!(p.pictures.wanted(), &[7]);
+        // (egui asks for its own first frames again.)
+        assert!(delays[2..].iter().all(|d| *d >= Duration::from_secs(3000)), "{delays:?}");
     }
 
     #[test]

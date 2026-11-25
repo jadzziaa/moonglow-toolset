@@ -411,7 +411,11 @@ impl Moonglow {
             Ok(_) if job.progress.cancelled() && !job.to_its_end => {
                 self.log.info(format!("{}: canceled", job.title));
             }
-            Ok(made) => (job.finish)(self, made),
+            Ok(made) => {
+                (job.finish)(self, made);
+                // (A tileset of the module's its write changed: redrawn.)
+                self.follow_module_sets();
+            }
             Err(panic) => {
                 self.log.error(format!("{} failed: {}", job.title, panic_text(&panic)));
             }

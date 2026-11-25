@@ -1818,7 +1818,8 @@ fn a_floating_tileset_changed_outside_is_read_again_and_typed_text_kept() {
 /// as one changed in a folder the game data reads is (the deferred entry
 /// "A tileset kept in the module, changed, not redrawn in open areas").
 /// The area's first tile is given another tile's model; `MG_SHOT` keeps
-/// the area before and after.
+/// the area before and after. Undo takes it back; Redo while a job
+/// holds the game data is drawn once the job is done.
 #[test]
 fn a_tileset_kept_in_the_module_changed_is_redrawn() {
     let Some(root) = mg_testkit::nwn_root() else { return };
@@ -1887,4 +1888,21 @@ fn a_tileset_kept_in_the_module_changed_is_redrawn() {
     if let Some(dir) = &shots {
         h.render().expect("render").save(dir.join("after.png")).unwrap();
     }
+    // Undone: the tile as it was.
+    let is = |m: &str| {
+        let m = m.to_string();
+        move |app: &Moonglow| drawn(app).is_some_and(|(_, d)| d.as_deref() == Some(m.as_str()))
+    };
+    h.state_mut().run(mg_ui::Action::Undo);
+    outside_wait(&mut h, "the import undone", is(&model));
+    // Redone while a job holds the game data: drawn once it is free.
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests("Held", move |_| {
+        let _ = held.recv();
+    });
+    h.state_mut().run(mg_ui::Action::Redo);
+    h.run_steps(3);
+    assert!(is(&model)(h.state()), "not while the game data is held");
+    go.send(()).unwrap();
+    outside_wait(&mut h, "the import redone, once free", is(&other));
 }
