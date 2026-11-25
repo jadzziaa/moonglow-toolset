@@ -1725,40 +1725,6 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
 }
 
 #[test]
-fn doors_go_on_door_hooks() {
-    use glam::Vec3;
-    use mg_area::ObjectKind;
-    // A castle tile with three door hooks (east one at 20, 15, facing 270°).
-    let Some((mut h, area)) = area_harness_on("doors", "tic01", Some(7)) else { return };
-    let doors = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
-        let ws = h.state_mut().ws.as_mut().unwrap();
-        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
-        git.root.list("Door List").unwrap_or(&[]).to_vec()
-    };
-    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
-        let at = screen(h, area, p);
-        h.hover_at(at);
-        press(h, at, true, egui::Modifiers::NONE);
-        press(h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    };
-    // Far from any hook: nothing, and a word why.
-    h.state_mut().palette.selected = ResKey::parse("nw_door_normal", ResType::UTD);
-    h.run_steps(1);
-    click(&mut h, Vec3::new(35.0, 35.0, 0.0));
-    assert!(doors(&mut h).is_empty());
-    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("door hooks")));
-    // Near the east hook, inside the tile: on the hook, turned as it is.
-    click(&mut h, Vec3::new(18.5, 15.5, 0.0));
-    let placed = doors(&mut h);
-    assert_eq!(placed.len(), 1);
-    let d = &placed[0];
-    assert_eq!((d.float("X"), d.float("Y"), d.float("Z")), (Some(20.0), Some(15.0), Some(0.0)));
-    assert!((d.float("Bearing").unwrap() + std::f32::consts::FRAC_PI_2).abs() < 1e-5);
-    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Door, 0)]);
-}
-
-#[test]
 fn several_objects_edited_together() {
     use glam::Vec3;
     use mg_area::ObjectKind;

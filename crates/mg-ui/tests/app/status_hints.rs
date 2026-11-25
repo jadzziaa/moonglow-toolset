@@ -521,7 +521,10 @@ fn the_other_area_states_show_their_hints() {
         ["Placing newgeneric", "Click: Corner", "Alt, Click: Rectangle from the first corner"];
     says(&mut h, &outline, &["Click: Place"]);
     h.state_mut().palette.selected = Some(ResKey::parse("nw_door_strong", ResType::UTD).unwrap());
-    says(&mut h, &["Placing nw_door_strong", "Click: Place"], &["Q or E: Turn"]);
+    // (No hook in the field's tiles: placed freely, and Q and E turn it.)
+    let door =
+        ["Placing nw_door_strong", "Free: no door hook in reach", "Click: Place", "Q or E: Turn"];
+    says(&mut h, &door, &[]);
     h.state_mut().palette.selected = None;
     // A tile brush over an object: the press is the object's.
     h.state_mut().palette.tile_brush = Some(mg_ui::terrain_mode::TileBrush {

@@ -406,6 +406,51 @@ Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
         assert_eq!(tiles[2 * 5 + 2].integer("Tile_ID"), Some(2));
     }
 
+    /// A cut group's tiles take the doors on their typed hooks with them;
+    /// a door placed freely on one of those tiles, off its hooks, stays.
+    #[test]
+    fn a_cut_group_takes_its_hooks_doors_and_leaves_free_ones() {
+        // The group's tile at (2, 2) has a typed hook 3 m north of its
+        // middle: at (25, 28).
+        let text = SET.replace(
+            "[TILE2]\nModel=t2\n",
+            "[TILE2]\nModel=t2\nDoors=1\n[TILE2DOOR0]\nType=1\nX=0\nY=3\nZ=0\n\
+             Orientation=0\n",
+        );
+        let set = Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let index = TileIndex::new(&set);
+        let group = |x, y| match (x, y) {
+            (3, 1) => 1,
+            (2, 2) => 2,
+            (3, 2) => 3,
+            _ => 0,
+        };
+        let are = area(4, 4, group);
+        let door = |x: f32, y: f32| {
+            let mut d = Struct::new(8);
+            d.set("X", Value::Float(x));
+            d.set("Y", Value::Float(y));
+            d
+        };
+        let mut git = Struct::new(0);
+        git.set("Door List", Value::List(vec![door(25.0, 28.0), door(22.0, 22.0)]));
+        let key = |t| ResKey::parse("a", t).unwrap();
+        let (are_key, git_key) = (key(mg_core::ResType::ARE), key(mg_core::ResType::GIT));
+        let mut rng = fastrand::Rng::with_seed(1);
+        let lights = &mut || [0; 3];
+        let r = resize(are_key, git_key, &are, &git, &set, &index, 3, 4, &mut rng, lights).unwrap();
+        let Some(Edit::SetField { value: Some(Value::List(doors)), .. }) = r
+            .edits
+            .iter()
+            .find(|e| matches!(e, Edit::SetField { label, .. } if label == "Door List"))
+        else {
+            panic!("no door list: {:?}", r.edits)
+        };
+        let left: Vec<_> = doors.iter().map(|d| (d.float("X"), d.float("Y"))).collect();
+        assert_eq!(left, [(Some(22.0), Some(22.0))], "the free door stays");
+        assert_eq!(r.deleted, 1);
+    }
+
     /// An ARE a tool wrote with no tiles has nothing to continue: no
     /// resize, and no panic (`0 - 1` in the old edge's place).
     #[test]

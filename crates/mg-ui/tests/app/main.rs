@@ -32,6 +32,7 @@ mod drawing;
 mod fields;
 mod form_columns;
 mod form_pages;
+mod free_doors;
 mod galleries;
 mod gallery_keys;
 mod gpu_memory;

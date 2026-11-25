@@ -16,7 +16,7 @@ use egui::{Color32, Painter, Rect, Stroke, pos2};
 use mg_area::ObjectKind;
 use mg_uikit::status::{GlyphPainter, Hint, HintPart};
 
-use super::{AreaView, Drag, brush, light_of_row, turns};
+use super::{AreaView, DoorAt, Drag, brush, light_of_row, turns};
 use crate::Moonglow;
 use crate::keys::Cmd;
 use crate::shell::{Count, HintKeys, Shown};
@@ -37,6 +37,25 @@ pub(crate) fn status(app: &Moonglow, view: &AreaView, ctx: &egui::Context) -> Sh
 /// "Right Click / Esc: Stop": what drops a tool in hand.
 fn stop() -> Hint {
     Hint::either(["Right Click", "Esc"], "Stop")
+}
+
+/// Where the door about to be placed goes, as a notice, and the key
+/// that changes it: on a door hook (Alt places it freely), or free (with
+/// a hook in reach, Alt holding it off).
+fn door_where(door: Option<DoorAt>, k: &HintKeys) -> Vec<Hint> {
+    match door {
+        Some(DoorAt::Hook(_)) => vec![
+            Hint::note("On a door hook: it faces as the hook does"),
+            Hint::keys([k.alt(), "Click"], "Place freely"),
+        ],
+        Some(DoorAt::Free { held_off: true, .. }) => {
+            vec![Hint::note(format!("Free: {} keeps it off the door hook", k.alt()))]
+        }
+        Some(DoorAt::Free { held_off: false, .. }) => {
+            vec![Hint::note("Free: no door hook in reach")]
+        }
+        None => Vec::new(),
+    }
 }
 
 /// "Esc: Stop", for a tool a right click does not drop.
@@ -179,10 +198,16 @@ fn hints(
                 Hint::keys(["Double Click"], "Close"),
                 Hint::keys([k.alt(), "Click"], "Rectangle from the first corner"),
             ]),
-            Some(ObjectKind::Door) => out.extend([
-                Hint::keys(["Click"], "Place"),
-                Hint::keys(["Shift", "Click"], "Place more"),
-            ]),
+            Some(ObjectKind::Door) => {
+                out.extend(door_where(view.ghost_door, k));
+                out.extend([
+                    Hint::keys(["Click"], "Place"),
+                    Hint::keys(["Shift", "Click"], "Place more"),
+                ]);
+                if !matches!(view.ghost_door, Some(DoorAt::Hook(_))) {
+                    out.extend(turn());
+                }
+            }
             _ => {
                 out.extend([
                     Hint::keys(["Click"], "Place"),
@@ -251,6 +276,15 @@ fn hints(
     } else if let Some(drag) = view.drag.filter(|d| !matches!(d, Drag::Box { .. })) {
         // (One object moved or turned: where it is now, first.)
         out.extend(readout(view));
+        // A door moved alone: onto a hook in reach, or free.
+        match view.door_drag_hooked() {
+            Some(true) => out.extend([
+                Hint::note("On a door hook: it faces as the hook does"),
+                Hint::new("Hold to move it freely").key(k.alt()),
+            ]),
+            Some(false) => out.push(Hint::new("Hold to keep it off door hooks").key(k.alt())),
+            None => {}
+        }
         out.push(Hint::keys(["Esc"], "Cancel"));
         out.push(if app.settings.middle_drag_moves {
             Hint::keys([k.alt(), "Middle Drag"], "Turn view")
