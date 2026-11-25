@@ -1453,13 +1453,19 @@ enum PluginCmd {
     Allow {
         /// The project: a module folder, a nasher project's folder or its
         /// nasher.cfg.
-        project: PathBuf,
+        #[arg(required_unless_present = "prune")]
+        project: Option<PathBuf>,
         /// The plugins' ids (`mg plugin list --project` shows them); none:
         /// every one of the project's.
         ids: Vec<String>,
         /// Keep them off.
         #[arg(long)]
         deny: bool,
+        /// Instead, take out the answers kept for projects no longer on
+        /// disk (a removed checkout or worktree), and list them. A project
+        /// on a drive not mounted is not on disk either: mount it first.
+        #[arg(long, conflicts_with_all = ["project", "ids", "deny"])]
+        prune: bool,
     },
     /// Check plugins: the manifest reads, and the code registers what it
     /// declares. Exits with an error if one does not. A file is a
@@ -2723,7 +2729,11 @@ fn run(cli: &Cli) -> Result<Output> {
             PluginCmd::Tidy { project, plugins: dirs, dry_run } => {
                 plugins::tidy(project, dirs, *dry_run)?
             }
-            PluginCmd::Allow { project, ids, deny } => plugins::allow(project, ids, *deny)?,
+            PluginCmd::Allow { prune: true, .. } => plugins::prune()?,
+            PluginCmd::Allow { project, ids, deny, .. } => {
+                // (Clap requires a project without --prune.)
+                plugins::allow(project.as_deref().unwrap_or(Path::new(".")), ids, *deny)?
+            }
             // (A plugin that reads no game data needs no game.)
             PluginCmd::Test { plugin, module } => {
                 plugins::test(install(cli).ok().as_ref(), plugin, module.as_deref())?

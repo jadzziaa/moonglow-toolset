@@ -14,6 +14,26 @@ each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
 
+## 0.10
+
+In Moonglow 5.4.0. Only an addition: a plugin written for 0.9 or
+before runs as it is, and has nothing to change. A plugin that uses
+what is new says `api = "0.10"`.
+
+- **Seeds for `ctx.terrain`**, so that an area painted by a plugin can
+  be made again tile for tile. `ctx.terrain:seed(n)` begins the job's
+  random choices again from `n` (the tiles and lights chosen from then
+  on, `new_area`'s too); `ctx.terrain:open(area, { seed = n })` gives
+  that area random choices of its own, whatever else the job does. The
+  same calls in the same order on the same tiles choose the same tiles
+  again. Without a seed, each run chooses anew, as before.
+
+  ```lua
+  ctx.terrain:seed(1234)
+  local area = ctx.terrain:open("market", { seed = 7 })
+  area:paint(2, 3, "Grass")
+  ```
+
 ## 0.9
 
 In Moonglow 3.18.0. Only an addition: a plugin written for 0.8 or

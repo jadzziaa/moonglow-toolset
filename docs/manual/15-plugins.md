@@ -190,7 +190,8 @@ meanwhile, a pull's; not for other changes in the folder).
   checkout that comes with answers of its own (a `[project_plugins]`
   section in a committed `.moonglow/user.toml`, say) allows nothing, and
   the log says so. `mg` reads the same answers, and `mg plugin allow`
-  gives them from a terminal.
+  gives them from a terminal (`mg plugin allow --prune` takes out those
+  of projects no longer on disk, such as a removed worktree).
 - The Plugins tab lists them under **This Project's Plugins**, each
   marked as the project's, with what you answered. Its box allows it (as
   it is now) or turns it off. They have no Remove: they are the

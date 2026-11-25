@@ -299,6 +299,27 @@ pub(crate) fn allow(project: &Path, ids: &[String], deny: bool) -> Result<Output
     Ok(out)
 }
 
+/// `mg plugin allow --prune`: the answers kept for projects no longer on
+/// disk taken out, each said.
+pub(crate) fn prune() -> Result<Output> {
+    let path = mg_plugin::project::answers_path()
+        .context("Moonglow's data folder is not known: no answers to prune")?;
+    let gone = mg_plugin::project::prune(&path).map_err(|e| anyhow!("{e}"))?;
+    let mut out = Output::default();
+    for a in &gone {
+        let said = if a.allow { "allowed" } else { "denied" };
+        out.line(format!("{}\t{} {}\t{said}, taken out", a.project.display(), a.plugin, a.version));
+    }
+    if gone.is_empty() {
+        out.note("every project answered for is on disk: nothing taken out".to_string());
+    }
+    let list: Vec<_> = (gone.iter())
+        .map(|a| json!({ "project": a.project.display().to_string(), "id": a.plugin, "version": a.version, "allow": a.allow }))
+        .collect();
+    out.json = json!({ "pruned": list });
+    Ok(out)
+}
+
 /// `mg plugin tidy`: what is kept of the settings of the project's
 /// plugins and of those named tidied, as the settings' form's Tidy Up
 /// does ([`mg_plugin::settings::tidy`]): in the project's files and in

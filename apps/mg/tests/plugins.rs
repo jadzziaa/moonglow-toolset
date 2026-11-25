@@ -638,6 +638,43 @@ fn a_project_s_plugins_are_listed_as_allowed() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("the project has no plugin nobody.else"));
 }
 
+/// `mg plugin allow --prune`: answers kept for a project no longer on disk
+/// (a removed worktree) are taken out and listed; those of a project still
+/// there stay. Only when asked: listing and allowing take none out.
+#[test]
+fn answers_for_projects_gone_are_pruned_when_asked() {
+    let kept = project_with_plugins("mg-project-plugins-prune-kept");
+    let gone = project_with_plugins("mg-project-plugins-prune-gone");
+    let home = mg_testkit::scratch_dir("mg-project-plugins-prune-home");
+    let gone_path = gone.canonicalize().unwrap();
+    mg_at(&home, &["plugin", "allow", kept.to_str().unwrap()]);
+    mg_at(&home, &["plugin", "allow", gone.to_str().unwrap(), "--deny"]);
+    std::fs::remove_dir_all(&gone).unwrap();
+    // (Another command leaves the answer alone.)
+    mg_at(&home, &["plugin", "allow", kept.to_str().unwrap()]);
+    let answers = mg_plugin::project::Answers::read(&answers_in(&home)).unwrap();
+    assert_eq!(answers.answers.len(), 2);
+    let (ok, pruned) = mg_at(&home, &["plugin", "allow", "--prune"]);
+    assert!(ok, "{pruned}");
+    assert_eq!(pruned["pruned"].as_array().unwrap().len(), 1, "{pruned}");
+    assert_eq!(pruned["pruned"][0]["project"], gone_path.display().to_string());
+    assert_eq!(pruned["pruned"][0]["allow"], false);
+    let answers = mg_plugin::project::Answers::read(&answers_in(&home)).unwrap();
+    assert_eq!(answers.answers.len(), 1);
+    assert_eq!(answers.answers[0].project, kept.canonicalize().unwrap());
+    let (_, listed) = mg_at(&home, &["plugin", "list", "--project", kept.to_str().unwrap()]);
+    assert_eq!(listed["plugins"][0]["project"]["trust"], "allowed");
+    // Again: nothing to take out, and said.
+    let out = mg_in(&home).args(["plugin", "allow", "--prune"]).output().unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("nothing taken out"));
+    // --prune takes no project, and a project is needed without it.
+    let out = mg_in(&home).args(["plugin", "allow", "--prune", "x"]).output().unwrap();
+    assert!(!out.status.success());
+    let out = mg_in(&home).args(["plugin", "allow"]).output().unwrap();
+    assert!(!out.status.success());
+}
+
 /// `mg verify` runs a project's plugins only as the builder allowed them
 /// in Moonglow's own folder, or every one with `--allow-project-plugins`
 /// (a build pipeline); answers the project carries itself allow nothing.
