@@ -330,6 +330,158 @@ impl Program {
         self.revalidate()
     }
 
+    /// Darkens the color the program leaves with (the output at location
+    /// 0, the game's `gl_FragColor`) as the shadows darkened what lay under
+    /// it: its red, green and blue times the texel of [`SHADOW_MASK`] at
+    /// the fragment's pixel (a `texture_2d<f32>` bound at `group` and
+    /// `binding`, read with `textureLoad` at the fragment's own position as
+    /// wgpu counts it, from the top). Moonglow's renderer writes the mask
+    /// where it lays the shadows; a see-through mesh's soft part, drawn
+    /// after them, takes their darkness so.
+    pub fn darken_by_mask(&mut self, group: u32, binding: u32) -> Result<(), ShaderError> {
+        let m = &mut self.module;
+        let ty = |inner| Type { name: None, inner };
+        let image = m.types.insert(
+            ty(TypeInner::Image {
+                dim: naga::ImageDimension::D2,
+                arrayed: false,
+                class: naga::ImageClass::Sampled { kind: ScalarKind::Float, multi: false },
+            }),
+            Span::UNDEFINED,
+        );
+        let vec4 = m.types.insert(
+            ty(TypeInner::Vector { size: naga::VectorSize::Quad, scalar: naga::Scalar::F32 }),
+            Span::UNDEFINED,
+        );
+        let mask = m.global_variables.append(
+            naga::GlobalVariable {
+                name: Some(SHADOW_MASK.into()),
+                space: naga::AddressSpace::Handle,
+                binding: Some(naga::ResourceBinding { group, binding }),
+                ty: image,
+                init: None,
+                memory_decorations: naga::MemoryDecorations::default(),
+            },
+            Span::UNDEFINED,
+        );
+        let types = &m.types;
+        let ep = m
+            .entry_points
+            .iter_mut()
+            .find(|e| e.stage == naga::ShaderStage::Fragment)
+            .ok_or_else(|| naga_err("no fragment entry point"))?;
+        let f = &mut ep.function;
+        let result = f.result.as_ref().ok_or_else(|| naga_err("the program writes no color"))?;
+        let result_ty = result.ty;
+        let is_color =
+            |b: &Option<Binding>| matches!(b, Some(Binding::Location { location: 0, .. }));
+        let member = if is_color(&result.binding) {
+            None
+        } else {
+            match &types[result.ty].inner {
+                TypeInner::Struct { members, .. } => Some(
+                    members
+                        .iter()
+                        .position(|m| is_color(&m.binding))
+                        .ok_or_else(|| naga_err("the program writes no color at location 0"))?,
+                ),
+                _ => return Err(naga_err("the program writes no color at location 0")),
+            }
+        };
+        let at = f
+            .body
+            .iter()
+            .rposition(|s| matches!(s, Statement::Return { value: Some(_) }))
+            .ok_or_else(|| naga_err("the fragment entry point returns nothing"))?;
+        let Statement::Return { value: Some(value) } = f.body[at] else { unreachable!() };
+        // (The fragment's position: the program's own argument, or one
+        // given it.)
+        let is_position =
+            |b: &Option<Binding>| matches!(b, Some(Binding::BuiltIn(BuiltIn::Position { .. })));
+        let arg = match f.arguments.iter().position(|a| is_position(&a.binding)) {
+            Some(i) => i,
+            None => {
+                f.arguments.push(naga::FunctionArgument {
+                    name: Some("mg_position".into()),
+                    ty: vec4,
+                    binding: Some(Binding::BuiltIn(BuiltIn::Position { invariant: false })),
+                });
+                f.arguments.len() - 1
+            }
+        };
+        let e = &mut f.expressions;
+        let color = match member {
+            None => value,
+            Some(i) => match &e[value] {
+                Expression::Compose { components, .. } if components.len() > i => components[i],
+                _ => return Err(naga_err("the fragment entry point's result isn't composed")),
+            },
+        };
+        let found = e
+            .iter()
+            .find(|(_, x)| matches!(x, Expression::FunctionArgument(i) if *i as usize == arg))
+            .map(|(h, _)| h);
+        let position = match found {
+            Some(h) => h,
+            None => e.append(Expression::FunctionArgument(arg as u32), Span::UNDEFINED),
+        };
+        let image = e.append(Expression::GlobalVariable(mask), Span::UNDEFINED);
+        let level = e.append(Expression::Literal(Literal::I32(0)), Span::UNDEFINED);
+        let one = e.append(Expression::Literal(Literal::F32(1.0)), Span::UNDEFINED);
+        let mut emitter = Emitter::default();
+        emitter.start(e);
+        let xy = e.append(
+            Expression::Swizzle {
+                size: naga::VectorSize::Bi,
+                vector: position,
+                pattern: [
+                    naga::SwizzleComponent::X,
+                    naga::SwizzleComponent::Y,
+                    naga::SwizzleComponent::X,
+                    naga::SwizzleComponent::X,
+                ],
+            },
+            Span::UNDEFINED,
+        );
+        let pixel = e.append(
+            Expression::As { expr: xy, kind: ScalarKind::Sint, convert: Some(4) },
+            Span::UNDEFINED,
+        );
+        let texel = e.append(
+            Expression::ImageLoad {
+                image,
+                coordinate: pixel,
+                array_index: None,
+                sample: None,
+                level: Some(level),
+            },
+            Span::UNDEFINED,
+        );
+        let shade = e.append(Expression::AccessIndex { base: texel, index: 0 }, Span::UNDEFINED);
+        let factor = e.append(
+            Expression::Compose { ty: vec4, components: vec![shade, shade, shade, one] },
+            Span::UNDEFINED,
+        );
+        let shaded = e.append(
+            Expression::Binary { op: BinaryOperator::Multiply, left: color, right: factor },
+            Span::UNDEFINED,
+        );
+        let out = match member {
+            None => shaded,
+            Some(i) => {
+                let Expression::Compose { components, .. } = &e[value] else { unreachable!() };
+                let mut components = components.clone();
+                components[i] = shaded;
+                e.append(Expression::Compose { ty: result_ty, components }, Span::UNDEFINED)
+            }
+        };
+        let mut statements: Vec<Statement> =
+            emitter.finish(e).map(|(s, _)| s).into_iter().collect();
+        statements.push(Statement::Return { value: Some(out) });
+        f.body.splice(at..=at, Block::from_vec(statements));
+        self.revalidate()
+    }
+
     /// Whether the program reads uniform `name`: glslang keeps every loose
     /// uniform the program declares in its block (the stock includes
     /// declare `worldtimerTimeOfDay` for every program), read or not.
@@ -523,6 +675,10 @@ const PAD: &str = "mg_unused";
 /// The framebuffer's copies as a program names them (after the sampler
 /// split): the colour, the depth.
 pub const FRAMEBUFFER_IMAGES: [&str; 2] = ["texFBColor_image", "texFBDepth_image"];
+
+/// The shadows' mask a program darkened by [`Program::darken_by_mask`]
+/// reads (a name no program of the game's gives a variable).
+pub const SHADOW_MASK: &str = "mg_shadow_mask";
 
 /// Where [`Program::frag_coord_from_bottom`] finds the picture's height.
 #[derive(Clone, Copy)]
@@ -1434,6 +1590,44 @@ void main ()
         assert!(!wgsl.contains("textureDimensions"), "{wgsl}");
         assert!(screen.split_uniforms(part).unwrap());
         assert!(screen.reflection.uniform("screenParams").is_some());
+    }
+
+    /// A program darkened by the shadows' mask: its color times the mask's
+    /// texel at its pixel, whether it read its position or not; still
+    /// split and its position still counted from the bottom.
+    #[test]
+    fn a_program_is_darkened_by_the_shadows_mask() {
+        let src: BTreeMap<String, String> = [
+            (
+                "fs_plain".to_string(),
+                "#define SHADER_TYPE 2\nuniform vec4 c;\nvoid main () { gl_FragColor = c; }\n"
+                    .to_string(),
+            ),
+            (
+                "fs_screen".to_string(),
+                "#define SHADER_TYPE 2\nuniform vec2 screenParams;\n\
+                 void main () { gl_FragColor = vec4(gl_FragCoord.xy / screenParams, 0.0, 1.0); }\n"
+                    .to_string(),
+            ),
+        ]
+        .into();
+        let part = |_: &crate::Member| Part::Frame;
+        for name in ["fs_plain", "fs_screen"] {
+            let mut p = compile(name, Stage::Fragment, &Preamble::default(), &src).unwrap();
+            p.frag_coord_from_bottom(false).unwrap();
+            p.darken_by_mask(1, 11).unwrap();
+            assert!(p.split_uniforms(part).unwrap());
+            let wgsl = naga::back::wgsl::write_string(
+                &p.module,
+                &p.info,
+                naga::back::wgsl::WriterFlags::empty(),
+            )
+            .unwrap();
+            assert!(wgsl.contains("var mg_shadow_mask: texture_2d<f32>"), "{wgsl}");
+            assert!(wgsl.contains("textureLoad(mg_shadow_mask"), "{wgsl}");
+            assert_eq!(wgsl.matches("@builtin(position)").count(), 1, "{wgsl}");
+            assert!(p.reflection.textures.iter().all(|t| t.name != SHADOW_MASK));
+        }
     }
 
     /// A named uniform block beside the loose uniforms is split with them:
