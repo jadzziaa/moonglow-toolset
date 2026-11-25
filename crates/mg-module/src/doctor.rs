@@ -1711,8 +1711,16 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     if more > 0 {
         d.push(Warning, Check::SetHole, source, key, "", format!("and {more} more holes"));
     }
-    // Sections past the counts: Aurora's Range Check Error.
-    for (list, item) in [("TILES", "TILE"), ("GROUPS", "GROUP")] {
+    // Sections past the counts. Of the tiles and groups: Aurora's Range
+    // Check Error. Of the others: the game doesn't read them.
+    for (list, item, error) in [
+        ("TILES", "TILE", true),
+        ("GROUPS", "GROUP", true),
+        ("TERRAIN TYPES", "TERRAIN", false),
+        ("CROSSER TYPES", "CROSSER", false),
+        ("PRIMARY RULES", "PRIMARY RULE", false),
+        ("SECONDARY RULES", "SECONDARY RULE", false),
+    ] {
         let n = declared(list);
         let extra: Vec<usize> = set
             .ini
@@ -1725,15 +1733,19 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             .filter(|i| *i >= n)
             .collect();
         if let Some(first) = extra.iter().min() {
+            let (severity, then) = match error {
+                true => (Error, "Aurora fails with a Range Check Error"),
+                false => (Warning, "the game doesn't read them"),
+            };
             d.push(
-                Error,
+                severity,
                 Check::SetCount,
                 source,
                 key,
                 format!("[{list}] Count"),
                 format!(
                     "Count is {n} but there are {} more [{item}n] sections from [{item}{first}]; \
-                     Aurora fails with a Range Check Error",
+                     {then}",
                     extra.len()
                 ),
             );
@@ -7226,6 +7238,42 @@ Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
                 ("set-transition", "[GENERAL] Transition".into()),
             ]
         );
+    }
+
+    /// A count that is no count (a builder's `Count=1869573190`), or one
+    /// short of its sections, is said by `set-count`, of terrains, crossers
+    /// and rules as well as tiles and groups.
+    #[test]
+    fn a_count_that_lies_is_said() {
+        let set = "[GENERAL]\nName=TST\nTransition=1\n\
+[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=Grass\n[TERRAIN1]\nName=Water\n\
+[CROSSER TYPES]\nCount=0\n[CROSSER0]\nName=Road\n\
+[PRIMARY RULES]\nCount=1\n[PRIMARY RULE0]\nPlaced=Water\nAdjacent=Grass\nChanged=Grass\n\
+[PRIMARY RULE1]\nPlaced=Grass\nAdjacent=Water\nChanged=Water\n\
+[TILES]\nCount=1869573190\n[TILE0]\nModel=plc_chair\nTopLeft=Grass\nTopRight=Grass\n\
+BottomLeft=Grass\nBottomRight=Grass\n[TILE1]\nModel=plc_chair\nTopLeft=Grass\nTopRight=Grass\n\
+BottomLeft=Grass\nBottomRight=Grass\n[GROUPS]\nCount=0\n"
+            .replace('\n', "\r\n");
+        let rm = resman(&[("tst", ResType::SET, set.as_bytes())]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let said: Vec<_> = f.iter().filter(|f| f.check == "set-count").collect();
+        let at: Vec<(&str, Severity)> = said.iter().map(|f| (f.at.as_str(), f.severity)).collect();
+        assert_eq!(
+            at,
+            [
+                ("[TERRAIN TYPES] Count", Severity::Warning),
+                ("[CROSSER TYPES] Count", Severity::Warning),
+                ("[PRIMARY RULES] Count", Severity::Warning),
+                ("[TILES] Count", Severity::Warning),
+            ],
+            "{said:#?}"
+        );
+        assert!(
+            said[0]
+                .message
+                .contains("Count is 1 but there are 1 more [TERRAINn] sections from [TERRAIN1]")
+        );
+        assert!(said[3].message.contains("Count=1869573190, but the last [TILEn] is [TILE1]"));
     }
 
     /// Holes, as old tilesets merged by hand have: each is named, and the
