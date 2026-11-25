@@ -8209,6 +8209,16 @@ fn nui_saved_module() -> (std::path::PathBuf, Vec<u8>, Vec<ResKey>) {
     (path, before, keys)
 }
 
+/// An environment variable the NUI preview tools need; without it they are
+/// skipped (a plain `--ignored` run of the suite), saying so.
+fn nui_var(name: &str) -> Option<String> {
+    let value = std::env::var(name).ok();
+    if value.is_none() {
+        eprintln!("skipped: {name} is not set");
+    }
+    value
+}
+
 /// The application on the module at `path`, held in memory.
 fn nui_saved_app(root: &std::path::Path, path: &std::path::Path) -> Moonglow {
     let mut app =
@@ -8223,9 +8233,12 @@ fn nui_saved_app(root: &std::path::Path, path: &std::path::Path) -> Moonglow {
 #[test]
 #[ignore]
 fn nui_saved_window() {
+    let (Some(output), Some(_)) = (nui_var("NUI_PREVIEW_PNG"), nui_var("NUI_PREVIEW_MODULE"))
+    else {
+        return;
+    };
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let output = std::env::var("NUI_PREVIEW_PNG").expect("NUI_PREVIEW_PNG");
     let (path, before, keys) = nui_saved_module();
     let [key] = keys[..] else { panic!("NUI_PREVIEW_RESREF names one window of the module") };
     let mut h = nui_harness(nui_saved_app(&root, &path), key, (1600.0, 1040.0));
@@ -8243,9 +8256,12 @@ fn nui_saved_window() {
 #[test]
 #[ignore]
 fn nui_saved_windows() {
+    let (Some(dir), Some(_)) = (nui_var("NUI_PREVIEW_DIR"), nui_var("NUI_PREVIEW_MODULE")) else {
+        return;
+    };
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = std::path::PathBuf::from(std::env::var("NUI_PREVIEW_DIR").expect("NUI_PREVIEW_DIR"));
+    let dir = std::path::PathBuf::from(dir);
     std::fs::create_dir_all(&dir).unwrap();
     let (path, before, keys) = nui_saved_module();
     for key in keys {
