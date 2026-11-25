@@ -332,6 +332,116 @@ pub fn paint_drop_preview(ctx: &egui::Context, rect: Rect) {
     painter.rect_stroke(rect, 2.0, egui::Stroke::new(2.0, accent), egui::StrokeKind::Inside);
 }
 
+/// The least height of a stacked section where the column has the room
+/// ([`stack_heights`]): its bar and a few rows.
+pub const SECTION_LEAST: f32 = 80.0;
+
+/// The heights of stacked sections in `room` (the 1-point lines between
+/// them left out) by their `shares`: each its share of the room, at
+/// least its own least (`leasts`; [`SECTION_LEAST`] past their end) where
+/// the room has that for it and those after it, each least held to an
+/// even part of a short column's room, the last taking what is left so
+/// that they fill it in whole points.
+pub fn stack_heights(room: f32, shares: &[f32], leasts: &[f32]) -> Vec<f32> {
+    let count = shares.len();
+    if count == 0 {
+        return Vec::new();
+    }
+    let total: f32 = shares.iter().sum::<f32>().max(f32::EPSILON);
+    let leasts: Vec<f32> = (0..count)
+        .map(|i| leasts.get(i).copied().unwrap_or(SECTION_LEAST).min(room / count as f32))
+        .collect();
+    let mut heights = Vec::with_capacity(count);
+    let mut left = room;
+    for (i, share) in shares.iter().enumerate() {
+        let after: f32 = leasts[i + 1..].iter().sum();
+        let least = leasts[i];
+        let h = match i + 1 == count {
+            true => left,
+            false => (room * share / total).round().clamp(least, (left - after).max(least)),
+        };
+        heights.push(h.max(0.0));
+        left -= h;
+    }
+    heights
+}
+
+/// The rectangles of sections `heights` tall stacked in `column` from its
+/// top, a 1-point line between each two ([`stack_seams`] draws them).
+pub fn stack_rects(column: Rect, heights: &[f32]) -> Vec<Rect> {
+    let mut y = column.top();
+    (heights.iter())
+        .map(|h| {
+            let r = Rect::from_x_y_ranges(column.x_range(), y..=y + h);
+            y += h + 1.0;
+            r
+        })
+        .collect()
+}
+
+/// A seam between stacked sections dragged ([`stack_seams`]): the line
+/// under section `index`, and every section's height with that one and
+/// the one under it changed (their sum kept, each at least
+/// [`SECTION_LEAST`] or half of it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeamDrag {
+    pub index: usize,
+    pub heights: Vec<f32>,
+}
+
+/// Draws the lines between the sections at `rects` and makes each a seam
+/// to drag (3 points either side; a drag alone, never the keyboard's
+/// Tab), except those `fixed` names by the section above it; called after
+/// the sections' own widgets, so that the seams are over them. The seam
+/// being dragged, if any: the application keeps the shares it makes.
+pub fn stack_seams(
+    ui: &egui::Ui,
+    rects: &[Rect],
+    salt: impl std::hash::Hash + std::fmt::Debug + Copy,
+    fixed: impl Fn(usize) -> bool,
+) -> Option<SeamDrag> {
+    let line_color = crate::tokens(ui.ctx()).line;
+    let mut drag = None;
+    for i in 0..rects.len().saturating_sub(1) {
+        let top = rects[i].bottom();
+        let line = Rect::from_x_y_ranges(rects[i].x_range(), top..=top + 1.0);
+        ui.painter().rect_filled(line, 0.0, line_color);
+        if fixed(i) {
+            continue;
+        }
+        let grip = line.expand2(egui::vec2(0.0, 3.0));
+        let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::DRAG);
+        if seam.hovered() || seam.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        let (Some(at), true) = (seam.interact_pointer_pos(), seam.dragged()) else { continue };
+        let pair = rects[i].height() + rects[i + 1].height();
+        let least = SECTION_LEAST.min(pair / 2.0);
+        let upper = (at.y - rects[i].top()).clamp(least, pair - least);
+        let mut heights: Vec<f32> = rects.iter().map(Rect::height).collect();
+        heights[i] = upper;
+        heights[i + 1] = pair - upper;
+        drag = Some(SeamDrag { index: i, heights });
+    }
+    drag
+}
+
+/// The seam between two columns at `x` in `pane` (a drag alone, 3 points
+/// left of the line and 4 right, from its top to its bottom): the first
+/// column's width dragged to this frame, each column at least `least`
+/// (the first less where the pane has not the room), the line between
+/// them 1 point.
+pub fn column_seam(ui: &egui::Ui, id: egui::Id, pane: Rect, x: f32, least: f32) -> Option<f32> {
+    let grip = Rect::from_x_y_ranges(x - 3.0..=x + 4.0, pane.y_range());
+    let seam = ui.interact(grip, id, egui::Sense::DRAG);
+    if seam.hovered() || seam.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    let at = seam.interact_pointer_pos().filter(|_| seam.dragged())?;
+    let most = (pane.width() - 1.0 - least).max(least);
+    Some((at.x - pane.left()).clamp(least.min(most), most).round())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,6 +611,20 @@ mod tests {
         assert!(cols(&[&[&[Palette, Preview, Properties]]]).room_for_column(&RULES, Properties));
         assert!(two().room_for_column(&RULES, Properties));
         assert!(!two().room_for_column(&RULES, Palette));
+    }
+
+    #[test]
+    fn heights_share_the_room_each_at_least_its_least() {
+        let even = [SECTION_LEAST; 3];
+        assert_eq!(stack_heights(600.0, &[1000.0, 1000.0], &even), vec![300.0, 300.0]);
+        assert_eq!(stack_heights(601.0, &[1000.0; 3], &even), vec![200.0, 200.0, 201.0]);
+        assert_eq!(stack_heights(600.0, &[3000.0, 1000.0], &even), vec![450.0, 150.0]);
+        assert_eq!(stack_heights(600.0, &[10.0, 1000.0, 10.0], &even), vec![80.0, 440.0, 80.0]);
+        assert_eq!(stack_heights(100.0, &[1.0, 1.0], &even), vec![50.0, 50.0], "short: halves");
+        assert_eq!(stack_heights(600.0, &[1.0, 1000.0], &[150.0, 80.0]), vec![150.0, 450.0]);
+        assert!(stack_heights(100.0, &[], &[]).is_empty());
+        let rects = stack_rects(r(0.0, 10.0, 50.0, 611.0), &[300.0, 300.0]);
+        assert_eq!(rects, vec![r(0.0, 10.0, 50.0, 310.0), r(0.0, 311.0, 50.0, 611.0)]);
     }
 
     #[test]

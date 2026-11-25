@@ -3,7 +3,9 @@
 //! (egui's style built from them, dark and light), [fonts], the drawn
 //! [icon set](icons), the [form helpers](form) both applications' forms
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
-//! document tabs'](shell), the [Status Bar's](status), the key caps,
+//! document tabs'](shell), the docks' [stacks](stack) (their panels'
+//! columns and sections, where a dragged panel lands, the sections'
+//! heights and the seams between them), the [Status Bar's](status), the key caps,
 //! badges and modified dot ([marks]), a [menu]'s parts beyond its
 //! rows (headings, notes, separators, check boxes, keys, forms), a
 //! [window]'s (a dialog's title row, the resize grip), and an editor's:

@@ -5551,7 +5551,7 @@ pub(crate) fn own_preview(
 
 /// The least height of a stacked section of the Right Dock: its tab bar
 /// and a few rows of its panel.
-pub(crate) const SECTION_LEAST: f32 = 80.0;
+pub(crate) const SECTION_LEAST: f32 = mg_uikit::stack::SECTION_LEAST;
 
 /// Whose stacked sections they are ([`section_rects`], [`section_seams`]):
 /// the editor's kind and what it brings, by which their shares are kept.
@@ -5606,13 +5606,7 @@ fn section_rects(
     let room = column.height() - (count - 1) as f32;
     let heights = tools_heights(app, room, sections, &shares, &leasts)
         .unwrap_or_else(|| section_heights_with(room, &shares, &leasts));
-    let mut rects = Vec::with_capacity(count);
-    let mut y = column.top();
-    for h in &heights {
-        rects.push(egui::Rect::from_x_y_ranges(column.x_range(), y..=y + h));
-        y += h + 1.0;
-    }
-    rects
+    mg_uikit::stack::stack_rects(column, &heights)
 }
 
 /// The heights of stacked `sections` in `room` where one is the tools'
@@ -5673,55 +5667,33 @@ fn section_seams(
     stack: Stack<'_>,
     salt: &str,
 ) {
-    let t = mg_uikit::tokens(ui.ctx());
-    for i in 0..rects.len().saturating_sub(1) {
-        let top = rects[i].bottom();
-        let line = egui::Rect::from_x_y_ranges(rects[i].x_range(), top..=top + 1.0);
-        ui.painter().rect_filled(line, 0.0, t.line);
-        // (Not under a Properties shut beside a tool: its header alone is
-        // shown while nothing is selected.)
-        if crate::tool_sections::is_tools(&sections[i + 1]) && shut(app, &sections[i]) {
-            continue;
-        }
-        let grip = line.expand2(egui::vec2(0.0, 3.0));
-        // (A drag alone, never the keyboard's Tab: M5's W8.)
-        let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::DRAG);
-        if seam.hovered() || seam.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        let Some(at) = seam.interact_pointer_pos() else { continue };
-        if !seam.dragged() {
-            continue;
-        }
-        let pair = rects[i].height() + rects[i + 1].height();
-        let least = SECTION_LEAST.min(pair / 2.0);
-        let upper = (at.y - rects[i].top()).clamp(least, pair - least);
-        // (The seam over a tool's section: its share of the column, kept
-        // for the run, as the Properties sections' seams keep theirs.)
-        if crate::tool_sections::is_tools(&sections[i + 1]) {
-            let room: f32 = rects.iter().map(egui::Rect::height).sum();
-            let tools = rects[i + 1].bottom() - rects[i].top() - upper;
-            app.tools.share = Some((tools / room.max(1.0)).clamp(0.1, 0.95));
-            continue;
-        }
-        let Some(kind) = stack.kind else { continue };
-        let mut now: Vec<f32> = rects.iter().map(egui::Rect::height).collect();
-        now[i] = upper;
-        now[i + 1] = pair - upper;
-        let total: f32 = now.iter().sum();
-        let count = now.len() as f32;
-        let own: Vec<Option<usize>> =
-            sections.iter().map(|s| section_share_index(stack.brings, s)).collect();
-        let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
-        let need =
-            stack.brings.right.len().max(own.iter().flatten().copied().max().map_or(0, |m| m + 1));
-        if layout.shares.len() < need {
-            layout.shares.resize(need, 1000);
-        }
-        for (h, index) in now.iter().zip(own) {
-            if let Some(index) = index {
-                layout.shares[index] = ((h / total) * 1000.0 * count).round().max(1.0) as u16;
-            }
+    // (Not under a Properties shut beside a tool: its header alone is
+    // shown while nothing is selected.)
+    let fixed =
+        |i: usize| crate::tool_sections::is_tools(&sections[i + 1]) && shut(app, &sections[i]);
+    let Some(drag) = mg_uikit::stack::stack_seams(ui, rects, salt, fixed) else { return };
+    let (i, now) = (drag.index, drag.heights);
+    // (The seam over a tool's section: its share of the column, kept for
+    // the run, as the Properties sections' seams keep theirs.)
+    if crate::tool_sections::is_tools(&sections[i + 1]) {
+        let room: f32 = rects.iter().map(egui::Rect::height).sum();
+        app.tools.share = Some(((now[i + 1] + 1.0) / room.max(1.0)).clamp(0.1, 0.95));
+        return;
+    }
+    let Some(kind) = stack.kind else { return };
+    let total: f32 = now.iter().sum();
+    let count = now.len() as f32;
+    let own: Vec<Option<usize>> =
+        sections.iter().map(|s| section_share_index(stack.brings, s)).collect();
+    let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
+    let need =
+        stack.brings.right.len().max(own.iter().flatten().copied().max().map_or(0, |m| m + 1));
+    if layout.shares.len() < need {
+        layout.shares.resize(need, 1000);
+    }
+    for (h, index) in now.iter().zip(own) {
+        if let Some(index) = index {
+            layout.shares[index] = ((h / total) * 1000.0 * count).round().max(1.0) as u16;
         }
     }
 }
@@ -5760,29 +5732,7 @@ fn section_least(app: &Moonglow, section: &[Panel]) -> f32 {
 /// each its share of the room, at least its least where the room has
 /// that for it and those after it, the last taking what is left.
 pub(crate) fn section_heights_with(room: f32, shares: &[f32], leasts: &[f32]) -> Vec<f32> {
-    let count = shares.len();
-    if count == 0 {
-        return Vec::new();
-    }
-    let total: f32 = shares.iter().sum::<f32>().max(f32::EPSILON);
-    // (Each held to an even part of the room where that is less: a short
-    // column shares out what it has.)
-    let leasts: Vec<f32> = (0..count)
-        .map(|i| leasts.get(i).copied().unwrap_or(SECTION_LEAST).min(room / count as f32))
-        .collect();
-    let mut heights = Vec::with_capacity(count);
-    let mut left = room;
-    for (i, share) in shares.iter().enumerate() {
-        let after: f32 = leasts[i + 1..].iter().sum();
-        let least = leasts[i];
-        let h = match i + 1 == count {
-            true => left,
-            false => (room * share / total).round().clamp(least, (left - after).max(least)),
-        };
-        heights.push(h.max(0.0));
-        left -= h;
-    }
-    heights
+    mg_uikit::stack::stack_heights(room, shares, leasts)
 }
 
 /// The Right Dock's width in the wide layout where it holds one panel
@@ -5972,18 +5922,12 @@ fn edge_seam(ui: &Ui, id: egui::Id, edge: RightEdge) -> Option<f32> {
 /// points either side of the line): a drag keeps the first column's
 /// width for the active editor's kind (`DockLayout::column`).
 fn column_seam(app: &mut Moonglow, ui: &Ui, pane: egui::Rect, x: f32) {
-    let grip = egui::Rect::from_x_y_ranges(x - 3.0..=x + 4.0, pane.y_range());
     // (A drag alone, never the keyboard's Tab: M5's W8.)
-    let seam = ui.interact(grip, egui::Id::new("right-dock-column-seam"), egui::Sense::DRAG);
-    if seam.hovered() || seam.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-    }
-    let (Some(at), Some(kind)) = (seam.interact_pointer_pos(), editor_kind(app)) else { return };
-    if !seam.dragged() {
+    let id = egui::Id::new("right-dock-column-seam");
+    let Some(first) = mg_uikit::stack::column_seam(ui, id, pane, x, RIGHT_DOCK_LEAST) else {
         return;
-    }
-    let most = (pane.width() - 1.0 - RIGHT_DOCK_LEAST).max(RIGHT_DOCK_LEAST);
-    let first = (at.x - pane.left()).clamp(RIGHT_DOCK_LEAST.min(most), most).round();
+    };
+    let Some(kind) = editor_kind(app) else { return };
     app.settings.dock_layouts.entry(kind.to_string()).or_default().column = Some(first as u16);
 }
 
