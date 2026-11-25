@@ -4029,7 +4029,9 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             } else {
                 ws.module.keys_of(ResType::NSS).copied().collect()
             };
+            // (A script in two tabs, were one ever, searched once.)
             keys.sort();
+            keys.dedup();
             let (hits, found) = crate::search_results::lines_found(app, &keys, &s.find, &s.options);
             let cut = tools::results_cut(found);
             let what = format!("{:?}: {found} lines found{cut}", s.find);
