@@ -1448,28 +1448,7 @@ Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
 
-- **The rectangle by two clicks on a builder's Linux:** 1.25.1 made the
-  right Alt place it, which was not his trouble; the next release has Alt
-  pressed and let go before the click, on the reading that his window
-  manager keeps a click with Alt held (the rectangle went when he
-  clicked and came back when Alt was pressed again). Not seen on his
-  system: his word that it places would settle it. (a builder's report,
-  October 2026)
-- **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page of every kind is walked whole, top to bottom on
-  the window's one scroll, at four window sizes at 100% interface size
-  (`blueprint_editor_pages_draw_nothing_over_anything_else`, since M4's
-  U9) and none draws over another. A screenshot, or the page and the
-  interface size, would find it. (S) (a senior builder's review, October
-  2026)
-- **A drag on a number field moving objects in the area behind:**
-  reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the
-  Properties panel beside the area since M4's U6,
-  `a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`). (needs the
-  steps) (a second builder's review, October 2026)
-- **"Area transitions can't be selected visually":** not understood;
-  asked.
+None open (the last seven were dropped on 2026-11-25).
 
 ## Settled: as it is, by decision or by design
 

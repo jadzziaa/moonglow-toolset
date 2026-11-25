@@ -32,6 +32,12 @@ mod tests {
             "cond" => "int StartingConditional() { return TRUE; }\n",
             "mis" => "#include \"mis_inc\"\nvoid main() { int n = Copy(); }\n",
             "mis_inc" => "int Copy();\n\nvoid Copy() { PrintString(\"x\"); }\n",
+            "deep" => "#include \"mid\"\nvoid main() { PrintString(Mid()); }\n",
+            "mid" => {
+                "// The include in the middle.\n\n\n\n#include \"inc\"\nstring Mid() { return Greeting(); }\n"
+            }
+            "uses_bad" => "#include \"bad_inc\"\nvoid main() { int n = Broken(); }\n",
+            "bad_inc" => "int Broken() { return 1 +; }\n",
             _ => return None,
         };
         Some(text.as_bytes().to_vec())
@@ -54,6 +60,21 @@ mod tests {
         c.set_debug_output(true);
         let out = c.compile("ok").unwrap();
         assert!(out.ndb.is_some_and(|d| d.starts_with(b"NDB")));
+    }
+
+    /// An error in an include names the includes it came through, each with
+    /// the line where it includes the next, and none for the file the error
+    /// is in: not a line left by an earlier compile (the vendored
+    /// compiler's include-trace-line patch; it read whatever was there).
+    #[test]
+    fn an_include_s_error_traces_no_line_left_by_another_compile() {
+        let mut c = Compiler::new(sources);
+        let bad = |c: &mut Compiler<'_>| c.compile("uses_bad").unwrap_err().message;
+        let first = bad(&mut c);
+        assert!(first.trim_end().ends_with("[via: bad_inc.nss]"), "{first}");
+        // (mid includes inc at its line 5: the stack's second entry keeps 5.)
+        c.compile("deep").unwrap();
+        assert_eq!(bad(&mut c), first);
     }
 
     /// A function declared with one return type and defined with another

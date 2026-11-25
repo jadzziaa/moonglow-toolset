@@ -10,7 +10,7 @@ under `neverwinter/nwscript/`, commit
 - `compilerapi.cpp`, `compilerapi.h`: neverwinter.nim's C API over it (ABI 1),
   MIT-licensed as part of neverwinter.nim.
 
-Unmodified but for one patch, below. `crates/mg-script/build.rs` compiles
+Unmodified but for two patches, below. `crates/mg-script/build.rs` compiles
 them with the `cc` crate (C++14, as upstream); `src/compiler.rs` calls the C
 API.
 
@@ -38,6 +38,16 @@ Each is fenced in the source by `// MOONGLOW PATCH (name)` and
   returns nothing gives the declared type's empty value; one that returns
   a value where none was declared overwrites the caller's last variable;
   one of another type stops the script where it is used).
+- **include-trace-line** (`native/scriptcompcore.cpp`, `CompileFile`).
+  An error in an include ends with the includes it came through,
+  `[via: inc.nss(5)]`, each with the line where it includes the next. The
+  line is kept in the include stack's entry only when that file includes
+  another, and nothing set it for a file new at its level, so the file the
+  error is in was printed with a line left there by an earlier compile of
+  the same compiler, or with uninitialized memory: the same error read
+  `[via: bad_inc.nss]` in one run and `[via: bad_inc.nss(2)]` in another.
+  The patch sets it to 0 as the file takes its level. Upstream has the same
+  fault; the compiled code is unchanged (`an_include_s_error_traces_no_line_left_by_another_compile`).
 
 To update: copy the same files from a newer neverwinter.nim, apply the
 patches again, record the commit here, and run `cargo test -p
