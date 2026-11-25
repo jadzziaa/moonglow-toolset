@@ -1049,6 +1049,7 @@ impl Id {
             }
             // (Their names start with the builder's code.)
             Id::NewConversation => {
+                app.new_dialog_for = None;
                 app.new_dialog = Some(crate::widgets::code_start(app, mg_core::ResType::DLG));
                 return;
             }

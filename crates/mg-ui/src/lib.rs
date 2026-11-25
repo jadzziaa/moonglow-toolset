@@ -836,6 +836,10 @@ pub struct Moonglow {
     pub(crate) dialog_conversation_height: f32,
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
+    /// Where the New Conversation window's conversation goes when made from
+    /// an object's Conversation field's New: the object's documents and
+    /// paths, and the field's name.
+    pub new_dialog_for: Option<(Vec<(mg_resman::ResKey, mg_edit::GffPath)>, String)>,
     pub script_tools: script_tools::ScriptTools,
     /// Search Results' hits (M4's U13): the last search's, whatever the
     /// editor in front (`search_results`).
@@ -1765,6 +1769,7 @@ impl Moonglow {
             dialog_panel_focus: None,
             dialog_conversation_height: 0.0,
             new_dialog: None,
+            new_dialog_for: None,
             script_tools: script_tools::ScriptTools::default(),
             search_results: search_results::SearchResults::default(),
             problems: problems::Problems::default(),
@@ -5150,6 +5155,7 @@ impl Moonglow {
         self.rename = None;
         self.builder_code = None;
         self.new_dialog = None;
+        self.new_dialog_for = None;
         self.new_script = None;
         self.script_save_as = None;
         self.update_draft = None;
