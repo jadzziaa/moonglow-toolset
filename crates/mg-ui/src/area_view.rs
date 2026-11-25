@@ -5325,10 +5325,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let middle_moves = app.settings.middle_drag_moves;
     // Alt + drag moves the view unless it raises the selection: with
     // nothing selected, on a read-only area, and in every mode that is
-    // not the objects' (Paint, Select Tiles, a tile brush in hand).
+    // not the objects' (Paint with placeables to paint, Select Tiles, a
+    // tile brush in hand). Paint with none is Select Objects here.
     let alt_pans = view.selection.is_empty()
         || view.read_only.is_some()
-        || app.paint
+        || crate::paint_mode::active(app).is_some()
         || view.tile_mode
         || crate::terrain_mode::active(app, view).is_some();
     let camera = (middle_moves, alt_pans);
@@ -5483,17 +5484,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if !read_only && crate::paint_mode::input(app, ui, view, response) {
         return;
     }
-    // Paint on with something chosen that it doesn't paint (a door, a
-    // waypoint, a gallery's appearance or light, the start location): the
-    // click that would place it places nothing, and is no other click
-    // either, as with Paint off it would be no selecting click. The rest
-    // (dragging, Delete, copy and paste, the camera) is as with Paint off.
-    if !clicks_place(app)
-        && to_place(app)
-        && (response.clicked() || response.double_clicked() || response.triple_clicked())
-    {
-        return;
-    }
     if !read_only && crate::tile_select::paste_input(app, ui, view, response) {
         return;
     }
@@ -5579,6 +5569,24 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.redraw = None;
             }
         }
+        return;
+    }
+
+    // Paint on with something chosen that it doesn't paint (a door, a
+    // waypoint, a gallery's appearance or light, the start location): the
+    // click that would place it places nothing, and is no other click
+    // either, as with Paint off it would be no selecting click. Only a
+    // click that would go to placing: a paste's, an outline's drawn anew,
+    // Select Tiles' and a tile paste's are theirs (dispatched above). The
+    // rest (dragging, Delete, copy and paste, the camera) is as with Paint
+    // off. (Not on a read-only area, where Paint's Escape isn't read and
+    // a click selects as ever.)
+    if !read_only
+        && press == PressTo::Objects
+        && !clicks_place(app)
+        && to_place(app)
+        && (response.clicked() || response.double_clicked() || response.triple_clicked())
+    {
         return;
     }
 

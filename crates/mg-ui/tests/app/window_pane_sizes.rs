@@ -86,6 +86,35 @@ fn a_pane_drag_released_while_moving_keeps_its_final_size() {
     assert!((width - now).abs() < 1.5, "kept {width}, the pane ends at {now}");
 }
 
+/// Two conversations' windows open at once: the size kept is that of the
+/// pane dragged, not of the other window's, untouched (whichever of the
+/// two is drawn last).
+#[test]
+fn with_two_windows_open_the_dragged_pane_s_size_is_kept() {
+    let (mut h, keys) =
+        dialogs_window(Mode::Floating, "ui-dialog-pane-two", &["aaa", "bbb"], 1800.0);
+    own_window(&mut h, &Tab::Dialog(keys[0]), egui::pos2(40.0, 40.0), egui::vec2(820.0, 700.0));
+    settle(&mut h);
+    own_window(&mut h, &Tab::Dialog(keys[1]), egui::pos2(900.0, 60.0), egui::vec2(820.0, 700.0));
+    settle(&mut h);
+    let side = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
+        leaf_rect(h, key).right() - right_pane_edge(h, key)
+    };
+    let kept = |h: &Harness<'_, Moonglow>| {
+        let layout = h.state().settings.dock_layouts.get("dialog").cloned().unwrap_or_default();
+        layout.window_width.expect("kept for conversations") as f32
+    };
+    // Each window's pane dragged in turn, the other left as it is.
+    for (key, by) in [(keys[0], 80.0), (keys[1], 40.0)] {
+        let edge = right_pane_edge(&mut h, key);
+        let y = leaf_rect(&h, key).center().y;
+        held_drag(&mut h, egui::pos2(edge, y), egui::pos2(edge - by, y));
+        settle(&mut h);
+        let (now, width) = (side(&mut h, key), kept(&h));
+        assert!((width - now).abs() < 2.0, "{key}: kept {width}, dragged to {now}");
+    }
+}
+
 /// The right pane of a floating conversation's window, dragged wider, is
 /// kept for conversations (the settings' `dialog` layout), and the next
 /// conversation opened in a window of its own opens with it.

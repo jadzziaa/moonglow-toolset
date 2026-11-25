@@ -3274,3 +3274,58 @@ fn a_clean_script_closed_and_opened_again_keeps_its_bookmarks_and_history() {
     h.run_steps(3);
     assert!(edit_undo_enabled(&h, false), "its history kept: Undo on");
 }
+
+/// A script's tab closed with nothing unsaved keeps its editor's state
+/// for the session, but the script is no longer open: the Find window
+/// left on it changes nothing (its Replace All made the hidden text
+/// unsaved, with no tab to ask about it, and the module's Save wrote
+/// it), and Find In Currently Open Scripts does not search it.
+#[test]
+fn a_closed_script_is_not_open_to_find_and_replace() {
+    let dir = mg_testkit::scratch_dir("ui-replace-closed");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let other = ResKey::parse("other", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a = a + a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.set(other, b"void main()\n{\n    int a = 2;\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    for k in [key, other] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(k)));
+        settle(&mut h);
+    }
+    let search = &mut h.state_mut().script_tools.search;
+    (search.open, search.replace_mode, search.script) = (true, true, Some(key));
+    (search.find, search.replace) = ("a".into(), "total".into());
+    search.options.whole_word = true;
+    settle(&mut h);
+    close_tab(h.state_mut(), &Tab::Script(key));
+    settle(&mut h);
+    assert_eq!(h.state().script_text(key).as_deref(), Some(text), "its editor's state kept");
+    h.get_by_label("Replace All").click();
+    settle(&mut h);
+    assert_eq!(h.state().script_text(key).as_deref(), Some(text), "the closed script untouched");
+    assert!(!h.state().has_unsaved_work(), "nothing unsaved");
+    let search = &mut h.state_mut().script_tools.search;
+    (search.replace_mode, search.in_open, search.script) = (false, true, Some(other));
+    settle(&mut h);
+    h.get_by_label("Find All").click();
+    settle(&mut h);
+    let hits = &h.state().search_results.hits;
+    assert!(!hits.is_empty(), "the open script searched");
+    assert!(
+        hits.iter().all(|hit| matches!(hit, Hit::Line { script, .. } if *script == other)),
+        "the closed script not searched: {hits:?}"
+    );
+    // Deleted, its editor's state is let go of (kept, it stayed until the
+    // module closed).
+    let gone = mg_edit::Edit::SetResource { key, data: None };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Delete", vec![gone])));
+    settle(&mut h);
+    assert_eq!(h.state().script_text(key), None, "a deleted script's state let go of");
+}

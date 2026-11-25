@@ -2627,7 +2627,9 @@ fn keep_window_size(
 ) {
     let Some(kind) = kind else { return };
     let pass = ui.ctx().cumulative_pass_nr();
-    let slot = egui::Id::new(("window-size-dragged", kind, bottom));
+    // (The window's own, by its edges: not the kind's, or another window
+    // of the kind drawn after it would keep its own untouched size.)
+    let slot = egui::Id::new(("window-size-dragged", edges));
     if edges.iter().any(|id| ui.ctx().is_being_dragged(*id)) {
         ui.ctx().data_mut(|d| d.insert_temp(slot, pass));
     }

@@ -2316,10 +2316,15 @@ pub const MINIMAP_SIZE: u32 = 32;
 
 const MINIMAP_LAYER: &str = "tileset folder";
 
+/// What the log says of Render Minimap Pictures where the game data is in
+/// use (its folder can't be mounted).
+const MINIMAP_HELD: &str = "No minimap pictures rendered: the tileset folder can't be loaded \
+                            while the game data is in use. Try again once it is done.";
+
 fn mount_tileset_dir(app: &mut Moonglow, dir: &Path) -> bool {
     app.release_game_data();
     let Some(game) = crate::exclusive(&mut app.game) else {
-        app.log.error("Could not load the tileset folder while game data is in use; try again.");
+        app.log.error(MINIMAP_HELD);
         return false;
     };
     // (A folder a job before could not let go of, replaced.)
@@ -2393,7 +2398,7 @@ fn prepare_minimap_plan(app: &mut Moonglow, d: &TilesetDoc) -> Option<MinimapPla
     // Verify exclusive access before mutating `d`.
     app.release_game_data();
     if crate::exclusive(&mut app.game).is_none() {
-        app.log.error("Could not load the tileset folder while game data is in use; try again.");
+        app.log.error(MINIMAP_HELD);
         return None;
     }
     let dir = d.path.parent().map(PathBuf::from).unwrap_or_default();
@@ -2483,13 +2488,24 @@ fn step_minimap_tile(app: &mut Moonglow, job: &mut MinimapJob) {
     }
 }
 
-fn start_minimap_job(app: &mut Moonglow, mut job: MinimapJob) {
-    // (A job before still letting go of its folder: this one takes it.)
-    app.minimap_job = None;
+/// Mounts `job`'s folder: the job, mounted, to [`run_minimap_job`];
+/// `None` where it can't be (the log says why, and nothing is changed).
+/// A job before still letting go of its folder is dropped only once this
+/// one's is mounted (which replaces it), so no folder is left mounted
+/// unknown.
+fn start_minimap_job(app: &mut Moonglow, mut job: MinimapJob) -> Option<MinimapJob> {
+    let before = app.minimap_job.take();
     if !mount_tileset_dir(app, &job.dir) {
-        return;
+        app.minimap_job = before;
+        return None;
     }
     job.mounted = true;
+    Some(job)
+}
+
+/// Renders a started job's pictures: all at once without background jobs
+/// (or with none to render), else a few at every frame.
+fn run_minimap_job(app: &mut Moonglow, mut job: MinimapJob) {
     if !app.background_jobs || job.tiles.is_empty() {
         while job.next < job.tiles.len() {
             step_minimap_tile(app, &mut job);
@@ -2503,7 +2519,7 @@ fn start_minimap_job(app: &mut Moonglow, mut job: MinimapJob) {
 /// Interactive Render Minimap Pictures: checks for existing `.tga` files first,
 /// asks before overwriting, and steps incrementally across frames.
 fn ask_render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
-    let Some(plan) = prepare_minimap_plan(app, d) else { return };
+    let Some(mut plan) = prepare_minimap_plan(app, d) else { return };
     let has_existing = plan.tiles.iter().any(|(_, p)| p.exists());
     let overwrite = match app.settings.files_there {
         _ if !has_existing => true,
@@ -2520,8 +2536,10 @@ fn ask_render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
             return;
         }
     };
-    name_tiles(d, &plan.names);
-    start_minimap_job(app, MinimapJob::from_plan(plan, overwrite));
+    let names = std::mem::take(&mut plan.names);
+    let Some(job) = start_minimap_job(app, MinimapJob::from_plan(plan, overwrite)) else { return };
+    name_tiles(d, &names);
+    run_minimap_job(app, job);
 }
 
 /// Draws overwrite prompts and incremental minimap rendering progress.
@@ -2610,12 +2628,15 @@ fn answer_tileset_ask(app: &mut Moonglow, answer: crate::widgets::Already) {
             if answer == crate::widgets::Already::Cancel {
                 return;
             }
+            let overwrite = answer == crate::widgets::Already::Replace;
+            let plan = MinimapPlan { names: Vec::new(), dir, tiles, failed };
+            let Some(job) = start_minimap_job(app, MinimapJob::from_plan(plan, overwrite)) else {
+                return;
+            };
             if let Some(d) = app.tilesets.iter_mut().find(|d| d.id == id) {
                 name_tiles(d, &names);
             }
-            let plan = MinimapPlan { names, dir, tiles, failed };
-            let overwrite = answer == crate::widgets::Already::Replace;
-            start_minimap_job(app, MinimapJob::from_plan(plan, overwrite));
+            run_minimap_job(app, job);
         }
     }
 }
@@ -2632,9 +2653,15 @@ fn minimap_progress(app: &mut Moonglow, ctx: &egui::Context) {
     if job.unmounting {
         // (Rendered and said: the folder let go of once nothing else
         // holds the game data.)
-        // (Not `release_game_data`, which waits for the holders: a
-        // frame asks whether they have let go.)
+        // (Not `release_game_data` at every frame, which waits for the
+        // holders: a frame asks whether they have let go. But where only
+        // the 3D views and the haks' model views hold it, which take it
+        // again whenever they draw, it is let go of here: with no job and
+        // no thread holding it, nothing is waited for.)
         let had_game = app.game.is_some();
+        if crate::exclusive(&mut app.game).is_none() && !app.busy() && !app.game_data_held() {
+            app.release_game_data();
+        }
         match crate::exclusive(&mut app.game) {
             Some(game) => {
                 game.resman.remove(MINIMAP_LAYER);
@@ -2702,9 +2729,11 @@ pub fn hold_minimap_for_tests(app: &mut Moonglow) {
 /// `.set`'s folder, its models found there or in the game data. Tiles
 /// without a picture's name get `mi_<model>` (one undoable change).
 pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
-    let Some(plan) = prepare_minimap_plan(app, d) else { return };
-    name_tiles(d, &plan.names);
-    start_minimap_job(app, MinimapJob::from_plan(plan, true));
+    let Some(mut plan) = prepare_minimap_plan(app, d) else { return };
+    let names = std::mem::take(&mut plan.names);
+    let Some(job) = start_minimap_job(app, MinimapJob::from_plan(plan, true)) else { return };
+    name_tiles(d, &names);
+    run_minimap_job(app, job);
 }
 
 /// The content doctor's tileset checks, models looked for in the game
@@ -2888,13 +2917,15 @@ mod tests {
             rm,
             mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
         ));
-        app.game = Some(game.clone());
-        // Holding an extra Arc prevents exclusive access: aborts before mutating doc.
+        app.game = Some(game);
+        // A job holding the game data prevents exclusive access: aborts
+        // before mutating doc. (A job, so that nothing waits for it.)
+        let held = hold_with_job(&mut app);
         render_minimaps(&mut app, &mut d);
         assert!(!d.has_undo());
         assert!(d.get("TILE0", "ImageMap2D").is_none());
         assert!(app.log.entries.iter().any(|(_, m)| m.contains("in use")));
-        drop(game);
+        end_job(&mut app, &egui::Context::default(), held);
 
         // With exclusive access, TILE0 gets `mi_t0` while hole TILE1 does not get `mi_`.
         render_minimaps(&mut app, &mut d);
@@ -3183,8 +3214,31 @@ mod tests {
         assert!(said.iter().any(|m| m.starts_with("Rendered 0 minimap pictures")), "{said:?}");
     }
 
+    /// A job that holds the game data (its share, as a job's thread has
+    /// one) until the sender is dropped. (A job, not a bare clone: while
+    /// one runs, `release_game_data` doesn't wait for the holders.)
+    fn hold_with_job(app: &mut Moonglow) -> std::sync::mpsc::Sender<()> {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        app.start_job_for_tests("Hold", move |_| {
+            let _ = rx.recv();
+        });
+        assert!(app.busy());
+        tx
+    }
+
+    /// Lets the job of [`hold_with_job`] end, and waits for it.
+    fn end_job(app: &mut Moonglow, ctx: &egui::Context, tx: std::sync::mpsc::Sender<()>) {
+        drop(tx);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.busy() {
+            assert!(std::time::Instant::now() < deadline, "the job didn't end");
+            app.poll_job(ctx);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
     /// The stepped render ending while something else holds the game data
-    /// (a search's thread, a render): the folder can't be unmounted then,
+    /// (a job, a search's thread): the folder can't be unmounted then,
     /// so it is let go of on a later frame, once the game data is free,
     /// and the log's summary is written once.
     #[test]
@@ -3195,11 +3249,11 @@ mod tests {
         app.background_jobs = true;
         ask_render_minimaps(&mut app, &mut d);
         assert!(mounted(&app));
-        let held = app.game.clone();
+        let held = hold_with_job(&mut app);
         let ctx = egui::Context::default();
         frames(&mut app, &ctx, 3);
         assert!(mounted(&app), "held, the folder can't be let go of yet");
-        drop(held);
+        end_job(&mut app, &ctx, held);
         frames(&mut app, &ctx, 3);
         assert!(!mounted(&app), "the folder is let go of once the game data is free");
         assert!(app.minimap_job.is_none());
@@ -3227,5 +3281,103 @@ mod tests {
         assert!(crate::exclusive(&mut app.game).is_some(), "nothing holds the game data");
         let said: Vec<_> = app.log.entries.iter().map(|(_, m)| m.clone()).collect();
         assert!(said.iter().any(|m| m.contains("canceled (0 of 3 written)")), "{said:?}");
+    }
+
+    /// The folder left to unmount while a job holds the game data, and a
+    /// hak's model view taking it again at every frame (as the 3D views
+    /// do): once the job is done, the folder is still let go of, those
+    /// views' shares dropped as `release_game_data` drops them.
+    #[test]
+    fn the_minimap_folder_is_unmounted_though_a_view_takes_the_game_data_again() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-retaken");
+        let mut d = tiles_doc(&dir, 2);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        app.background_jobs = true;
+        crate::hak_view::new_hak(&mut app);
+        ask_render_minimaps(&mut app, &mut d);
+        assert!(mounted(&app));
+        let held = hold_with_job(&mut app);
+        let ctx = egui::Context::default();
+        let frame = |app: &mut Moonglow| {
+            // (The hak's model drawn: its load order, made again.)
+            let _ = crate::hak_view::resources(app, 0);
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| windows(app, ui.ctx()));
+            out.textures_delta.clear();
+        };
+        for _ in 0..3 {
+            frame(&mut app);
+        }
+        assert!(mounted(&app) && app.minimap_job.as_ref().is_some_and(|j| j.unmounting));
+        end_job(&mut app, &ctx, held);
+        for _ in 0..5 {
+            if app.minimap_job.is_none() {
+                break;
+            }
+            frame(&mut app);
+        }
+        assert!(!mounted(&app), "the folder is let go of once the job is done");
+        assert!(app.minimap_job.is_none());
+    }
+
+    /// Render Minimap Pictures answered while the game data is held (the
+    /// folder can't be mounted): nothing is rendered, the tileset is as it
+    /// was (no picture names given, nothing to undo), and the log says why.
+    #[test]
+    fn a_minimap_render_that_cannot_start_names_no_tiles() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-unstarted");
+        std::fs::write(dir.join("mi_t0.tga"), b"EXISTING_TGA").unwrap();
+        let mut d = tiles_doc(&dir, 2);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        ask_render_minimaps(&mut app, &mut d);
+        app.tilesets.push(d);
+        let held = hold_with_job(&mut app);
+        answer_tileset_ask(&mut app, crate::widgets::Already::Skip);
+        let d = &app.tilesets[0];
+        assert!(!d.has_undo() && !d.is_dirty(), "the tileset changed");
+        assert!(d.get("TILE1", "ImageMap2D").is_none());
+        assert!(app.minimap_job.is_none() && !mounted(&app));
+        let said: Vec<_> = app.log.entries.iter().map(|(_, m)| m.clone()).collect();
+        assert!(said.iter().any(|m| m.starts_with("No minimap pictures rendered")), "{said:?}");
+        end_job(&mut app, &egui::Context::default(), held);
+    }
+
+    /// A job's folder left to unmount (the game data held as it ended),
+    /// and another render that can't mount its own: the first folder is
+    /// still known, and let go of once the game data is free.
+    #[test]
+    fn a_minimap_render_that_cannot_start_keeps_the_folder_before_it() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-two");
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("mi_t0.tga"), b"EXISTING_TGA").unwrap();
+        let mut a = tiles_doc(&dir, 2);
+        let mut b = tiles_doc(&other, 2);
+        b.id = 2;
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        app.background_jobs = true;
+        ask_render_minimaps(&mut app, &mut a);
+        let held = hold_with_job(&mut app);
+        let ctx = egui::Context::default();
+        frames(&mut app, &ctx, 3);
+        assert!(app.minimap_job.as_ref().is_some_and(|j| j.unmounting && j.dir == dir));
+        // (Asked before the game data was held; answered while it is.)
+        app.tileset_ask = Some(TilesetAsk::Minimaps {
+            id: 2,
+            names: vec![(0, "mi_t0".into()), (1, "mi_t1".into())],
+            dir: other.clone(),
+            tiles: vec![("t0".into(), other.join("mi_t0.tga"))],
+            failed: Vec::new(),
+        });
+        app.tilesets.push(b);
+        answer_tileset_ask(&mut app, crate::widgets::Already::Skip);
+        assert!(
+            app.minimap_job.as_ref().is_some_and(|j| j.unmounting && j.dir == dir),
+            "the folder before is still to unmount"
+        );
+        assert!(mounted(&app));
+        end_job(&mut app, &ctx, held);
+        frames(&mut app, &ctx, 3);
+        assert!(!mounted(&app), "the folder before is let go of");
+        assert!(app.minimap_job.is_none());
     }
 }

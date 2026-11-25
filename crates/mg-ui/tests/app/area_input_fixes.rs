@@ -1,7 +1,8 @@
 //! The area view's input where a tool is on: Paint with no placeable
 //! chosen places nothing but leaves selecting, Delete, copy and paste as
 //! they are with Paint off (and shows no ghost where a click places
-//! nothing); one Escape during Select Tiles' box drag drops the box and no
+//! nothing) and leaves a paste's and a redrawn outline's clicks and Alt's
+//! raise as they are; one Escape during Select Tiles' box drag drops the box and no
 //! more; Adjust Location's OK and Apply on several objects whose values
 //! differ keep each one's own.
 
@@ -171,6 +172,117 @@ fn paint_with_a_waypoint_chosen_places_nothing_and_shows_no_ghost() {
     assert!(h.state().area_views[&area].ghost_shown.is_some(), "a ghost with Paint off");
     click_at(&mut h, spot);
     assert_eq!(listed(&mut h, area, "WaypointList"), waypoints + 1, "placed with Paint off");
+}
+
+/// Paint on with a waypoint chosen in the palette (whose placing click is
+/// swallowed): a paste's click still pastes, one Escape drops a paste and
+/// leaves Paint on, and a trigger's outline drawn anew takes its clicks.
+#[test]
+fn paint_with_a_waypoint_chosen_still_pastes_and_redraws() {
+    let Some((mut h, area)) = area_harness("paint-waypoint-paste") else { return };
+    settle(&mut h);
+    chests(&mut h, area, &[(Vec3::new(12.0, 30.0, 0.0), None)]);
+    shelf_click(&mut h, "Paint");
+    h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
+    let waypoints = listed(&mut h, area, "WaypointList");
+
+    // Copied and pasted: the paste's click places the copy, no waypoint.
+    // (Selected by hand: a click on the chest is the swallowed one.)
+    let chest = screen(&h, area, Vec3::new(12.0, 30.0, 0.3));
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.hover_at(chest);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting, "Paste takes the copy in hand");
+    let there = screen(&h, area, Vec3::new(16.0, 24.0, 0.0));
+    click_at(&mut h, there);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"), "the paste lands");
+    assert_eq!(listed(&mut h, area, "Placeable List"), 2, "the copy placed");
+    assert_eq!(listed(&mut h, area, "WaypointList"), waypoints, "no waypoint placed");
+    assert!(h.state().paint, "Paint still on");
+
+    // Pasted again and Escape: the paste dropped, Paint still on.
+    h.hover_at(chest);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.state().area_views[&area].pasting, "one Escape drops the paste");
+    assert!(h.state().paint, "and leaves Paint on");
+
+    // A trigger's outline drawn anew: its clicks are its corners.
+    let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 10.0), ("YPosition", 10.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    trigger.set("Geometry", mg_gff::Value::List(Vec::new()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    settle(&mut h);
+    h.state_mut().area_views.get_mut(&area).unwrap().redraw = Some((ObjectKind::Trigger, 0));
+    h.run_steps(2);
+    let first = screen(&h, area, Vec3::new(18.0, 18.0, 0.0));
+    click_at(&mut h, first);
+    assert_eq!(h.state().area_views[&area].outline.len(), 1, "the click is the first corner");
+    let opposite = screen(&h, area, Vec3::new(24.0, 21.0, 0.0));
+    h.hover_at(opposite);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        press(&h, opposite, pressed, egui::Modifiers::ALT);
+    }
+    settle(&mut h);
+    assert!(h.state().area_views[&area].redraw.is_none(), "closed by the second click");
+    assert_ne!(h.state().ws.as_ref().unwrap().can_undo(), Some("Trigger"), "the outline redrawn");
+    assert_eq!(listed(&mut h, area, "WaypointList"), waypoints, "no waypoint placed");
+    assert!(h.state().paint, "Paint still on");
+}
+
+/// Paint on with nothing chosen is Select Objects: Alt and a drag raise
+/// the selection, not move the view.
+#[test]
+fn paint_with_nothing_chosen_alt_drag_raises_the_selection() {
+    let Some((mut h, area)) = area_harness("paint-none-alt") else { return };
+    settle(&mut h);
+    shelf_click(&mut h, "Paint");
+    assert!(h.state().paint);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    let git = ResKey::new(area, ResType::GIT);
+    let z = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].float("ZPosition").unwrap()
+    };
+    let z0 = z(&mut h);
+    let alt = egui::Modifiers::ALT;
+    let a = screen(&h, area, Vec3::new(5.0, 30.0, 0.0));
+    h.event(egui::Event::ModifiersChanged(alt));
+    h.hover_at(a);
+    h.step();
+    let button = egui::PointerButton::Primary;
+    h.event(egui::Event::PointerButton { pos: a, button, pressed: true, modifiers: alt });
+    h.step();
+    let end = a + egui::vec2(0.0, -40.0);
+    h.hover_at(end);
+    h.step();
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    press(&h, end, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert!(z(&mut h) - z0 > 0.1, "Alt + drag raises the selection with Paint on");
+    assert!(h.state().paint, "Paint still on");
 }
 
 /// Select Tiles: Escape while a box is dragged drops the box, and only

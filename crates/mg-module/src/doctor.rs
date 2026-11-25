@@ -3577,7 +3577,7 @@ fn static_transforms(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
         let place = crate::rename::describe(key, Some(gff), &static_at);
         let message = "static, so the game draws it without its visual transform (its scale, \
                            rotation and translation): uncheck Static (Properties) to have it drawn \
-                           transformed (ticking it again takes the transform off, as Aurora does)"
+                           transformed (checking it again takes the transform off, as Aurora does)"
             .to_string();
         d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
     }
@@ -7814,5 +7814,5 @@ Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
 
     /// What `findings_of_resources_read_once_…` found before the checks
     /// shared one read of each resource: how many findings, and their hash.
-    const GOLDEN: (usize, u64) = (716, 14_147_445_041_444_083_384);
+    const GOLDEN: (usize, u64) = (716, 17_639_954_028_892_250_450);
 }

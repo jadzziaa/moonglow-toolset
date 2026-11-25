@@ -1269,13 +1269,14 @@ fn shown_area(app: &Moonglow) -> Option<mg_core::ResRef> {
 
 /// The script the script commands mean: the one whose editor is the tab
 /// in front, else (a script in a window of its own) the one whose editor
-/// had the keyboard last, else the only one open.
+/// had the keyboard last, else the only one open. (Open: with a tab. A
+/// script whose tab closed keeps its editor's state for the session.)
 fn script_in_front(app: &Moonglow) -> Option<mg_resman::ResKey> {
-    let open = |k: &mg_resman::ResKey| app.scripts.contains_key(k);
+    let open = |k: &mg_resman::ResKey| app.scripts.contains_key(k) && app.script_open(k);
     match app.front_tab() {
         Some(Tab::Script(k)) if open(&k) => Some(k),
         _ => app.script_tools.last_typed.filter(open).or_else(|| {
-            let mut keys = app.scripts.keys();
+            let mut keys = app.scripts.keys().filter(|k| app.script_open(k));
             keys.next().filter(|_| keys.next().is_none()).copied()
         }),
     }
@@ -2428,6 +2429,23 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    /// A script whose tab was closed with nothing unsaved keeps its
+    /// editor's state for the session, but is no script the script
+    /// commands mean: "the only one open" was any script with that state,
+    /// so Convert Indentation could go to a script with no tab.
+    #[test]
+    fn the_script_in_front_is_never_a_closed_one() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let key = mg_resman::ResKey::parse("closed", mg_core::ResType::NSS).unwrap();
+        let buf = crate::script_view::ScriptBuffer::read(b"void main() {}\n", (0, 0, 0));
+        app.scripts.insert(key, buf);
+        assert_eq!(script_in_front(&app), None, "its tab closed");
+        app.script_tools.last_typed = Some(key);
+        assert_eq!(script_in_front(&app), None, "typed in last, its tab closed since");
+        app.dock.main_surface_mut().push_to_first_leaf(Tab::Script(key));
+        assert_eq!(script_in_front(&app), Some(key), "its tab open");
+    }
 
     #[test]
     fn every_command_has_an_id_of_its_own() {

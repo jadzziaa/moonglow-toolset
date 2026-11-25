@@ -888,9 +888,11 @@ pub(crate) fn input(
         // Paint on with no placeable chosen: Escape or a right click
         // puts it away. The rest is the view's as with Paint off, but for
         // a click that would place what is in hand, which places nothing
-        // (`area_view::input`).
-        let stop = crate::area_view::cancelled(ui, response);
-        if app.paint && stop {
+        // (`area_view::input`). A paste, an outline drawn anew or a tile
+        // paste in hand is dropped first (the innermost thing, as the
+        // view's own order has it), and Paint stays on.
+        let inner = view.pasting || view.redraw.is_some() || view.tile_pasting;
+        if app.paint && !inner && crate::area_view::cancelled(ui, response) {
             app.paint = false;
             return true;
         }

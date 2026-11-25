@@ -325,6 +325,16 @@ impl Moonglow {
         script_source(&self.scripts, self.ws.as_ref(), self.game.as_deref(), key)
     }
 
+    /// Whether a script is open: its editor has a tab. Its editor's state
+    /// (`Moonglow::scripts`) is no sign of it: kept for the session after
+    /// a tab closed with nothing unsaved, it is in no tab to ask about
+    /// changes made to it (Replace All in a Find window left on it made it
+    /// unsaved, and the module's Save wrote it). Not inside the DockArea
+    /// pass, where `app.dock` is empty.
+    pub(crate) fn script_open(&self, key: &ResKey) -> bool {
+        self.dock.find_tab(&Tab::Script(*key)).is_some()
+    }
+
     /// Whether a script's laid-out text is kept (for tests).
     #[doc(hidden)]
     pub fn script_laid_out_for_test(&self, key: ResKey) -> bool {
@@ -1049,7 +1059,7 @@ pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
         // is for, not the module's last step somewhere else.)
         app.undo_script = with_keys(app, ctx).or(app.script_tools.find_keys);
     }
-    app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
+    app.undo_script = app.undo_script.filter(|k| app.script_open(k));
 }
 
 /// The keys back in the editor of the script that had them as a menu
@@ -1058,7 +1068,7 @@ pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
 /// drawn: a click on the menu's name would take them again as it is.)
 pub(crate) fn give_keys_back(app: &mut Moonglow, ctx: &egui::Context) {
     if ctx.memory(|m| m.focused().is_none()) {
-        app.script_tools.keys_back = app.undo_script.filter(|k| app.scripts.contains_key(k));
+        app.script_tools.keys_back = app.undo_script.filter(|k| app.script_open(k));
     }
 }
 
@@ -1142,10 +1152,15 @@ fn take_focus_left(ctx: &egui::Context, key: ResKey) -> bool {
 /// their editors (a script Find went to behind another tab, its tab closed
 /// and opened again later, took the keys and scrolled then).
 fn forget_closed(app: &mut Moonglow, ctx: &egui::Context) {
-    let Moonglow { laid_out, dock, .. } = app;
+    let Moonglow { laid_out, dock, scripts, ws, .. } = app;
     let open = |k: &ResKey| dock.find_tab(&Tab::Script(*k)).is_some();
     if !laid_out.is_empty() {
         laid_out.retain(|k, _| open(k));
+    }
+    // (And the editor's state of a closed script the module no longer
+    // has, with nothing unsaved: kept for the session to open it again.)
+    if let Some(ws) = ws {
+        scripts.retain(|k, b| b.is_dirty() || open(k) || ws.module.get(k).is_some());
     }
     ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<ResKey>>(focus_when_drawn()).retain(open));
 }
@@ -3943,7 +3958,9 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
         app.script_tools.search = s.clone();
-        let target = s.script.filter(|k| app.scripts.contains_key(k));
+        // (Open: a script whose tab closed keeps its editor's state, which
+        // changed here would be unsaved with no tab to ask about it.)
+        let target = s.script.filter(|k| app.script_open(k) && app.scripts.contains_key(k));
         // Whether the window is where the user is at work: the keys in
         // one of its fields, or a click in it (a button of its takes no
         // keys), until the keys or a click go somewhere else. Edit › Undo
@@ -4004,8 +4021,11 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         }
         if find_all {
             let Some(ws) = &app.ws else { return };
+            // (Those with tabs: a closed one keeps its editor's state.)
             let mut keys: Vec<ResKey> = if s.in_open {
-                app.scripts.keys().copied().collect()
+                let tabs = app.dock.iter_all_tabs();
+                tabs.filter_map(|(_, t)| if let Tab::Script(k) = t { Some(*k) } else { None })
+                    .collect()
             } else {
                 ws.module.keys_of(ResType::NSS).copied().collect()
             };
