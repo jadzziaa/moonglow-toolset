@@ -5,6 +5,9 @@ description: The NWN:EE rendering and lighting pipeline read from the stock shad
 tags: [rendering, shaders, lighting, renderer]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
 sources:
+  - id: shadows-on-see-through
+    resource: crates/mg-corpus-tests/tests/client_render/shadows.rs (shadows_on_see_through, shadows_look with MG_SHADOW_GRASS=1), run 2026-11-25 on 89.8193.37-17
+    title: The sun's shadows on grass, a tile's see-through meshes and water, in the client
   - id: bioware-dxt1-one-bit
     resource: crates/mg-corpus-tests/tests/client_render/batch6.rs (batch6_bioware_dxt1_one_bit), run 2026-11-10
     title: A DXT1's one-bit texels under BioWare's and the standard header, with TXIs, mesh alpha and an environment map, and the game's tdt01_wood04, in the client
