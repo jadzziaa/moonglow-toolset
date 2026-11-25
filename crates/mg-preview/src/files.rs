@@ -91,7 +91,7 @@ impl<'a> Gatherer<'a> {
             // (Textures put in place of the model's own, and what it
             // mirrors.)
             for t in part.textures.values() {
-                self.texture(mg_image::plt::split_colors(t).0, 0);
+                self.texture(mg_image::plt::split_plain(mg_image::plt::split_colors(t).0).0, 0);
             }
             if let Some(env) = &part.env_map {
                 self.env_map(mg_image::plt::split_colors(env).0, 0);

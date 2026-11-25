@@ -1373,6 +1373,26 @@ is `default` too, the area's, not `chrome1`.
   (`Instance::env_map_default`).
 - **Wiki:** missing.
 
+### A texture replacement's new name: its material, or the old texture kept
+
+`ReplaceObjectTexture` (and the `TextureReplace` field it saves) draws
+the new name through its material: an MTR of the name with a
+`texture0` is drawn with that texture over a TGA or PLT of the name.
+Where the new name has nothing to draw (an MTR with no `texture0`, even
+beside a TGA of the name, or no resource at all) the client keeps the
+old texture. A body part's own name, put on the part's meshes that name
+another texture, is drawn the other way: without its material, its PLT
+(`part_textures_look`, row J). Creatures and placeables are alike.
+
+- **Checked:** `part_textures_renamed_look` (2026-11-25; six chests
+  and six placeable boxes renamed by the script call, beside Moonglow's
+  field), and `part_textures_look`'s row J again (group `GHIJKL`).
+- **Moonglow:** `crates/mg-preview/src/lib.rs` (`replaced`,
+  `Lookup::renames_to_a_picture`); a part's own name marked
+  `mg_image::plt::plain_name` in `creature.rs` (`every_mesh_in`), which
+  the renderer's `image_of` draws without its MTR.
+- **Wiki:** missing.
+
 ### A creature's worn and held items reflect the area's map
 
 A helmet, a shield and a weapon a creature wears or holds reflect the

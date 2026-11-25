@@ -521,29 +521,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **A body part's name given in place of its mesh's is drawn with that
-  name's material:** the client draws the part's PLT on a mesh that names
-  something else even where an MTR of the part's own name names another
-  `texture0` (`part_textures_look`, row J: pink MTR, orange PLT drawn);
-  Moonglow draws the MTR, as the renderer reads every texture name
-  through its material. Deferred for its consequences: drawing a renamed
-  texture without its material would change every rename, the creature's
-  `ReplaceObjectTexture` ones too, whose material the client was not
-  read for; and nothing found hits it (the 24 TDoD necks given
-  `pmh0_neck028`, an MTR, name it in its own `texture0`, the same
-  picture). S. (a builder's report on 4.0, the part textures, 2026-11-10)
 - **A DDS of one luminance channel drawn alone:** the client draws it in
   colors of no rule (`part_textures_look`, rows R to U: 60 blue, 128
-  dark red, 0 and 255 black), Moonglow gray. Awaiting a verdict: copying
-  colors of no rule, or calling such a file one the game misreads
-  (Verify could say so). In doubt before either: the rows' files were
-  written with one mip level, and the client reads past a single-level
-  standard DDS (noise; the learning of 2026-10-21 says to write all
-  levels), so the colors may be the fixture's and not the format's. Row
-  Q (the PLT over such a DDS of its name) was read with the same kind of
-  file. To be read again with all levels written before anything is
-  built on it; left filed by the owner's word, 2026-11-10. (the part
-  textures, 2026-11-10)
+  dark red, 0 and 255 black), Moonglow gray. Read again on 2026-11-25
+  with all four levels written: the same colors, so they are the
+  format's, not the fixture's (a PLT of the name still wins, row Q).
+  Awaiting the owner's verdict: copying colors of no rule, or calling
+  such a file one the game misreads (Verify could say so). (the part
+  textures, 2026-11-10; read again in the eighth client batch)
 
 - **A scene with little light draws the client's boxes 4 to 8 times
   brighter than Moonglow's:** read with `chrome1_reflection_look`'s dark

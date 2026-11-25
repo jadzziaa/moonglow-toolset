@@ -112,7 +112,7 @@ pub trait Assets {
 
 // (PLT colours in a texture name: mg-image's, as blueprint previews read
 // them without a renderer.)
-pub use mg_image::plt::{colored_name, split_colors};
+pub use mg_image::plt::{colored_name, plain_name, split_colors, split_plain};
 
 /// Whether a plain texture's file (its start will do) is gray: a TGA of
 /// one channel, or a DDS of luminance. The game draws a PLT of its name
@@ -137,9 +137,15 @@ fn drawn_is_gray(rm: &ResMan, image: ResRef) -> Option<bool> {
 }
 
 /// The MTR a texture name names, if any, and the image it is read from
-/// (the MTR's first texture where it names another, else the name's own).
+/// (the MTR's first texture where it names another, else the name's own);
+/// a name to be drawn without its material ([`plain_name`]) its own
+/// image, with no MTR.
 fn image_of(rm: &ResMan, name: &str) -> Option<(Option<Mtr>, ResRef)> {
+    let (name, plain) = split_plain(name);
     let resref = ResRef::cut(name)?;
+    if plain {
+        return Some((None, resref));
+    }
     let mtr = rm.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d));
     let image = match mtr.as_ref().and_then(|m| m.textures[0].clone()) {
         Some(t) if !t.eq_ignore_ascii_case(name) => ResRef::cut(&t)?,
@@ -436,6 +442,29 @@ mod tests {
         assert_eq!(drawn("pmd0_head001")[..4], [200, 150, 100, 255], "the PLT over the gray");
         assert_eq!(drawn("pmh0_chest234")[..4], [200, 150, 100, 255], "the PLT over luminance");
         assert_ne!(drawn("pmh0_chest235")[..4], [200, 150, 100, 255], "a gray DXT1 over the PLT");
+    }
+
+    /// A name drawn without its material (`plain_name`: a body part's own
+    /// name on its meshes, `part_textures_look`'s row J): its PLT in
+    /// colors, where through the material it is the MTR's `texture0`.
+    #[test]
+    fn a_plain_name_is_drawn_without_its_material() {
+        let key = |n: &str, t| ResKey::new(ResRef::from_str(n).unwrap(), t);
+        let tga = |rgba: Rgba| mg_image::write_tga(&rgba);
+        let mut game = MemContainer::new();
+        game.insert(key("pal_skin01", ResType::TGA), tga(palette_of([200, 150, 100, 255])));
+        game.insert(key("pmh0_chest301", ResType::PLT), plt_of(&[0]));
+        game.insert(key("pmh0_chest301", ResType::MTR), b"texture0 mg_pink\n".to_vec());
+        game.insert(key("mg_pink", ResType::TGA), tga(palette_of([250, 120, 200, 255])));
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        let drawn = |name: &str| {
+            let t = Assets::texture(&rm, &colored_name(name, [0; 10])).unwrap().texture;
+            t.to_rgba().data
+        };
+        assert_eq!(drawn("pmh0_chest301")[28..], [250, 120, 200, 255], "through the MTR");
+        assert!(rm.takes_colors(&plain_name("pmh0_chest301")));
+        assert_eq!(drawn(&plain_name("pmh0_chest301"))[..4], [200, 150, 100, 255], "the PLT");
     }
 
     /// Whether the PLT is drawn over a part's TGA is told by the TGA that

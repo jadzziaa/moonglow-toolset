@@ -441,19 +441,24 @@ pub(crate) fn cloak_textures(
 /// none, the empty name (`mg_render::Instance::textures`); but a mesh
 /// whose `bitmap` names a material (MTR) with a `texture0` keeps the
 /// material, as one whose `materialname` does (the renderer draws that
-/// over the bitmap).
+/// over the bitmap). Where `own` is itself a material's name with a
+/// `texture0`, it is drawn without it: its PLT, as the client draws it
+/// (`part_textures_look`, row J; a texture replacement's new name, by
+/// contrast, is drawn through its material, [`crate::replaced`]).
 fn every_mesh_in(
     lk: &Lookup<'_>,
     model: Option<&mg_mdl::Model>,
     own: &str,
 ) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
+    let drawn =
+        if lk.has_material_texture(own) { mg_image::plt::plain_name(own) } else { own.to_string() };
     let bitmaps = model.map_or_else(Vec::new, crate::bitmaps);
     for b in bitmaps.into_iter().filter(|b| b != own && !lk.has_material_texture(b)) {
-        out.insert(b, own.to_string());
+        out.insert(b, drawn.clone());
     }
     if model.is_some_and(crate::unnamed_mesh) {
-        out.insert(String::new(), own.to_string());
+        out.insert(String::new(), drawn);
     }
     out
 }

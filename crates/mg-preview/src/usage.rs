@@ -1132,7 +1132,7 @@ impl<'a> Walk<'a> {
         self.gather.add_model(model);
         let lk = crate::Lookup { game: self.game, remembered: Some(&self.remembered) };
         for texture in crate::creature::plt_fallbacks(&lk, model).values() {
-            self.gather.add_texture(mg_image::plt::split_colors(texture).0);
+            self.gather.add_texture(mg_image::plt::split_plain(mg_image::plt::split_colors(texture).0).0);
         }
     }
 

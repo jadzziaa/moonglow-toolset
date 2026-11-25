@@ -42,6 +42,25 @@ pub const PALETTES: [&str; 10] = [
     "pal_tattoo01",
 ];
 
+/// A texture name drawn without the material (MTR) of that name, as the
+/// renderer's assets take it (`mg_render::Assets::texture`): `name!`,
+/// before any colours ([`colored_name`]). The game draws a body part's
+/// own name so on the part's meshes that name another texture
+/// (`part_textures_look` in mg-corpus-tests' `client_render`, row J),
+/// where a texture replacement's new name is drawn through its MTR.
+pub fn plain_name(name: &str) -> String {
+    format!("{name}!")
+}
+
+/// A texture name, and whether it is to be drawn without its material
+/// ([`plain_name`]).
+pub fn split_plain(name: &str) -> (&str, bool) {
+    match name.strip_suffix('!') {
+        Some(n) => (n, true),
+        None => (name, false),
+    }
+}
+
 /// A texture name with PLT colours (layer order), as the renderer's
 /// assets take it (`mg_render::Assets::texture`): `name#c0,c1,…,c9`.
 pub fn colored_name(name: &str, colors: [u8; 10]) -> String {
