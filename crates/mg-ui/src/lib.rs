@@ -796,6 +796,9 @@ pub struct Moonglow {
         std::collections::HashSet<(audio::Role, mg_core::ResRef, ResType, usize)>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    /// The module (identity and revision) `pictures` was last checked
+    /// against ([`images::forget_changed`]).
+    pictures_seen: Option<(u64, u64)>,
     /// The game's NUI skin, its fonts and the pictures the open windows
     /// use, as the NUI Creator's preview draws them.
     pub(crate) nui_assets: nui_view::skin::Assets,
@@ -1792,6 +1795,7 @@ impl Moonglow {
             speaker: Box::new(audio::Silence::default()),
             sound_said: Default::default(),
             pictures: HashMap::new(),
+            pictures_seen: None,
             nui_assets: Default::default(),
             nui_views: HashMap::new(),
             new_nui: None,
@@ -2288,6 +2292,12 @@ impl Moonglow {
         self.var_preview = std::mem::take(&mut self.var_preview_next);
         let female = self.settings.armor_on_woman;
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
+        images::forget_changed(
+            &mut self.pictures,
+            &mut self.palettes,
+            self.ws.as_ref(),
+            &mut self.pictures_seen,
+        );
         widgets::install_fonts(ui.ctx());
         script_layout::watch_fonts(ui.ctx());
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and

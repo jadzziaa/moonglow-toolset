@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T01:04:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T19:46:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -950,18 +950,6 @@ where the crates keep theirs, and a client test of what its checks say of
 the game. This is what that review left, and after it what the
 contribution itself states as not done or not checked.
 
-- **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
-  `skin::Assets` keeps its textures beside `images::Loader`
-  (`crates/mg-ui/src/images.rs`). Both find a picture through the game's
-  resource manager with the module being edited in its place, below its
-  haks (`ResMan::get_over` and `texture_over`, since 2026-10-29); their
-  orders of types differ on purpose (a window's pictures JPG, TGA, PNG,
-  BMP, then DDS, as the client looks for a NUI picture; the loader's DDS,
-  then TGA, as for a texture). What is left: the loader keeps a picture by
-  name, not read again when the module's bytes of it change, where a
-  window's are (a portrait added to the module shows once the game data is
-  reloaded); and JPEG and BMP are still read with the `image` crate
-  (nothing else here reads them). (S)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
@@ -2375,3 +2363,9 @@ is not taken for a new gap.
   the conflict, and the pane's wins until one of them is changed: the
   builder's binding is theirs to change. (Settled by the owner,
   2026-10-30.)
+- **JPEG and BMP pictures of a NUI window are read with the `image`
+  crate:** nothing else in Moonglow reads them, and the client takes
+  them for a NUI picture alone (JPG first, BMP after PNG); the NUI preview's
+  pictures (`skin::Assets`) and the UI's (`images::Loader`) keep their
+  own orders on purpose, and both read a picture the module changes
+  again at once (since 2026-11-25). (By design.)
