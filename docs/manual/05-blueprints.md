@@ -916,7 +916,8 @@ named after the blueprint's resref or tag where that name is free), gives
 it to the object and opens it, one Undo taking both back (the same on a
 placeable's and a door's Advanced page, and for a placed object's
 Properties; with no module open **New** is off) -- Aurora's own Edit
-with an empty field was not checked; and **No interrupt**; the sound set and the
+with an empty field opens a new conversation, untitled, and gives the
+object the name it is saved under, where Moonglow asks the name first; and **No interrupt**; the sound set and the
 faction are on Advanced in Aurora; the Sound set list is narrowed by
 gender (**Both**, Male, Female) and by type (**All** or a type of
 soundsettype.2da), as Aurora's is, and **Play Sample** beside it plays
