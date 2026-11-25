@@ -202,6 +202,15 @@ pub struct Gallery {
     /// to take the keys: it takes them as the tab comes to the front of
     /// its pane (opened, or its tab chosen), not after.
     pub(crate) shown: (u64, bool),
+    /// Down in Find was pressed: the grid takes the keys, its cursor on
+    /// the first picture shown.
+    down: bool,
+    /// The picture the grid's cursor starts at, once Down left Find for it
+    /// (in place of the one chosen), and how many pictures there were:
+    /// let go of when their number changes (Find typed again).
+    entry: Option<(usize, usize)>,
+    /// The grid is to be scrolled to its top, where its first picture is.
+    top: bool,
     /// Per-row `appearance_problem` results cached by `(kind, app.load_order)`.
     pub(crate) problems: ((Kind, u64), HashMap<usize, Option<String>>),
 }
@@ -355,8 +364,12 @@ fn grid(
     let keys = !crate::shell::keys_blocked(ui.ctx());
     let at = rows.place(ui.ctx(), current.or(taking));
     let count = rows.found.len();
+    if state.entry.is_some_and(|(_, was)| was != count) {
+        state.entry = None;
+    }
+    let entry = state.entry.map(|(at, _)| at).filter(|e| *e < count);
     let grid = mg_uikit::gallery::GalleryGrid::new(id, count, side)
-        .cursor(at)
+        .cursor(entry.or(at))
         .keys_allowed(keys)
         .name(kind.name());
     if count == 0 {
@@ -376,6 +389,10 @@ fn grid(
         return pick;
     }
     let area = egui::ScrollArea::vertical().id_salt(kind).auto_shrink([false, false]);
+    let area = match std::mem::take(&mut state.top) {
+        true => area.vertical_scroll_offset(0.0),
+        false => area,
+    };
     let shown_area = area.show(ui, |ui| {
         // (The board's room round the cells: 6 above, 4 right, 8 below and
         // left.)
@@ -570,14 +587,21 @@ fn header(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut Gallery, count: &st
         kind.set(chosen);
     };
     let filter = RefCell::new(std::mem::take(&mut state.filter));
+    let down = Cell::new(false);
     let find = |ui: &mut egui::Ui| {
         let mut text = filter.borrow_mut();
-        crate::widgets::SearchField::new(egui::Id::new("gallery-filter-field"), &mut text)
-            .name("Find")
-            .hint("Find")
-            .width(FIND_WIDTH)
-            .find_over()
-            .show(ui);
+        let left =
+            crate::widgets::SearchField::new(egui::Id::new("gallery-filter-field"), &mut text)
+                .name("Find")
+                .hint("Find")
+                .width(FIND_WIDTH)
+                .find_over()
+                .down()
+                .show(ui)
+                .left;
+        if left == Some(crate::widgets::FilterLeft::Down) {
+            down.set(true);
+        }
     };
     let side = Cell::new(tile_side(app));
     let moved = Cell::new(None);
@@ -603,6 +627,7 @@ fn header(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut Gallery, count: &st
         .right(Item::custom(COUNT, count_width, words).more(count_width, words))
         .show(ui);
     state.filter = filter.into_inner();
+    state.down |= down.get();
     if let Some(s) = moved.get() {
         app.settings.gallery_tile = Some(s);
     }
@@ -711,6 +736,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (The kind or Find changed in the header: the rows as they are now.)
     let rows = Rows::of(app, &ctx, state.kind, &state.filter);
     let kind = state.kind;
+    // (Down out of Find: the grid has the keys, its cursor on the first
+    // picture shown.)
+    let found = rows.as_ref().map_or(0, |r| r.found.len());
+    if std::mem::take(&mut state.down) && found > 0 {
+        (state.entry, state.top) = (Some((0, found)), true);
+        ctx.memory_mut(|m| m.request_focus(grid_id(kind)));
+    }
     // The one object it was opened for, as it is now.
     let one = state.target.clone().and_then(|(key, path)| {
         let Moonglow { ws: Some(ws), thumbnails, .. } = app else { return None };
@@ -777,6 +809,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     wants |= last + 1 < pass;
     if wants && rows.as_ref().is_some_and(|r| !r.found.is_empty()) {
         ctx.memory_mut(|m| m.request_focus(grid_id(kind)));
+        state.entry = None;
         wants = false;
     }
     state.shown = (pass, wants);

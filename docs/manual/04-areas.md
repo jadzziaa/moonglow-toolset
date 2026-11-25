@@ -1160,6 +1160,9 @@ placeables around.
   around each other and at their heights above the ground.
 - **What one holds** shows while the pointer rests on it in the
   palette's Prefabs: how many objects of each kind, and their tags.
+- **By the keyboard:** after a click in the list (or F6), the list is
+  outlined and Up, Down, Page Up, Page Down, Home and End move a cursor
+  through the prefabs; Enter places the one it is at, as a click does.
 - **Renaming one:** right-click it there and choose **Rename…**.
 - **Deleting one:** right-click it and choose **Delete**. A prefab isn't
   the module's, so Edit › Undo doesn't bring it back: **Undo Delete**,
@@ -1477,6 +1480,16 @@ as Aurora's Terrain tab does:
   (tcn01)**); each folder (Features, Groups, Terrain) has its count at
   its row's end, and in the Gallery each terrain and crosser the count of
   its tiles; a tool with a key shows it after its name (**Eraser X**).
+- **By the keyboard** (click a row, Down from the search, or F6), the
+  list is outlined and has a cursor ringed on a row: Up and Down go
+  through the rows as they are drawn (the rows of a closed folder are
+  not among them), Page Up, Page Down, Home and End a list's height or
+  to its first and last row, Right opens a closed folder (or goes into
+  an open one), Left closes it (or goes out to the folder a row is in),
+  and Enter does what a click does: it chooses the brush, or opens or
+  closes the folder. In the Gallery the folders and each terrain's and
+  crosser's heading are the rows; its pictures keep the arrow keys of
+  their own while one has the focus.
 - In the **Gallery**, each terrain and crosser is a heading that opens and
   closes, with every tile it can make under it as pictures: each variant,
   and each transition to another terrain (none of a group's). A tile is
@@ -2271,7 +2284,9 @@ The pages:
   in sight drawn), the bar over it holding **Find** (by model or terrain;
   Ctrl+F with the pointer over the page), **Duplicate Tile**, **Add Tile**
   and **Remove Last Tile** (the minus); a click chooses a tile and gives
-  the table the arrow keys (Up, Down, Page Up, Page Down, Home, End). The
+  the table the arrow keys (Up, Down, Page Up, Page Down, Home, End; Down
+  from **Find** chooses its first tile, and the table is outlined while it
+  has the keys; Enter does nothing more, as choosing a tile shows it). The
   chosen tile's form is at the table's right (under it in a narrow
   editor). Per tile: model, walkmesh, minimap picture, path node,
   orientation, corner terrains and heights, edge crossers, lights,
