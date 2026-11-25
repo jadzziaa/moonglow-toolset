@@ -266,6 +266,53 @@ fn stamps_from(
     scripts.iter().enumerate().map(|(i, k)| (*k, component_stamps[component[i]])).collect()
 }
 
+/// Why a script is compiled by [`compile_changed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Why {
+    /// Nothing is remembered of it: the first time Moonglow compiles it
+    /// here (it has a compiled script, which is another's or older).
+    NotCompiledHere,
+    /// The script or something it includes changed since it was compiled.
+    SourceChanged,
+    /// Its compiled script is not the one Moonglow made: another tool
+    /// compiled it, or it was changed.
+    CompiledElsewhere,
+    /// It has no compiled script.
+    NoCompiledScript,
+    /// Debug files are wanted and it has none.
+    NoDebugFile,
+    /// The user named it.
+    Asked,
+}
+
+impl Why {
+    /// A short name, as `mg --json` says it.
+    pub fn id(self) -> &'static str {
+        match self {
+            Why::NotCompiledHere => "not-compiled-here",
+            Why::SourceChanged => "source-changed",
+            Why::CompiledElsewhere => "compiled-elsewhere",
+            Why::NoCompiledScript => "no-compiled-script",
+            Why::NoDebugFile => "no-debug-file",
+            Why::Asked => "asked",
+        }
+    }
+
+    /// What it says in a sentence, to follow the script's name.
+    pub fn says(self) -> &'static str {
+        match self {
+            Why::NotCompiledHere => "Moonglow hadn't compiled it before",
+            Why::SourceChanged => "it or something it includes changed",
+            Why::CompiledElsewhere => {
+                "its compiled script wasn't Moonglow's (another tool made it)"
+            }
+            Why::NoCompiledScript => "it had no compiled script",
+            Why::NoDebugFile => "it had no debug file",
+            Why::Asked => "it was asked for",
+        }
+    }
+}
+
 /// What Compile All remembers of the scripts it compiled, to pass over
 /// those that need no compiling again: for each, the stamp of what it was
 /// compiled from ([`script_stamps`]) and of the compiled script it made
@@ -294,11 +341,29 @@ impl Remembered {
         stamps: &std::collections::HashMap<ResKey, u64>,
         script: &ResKey,
     ) -> bool {
-        match (self.scripts.get(script), stamps.get(script)) {
-            (Some((source, compiled)), Some(now)) => {
-                source != now || *compiled != Remembered::compiled_stamp(module, script)
-            }
-            _ => true,
+        self.why_stale(module, stamps, script).is_some()
+    }
+
+    /// Why `script` is to be compiled ([`Remembered::stale`]), if it is.
+    pub fn why_stale(
+        &self,
+        module: &Module,
+        stamps: &std::collections::HashMap<ResKey, u64>,
+        script: &ResKey,
+    ) -> Option<Why> {
+        let now_ncs = Remembered::compiled_stamp(module, script);
+        let (Some((source, compiled)), Some(now)) = (self.scripts.get(script), stamps.get(script))
+        else {
+            return Some(if now_ncs == 0 { Why::NoCompiledScript } else { Why::NotCompiledHere });
+        };
+        if source != now {
+            Some(Why::SourceChanged)
+        } else if *compiled == now_ncs {
+            None
+        } else if now_ncs == 0 {
+            Some(Why::NoCompiledScript)
+        } else {
+            Some(Why::CompiledElsewhere)
         }
     }
 
@@ -582,6 +647,8 @@ pub struct Pass {
     pub now: Remembered,
     /// How many scripts the module has to compile, those passed over too.
     pub scripts: usize,
+    /// Why each script of `results` was compiled.
+    pub why: std::collections::HashMap<ResKey, Why>,
 }
 
 /// Compiles the scripts that are not as `known` remembers them (`only`:
@@ -599,14 +666,18 @@ pub fn compile_changed(
     debug: bool,
 ) -> Pass {
     let scripts = module.keys_of(ResType::NSS).filter(|k| !skips_compiling(module, k)).count();
-    let (stamps, names) = match only {
-        Some(names) => (script_stamps_of(module, &names), names),
+    let (stamps, why) = match only {
+        Some(names) => {
+            (script_stamps_of(module, &names), names.into_iter().map(|k| (k, Why::Asked)).collect())
+        }
         None => {
             let stamps = script_stamps(module);
-            let names = changed_of(module, known, &stamps, debug);
-            (stamps, names)
+            let why = changed_of(module, known, &stamps, debug);
+            (stamps, why)
         }
     };
+    let names: Vec<ResKey> = why.iter().map(|(k, _)| *k).collect();
+    let why: std::collections::HashMap<ResKey, Why> = why.into_iter().collect();
     let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
     for r in &results {
@@ -615,7 +686,7 @@ pub fn compile_changed(
             Err(_) => _ = now.scripts.remove(&r.script),
         }
     }
-    Pass { results, now, scripts }
+    Pass { results, now, scripts, why }
 }
 
 /// The module's scripts that [`compile_changed`] compiles: those not as
@@ -624,7 +695,7 @@ pub fn compile_changed(
 /// without a debug file; not those a nasher project's target leaves
 /// uncompiled.
 pub fn changed(module: &Module, known: &Remembered, debug: bool) -> Vec<ResKey> {
-    changed_of(module, known, &script_stamps(module), debug)
+    (changed_of(module, known, &script_stamps(module), debug).into_iter()).map(|(k, _)| k).collect()
 }
 
 fn changed_of(
@@ -632,14 +703,16 @@ fn changed_of(
     known: &Remembered,
     stamps: &std::collections::HashMap<ResKey, u64>,
     debug: bool,
-) -> Vec<ResKey> {
+) -> Vec<(ResKey, Why)> {
     (module.keys_of(ResType::NSS))
-        .filter(|k| {
+        .filter(|k| !skips_compiling(module, k))
+        .filter_map(|k| {
             let made = |t| module.contains(&ResKey::new(k.resref, t));
             let no_debug_file = debug && made(ResType::NCS) && !made(ResType::NDB);
-            !skips_compiling(module, k) && (no_debug_file || known.stale(module, stamps, k))
+            let why =
+                known.why_stale(module, stamps, k).or(no_debug_file.then_some(Why::NoDebugFile))?;
+            Some((*k, why))
         })
-        .copied()
         .collect()
 }
 
@@ -1300,6 +1373,64 @@ mod tests {
         // Only what has no compiled script yet.
         let again = compile_scripts(&mut m, &rm, ScriptSelection::Uncompiled);
         assert_eq!(again.len(), 3, "the includes and the broken script");
+    }
+
+    /// Each script compiled says why: nothing remembered, its source
+    /// changed, its compiled script isn't Moonglow's or is gone, no debug
+    /// file, or it was asked for.
+    #[test]
+    fn a_compiled_script_says_why() {
+        let mut base = MemContainer::new();
+        base.insert(
+            key("nwscript", ResType::NSS),
+            &b"#define ENGINE_NUM_STRUCTURES 0\nvoid PrintString(string s);\n"[..],
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        let mut m = Module::new();
+        let names = ["a_new", "a_edit", "a_other", "a_gone"];
+        for n in names {
+            m.set(key(n, ResType::NSS), b"void main() { PrintString(\"x\"); }\n".to_vec());
+        }
+        let why = |m: &mut Module, known: &Remembered, only: Option<Vec<ResKey>>, debug| {
+            let pass = compile_changed(m, &rm, None, known, only, debug);
+            let mut out: Vec<(String, Why)> =
+                pass.why.iter().map(|(k, w)| (k.resref.to_string(), *w)).collect();
+            out.sort_by_key(|(n, _)| n.clone());
+            (out, pass)
+        };
+        // Nothing compiled yet: none has a compiled script.
+        let (got, first) = why(&mut m, &Remembered::default(), None, false);
+        assert!(got.iter().all(|(_, w)| *w == Why::NoCompiledScript), "{got:?}");
+        assert_eq!(got.len(), 4);
+        // A compiled script nothing is remembered of: another tool's.
+        let (got, _) = why(&mut m, &Remembered::default(), None, false);
+        assert!(got.iter().all(|(_, w)| *w == Why::NotCompiledHere), "{got:?}");
+        let known = first.now;
+        let (got, _) = why(&mut m, &known, None, false);
+        assert!(got.is_empty(), "nothing to do: {got:?}");
+        // One edited, one made by another tool, one without its compiled script.
+        m.set(key("a_edit", ResType::NSS), b"void main() { PrintString(\"y\"); }\n".to_vec());
+        m.set(key("a_other", ResType::NCS), b"another tool".to_vec());
+        m.remove(&key("a_gone", ResType::NCS));
+        let (got, _) = why(&mut m.clone(), &known, None, false);
+        assert_eq!(
+            got,
+            [
+                ("a_edit".to_string(), Why::SourceChanged),
+                ("a_gone".to_string(), Why::NoCompiledScript),
+                ("a_other".to_string(), Why::CompiledElsewhere),
+            ]
+        );
+        // Debug files wanted, and none made.
+        let (_, mut pass) = why(&mut m, &known, None, false);
+        let (got, _) = why(&mut m, &pass.now, None, true);
+        assert_eq!(got.len(), 4);
+        assert!(got.iter().all(|(_, w)| *w == Why::NoDebugFile), "{got:?}");
+        pass.now = known;
+        // Named: asked, whatever is remembered.
+        let (got, _) = why(&mut m, &pass.now, Some(vec![key("a_new", ResType::NSS)]), false);
+        assert_eq!(got, [("a_new".to_string(), Why::Asked)]);
     }
 
     /// A long chain of `else if` (a generated dispatch script, as
