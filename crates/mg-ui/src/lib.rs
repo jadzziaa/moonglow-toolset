@@ -5388,6 +5388,21 @@ impl Moonglow {
         self.load_order_changed();
     }
 
+    /// The module's tilesets whose `.set` is not the one in the game
+    /// data's module layer (a step undone or redone, a plugin's write):
+    /// put in the layer, and the open areas drawn from them read them
+    /// again. Only the `.set` files are compared.
+    pub(crate) fn follow_module_sets(&mut self) {
+        let (Some(game), Some(ws)) = (self.game.as_deref(), self.ws.as_ref()) else { return };
+        let layer = game.resman.layers().iter().find(|l| l.label == "module");
+        let Some(was) = layer.and_then(|l| l.container.as_mem()) else { return };
+        let sets = sets_changed(was, &ws.module);
+        if !sets.is_empty() {
+            let keys: Vec<ResKey> = sets.iter().map(|s| ResKey::new(*s, ResType::SET)).collect();
+            self.update_module_layer(&keys);
+        }
+    }
+
     /// Tilesets kept in the module changed (`sets`): the open areas drawn
     /// from one read it again, and the tiles palette and the groups'
     /// pictures made from it are made again, as a tileset changed in a
@@ -5851,6 +5866,7 @@ impl Moonglow {
                         bake_view::follow(self, step, redo);
                         self.fixes_follow(step, redo);
                         self.sync_haks();
+                        self.follow_module_sets();
                         self.log.info(format!(
                             "{} {label}",
                             if action == Action::Undo { "Undid" } else { "Redid" }
