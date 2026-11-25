@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:55:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:45Z }
 ---
 
 # Plugins
@@ -130,7 +130,7 @@ in it) into the plugins folder and press **Reload**.
 Every plugin is **off until you enable it**: installing one runs none of
 its code. The Plugins tab lists each plugin with its version, what it says
 it does, who wrote it, its license, and the commands and checks it adds.
-Tick its box to enable it; Moonglow remembers. **Run Tests**, beside a
+Check its box to enable it; Moonglow remembers. **Run Tests**, beside a
 plugin that comes with tests of its own, runs them, and the log says
 what each came to
 ([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
@@ -179,7 +179,7 @@ meanwhile, a pull's; not for other changes in the folder).
   off until you allow it as it is, and one new there is asked about,
   without opening the project again.
 - **Don't Allow** keeps it off, however it changes, and it is not asked
-  about again; tick it on the Plugins tab to allow it later.
+  about again; check it on the Plugins tab to allow it later.
 - Your answers are **yours alone**, and never in the project: Moonglow
   keeps them in its own folder (`project-plugins.toml` beside the plugins
   folder), by the project's place on your disk, the plugin and the
@@ -311,7 +311,7 @@ one step of Undo; Cancel makes nothing.
 ## Panels
 
 A plugin's panels are tabs of their own: **Plugins › Panels** shows and
-hides each (a tick beside those shown), and Quick Open finds them by name
+hides each (a check beside those shown), and Quick Open finds them by name
 (since plugin API 0.6). A panel opens as editors do: as a document tab
 beside the others, which you may split beside the area or another editor,
 or in a window of its own when **Tools › Options › General › Open
@@ -322,11 +322,11 @@ its top draws it again, with the plugin's name beside it. It shows what
 its plugin says, in Moonglow's own headings, text, lists, buttons and
 fields: a list's item opens what it names, and a button runs one of the
 plugin's commands, with its own step of Undo. A field (since plugin API
-0.9) is a form's (text, a number, a tick, a choice, a color) that stays:
+0.9) is a form's (text, a number, a check, a choice, a color) that stays:
 what you set in it stays until the plugin shows another value there (the
 tint of another placeable you select, say), and a field may run one of the
 plugin's commands when you set it (a color when its picker closes, text or
-a number when you leave it, a tick or a choice at once), with its own step
+a number when you leave it, a check box or a choice at once), with its own step
 of Undo. A color field may show the color on the objects selected while
 its picker is open, as a form's does; a choice may show a swatch beside
 each of its options. It is drawn again by itself after the plugin's

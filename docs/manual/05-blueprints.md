@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T04:50:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
 
 # Blueprints
@@ -279,7 +279,7 @@ lead to:
   Tags and Scripts** keeps each one's own instead (a placeholder replaced
   by the real thing keeps the tag its scripts know it by), the rest coming
   from the blueprint. A placeable the blueprint makes static loses
-  its transform, as ticking Static does. Locked objects are left. One
+  its transform, as checking Static does. Locked objects are left. One
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.
 - **View**: open one of the game's blueprints to look at, page by page
@@ -325,7 +325,7 @@ lead to:
 
 ### The Appearance Gallery
 
-**Tools › Appearance Gallery…**, or **All Appearances…** under
+**Tools › Appearance Gallery**, or **All Appearances…** under
 **More** in the palette's Placeables, opens the **Appearance Gallery**:
 a tab
 whose header holds **Placeables**, **Creatures** and **Doors** (which
@@ -407,7 +407,7 @@ marked **≠** and shows the first one's.
 
 - **Adding** an entry adds it to each that lacks it, at the end of its
   own list, and leaves those that have it. **Give to All**, beside or
-  under an entry some have, does the same; a half-ticked box (a feat
+  under an entry some have, does the same; a half-checked box (a feat
   some have, a spell some know) gives it to the rest.
 - **Removing** an entry (its row's **Remove**) takes it, every copy of it,
   from each that has it.
@@ -452,13 +452,13 @@ visual transform. Everything else comes from
 the blueprint, including the object's tag, name, scripts, local variables
 and a door's transition. A window lists the objects it would change:
 - **Every area**, or **Only** the area shown (named).
-- **Untick** objects to leave them as they are; **All** and **None**
-  tick or untick every one.
-- **Update N** (the number ticked) changes them as one undoable step, and the log lists
+- **Uncheck** objects to leave them as they are; **All** and **None**
+  check or uncheck every one.
+- **Update N** (the number checked) changes them as one undoable step, and the log lists
   each object updated: its area, kind, tag and blueprint.
 - **List Again** shows when objects were added to or removed from one of
   the areas with the window open (the list is of the areas as they
-  were): Update waits until the objects are listed again, all ticked.
+  were): Update waits until the objects are listed again, all checked.
 
 A custom category's right-click menu updates the instances of every
 blueprint in it, and **Edit › Update All Instances…** those of every
@@ -471,7 +471,7 @@ pages, and in a bag in any of them. Each is listed with what holds it
 its slot, and what is said of it there (whether it drops or can be
 stolen, a store's endless supply); how many of it there are is the
 blueprint's, as in Aurora (a stack of twenty arrows becomes the
-blueprint's stack: untick it to keep it).
+blueprint's stack: uncheck it to keep it).
 
 ### Wizards
 
@@ -498,7 +498,7 @@ button while it is enabled, and **Escape** is Cancel. The blueprint
 wizards are resizable, and their **Launch Properties Dialog** box is at
 the footer's left on the last page.
 
-The Item Wizard's Name page has Aurora's **Magical**: ticked, choose an
+The Item Wizard's Name page has Aurora's **Magical**: checked, choose an
 **Item Level** (1-5, 6-10, 11-15, 16-20) and an **Item Quality** (Low,
 Medium, High, Godly), and the item gets random properties as Aurora's
 wizard gives them, from the toolset's tables for its kind of item
@@ -618,9 +618,10 @@ talk table, a script) have **OK** and **Cancel** at their header's right
 end too: OK saves (a new
 hak asks where; a script's Save puts its text into the module) and
 closes the window; Cancel closes it as last saved, asking first where
-there are unsaved changes (**Save**, **Don't Save** or **Cancel**). The
-talk table's and a script's close buttons keep what is unsaved for the module's
-Save; their Cancel drops it. (Closing a window cancels its
+there are unsaved changes (**Save**, **Don't Save** or **Cancel**). A
+script's close buttons ask the same, and so do the talk table's for
+lines changed in its own editor; lines typed for the module's fields in
+other editors stay for the module's Save. (Closing a window cancels its
 changes leaves these editors' close buttons as they are.) A talk table found in a hak has
 **Close**.
 
@@ -735,7 +736,7 @@ Shared parts:
     drawn with (item, feat and spell icons, portraits, load screens, the
     area map's tiles and the GUI's own: more than three quarters of the
     game's textures), are left out unless **Interface textures too** is
-    ticked. The textures sit in a well with its scroll bar, their names
+    checked. The textures sit in a well with its scroll bar, their names
     in monospace; it opens at the texture chosen, or else at the one
     being replaced, ringed, which the preview at the right shows with
     its name. **OK** stays off until another is chosen; the arrow keys
@@ -820,9 +821,9 @@ Shared parts:
   the first choice that begins with it, the same letter again to the
   next, and letters typed together to the one that begins with them all
   (after a second's rest, typing begins anew). The lists of commands (Add
-  hak…) and of ticks (a 2DA's flags) take them too:
+  hak…) and of checks (a 2DA's flags) take them too:
   Down opens one, Up and Down (Home, End) go along its rows, and Enter or
-  Space does what a click there does (a command closes the list; a tick
+  Space does what a click there does (a command closes the list; a check box
   leaves it open for the next). Escape closes a list and gives up the
   keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
   door's Appearance type and Generic appearance, show each appearance's
@@ -1003,7 +1004,7 @@ A domain or school left **Not set** is the game's to choose.
   prepares its spells), by level, each level with how many the class may
   have of it ("Level 1: 2 of 3", as Aurora's warnings count them: its
   spell tables, and for a class that prepares them its ability's bonus
-  spells). A class that knows its spells ticks them in the list; a
+  spells). A class that knows its spells has them checked in the list; a
   click on a spell of one that prepares them prepares one more, and the
   number beside a prepared spell (with its arrows) says how many. A
   spell's remove button (**Remove** and its name) takes it away. **Meta-Magic** (for a class that prepares its spells)
@@ -1013,7 +1014,7 @@ A domain or school left **Not set** is the game's to choose.
   and the count beside it is of those so prepared. A spell prepared with
   metamagic is named as Aurora's summary names it ("Bless (Empower
   Spell)"). One whose casting level would pass 9 can't be prepared.
-  **Clear**, **Save** and **Load Class Spell List** act on the class's
+  **Clear Class Spell List**, **Save Class Spell List…** and **Load Class Spell List…** act on the class's
   lists as a whole.
 - On the **Spells** page, a warning names a class's first problem:
   spells of a level the class cannot cast yet, a casting ability too low
@@ -1195,7 +1196,7 @@ usable, has inventory), **Lock** (locked, key, DCs), **Trap**, **Area
 Transition** (a door's: where it leads, a door, area transition
 trigger or waypoint), Scripts, Advanced, Variables, Visuals,
 Description, Comments. A placeable's **Inventory** page, after Basic,
-holds what it holds where **Has inventory** is ticked (else it says
+holds what it holds where **Has inventory** is checked (else it says
 there is none). A placeable can have an inventory without being
 usable: players
 can't open it, but scripts can reach what it holds.
@@ -1247,11 +1248,11 @@ nothing. Closing the Properties window with Cancel afterwards leaves the
 transition as set up: Undo takes it back whole. The waypoints made are
 weighed for duplicate tags as any object placed is.
 
-Ticking **Static** on a placed placeable takes its visual transform off
+Checking **Static** on a placed placeable takes its visual transform off
 (its scale, rotations and offsets from Adjust Location or the rings), as
 Aurora does: the game draws a static placeable without one. It is the
 same step as Static, for each placeable edited together, and Undo puts
-the transform back; unticking Static gives none back.
+the transform back; unchecking Static gives none back.
 
 A placeable's Advanced page has **Illuminated**: whether its light is on
 when the game loads it, the state scripts read and change with
@@ -1265,7 +1266,7 @@ model shine either way, as they do in the game. Off, the area view and
 the preview draw the placeable without that light, and an invisible
 light's sun in the area view turns gray. An appearance without a light
 isn't lit by the game whatever the box says; the box can be set all the
-same (on unless you untick it), for when the appearance's row gains a
+same (on unless you uncheck it), for when the appearance's row gains a
 light later.
 
 A **static** placeable doesn't reflect its appearance's environment map

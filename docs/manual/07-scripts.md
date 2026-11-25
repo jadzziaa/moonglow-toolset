@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T18:35:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:45Z }
 ---
 
 # Scripts
@@ -28,9 +28,15 @@ then **Save As…**, **Print…**, **Open…** and **External Editor**,
 in its tooltip with its key); at its right end the codepage the script
 is read and saved in (below), **More** (⋯), which holds **To
 Scratch**, and **OK** and **Cancel**: OK puts the text into the module
-and closes the tab, Cancel closes it as last saved, asking first about
-unsaved text. Where the editor is narrow, Save and Compile lose their
-words first, then the icons go into More from the end of the row, then
+and closes the tab. Cancel closes it as last saved; with text not yet
+saved into the module it asks first, as closing the tab does (its ×,
+Ctrl+W, the tab's menu, its window's Close): **Save** puts the text
+into the module, as Save does, and closes the tab, **Don't Save** closes
+it as last saved, and **Cancel** keeps it open. A script closed with
+nothing unsaved and opened again in the same session has its bookmarks,
+Undo history, codepage and External Editor link as it left them; one
+closed by that question's Save or Don't Save opens anew. Where the
+editor is narrow, Save and Compile lose their words first, then the icons go into More from the end of the row, then
 the codepage, Save and Compile last of all, so every command stays one
 click away; OK and Cancel stay at the end whatever the width. An unsaved
 script shows the dot on its tab (the header has no "modified" of its
@@ -99,7 +105,8 @@ text beside Reference; that pane takes at most a third of the window's
 height, however far its edge is dragged, so that the text keeps the
 rest in a small window. The width you drag that window's Reference
 pane to and the height you drag its bottom pane to are kept: the next
-script window opens with them, after a restart too.
+script window opens with them, after a restart too (every kind of
+window keeps its own: [The main window](02-main-window.md#floating-windows)).
 
 - **Compiler**: first, where checking as you type (below) found an
   error, a **Found as you type** row with the compiler's words whole,
@@ -258,7 +265,7 @@ away those it hides. The game's and a hak's open to be read.
 Case**, **Match Whole Word Only** and **Search Backward**. Enter (**Find
 Next**) finds the next match, again and again; without Match Case,
 accents are set aside as case is (`arbol` finds `Árbol` in a comment
-or a string). Ticked, **Find In Currently Open Scripts** lists every
+or a string). Checked, **Find In Currently Open Scripts** lists every
 match in the scripts open now under Search Results, and **Find In Files
 (all scripts in the module)** every match in the module's scripts; the
 main button is then **Find All**. Search Results keeps the first 10,000
@@ -329,8 +336,9 @@ code](#finding-your-way-in-code). The rest:
   module has unsaved changes (the `*` in the title) and Edit › Undo,
   with the keyboard outside the editor, takes the script's Save back.
   Aurora's script editor has its own Save on Ctrl+S as well. A script
-  tab with text not yet saved into the module shows the dot; Moonglow's
-  recovery copies keep that text too.
+  tab with text not yet saved into the module shows the dot, and closing
+  it asks Save, Don't Save or Cancel (above); Moonglow's recovery copies
+  keep that text too.
 - **Compile**: save and compile this script; errors go to **Compiler**
   and the log. The scripts it includes are compiled as the
   module has them: an include open in another editor with changes not

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:11:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:44Z }
 ---
 
 # The main window
@@ -64,11 +64,11 @@ Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has o
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, [Export Changed Resources…](03-modules.md#import-and-export), Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Change Tileset… ([Areas](04-areas.md)), Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Interface Size (Zoom In, Zoom Out, Reset Zoom, and the sizes from 90% to 300%, the one in use ticked: Options › General › Interface size), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each checked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Interface Size (Zoom In, Zoom Out, Reset Zoom, and the sizes from 90% to 300%, the one in use checked: Options › General › Interface size), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint), and the enabled plugins' wizards |
-| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
+| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
-| Plugins | the commands of the plugins you have enabled, **Panels** (their panels, where they have any), Manage Plugins… (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
+| Plugins | the commands of the plugins you have enabled, **Panels** (their panels, where they have any), Manage Plugins (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
 | Help | User Manual, Command Palette… ([Quick Open](#quick-open)), Check for Updates… ([Updates](#updates)), About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
@@ -282,10 +282,10 @@ Palettes still shows the dock, its panel saying "No game data.".
 
 **Folding.** The docks fold away to give the area's view the room:
 **View** has each (Left Dock, whichever of its panels it shows; Right
-Dock; Log), ticked while shown, and **Hide All Panels** (beside a tab
+Dock; Log), checked while shown, and **Hide All Panels** (beside a tab
 that brings no Right Dock, it hides and shows the other two and leaves
 the Right Dock folded or not as it was, for the next area; View › Right
-Dock is grayed and not ticked then). Each also has one control of its
+Dock is grayed and not checked then). Each also has one control of its
 own for it. The **Left Dock** has a small arrow at the end of its tab
 bar, after its panel's buttons (**Fold the Left Dock**); drag the dock's
 edge to make it wider or narrower. Tab reaches the arrow after the tab
@@ -455,10 +455,10 @@ kind of editor, apart from the area's two columns.
 ## The module tree
 
 The Left Dock's **Module** panel lists what the module holds, by kind:
-Areas, Conversations, Scripts, NUI windows ([NUI
+Areas, Conversations, Scripts, NUI Windows ([NUI
 Creator](18-nui-creator.md)), the blueprints (Creatures, Doors,
 Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints) and
-Journal and factions, each group's row with its kind's icon (in its
+Journal and Factions, each group's row with its kind's icon (in its
 kind's color with Options › General › Colored icons) and,
 at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
@@ -551,7 +551,7 @@ objects by theirs either way. **Show file extensions in the module
 tree** lists blueprints, NUI windows, the journal and the factions by
 their files' names (`guard.utc`, not `guard`); without it, only a
 resource whose group holds another file of the same ResRef shows its
-extension (only the Journal and factions group holds two types, and a
+extension (only the Journal and Factions group holds two types, and a
 module's own `module.jrl` and `repute.fac` don't share one: a
 `repute.jrl` put in by hand beside `repute.fac` would), and areas, conversations
 and scripts are listed by their ResRefs alone either way. The Filter
@@ -958,10 +958,18 @@ too, and the
 button at the right of the window's bar, before Close Window, does it
 and shows which it is: a maximize icon, or restore while the window is
 maximized. **Ctrl+Shift+M** (Maximize Window in Options › Keyboard) does
-it for the window of the tab in front. Any window does this, one of a
+it for the window of the tab in front (grayed, with "No floating editor
+window is open", where there is none). Any window does this, one of a
 tab dragged out of a pane (the main pane's Module Properties too) as
 well. A maximized window stays over the whole of Moonglow's window as
-that is resized.
+that is resized. A tab docked in the main window has no Maximize on its
+menu, and a double click on it maximizes nothing.
+
+A window's panes keep their sizes by kind: the width you drag its right
+pane to (an area's Properties, a script's Reference) and the height you
+drag its bottom pane to (a script's Compiler, Help, Bookmarks and Search
+Results) are kept for that kind of editor, and the next window of the
+kind opens with them, after a restart too.
 
 ### Dialogs
 
@@ -1076,8 +1084,9 @@ and again returns), Ctrl and a digit goes to one by its number (see
 [Keyboard shortcuts](#keyboard-shortcuts)), and Ctrl+Shift+T opens the tab
 closed last again (the last twenty are kept; one whose area or script is
 gone from the module is passed over). A middle click on a tab closes it.
-A hak, a 2DA or a tileset with unsaved changes, or the talk table with
-lines changed in its own editor (also while it shows `dialog.tlk`), asks first,
+A hak, a 2DA, a tileset or a script with unsaved changes, or the talk
+table with lines changed in its own editor (also while it shows
+`dialog.tlk`), asks first,
 as its close button does, and as the module asks: **Save**, **Don't Save** or
 **Cancel**. Closing several at once (Close All) asks of each in turn;
 Cancel keeps that one and the rest open. Closing Moonglow's window, File
@@ -1116,7 +1125,7 @@ already (one just opened): rows chosen in the tree since, several to
 delete or export together, stay chosen. A tab whose row the Filter
 hides, chosen while the Filter has something typed, is listed under it
 all the same (the Filter stays as it is) until what is typed changes.
-With **Show the tab chosen in the module tree** unticked in Options ›
+With **Show the tab chosen in the module tree** unchecked in Options ›
 General, the tree stays where it is and only the area in front is
 marked, as in Aurora (whose other editors are dialogs, and whose tree
 marks the area in front alone). **Show in Module Tree** on the tab's
@@ -1139,7 +1148,7 @@ beside its row), the object's kind opens and its row is brought into
 view (a row in view stays where it is; one out of sight comes to the
 middle); an area left closed in the tree is opened out to it, as in
 Aurora; with **Show the object selected in an area in the module tree**
-unticked in Options › General, it stays closed, and the tree goes to an
+unchecked in Options › General, it stays closed, and the tree goes to an
 object only where its area is opened out already. What you do in the
 tree itself (a click, its keys, Go To) moves it either way.
 
@@ -1282,7 +1291,7 @@ resources listed into a folder, once a type or part of a name narrows
 the list (its tip says how many: "Write the 627 listed resources into
 a folder as files"; with the whole load order listed it says to narrow
 the list first), and **Refresh** reads the load order
-again. Files go out as they are; with **Models as text** ticked (under
+again. Files go out as they are; with **Models as text** checked (under
 Overridden copies, shown when models are listed), compiled models go
 out as the text they compile from. Where the folder has some of the
 files already, it asks first (**Replace N**, **Skip Those**, or
@@ -1381,7 +1390,7 @@ right-click menu), or see a model or blueprint of it in the 3D viewer
 (**Preview** on its right-click menu: that copy, drawn with the rest of
 the load order as the game reads it; the viewer's Export Files… is left
 out there, as what it gathers is the game's); for a table in one of your own haks, **Edit in
-name.hak** opens it there. With **Overridden copies** unticked, it lists
+name.hak** opens it there. With **Overridden copies** unchecked, it lists
 the copy the game reads alone. **Export N as Files…** writes the copies
 the game reads into the folder chosen, and each overridden copy listed
 into a folder of its layer's under it (`hak_low/portraits.2da`). `mg which NAME.EXT --module

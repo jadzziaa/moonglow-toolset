@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-24T23:49:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
 
 # Modules
@@ -179,7 +179,7 @@ back:
   one still names a renamed script, the log says which (the hak, the
   table, the row and column), and the game runs nothing there until the
   hak's table names the new script.
-- **Strings in scripts** change too if you tick **Also change … in
+- **Strings in scripts** change too if you check **Also change … in
   scripts**. Check them in Find References first: a string may also be a
   tag or something else (Neverwinter Chess compares tags to `"pawn_b"`, its
   pawns' blueprint name). The log names strings left spelling the old
@@ -193,10 +193,10 @@ back:
 **Search Results**, with the form as the panel's header and what it finds
 listed under it. Its first row has **Find what**, **Replace with**,
 **Match case**, **Whole words** and **Regular expression**; its second
-ticks what it looks in. It finds text players read: the module's
+has a check box for each place it looks in. It finds text players read: the module's
 **Names**, **Descriptions**, **Conversations**, the **Journal** and
 **Other text** (map notes and such), in every language each string
-has. Ticked on the same row, it looks in the fields builders and
+has. Checked on the same row, it looks in the fields builders and
 scripts read too:
 **Tags** (objects' and areas'), **ResRefs** (the fields that name a
 script, a blueprint, a conversation: not a resource's own name, which
@@ -219,7 +219,7 @@ door's Linked To, a key's tag, comments).
   tags](04-areas.md#duplicate-tags)).
 - **What's found** is listed by place, as in Find References. Click a
   string to choose it (the arrow keys, Page Up, Page Down, Home and End
-  move the choice); Space ticks or unticks it, and untick any to leave
+  move the choice); Space checks or unchecks it, and uncheck any to leave
   alone; Enter or a double click, or the place link, opens it. When
   something it was found in is changed after the search, the panel says
   the module changed since: **Find** again before replacing. Enter in a
@@ -227,11 +227,11 @@ door's Linked To, a key's tag, comments).
   field); Escape in a field closes the Bottom Dock. The search
   is a job, with progress and **Cancel**. Closing the module lets the
   hits go; the form stays.
-- **Replace** changes the ticked strings as one step that **Undo** takes
+- **Replace** changes the checked strings as one step that **Undo** takes
   back, then lists what's left. The panel says how many there are as
   "N strings, M times" ("1 string, 1 time"), while the list is current,
   and the form has **Find** (the main button) and **Replace in N**, N the
-  ticked hits (off at 0).
+  checked hits (off at 0).
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
@@ -265,7 +265,7 @@ for** chooses what to look for, and **Find** looks:
   actions.
 - **Any field:** by label (`*` as in variables), by value, or both. A
   value is text that strings, resrefs and every language of names and
-  descriptions contain, or with **Number** ticked a number: `103` finds
+  descriptions contain, or with **Number** checked a number: `103` finds
   every field of an integer type holding 103 exactly, an appearance, a
   portrait or a conversation's link alike; `1.5` a float holding 1.5;
   a range, `5..10` (or `5..`, `..10`), every number field in it.
@@ -285,7 +285,7 @@ With more than one condition, **Find objects** chooses **meeting all of
 the conditions** (as above) or **meeting any of the conditions**: then
 the window lists what each condition finds, resource by resource, and
 the rows read **Or** (the button **Or…**); a place two conditions find
-is listed once, with both matches told. Tick **Not** beside a condition
+is listed once, with both matches told. Check **Not** beside a condition
 (its row then reads **Not**) to leave out the objects that meet it:
 exactly those an And of it would keep. "Fighters, not with Alertness"
 are the fighters without the feat; an object holding what a Not finds,
@@ -310,19 +310,19 @@ module's, the blueprints its haks and the game have that the module has
 none of (each as the game reads it: a hak's over the game's of the same
 name), as the standard palette offers them. They are listed after the
 module's, each with the layer it is read from (`(hak:cep2_top_v28)`,
-`(key:nwn_base)`), and are read-only: never ticked, so neither changed
+`(key:nwn_base)`), and are read-only: never checked, so neither changed
 nor edited together; a click opens the copy to look at. A module's
 blueprint that carries a game's item found, or an encounter that spawns
 a game's creature found, is the module's (`crate.utp › carries
 nw_it_gem001.uti`), and is changed as any other. It costs little (the
 game's 6,500 or so blueprints add some 30 ms to a
-search) but lists much: it is off unless ticked.
+search) but lists much: it is off unless checked.
 
 What's found is listed by place, as in Find References: `keep ›
 creature GUARD_01 › item OLD_SWORD`, `sword.uti`, `keep (area)`, with
 what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
 "Ezra"`). Click one to go there; right-click it for **Copy** (its place
-and what matched, as one line) and **Copy All** (every one listed, ticked
+and what matched, as one line) and **Copy All** (every one listed, checked
 or not), after a plugin's commands for it; with the keyboard on its
 place (Tab), Shift+F10 opens that menu and Ctrl+C copies it. A creature, placeable or store
 blueprint's inventory names its items' blueprints: an item blueprint
@@ -338,9 +338,9 @@ each kind at once, class levels and number ranges too, `--any` and
 game's blueprints (`--haks-and-game`):
 `mg search` ([Command-line tools](11-command-line.md)).
 
-Each one found in the module is ticked; untick those to leave out (**Tick All**,
-**Tick None**). Then:
-- **Change the N ticked** (it unfolds) makes one change to each object,
+Each one found in the module is checked; uncheck those to leave out (**Check All**,
+**Check None**). Then:
+- **Change the N checked** (it unfolds) makes one change to each object,
   chosen in **Change** and made by **Change N Found**, in one step that
   Undo takes back: **Set a variable** (added, or its type and value
   replaced; an area's goes to its GIT, where the game reads it),
@@ -362,17 +362,17 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
   property where the base item takes it. What couldn't be changed (an
   object without that event or field, a door asked for a feat, a
   creature with the feat already) is said, and the search runs again.
-- **Edit the N ticked together** (it unfolds, a button for each group)
+- **Edit the N checked together** (it unfolds, a button for each group)
   opens blueprints of one type in one tab, and objects of one kind
   placed in one area in one tab, as the palette's and the area's Edit
-  Together do; **Choose N Area(s)…** opens
-  the Edit Areas Together section of the Right Dock with the areas of what is ticked (areas found, or
-  those the objects found are placed in) ticked.
+  Together do; **Choose N Areas…** (**Choose 1 Area…** for one) opens
+  the Edit Areas Together section of the Right Dock with the areas of what is checked (areas found, or
+  those the objects found are placed in) checked.
 
 What was found is a list of places as the module was then. Once the
 module has changed (an object deleted, an Undo, a file read again from
 outside), a change, an Edit Together or a click on a place first finds
-again, ticks everything found and says so ("The module changed since
+again, checks everything found and says so ("The module changed since
 this was found…"), and does nothing else: look the new list over, then
 ask again.
 
@@ -1475,7 +1475,10 @@ If Moonglow (or the computer) stops first, the next start offers the copy
 in **Recover Unsaved Work**: open it as an unsaved module (with the tabs
 it had), then save it where you want. (A copy whose note of where its
 module lives was lost with the power is offered too, by its file's name:
-recovered, it is a module never saved.) A copy belongs to the window
+recovered, it is a module never saved.) Each copy is a row with when
+it was written and **Recover** and **Discard**; Discard deletes nothing
+yet but turns the row's buttons into **Confirm Discard**, which deletes
+the copy for good, and **Keep**, which leaves it. A copy belongs to the window
 that writes it for as long as that Moonglow runs: a second Moonglow
 started meanwhile does not offer it, and keeps a copy of its own if it
 has the same module open. As in Aurora, open conversations are also backed up as
@@ -1839,7 +1842,7 @@ question alone, which counts the talk table's lines.
 
 With no talk table, the editor says so, and the Talk Table panel's
 **Module's Table** section makes one: type its name in **New talk
-table**, tick **With a feminine table** if you want one, and
+table**, check **With a feminine table** if you want one, and
 **Create** makes it in the user folder's `tlk` and names it in Module
 Properties. Its name,
 as every name Moonglow makes for a resource (a new tileset, a hak's file,
@@ -2271,7 +2274,7 @@ with its value, in a frame a few rows high that scrolls (a list of
 hundreds of values keeps the panel short). Tab stops on the list once;
 then Up, Down, Page Up, Page Down, Home and End move along it, letters
 typed go to a value by its name, and Space or Enter (or a click)
-chooses a value or ticks a flag; a talk-table string as its text (**Strings as
+chooses a value or checks a flag; a talk-table string as its text (**Strings as
 text** shows them so in the grid too), a row of another table as that
 row's name, with a list to choose another from, and a model (an
 appearance's `RACE`, a
@@ -2315,24 +2318,24 @@ nothing names the row.
 hak's `appearance.2da` over another hak's, or over the game's). It lists
 the rows the other copy has and yours lacks, and those it has
 differently; against a copy that has one below it, it tells the rows
-only the other changed from those you both changed. Tick rows one by
+only the other changed from those you both changed. Check rows one by
 one, or all of a kind with the **New** (those yours lacks) and
 **Differ** (those it has differently) boxes; **Clear Selections**
-unticks them all. A row you both changed has **Cells…**: under the list,
+unchecks them all. A row you both changed has **Cells…**: under the list,
 each cell that differs, with whose change it is (**changed there**,
-**changed here** or **changed in both**), to tick the ones to take from
+**changed here** or **changed in both**), to check the ones to take from
 the other copy, leaving the rest as yours has them. **Take** brings each
-ticked row in whole, and each cell ticked alone, as one step.
+checked row in whole, and each cell checked alone, as one step.
 
 Saving lays the table out as its file was: columns in line as wide as
-there (wider where a cell needs it), or, with **Compact** ticked, with
+there (wider where a cell needs it), or, with **Compact** checked, with
 one space between cells (a smaller file with less for the game to pass
 over as it reads, where columns in line are easier to read and to copy
 from); its rows' labels as the file has them (the game passes over
 them: a builder's `Sword` stays `Sword`; a row added is numbered), tabs
 between cells where the file had tabs, and its line ends. The box
 begins as the file was (one space or one tab between its cells:
-compact), and ticking it is a change to save: the table is then laid
+compact), and checking it is a change to save: the table is then laid
 out anew. A row of empty cells at the end is a row, as the game counts
 it, and is written; blank lines after the last row are not rows. `mg
 2da-diff -o` and its edit file write a table so too, as table A (or B,
@@ -2359,7 +2362,7 @@ reads) can say what its columns hold, in a file of text beside it:
 keeps its value, and the description gives the value its name, a list
 to choose it from, and a check.
 
-![A described table: values by name, cells that are wrong, a flags cell ticked](../images/2da-table-described.png)
+![A described table: values by name, cells that are wrong, a flags cell checked](../images/2da-table-described.png)
 
 ```toml
 rows = "spells"                 # each row says more of the same row of spells.2da
@@ -2454,7 +2457,7 @@ In the 2DA editor, a described table says so under its buttons, and:
 - a list's and a flags' column shows each value's name (**Values as
   names**, on by default; the value is in the cell's tip, and is what
   typing in the cell edits);
-- the selected cell is chosen from its list, ticked from its flags (a
+- the selected cell is chosen from its list, checked from its flags (a
   cell with none is empty; the value is written as the cell wrote it,
   hexadecimal or decimal) or chosen from the other table's rows by name;
 - **Find** looks through the names shown as well as the values;
@@ -2508,8 +2511,8 @@ plugin reads a description with `mg.twoda.describe`
   module kind by kind (areas, conversations, scripts, the blueprints,
   then the rest by extension); **Kind** lists one kind alone, **Filter**
   those whose names hold what is typed, and **Select the N Listed** and
-  **Clear Them** tick and untick what the two leave. Its foot has
-  **Export N…** and **Export N as Files…** (N the resources ticked) and
+  **Clear Them** check and uncheck what the two leave. Its foot has
+  **Export N…** and **Export N as Files…** (N the resources checked) and
   **Cancel**. Choosing an archive
   that is already there asks what Aurora's Export asks, with buttons
   named for what they do: **Append** adds the resources to it (those of
@@ -2521,7 +2524,7 @@ plugin reads a description with `mg.twoda.describe`
   to Ask there. (The file dialog may ask about replacing the file
   first; this question comes after it.)
 - **File › Export Changed Resources…** opens the same window with the
-  resources changed since the module was opened ticked: for a builder
+  resources changed since the module was opened checked: for a builder
   who works in a copy of the module and sends the team what they
   changed. It counts what changed in this run of Moonglow, from opening
   the module (or making it) until it is closed or another opened, saves
@@ -2530,16 +2533,16 @@ plugin reads a description with `mg.twoda.describe`
   Import, a new or copied resource, a plugin, a file changed outside and
   read again, what a save makes, such as a compiled script or a custom
   palette); an edit undone, or a field set back by hand, does not. An
-  area's `.git` and `.gic` and a script's compiled script are ticked
-  with it. `module.ifo` is listed unticked when it changed (adding an
+  area's `.git` and `.gic` and a script's compiled script are checked
+  with it. `module.ifo` is listed unchecked when it changed (adding an
   area changes it): imported into another module, it would replace that
   module's own areas, haks and start. Resources removed can't be
   exported; the window says how many. A line at the top says what is
-  ticked ("12 resources changed since the module was opened"); untick
-  some or tick more, then **Export N…** or **Export N as Files…** as
+  checked ("12 resources changed since the module was opened"); uncheck
+  some or check more, then **Export N…** or **Export N as Files…** as
   always. **Include the resources they use** starts off here (what they
   use did not change). The command is grayed while nothing has changed.
-  The window's **Select Changed** ticks the same resources in an
+  The window's **Select Changed** checks the same resources in an
   Export opened any other way. Scripts and 2DAs open with unsaved
   changes are named in a warning: an export takes them as they were last
   saved.
@@ -2622,7 +2625,7 @@ plugin reads a description with `mg.twoda.describe`
   nasher project has its resources as files already.
 - **File › Import…** adds an `.erf`'s resources to the module; for those
   the module already has, you choose which to overwrite (none are, until
-  ticked): **Select All** ticks every one and **Select None** clears
+  checked): **Select All** checks every one and **Select None** clears
   them, as Aurora's Overwrite page has them, and the count beside says
   how many will be. The window resizes by its edges and corners, the
   list taking the room, for an archive of hundreds. It also lists
@@ -2644,8 +2647,8 @@ plugin reads a description with `mg.twoda.describe`
   anew). Import Folder takes the files of the folder and of the folders
   in it (what file managers leave there, such as `Thumbs.db` and files
   whose names begin with a dot, passed over). Both open the window
-  Import… opens: those the module has already are listed to tick (none
-  until ticked; **Select All**, **Select None**), what the files refer to
+  Import… opens: those the module has already are listed to check (none
+  until checked; **Select All**, **Select None**), what the files refer to
   that neither the module nor the game has is listed, the new areas join
   the module's area list, and the import is one step to undo. A name in
   capitals is the same resource as in lower case, as the game finds
@@ -2690,7 +2693,7 @@ plugin reads a description with `mg.twoda.describe`
   conversation's changes are the module's already, and the import
   replaces them as its one step, which Undo takes back. A script's or a
   2DA's editor keeps its unsaved text apart: the window marks such a
-  resource "(open, with unsaved changes)" and, ticked, warns that the
+  resource "(open, with unsaved changes)" and, checked, warns that the
   editor keeps your changes and saving them writes over what was
   imported (the log says it again). This goes for Import… too.
 - **A name that is no file's**: an `.erf`'s resource whose name has a

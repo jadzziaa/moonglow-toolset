@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:55:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
 ---
 
 # Writing plugins
@@ -54,7 +54,7 @@ mg.command("count", function(ctx)
 end)
 ```
 
-Back on the Plugins tab press **Reload**, tick **Hello**, and with a
+Back on the Plugins tab press **Reload**, check **Hello**, and with a
 module open choose **Plugins › Count Creatures**. The log (the **Log**
 tab of the Bottom Dock) says how many there are.
 
@@ -400,7 +400,7 @@ for = "creature, door, encounter, item, placeable, sound, store, trigger, waypoi
   and a group of the module tree (`Creatures`), whose menus run the
   command on every one of them; a Properties window's tab (of what it
   edits; several edited together, each); and the rows of Find
-  References and of Advanced Search (there, the ticked ones, where the
+  References and of Advanced Search (there, the checked ones, where the
   row is one of them).
 - In each menu the plugins' commands come together, after the menu's
   own, above Variables and Properties (which end a menu, as in Aurora).

@@ -3,7 +3,7 @@ type: Manual Page
 title: Journal and factions
 description: The Journal Editor and the Faction Editor.
 tags: [manual, journal, factions]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T13:29:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:45Z }
 ---
 
 # Journal and factions
@@ -11,7 +11,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T13:29:30Z }
 ## The Journal Editor
 
 **Tools › Journal Editor** (Ctrl+Alt+J), or a double click on
-`module.jrl` under **Journal and factions** in the module tree, opens the
+`module.jrl` under **Journal and Factions** in the module tree, opens the
 module's journal in a tab of its own: the quests (categories) players
 see in their journal, and each quest's entries.
 
@@ -20,8 +20,11 @@ The editor's header holds **Add** with its word, then **Copy**, **Cut**,
 (each named in its tip), with **OK** and **Cancel** at its end: OK keeps
 what was done and closes the editor, Cancel sets back everything done
 since it was opened (what was changed in the Right Dock's panels too)
-and closes it. With a quest chosen, Add adds an entry to it; with
-nothing chosen (or Root), a quest; with an entry chosen it is off.
+and closes it. With a quest chosen, Add adds an entry to it, and with
+an entry chosen, an entry to its quest, at the end; with nothing chosen
+(or Root), a quest. The new one is chosen. Delete chooses what took the
+deleted one's place, the last where it was the last: an entry of the
+same quest (the quest itself where it has none left), or a quest.
 Paste puts a copied quest at the end, a copied entry into the quest
 chosen. The tree lists the quests under **Root**, each with its tag in
 brackets and its count of entries, closed to begin with as in Aurora:
@@ -71,7 +74,7 @@ Conversations set journal entries from the **Journal** row of a line's
 ## The Faction Editor
 
 **Tools › Faction Editor** (Ctrl+Alt+F), or a double click on
-`repute.fac` under **Journal and factions** in the module tree, opens the
+`repute.fac` under **Journal and Factions** in the module tree, opens the
 module's factions in a tab of its own: the five standard ones (PC,
 Hostile, Commoner, Merchant, Defender) and the module's own.
 

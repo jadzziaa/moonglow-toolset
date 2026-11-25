@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:12:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:44Z }
 ---
 
 # Getting started
@@ -31,7 +31,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:12:20Z }
   [Troubleshooting](13-troubleshooting.md)).
 - **Windows**: run `Moonglow-*-setup.exe`. It installs for your user
   without administrator rights (or for all users, if you choose), adds a
-  Start menu entry and, if you tick it, opens `.mod` files with Moonglow.
+  Start menu entry and, if you check it, opens `.mod` files with Moonglow.
 - **Windows, Scoop**: `scoop bucket add moonglow
   https://github.com/jadzziaa/moonglow-toolset`, then `scoop install
   moonglow`; `scoop update moonglow` for a newer release.
@@ -93,9 +93,9 @@ over Status), then one, and the page scrolls where it does not fit:
   module's `.mod`, `.nwm` or folder dropped on the window opens too.
 - **Start**: **New Module…**, **Open Module…** and **Open Folder…**, each
   with its key as you bound it (Tools › Options › Keyboard).
-- **Without a module**: what opens with no module: **Open Hak…**,
+- **Without a Module**: what opens with no module: **Open Hak…**,
   **New Hak**, **Open Tileset…**, **New Tileset…**, **2DA File…**,
-  **Talk Table**, **Resource Browser** and **Appearance Gallery…** (also
+  **Talk Table**, **Resource Browser** and **Appearance Gallery** (also
   in Tools).
 - **Status**: **Game data found** and the game's folder, or where none
   was found what to do, with **Options…** (it opens on Folders). A newer
@@ -116,7 +116,7 @@ to resource or command (Quick Open).
    **Area Wizard**.
 2. The Area Wizard makes an area: give it a name, pick a tileset and a
    size, and press **Create**. With **Open area in the Area Viewer**
-   ticked (as it is at first), the area opens in the area viewer. For another area later,
+   checked (as it is at first), the area opens in the area viewer. For another area later,
    choose **Wizards › Area Wizard…** (Ctrl+Alt+A), or **New Area** (the
    plus) on the Module panel's tab bar. While no area is open in front,
    the editor area shows **No area open**, with **Area Wizard…** and

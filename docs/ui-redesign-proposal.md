@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:11:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -172,8 +172,10 @@ Five components borrow a token whose role does not carry over to light. Each wan
 | Key cap | background `--raised`, border `--line-soft`, text `--text` | background `--inset`, border `--line-soft`, text `--text-2` |
 | Tooltip | background `--base`, border `--line-soft` | background `--inset` |
 | Switch (track and knob) | track `--raised-hover` off, `--accent-fill` on; knob `--text-2`, `--on-fill` when on | track `#a9b0b9` off, `--accent-fill` on; knob `#ffffff` |
-| Slider thumb | `--text-2` | `#ffffff` with a 1 px `#8d949e` ring |
+| Slider thumb | `--text-2`, no ring | `#ffffff` with a 1 px `#8d949e` ring (`slider_thumb_ring`) |
 | The modified dot (document tab, Status Bar) | `--select`, no ring | `--select` with a 1 px `#a35c00` ring (the light `--select` is only 1.75:1 on the bar) |
+
+**The owner's ruling, 2026-11-25:** the switch's light track off (`#a9b0b9`) and the slider thumb's light ring (`#8d949e`) stay as this table has them, though both fall under 3:1 against what they stand on (the UI/UX review measured them). **Built** as such; the slider's ring had been drawn in egui's text color, near white in dark and near black in light, and the dark thumb now has none.
 
 The compass and the minimap (overlays on a 3D view) carried hex attributes in their markup; the light board gives them classes (`cp-*` and `mm-*`) that read tokens: in light the minimap grid is `--bar`, its view rectangle `rgba(23,88,150,0.12)` filled with an `--accent` stroke, its camera mark `--accent`, its selection mark `#a35c00`; the compass ring is `--overlay` with a `--line-soft` stroke, ticks `--text-3`, north `--error`, south `--text-3`, labels `--text`.
 
@@ -280,10 +282,10 @@ The stylesheet defines each once; M1 builds them once in `mg-uikit`. The catalog
 - **Segmented control** (one child on; icons or words).
 - **Combo box** (lead icon, value, chevron; wide, grow, open, disabled, mixed).
 - **Text field** (focus, read-only, error, disabled, mono), **search field**, **field with a glued button** (the locstring "…"), **number field with unit** (right-aligned), **multi-line text**.
-- **Checkbox** and **radio** (disabled, mixed), **switch** (a popover's master on/off), **slider** and **slider with number**.
-- **Color swatch button**.
+- **Checkbox** and **radio** (disabled, mixed), **switch** (a popover's master on/off), **slider** and **slider with number** (the value's text `--text`; **built, 2026-11-25**).
+- **Color swatch button** (rest, hover, open, focus): a raised button with its color inset 3 px and lined `swatch-line`; hovered or open, its frame `--raised-hover`; open or focused, a 1 px `--accent` border inside the button's own edge (one drawn outside was covered by its neighbors in a tight grid of swatches). **Built, 2026-11-25** (`mg_uikit::paint_swatch_button`).
 - **Document tab** (active, hover, modified dot, close), **dock tab** (on, hover, title).
-- **Panel header** and **panel**; **page rail** (a panel's pages as icons at its left edge).
+- **Panel header** and **panel**; **page rail** (a panel's pages as icons at its left edge). Where a vertical page selector (the rail or the page list) has more pages than room, a **scroll cue** stands at its top or foot: a 14 px band in the selector's own ground (`--bar` for the rail, `--panel` for the list), so that the pages pass under it, with a chevron in `--text-3`. **Built, 2026-11-25** (`mg_uikit::pages`; the band had been a dimmed `--bar` on both).
 - **Tree row** (indent levels, folder arrow, kind icon, name, weak second word, count, eye; selected, hovered, dim) and **list row**.
 - **Table** (header row, cells, row headers, lined; selected row, selected cell).
 - **Section heading**, **field label**, **form grid** (label/value, full-width rows, columns of 440 to 560 px), **weak note**, text levels.
@@ -306,6 +308,7 @@ The stylesheet defines each once; M1 builds them once in `mg-uikit`. The catalog
 - **Quick Open and the Command Palette are one feature**: a field in the Top Bar, Ctrl+P, finding resources and commands; Ctrl+Shift+P stays (Help menu). Today the palette finds commands only.
 - **A header row never overflows.** The owner found the Hak editor's header drawn past the editor's right edge on its board (2026-11-11): a fault of the mock, and the rule for the code. A header is laid out against the width it has: when its controls do not fit, the left group's word buttons lose their words (an icon with a tooltip), then move into the More popover, secondary commands before Save; OK and Cancel never yield and are never clipped or drawn over a neighbor. The shared header widget does this itself, and each editor has a test that narrows it to its smallest width and finds every control either on the row or in More.
 - **Tooltips**: one short sentence, no semicolons, on every icon (style guide).
+- **Focus rings** (**built, 2026-11-25**, after the UI/UX review): a control off the accent fill shows the keyboard's focus as a 1 px `--accent` ring; a control on the accent fill (a primary button, a toggle that is on, a selected row, a page, a tool, an eye) as a 1.5 px `--on-fill` ring inside its edge. A control has one ring: the focus ring is not drawn beside a pressed or open accent ring (a focused icon button counts as pressed, and a focused toggle that is on had shown two).
 
 ## 7. Icons
 
@@ -351,10 +354,10 @@ Chosen by the owner on 2026-11-10 from the comparison board "Gallery Cell · Pol
 
 **Anatomy.**
 
-- The picture is a **tile**: radius 4, a 1 px `--line` rim drawn inside it over the picture (so the picture never moves), on `--thumb-bg`. Nothing is drawn around a whole cell; no plate behind it in any state.
+- The picture is a **tile**: radius 4, a 1 px `--line` rim, on `--thumb-bg`. Nothing is drawn around a whole cell; no plate behind it in any state. **The owner's ruling, 2026-11-25:** the rim is drawn **outside** the tile, against the ground it stands on, not inside it over the picture as this section first said (the light theme's `--accent` would vanish on the dark `--thumb-bg` inside it); the picture still never moves. **Built** (`mg_uikit::gallery`).
 - Under it, 6 px lower: the **name**, 12/15 px `--text-2`, centered. An optional **detail** (a challenge rating, a row number) on its own 11/14 px `--text-3` line, at the foot of the row so that the details of a row line up. The name is the thing's own name only: `Wraith` and `CR 5`, never `Wraith (CR 5)`. Placeables and appearances have no detail line.
 - **Grid**: cells grow to fill the row, as many as fit at the slider's side; column gap 10, row gap 14.
-- **States** change only the rim and the name: hover - rim `--raised-hover`, name `--text`; selected - 2 px `--accent` rim, name `--text`.
+- **States** change only the rim and the name: hover - rim `--raised-hover` in the dark theme, `--text-off` in the light, name `--text`; selected - 2 px `--accent` rim, name `--text`. (**Built, 2026-11-25:** the light theme's hover rim was `--raised-hover`, 1.45:1 on `--panel` and 1.64:1 on `--inset`; `--text-off` is 2.81:1 and 3.19:1.)
 - A picture still being made shows the **kind's icon** dimmed (24 px, `--text-off`, centered), with no "…". "No picture" adds a small caption under the icon. "No model" is a small badge at the tile's top left (`--thumb-badge`, text `--thumb-badge-text`). A **favorite** is a small bookmark mark, 12 px filled `--thumb-flag`, at the tile's top right (it replaces the "★" before the name).
 - A model or resource name (tile models, `nw_door_…`) is set in Hack 11 px.
 - Pictures with no name (portraits) use the same rim and ring with radius 3.

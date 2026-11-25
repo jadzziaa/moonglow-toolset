@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T16:58:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -19,10 +19,10 @@ sources:
 # NUI Creator
 
 **Tools › New NUI Window** (or **New NUI Window…** in the right-click
-menu of **NUI windows** in the Module tree) creates an Enhanced Edition UI
+menu of **NUI Windows** in the Module tree) creates an Enhanced Edition UI
 window: it asks for a name of 1–14 lowercase ASCII letters, digits or
 underscores, which leaves room for the suffixes of the window's two
-scripts. Existing windows open from **NUI windows** in the Module tree.
+scripts. Existing windows open from **NUI Windows** in the Module tree.
 One JUI resource is one window, and each window you open is a tab of the
 editor area, as the other editors are.
 

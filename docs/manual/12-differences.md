@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:59:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:45Z }
 ---
 
 # Differences from Aurora
@@ -151,8 +151,8 @@ it differs, it is on purpose:
   transparent texels are black.
 
 - **Static keeps a placeable's visual transform.** Aurora takes a
-  placeable's visual transform off when **Static** is ticked; Moonglow's
-  Properties keep it in the file, so that unticking Static brings it
+  placeable's visual transform off when **Static** is checked; Moonglow's
+  Properties keep it in the file, so that unchecking Static brings it
   back. The game draws a static placeable without it either way, and
   Adjust Location and Verify say so. (**Make Static** in the area view
   takes it off, as Aurora does.)

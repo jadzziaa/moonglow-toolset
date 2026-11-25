@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T22:46:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
 
 # Options
@@ -53,7 +53,7 @@ again from its file.
   A Windows path the game wrote under Proton or Wine
   (`C:\users\steamuser\Documents\…`) is read through the Wine prefix
   the user folder is in.
-  **Follow nwn.ini's folder aliases**, on by default, can be unticked
+  **Follow nwn.ini's folder aliases**, on by default, can be unchecked
   when that `nwn.ini` is another install's: the user folder's own folders
   are read then (`mg --no-aliases`). A folder
   typed with a leading `~` (`~/.local/share/Neverwinter Nights`) is your
@@ -125,7 +125,7 @@ again from its file.
 
 ### View
 
-- **Background Color** of the area viewer: with **Custom** ticked, the
+- **Background Color** of the area viewer: with **Custom** checked, the
   color you choose; otherwise the area's fog color.
 - **Show Encounter Spawnpoint Markers**, and their **Height** and
   **Width** (in tenths of a meter: 12 and 4 at first): at each spawn point,
@@ -212,7 +212,7 @@ again from its file.
 ### Header
 
 Which controls the area's header shows, on its row, in its popovers and
-in the wide row where they unfold: a tick for each (the objects'
+in the wide row where they unfold: a check box for each (the objects'
 filters as **Show Creatures**…, the switch that plays placed sounds as
 **Play Sounds**, both walkmeshes as **Walkmesh…**; **Select Tiles** and
 **Paint** are the view's tool shelf's, **Reorient Camera** and **Go to
@@ -247,8 +247,9 @@ window is one in As Tabs too, for a kind you moved to a window):
   Properties are open in already; off, each in a window of its own. A
   tab dragged out is a window of its own again, to set two side by side.
   (Scripts have the same on the Script Editor page.)
-- **Closing a window cancels its changes (as Aurora)**: off by default.
-  A window with **OK** and **Cancel** (a blueprint's or a placed
+- **Closing a window cancels its changes (as Aurora)**: off by default
+  (its tip: "Closing an editor with OK and Cancel takes back its changes,
+  as Cancel does"). A window with **OK** and **Cancel** (a blueprint's or a placed
   object's Properties, several edited together, Module and Area
   Properties, a conversation, the journal, the factions, the raw fields
   view, a NUI window) closed any way but OK (its tab's close button, the tab's
@@ -340,10 +341,11 @@ window is one in As Tabs too, for a kind you moved to a window):
   name, as the Outliner shows it, a waypoint's too (otherwise listed by
   its tag alone, as Aurora lists them), waypoints then in their names'
   order. The Filter then finds blueprints by their tags too.
-- **Show file extensions in the module tree** (off): blueprints, NUI
+- **Show file extensions in the module tree** (off; its tip: "Show
+  guard.utc rather than guard for blueprints and other files"): blueprints, NUI
   windows, the journal and the factions listed by their files' names
   (`guard.utc`); off, by their ResRefs alone (`guard`), but where the
-  Journal and factions group holds two files
+  Journal and Factions group holds two files
   of one ResRef, which keep their extensions (a module's own are
   `module.jrl` and `repute.fac`, which don't share one: only a file put
   in by hand, a `repute.jrl` beside `repute.fac`, would).
@@ -391,7 +393,7 @@ window is one in As Tabs too, for a kind you moved to a window):
 - **Interface size**: the whole interface, text and all, from 90% to 300%
   of its usual size (250% and 300% for a 4K screen at its usual scale).
   **View › Interface Size** sets it too, from the menu (the size in use
-  ticked), and so do its **Zoom In** (Ctrl+Plus or Ctrl+=), **Zoom Out**
+  checked), and so do its **Zoom In** (Ctrl+Plus or Ctrl+=), **Zoom Out**
   (Ctrl+Minus) and **Reset Zoom** (Ctrl+0, back to 100%), which are in
   the Command Palette as well: those set it at once, without OK, and the
   row here follows them. A size at which the window's least size would
@@ -487,7 +489,8 @@ always ask.
   names where Moonglow writes: files added to a hak (the hak editor's
   Add Files), files a hak is extracted into, the resource browser's
   **Export as Files**, a model's **Export Files**, conversations or
-  minimaps exported into a folder, NUI windows imported. Asked each time
+  minimaps exported into a folder, NUI windows imported, the tileset
+  editor's **Make Palette** and **Render Minimap Pictures**. Asked each time
   (**Replace 3**, with the number of files, **Skip Those**, Cancel), or
   always replaced, or always
   left as they are, the others written.
@@ -496,7 +499,7 @@ always ask.
   Aurora asks (Yes adds the first feat it lacks and equips it, No leaves
   it unequipped); or always the one or the other.
 - **Ask before deleting from the module** (on): Delete… in the module
-  tree asks first. Unticked, what nothing else in the module names is
+  tree asks first. Unchecked, what nothing else in the module names is
   deleted at once (Undo brings it back); what something names is still
   asked about, the window saying what names it.
 - **Ask before the window is closed**: on by default. The window's
@@ -603,7 +606,7 @@ always ask.
 - The editor's **Font size** (its lines are spaced with it: 18 points
   apart at the usual 13), a color for each kind of text (comments,
   keywords, strings…) and **Background**, each the theme's unless its
-  **Custom** is ticked (colors not chosen follow the Background's
+  **Custom** is checked (colors not chosen follow the Background's
   lightness), with a preview. **Reset to Defaults** sets these back; it
   leaves the indentation alone.
 
@@ -655,7 +658,7 @@ Under **Missing references** are the categories of Build Module's
 Missing Resources (the references the module's creatures make, its
 doors'…), and under **Plugins' checks** each enabled plugin's checks.
 A check you left out of a plugin that is not enabled now stays listed
-there too, so you can tick it again.
+there too, so you can check it again.
 **Also leave out** takes haks (`tdod_tiles01.hak`), the `override` or
 `development` folder, resources (a tileset, `ttr01.set`, with its
 tiles' models; a 2DA or a model) and what only your own content has

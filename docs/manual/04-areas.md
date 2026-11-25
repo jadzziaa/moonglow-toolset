@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:24:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
 
 # Areas
@@ -53,7 +53,7 @@ control stays on the row, as an icon (its name in its tip) or in More:
   words, **Fade Geometry** a list, and Animations, Grass, Tile border,
   Shaders and the three Audio switches icon toggles.
 
-A popover opens under its button and stays open while you tick its rows;
+A popover opens under its button and stays open while you check its rows;
 a click outside it, its button again or **Escape** closes it (that
 Escape does nothing else: what you hold in the view stays in hand, a
 window's Cancel isn't pressed). The header yields to its width: it gives its words up first, then
@@ -61,9 +61,9 @@ its controls, into its More.
 
 **Right-click** the header, anywhere on it (but on the wide row's
 **Shadows** and **Walkmesh**, which open their own), for the list of its controls
-with a tick each: untick one to hide it, from the row, its popover and
+with a check mark each: uncheck one to hide it, from the row, its popover and
 the wide row alike (**Tools › Options › Area › Header** has the same
-list, and **Show All** ticks them all back). Hiding **Walkmesh…** hides
+list, and **Show All** checks them all back). Hiding **Walkmesh…** hides
 both walkmeshes.
 
 What the keys and the mouse do in the view, and what you hold, are in
@@ -145,8 +145,8 @@ then the shadows, the fog and how the scene is drawn.
   it.
 - **Shadows**: the shadows the game draws, where the area has them
   (Area Properties' **Shadows**, sun and moon, and its **Shadow
-  Opacity**), so that you can set the opacity by eye. The popover ticks
-  each kind and chooses the quality; in the wide row they are one
+  Opacity**), so that you can set the opacity by eye. The popover has a check box for
+  each kind and a choice of quality; in the wide row they are one
   **Shadows** toggle, whose click turns them all off, and on again as
   they were, and which shows the kinds to choose from when held a
   moment or right-clicked:
@@ -167,8 +167,8 @@ then the shadows, the fog and how the scene is drawn.
     above it (its `verticaldisplacement`: a placeable's light 3 m).
     They are the creatures' shadows, so they need **Creature shadows**
     too, as the game's Creature Shadow Detail Off takes them away: with
-    Creature shadows unticked, Light shadows is grayed out and no light
-    casts, its tick kept, and ticking Creature shadows again brings them
+    Creature shadows unchecked, Light shadows is grayed out and no light
+    casts, its check kept, and checking Creature shadows again brings them
     back as you left them.
   - **Quality**: **Fast** or **High**, as in Tools › Options › Area (and kept
     there): Fast, a shadow map standing in for the game's shadows; High,
@@ -224,7 +224,7 @@ then the shadows, the fog and how the scene is drawn.
   (it has not the focus), the views hold still and draw nothing, and go
   on as you come back to it: an area left open costs the GPU nothing in
   the background (unless **Keep animating behind other windows** is
-  ticked in [Tools › Options › Area](10-options.md)). An area whose tab is closed, or behind another tab,
+  checked in [Tools › Options › Area](10-options.md)). An area whose tab is closed, or behind another tab,
   lets go of what its picture took of the GPU's memory after a couple of
   seconds, and of its models too once closed (it is read again, where
   its camera was, when it is opened again).
@@ -309,7 +309,7 @@ then the shadows, the fog and how the scene is drawn.
 ### Overlays
 
 The **Overlays** popover: what is drawn over the area. Its switch at the
-top (**Show overlays**) hides all five at once, each kept as you ticked
+top (**Show overlays**) hides all five at once, each kept as you checked
 it (its row grayed), and shows them again as they were. It stays as you
 leave it, for the areas opened after, and while it is off the Overlays
 button stays on the header even with all its rows hidden (the header's
@@ -391,6 +391,10 @@ Tools** (`⋮`) at the shelf's foot.
   choosing a brush puts it down, but for Next and Previous Tile
   Appearance and Rotate Tile with tiles selected, which step those tiles
   and leave Select Tiles on (see [Painting terrain](#painting-terrain)).
+  **Escape** with the pointer over the view does one thing at a time:
+  during a box drag it drops the box alone (the tiles selected and Select
+  Tiles stay), then it selects no tiles, and with none selected it turns
+  Select Tiles off.
 - **Paint** (B): paint the placeables chosen in the palette onto the
   ground (see [Painting placeables](#painting-placeables)).
 - **Terrain**: paint terrain with the tiles palette's brushes. It is lit
@@ -804,6 +808,9 @@ Properties last, as in Aurora):
   set by hand or by another tool, keeps them until Scale is changed,
   and the window says so), and the offsets move it along the
   object's own axes, turned by its Bearing but not by the rotations.
+  With several objects selected, only the visual transform's fields you
+  changed are set on each: a new Scale leaves each object's own
+  rotations and offsets as they were, and a new X rotation its Scale.
   The area view draws all of this as the game client does. None of it
   changes what the object blocks: the game keeps a placeable's or a
   door's walkmesh where the object's position and Bearing put it, at
@@ -815,7 +822,7 @@ Properties last, as in Aurora):
   placeable is offered none, as in Aurora: the game draws a static
   placeable without its visual transform, whatever its file has (the
   server keeps it, but players don't see it). The window says so;
-  untick **Static** in its Properties to transform it. Ticking Static
+  uncheck **Static** in its Properties to transform it. Checking Static
   (in Properties, or Make Static) takes the transform off, as Aurora
   does, so a static placeable with one in its file was made elsewhere:
   the window says so, and Verify warns of it (`static-transform`), with
@@ -998,7 +1005,11 @@ Properties last, as in Aurora):
   blueprints edited together from the palette): every field set on each
   has the mark (names in every language, descriptions, sliders, colors,
   appearances, the conversation, the variables, each of an area's flags),
-  and the pointer resting on it says what it means. A list the Visuals
+  and the pointer resting on it says what it means. The note over the
+  fields says so ("≠: they differ there"); with more than 65 objects
+  selected the others are not compared with the first, no field is
+  marked, and the note says "more than 65 selected: mixed markers
+  omitted". A list the Visuals
   page sets whole (texture and animation replacements, shader
   parameters) says so under its heading where they differ. The pages
   of lists (inventories, classes, skills, feats, spells and the rest)
@@ -1285,6 +1296,19 @@ out). The brush picks among them at random. While Paint is on, the
 palette's **Brush** section under its list names them ("2 chosen"), a
 row each with **×** to take it out of the brush.
 
+Paint paints placeables alone. With Paint on and no placeable chosen,
+the Status Bar says to choose some ("Paint: choose placeables in the
+palette", or "Paint works with placeables: choose some in the palette"
+where a door, a waypoint or another kind is chosen), and the view works
+as with Select Objects: clicks and boxes select, a drag moves, Delete,
+copy and paste act on the selection, and a double click on the ground
+goes to Select Tiles, turning Paint off. What is in hand to place (a
+door or waypoint from the palette, an appearance or a light from the
+gallery, the start location) is not placed: a click places nothing
+(and selects nothing), and no see-through copy follows the pointer;
+boxes, drags and keys work as before. Escape or a right click turns
+Paint off.
+
 Its settings take the header's left group while it is on (the Show
 toggles, Snap, Turn, Together and Onto Objects come back with Select
 Objects; the Show popover, with Start, All and None, is in More
@@ -1534,7 +1558,7 @@ as Aurora's Terrain tab does:
   as the old one was where it fits so. Its lights are chosen afresh, as a
   painted tile's.
 - **Rotate Tile** (Moonglow's own) turns the tile you click a quarter
-  counter-clockwise (Shift + click: clockwise), the same tile, keeping its
+  counterclockwise (Shift + click: clockwise), the same tile, keeping its
   lights and loops. A tile turns only where it still fits its neighbors:
   open ground turns every way, a tile with a corner of another terrain or
   a crosser at one side fits only as it lies (turned, it would no longer
@@ -1743,7 +1767,7 @@ group)" (unless **Allow editing tiles of groups and
 features** is on). The minimap shows a tile's picture whatever its
 height, as the game's does.
 
-**All tiles (ignore fit)** (Moonglow's own; off until you tick it, and
+**All Tiles (Ignore Fit)** (Moonglow's own; off until you check it, and
 kept while the same tiles stay selected) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
 ↺270°) and the same **Size** slider; only the rows in sight are drawn,
@@ -1885,8 +1909,8 @@ header, which shows the area's name and ResRef:
   - **Saved Lighting** keeps this page's settings under a name (**Save
     This Lighting…**), with the colors of the area's tiles' lights, and
     gives lighting kept so to this area: its settings. The tiles' lights
-    are left as they are unless **Tiles' Lights Too** is ticked in the
-    menu (it starts unticked each time Moonglow starts): then every
+    are left as they are unless **Tiles' Lights Too** is checked in the
+    menu (it starts unchecked each time Moonglow starts): then every
     tile's main and source lights are picked at random from the colors
     kept, the colors used most the most often, as a lighting scheme
     picks them from its own. Yours from any module, as small files in
@@ -2009,8 +2033,8 @@ module tree) opens an **Edit Areas Together** section in the Right Dock,
 not a window: the command shows the dock if it was hidden or folded, puts
 the section in front and gives it the keys. At its top are **Open in
 Tab**, **Cancel All** and **Close**, and beside them how many areas are
-ticked ("3 areas ticked"). A rail of pages at its left has **Areas**, which lists the
-module's areas to tick, and the pages that edit them (below). Narrow the list by a name
+checked ("3 areas checked"). A rail of pages at its left has **Areas**, which lists the
+module's areas to check, and the pages that edit them (below). Narrow the list by a name
 or ResRef, by tileset, by kind (interior or exterior, above or under
 ground, natural or artificial), and by what they hold (**Holding**):
 - **Music**: the areas that play it by day, by night or in battle (an
@@ -2020,42 +2044,42 @@ ground, natural or artificial), and by what they hold (**Holding**):
 - **A field's value**: a field of the area or of its sounds and music, by
   label and value (`MusicDay = 57`, `Fog* = 0`, `OnEnter = kz_*`).
 
-What they hold is read as it is now, unsaved changes too. **Tick Shown**
-ticks what the filters leave, **Untick Shown** unticks it, and **Untick
-All** unticks every area; Advanced Search's **Choose N Area(s)…**
-opens the section with the areas of what it found ticked (an area with a
+What they hold is read as it is now, unsaved changes too. **Check Shown**
+checks what the filters leave, **Uncheck Shown** unchecks it, and **Uncheck
+All** unchecks every area; Advanced Search's **Choose N Areas…**
+opens the section with the areas of what it found checked (an area with a
 creature of a class, an item property…).
 
-The areas ticked are kept under a name with **Save Set** (the name
+The areas checked are kept under a name with **Save Set** (the name
 typed beside it), for this module, in Moonglow's data folder's
 `area-sets` (a small JSON file to share or write by hand: `{ "module":
-"krezk", "areas": ["kz_square", "kz_inn"] }`); **Tick a Set…** ticks
+"krezk", "areas": ["kz_square", "kz_inn"] }`); **Check a Set…** checks
 a set's areas again, and **Delete Set** deletes the set whose name is
 typed.
 
 While the section has the keys (outlined in the accent: a click in it
 gives them to it, a click anywhere else, Properties included, takes
 them), **Up**, **Down**, **Page Up**, **Page Down**, **Home** and
-**End** move the row chosen in the checklist and **Space** ticks it
+**End** move the row chosen in the checklist and **Space** checks it
 (the Status Bar shows these only while the list has rows and the
 keys). **Enter** is Open in Tab on the Areas page alone, and **Escape**
 is Close (never Cancel All: Escape leaves, and what was set stays). In a field, **Enter** commits it (on a shared page the change
 is set on each area, and the section stays) and **Escape** gives up the
 field alone: press **Escape** again to close. Opening another module
-closes the section and forgets its ticks.
+closes the section and forgets its checks.
 
-**Open in Tab** (enabled with two areas or more ticked; the module
+**Open in Tab** (enabled with two areas or more checked; the module
 tree's **Edit N Together**, with several areas chosen, opens the same
-tab directly) opens one Area Properties for the areas ticked, as a tab
+tab directly) opens one Area Properties for the areas checked, as a tab
 or a window with OK and Cancel, shown as the first of them. The pages
 **Visual**, **Grass**, **Audio**, **Events**, **Advanced** and
-**Variables** of the section edit the same ticked areas at once, as you
+**Variables** of the section edit the same checked areas at once, as you
 change them, without opening that tab: each change is one undo step
 (**≠** after a field's label, or before a group of choices, marks what
 the areas differ in; a screen reader says it as "mixed"). Where the dock is too narrow
 for a page's labels and fields side by side, each field goes under its
 label. Where Area Properties of any
-of the ticked areas is open, a shared page says so and offers **Show
+of the checked areas is open, a shared page says so and offers **Show
 It**.
 
 Either way, in the tab or on the section's pages:
@@ -2090,19 +2114,19 @@ Either way, in the tab or on the section's pages:
 - Names, tags and comments are an area's own, and aren't offered.
 
 **Cancel All** takes back every change the section's pages made since
-the areas were last ticked, as one step: **Edit › Redo** brings them
+the areas were last checked, as one step: **Edit › Redo** brings them
 all back, and Undo takes them again. It never takes back a change it
 did not make: it goes back only as far as the last change made
 elsewhere (in a tab, a window or the area's view), and a change of the
 section you took back yourself with Undo stays taken back, so what
 Cancel All takes is the run of the section's own changes on top of the
 history. It is disabled, its tip saying why, when nothing was changed
-here since the areas were ticked, or when Undo or another change came
+here since the areas were checked, or when Undo or another change came
 after them; a field you are typing in counts, its text set and taken
-back with the rest. Ticking or unticking an area starts again.
+back with the rest. Checking or unchecking an area starts again.
 
 To give every underground area the same music: Underground in the
-Areas page, Tick Shown, then Audio. From the command line,
+Areas page, Check Shown, then Audio. From the command line,
 `mg areas` does the same (see [Command-line tools](11-command-line.md)).
 
 ## Static placeables, many at once
@@ -2283,7 +2307,11 @@ The header also has:
   category all of one terrain stays flat. For the game's own tilesets it
   holds every group their palettes place (theirs are arranged by hand,
   some in folders of their own: City, Cliff). `mg tileset-palette` does
-  the same.
+  the same. Where the palette file is in the folder already, Make
+  Palette asks first, as Options › General › Questions › **Files there
+  already** says (**Replace 1**, **Skip Those** or Cancel, with **Always
+  do this**); skipped, the log says so ("Wrote no palette into … (1
+  existing skipped: …palstd.itp)").
 - **Check** runs Verify's tileset checks: counts that disagree with the
   sections, tiles whose models are missing, groups that won't paint. What
   it finds goes to **Problems** in the Bottom Dock, under the tileset's
@@ -2305,7 +2333,14 @@ The header also has:
   renderer and saves it as its minimap picture (32 pixels, a TGA named
   by the tile's `ImageMap2D`, which tiles without one get as
   `mi_<model>`) beside the `.set`. Models and textures beside the `.set`
-  are used before the game's.
+  are used before the game's. Where some of those pictures are in the
+  folder already, it asks first, as Make Palette does: **Replace N**
+  draws them all, **Skip Those** draws the others, and Cancel changes
+  nothing (the tiles get their `mi_<model>` names only when drawing goes
+  ahead, as one step of Undo). The pictures are drawn a tile at a time
+  in a progress window whose **Cancel** stops where it is ("Render
+  Minimap Pictures canceled (3 of 40 written)"); the log says how many
+  were written and how many skipped.
 
 **Changed by another program**: a tileset open here whose file another
 program saves is read again a moment after the last write (while

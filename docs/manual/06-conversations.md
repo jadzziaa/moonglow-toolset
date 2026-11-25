@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the editor's header and tree, a line's Data and the Search in the Right Dock's Node section, the Conversation panel, the bookmarks in the Outliner, the Status Bar's hints, the Conversation Test, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:07:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
 
 # Conversations
@@ -44,8 +44,10 @@ Dock's **Node** section, its **Data** tab (see [a line's
 Data](#a-lines-data)): its **Speaker tag** (NPC lines: the conversation's
 owner, or a creature in the module by tag) and its **Text** (the **…**
 button edits every language). A line whose text is a talk-table string
-(as all the original campaign's are) shows that string in the tree and
-under the empty field; text typed in the field is said instead. Over its
+(as all the original campaign's are) shows that string in the tree, in
+the field itself in the talk table's color, and under the field
+("From the talk table (string 1234): …"); text typed in the field is
+said instead. Over its
 fields the line's letters and words are counted, the talk table's text
 where that is what is shown, and the file's words.
 
@@ -252,8 +254,8 @@ scroll, a row each field, its label at its left (over it where the panel
 is too narrow, the editor's larger text too):
 
 - **Text**: the speaker's tag, the text with its **…** (every language)
-  and **Token…**, and the talk table's string under it where the text is
-  that. With Options › Language › Put text typed into the talk table on,
+  and **Token…**, and the talk table's string in it (in the talk table's
+  color) and under it where the text is that. With Options › Language › Put text typed into the talk table on,
   text typed (here, or in Input Text as the line is added) goes into the
   module's custom talk table as a line of its own, the conversation's
   line naming it; Undo takes both (see [Text typed into the talk
@@ -424,7 +426,7 @@ subset (stitches, gathers, logic) is refused with its line number.
 ## The Script Wizard
 
 From Text Appears When… or Actions Taken, **Script Wizard…** writes a
-script without typing. Tick what to test (items the player carries, skill
+script without typing. Check the conditions to test (items the player carries, skill
 checks, local variables, class and level, race, gender, alignment,
 abilities, feats, skills, a random chance) or what to do (give or take
 items, gold and experience, set local variables, change a faction, open a
@@ -436,7 +438,7 @@ to change it later.
 The wizard shows a **step list** at its left ("Step N of M"): Choose, one
 step for each condition or action page, and Name. Steps done carry a
 check, the current one is highlighted and those to come are dimmer. A
-page you did not tick on the first page shows as off, so the list never
+page you did not check on the first page shows as off, so the list never
 changes length (in a window made too narrow for it and the page, the
 list is left out). Over each page a **page bar** (an icon and the page's
 question) stands where a heading was. The footer holds **< Back**, **Next
