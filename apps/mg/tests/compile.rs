@@ -91,6 +91,51 @@ fn a_second_compile_passes_over_what_is_unchanged() {
 /// where `mg compile` (and the window) do: the next compile passes over
 /// it. A project is one to them whether named by its folder or by its
 /// `nasher.cfg`.
+/// `--json` says, for each script compiled, why it was and whether its
+/// compiled script changed.
+#[test]
+fn json_says_why_each_script_was_compiled() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-compile-why");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let why = |v: &Value, script: &str| -> (String, bool) {
+        let e = v["compiled_scripts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["script"] == script)
+            .unwrap_or_else(|| panic!("{script} in {v}"));
+        (e["why"].as_str().unwrap().to_string(), e["changed"].as_bool().unwrap())
+    };
+    // Nothing remembered: each has its compiled script from the module, which is
+    // not what Moonglow made.
+    let first = compile(&root, &dir, &chess, &[]);
+    let list = first["compiled_scripts"].as_array().unwrap();
+    assert_eq!(list.len() as u64, first["scripts"].as_u64().unwrap(), "{first}");
+    assert!(list.iter().all(|e| e["why"].is_string() && e["ok"] == true), "{first}");
+    assert!(
+        list.iter().all(|e| e["why"] == "not-compiled-here" || e["why"] == "no-compiled-script")
+    );
+    // An edit that leaves the compiled script as it was: the source changed,
+    // the bytes did not.
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    let key = *(m.keys_of(ResType::NSS))
+        .find(|k| m.contains(&ResKey::new(k.resref, ResType::NCS)))
+        .expect("a script with a compiled one");
+    let mut source = m.get(&key).unwrap().to_vec();
+    source.extend_from_slice(b"\n// changed\n");
+    m.set(key, source);
+    m.save().unwrap();
+    let third = compile(&root, &dir, &chess, &[]);
+    assert_eq!(
+        why(&third, &key.resref.to_string()),
+        ("source-changed".to_string(), false),
+        "{third}"
+    );
+}
+
 #[test]
 fn uncompiled_and_build_remember_what_they_compiled() {
     let root = mg_testkit::corpus!();

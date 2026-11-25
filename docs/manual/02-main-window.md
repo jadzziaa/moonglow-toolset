@@ -1584,7 +1584,10 @@ right of its tab bar, **Copy Log** (or View › Copy Log) puts the whole
 log on the clipboard and **Save Log** (View › Save Log…) writes it into
 a text file, each line with its time; **Clear Log** (View › Clear Log)
 empties it: a second Verify's report isn't then mistaken for the
-first's. Where the Bottom Dock is narrow, the three buttons give way
+first's. A line that has more to say (Compile All Scripts') has a
+**Details** button beside it, which opens the lines under it and closes
+them again; Copy Log and Save Log have them whether open or not, indented
+under their line. Where the Bottom Dock is narrow, the three buttons give way
 from the end (Clear Log first): they are in the View menu too. The **Log** switch at the left of the Status
 Bar (or View › Log, Ctrl+Alt+3) opens and closes it; drag its top edge
 to make it higher or lower, down to a line. A new installation of
