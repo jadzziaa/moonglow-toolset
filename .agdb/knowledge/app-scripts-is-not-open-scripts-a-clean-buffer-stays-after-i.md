@@ -21,7 +21,7 @@ author: augustaugur
 - Rename moves the buffer with the script.
 - Module Undo drops every clean buffer.
 - `forget_closed` drops clean buffers of scripts the module no longer has.
-- Don't Save drops it at close (the question's Save keeps it, by the owner's ruling of 2026-11-25: `side_doc::script_kept_on_close`). The header's Cancel on a clean script still drops it (`may_cancel`).
+- Don't Save drops it at close (the question's Save keeps it, by the owner's ruling of 2026-11-25: `side_doc::script_kept_on_close`). The header's Cancel on a clean script keeps it too (the owner's later ruling the same day; `may_cancel` checks `script_kept_on_close`).
 
 ## Tried and ruled out
 Treating `scripts.contains_key` as open: Replace All changed a closed script's buffer, which then showed unsaved with no tab to ask, and the module's Save wrote it; "the only one open" picked a script with no tab.
