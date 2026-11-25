@@ -34,21 +34,6 @@ pub(crate) fn app_with(open: Vec<std::path::PathBuf>) -> Moonglow {
     Moonglow::new(None, Box::new(NoDialogs { open, ..Default::default() }))
 }
 
-/// Looks for the recovery copies a dropped window left, as a start does,
-/// until one is found or 20 seconds have gone: a child process another
-/// test's thread is starting holds a copy of every file open at its
-/// start, a copy's lock with it, until it runs its program (a moment,
-/// longer on a loaded machine), and a held copy is not offered
-/// (`recovery::find`; its unit tests wait the same way).
-pub(crate) fn find_recoveries_let_go(app: &mut Moonglow) {
-    let started = std::time::Instant::now();
-    app.find_recoveries();
-    while app.recoveries.is_empty() && started.elapsed() < std::time::Duration::from_secs(20) {
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        app.find_recoveries();
-    }
-}
-
 /// The way editors open in a test's window (Options › General › Open
 /// editors): an existing user's settings (`Settings::default`, As
 /// Floating Windows), or a new installation's (`Settings::new_installation`:

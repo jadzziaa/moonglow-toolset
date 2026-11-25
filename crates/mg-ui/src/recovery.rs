@@ -105,7 +105,7 @@ impl Copy {
 struct Lock {
     path: PathBuf,
     /// (Kept open: the lock is the open file's.)
-    _file: std::fs::File,
+    file: std::fs::File,
     /// The copy was removed: the lock's file goes too, when the last use
     /// of the lock does (while it is still held, so that no other window
     /// takes a file about to go).
@@ -117,6 +117,11 @@ impl Drop for Lock {
         if self.forgotten.load(Ordering::Acquire) {
             let _ = std::fs::remove_file(&self.path);
         }
+        // Unlocked, not only closed: a program another thread is starting
+        // has a copy of the open file until it runs, and the lock (the open
+        // file's) would stay held by it, the copy taken as another
+        // window's (`mg-update`'s staging lock, the same).
+        let _ = self.file.unlock();
     }
 }
 
@@ -146,7 +151,7 @@ fn hold(archive: &Path) -> Hold {
         // went: the lock is of a file no longer there, which holds
         // nothing.)
         Ok(()) if !same_file(&file, &path) => Hold::Others,
-        Ok(()) => Hold::Ours(Lock { path, _file: file, forgotten: AtomicBool::new(false) }),
+        Ok(()) => Hold::Ours(Lock { path, file, forgotten: AtomicBool::new(false) }),
         Err(std::fs::TryLockError::WouldBlock) => Hold::Others,
         Err(std::fs::TryLockError::Error(_)) => Hold::Unlocked,
     }
@@ -177,7 +182,14 @@ fn same_file(file: &std::fs::File, path: &Path) -> bool {
 fn held(archive: &Path) -> bool {
     let path = archive.with_extension("lock");
     let Ok(file) = std::fs::OpenOptions::new().write(true).open(&path) else { return false };
-    matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+    match file.try_lock() {
+        // (Let go of at once, unlocked as `Lock` is.)
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(e) => matches!(e, std::fs::TryLockError::WouldBlock),
+    }
 }
 
 /// The copy the window holds for the open module: the module's own place
@@ -957,27 +969,53 @@ mod tests {
         assert!(find_all(&dir.join("recovery")).is_empty());
     }
 
-    /// Waits, with a deadline, until `done` holds of a copy a window let
-    /// go of: a child process another test's thread is starting holds a
-    /// copy of every file open at its start, the lock with it, until it
-    /// runs its program (a moment, and longer on a loaded machine: this
-    /// test found the copy still held in three of six full runs beside
-    /// other suites).
-    fn once_let_go<T>(mut look: impl FnMut() -> T, done: impl Fn(&T) -> bool) -> T {
-        let started = std::time::Instant::now();
-        loop {
-            let found = look();
-            if done(&found) || started.elapsed() > Duration::from_secs(20) {
-                return found;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+    /// A window let go of frees its copy at once, though a program
+    /// another thread was starting still has the lock's open file (stood
+    /// in for by a copy of it): the lock is unlocked, not only closed.
+    #[test]
+    fn a_copy_let_go_of_is_offered_while_a_program_has_its_lock_file() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-child-copy");
+        let mut first = changed(&dir);
+        first.write_recovery().unwrap();
+        let held = first.autosave.held.as_ref().and_then(|h| h.lock.clone()).unwrap();
+        let childs = held.file.try_clone().unwrap();
+        drop(held);
+        drop(first);
+        assert_eq!(find(&dir.join("recovery")).len(), 1, "offered at once");
+        drop(childs);
     }
 
-    /// The copies [`find`] offers in `dir` once a dropped window's hold on
-    /// one is gone ([`once_let_go`]).
-    fn found_let_go(dir: &Path) -> Vec<Copy> {
-        once_let_go(|| find(dir), |f| !f.is_empty())
+    /// A lock taken and let go of, and a look at whether it is held, leave
+    /// it free while programs start on another thread (each has a copy of
+    /// every open file until it runs). Closed without unlocking, about a
+    /// quarter of mg-update's like loop was refused.
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_let_go_of_is_free_while_programs_start() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-lock-spawn");
+        let archive = dir.join("m-00000000.mod");
+        let stop = Arc::new(AtomicBool::new(false));
+        let starting = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    let _ = std::process::Command::new("true").status();
+                }
+            })
+        };
+        let mut refused = 0;
+        for _ in 0..2000 {
+            match hold(&archive) {
+                Hold::Ours(lock) => drop(lock),
+                _ => refused += 1,
+            }
+            if held(&archive) {
+                refused += 1;
+            }
+        }
+        stop.store(true, Ordering::Release);
+        starting.join().unwrap();
+        assert_eq!(refused, 0);
     }
 
     /// An application with a module open, a change unsaved, its copies in
@@ -1031,7 +1069,7 @@ mod tests {
         app.write_recovery().unwrap();
         // (Gone with the crash, and its hold on the copy with it.)
         drop(app);
-        let copy = found_let_go(&dir.join("recovery")).remove(0);
+        let copy = find(&dir.join("recovery")).remove(0);
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         app.recovery_dir = Some(dir.join("recovery"));
         app.recover(&copy);
@@ -1147,13 +1185,13 @@ mod tests {
         assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
         // (The window gone with the crash, and its hold on the copy.)
         drop(app);
-        let copy = found_let_go(&dir.join("recovery")).remove(0);
+        let copy = find(&dir.join("recovery")).remove(0);
         let mut again = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         again.recover(&copy);
         let ws = again.ws.as_ref().unwrap();
         assert!(ws.is_modified() && ws.module.location.is_none(), "never saved");
         drop(again);
-        assert!(once_let_go(|| copy.remove(), |removed| *removed));
+        assert!(copy.remove());
         assert!(!archive.exists() && find_all(&dir.join("recovery")).is_empty());
         // A note alone (the copy's first writing stopped after it).
         std::fs::write(&note, &whole).unwrap();
@@ -1216,11 +1254,8 @@ mod tests {
         drop(first);
         let mut third = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         third.recovery_dir = Some(recovery.clone());
-        let offered = || {
-            third.find_recoveries();
-            third.recoveries.len()
-        };
-        assert_eq!(once_let_go(offered, |n| *n == 1), 1);
+        third.find_recoveries();
+        assert_eq!(third.recoveries.len(), 1);
         let copy = third.recoveries[0].clone();
         assert_eq!(copy.archive, one);
         third.recover(&copy);

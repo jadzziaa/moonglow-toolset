@@ -1,7 +1,7 @@
 ---
 type: Gotcha
-title: "Recovery copies read as held for a moment after a window drops: tests wait (find_recoveries_let_go)"
-description: "Why modules::unsaved_work_survives_a_crash once found 0 recoveries: a child process another test's thread was starting had inherited the copy's lock file; a test race, not data loss."
+title: "Recovery copy locks are unlocked, not only closed: a starting child kept them held"
+description: "Why modules::unsaved_work_survives_a_crash once found 0 recoveries: a child process another thread was starting had a copy of the lock's open file; fixed in the product by unlocking before closing, as mg-update's staging lock."
 tags: []
 status: stable
 generated: { by: agdb/0.2.0, at: 2026-11-25T14:00:53Z }
@@ -16,15 +16,19 @@ created: 2026-11-25
 author: augustaugur
 ---
 ## Cause
-A recovery copy's lock (`<name>-<id>.lock`, flock, `recovery::hold`) belongs to the open file description. A child process that another test's thread is starting (fork, then exec) has a copy of every open file until it runs its program: the lock stays held a moment after the window that took it is dropped, longer on a loaded machine. `recovery::find` skips a held copy (another window's work), so a session that looks straight after the first drops can find none. Seen once in a full run (2026-11-25, `recoveries.len()` 0, expected 1).
+A recovery copy's lock (`<name>-<id>.lock`, flock via `File::try_lock`, `recovery::hold`) belongs to the open file description. A program another thread starts (fork/clone, then exec) has a copy of every open file until it runs its program. If the window's `Lock` is only closed in that moment, the child's copy keeps the lock held, and `recovery::find` skips the copy as another window's. Same for `held()`'s own probe lock, which another look then saw as held. Seen once in a full test run (2026-11-25, 0 recoveries where 1 was expected); the running app starts programs too (the compiler, the external editor, `mg serve`).
 
 ## Not data loss
-The copy stays on disk and is offered once the child execs (O_CLOEXEC). In the product a crashed process is gone long before the next start looks.
+The copy stays on disk and is offered once the child execs.
 
-## Fix (tests)
-App tests look with `common::find_recoveries_let_go` (retries up to 20 s); `recovery.rs`'s unit tests already waited the same way (`once_let_go`). `unsaved_work_survives_a_crash` holds the lock itself and lets go 300 ms later, so it fails at once without the wait.
+## Fix (product)
+`Lock::drop` and `held()` call `unlock()` (LOCK_UN acts on the description, so every copy lets go) before the file closes, as [[update-staging-lock-held-on-by-programs-starting-on-other-th]] did for mg-update. The tests' deadline waits (`once_let_go`, an app-test helper) were removed: they no longer earn their place.
 
-## Reproduced and ruled out
-- On demand: a thread spawning `true` with a `pre_exec` sleep while the lock is held, then the drop: left 0, right 1.
-- A child started on the test's own thread does not reproduce it: `Command::spawn` returns only after exec.
-- Shared scratch folders: `ui-recovery` is used by that test alone.
+## Tests
+- `a_copy_let_go_of_is_offered_while_a_program_has_its_lock_file`: a `try_clone` of the lock's file stands in for the child's copy; without the unlock 0 offered.
+- `a_lock_let_go_of_is_free_while_programs_start`: hold, let go and look 2000 times while a thread runs `true`; without the unlocks 359 refused.
+
+## Ruled out
+- A child started on the test's own thread: `Command::spawn` returns only after exec, so it can't reproduce it.
+- Shared scratch folders: `ui-recovery` is the test's alone.
+- A stand-in lock on a new open of the lock file: it is a separate holder, not the child's copy, so unlocking can't free it.

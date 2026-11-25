@@ -2417,7 +2417,7 @@ fn a_recovered_module_opens_with_its_tabs() {
     show_palette(&mut app);
     app.open_tabs_dir = Some(kept);
     app.recovery_dir = Some(recovery);
-    find_recoveries_let_go(&mut app);
+    app.find_recoveries();
     let mut h = window_harness(app);
     h.run();
     h.get_by_label("Recover").click();
