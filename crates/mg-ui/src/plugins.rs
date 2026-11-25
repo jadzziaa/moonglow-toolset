@@ -399,7 +399,7 @@ pub(crate) fn tab_selection(tab: &crate::Tab) -> Vec<mg_plugin::Selected> {
         Tab::Blueprint(key) => vec![Selected::Blueprint(*key)],
         Tab::Blueprints(keys) => keys.iter().map(|k| Selected::Blueprint(*k)).collect(),
         Tab::Instance { area, path } => object(*area, path).into_iter().collect(),
-        Tab::Instances { area, paths } => paths.iter().filter_map(|p| object(*area, p)).collect(),
+        Tab::Instances { objects } => objects.iter().filter_map(|(a, p)| object(*a, p)).collect(),
         Tab::Area(area) | Tab::AreaProperties(area) => vec![Selected::Area(*area)],
         Tab::AreasProperties(areas) => areas.iter().map(|a| Selected::Area(*a)).collect(),
         // (A NUI designer's source group: its design's window, M4's U19
@@ -1531,10 +1531,10 @@ impl Moonglow {
         match self.front_tab() {
             Some(Tab::Blueprints(keys)) => keys.into_iter().map(Selected::Blueprint).collect(),
             Some(Tab::AreasProperties(areas)) => areas.into_iter().map(Selected::Area).collect(),
-            Some(Tab::Instances { area, paths }) => (paths.iter())
-                .filter_map(|p| match p.0.as_slice() {
+            Some(Tab::Instances { objects }) => (objects.iter())
+                .filter_map(|(area, p)| match p.0.as_slice() {
                     [mg_edit::Step::Item(list, index)] => Some(Selected::Object {
-                        area,
+                        area: *area,
                         kind: mg_area::ObjectKind::from_list(list)?,
                         index: *index,
                     }),

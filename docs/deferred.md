@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T01:04:04Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:44:55Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -332,27 +332,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Godly, whose Weight Reduction would tell the table), read against
   `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
   since 2026-10-30.) (a second builder's review, October 2026)
-- **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
-  as pictures with Find, and every portrait; the inventory's Equip to a
-  free slot, To Backpack and Open Blueprint; talk-table text in its own
-  color; a Variables window that is sized; drag and drop and right-click
-  menus in the inventory, items dragged between inventories and within
-  a list, Copy and Paste; an item moved as it is, in one step; what a
-  taken slot held sent to the backpack, as Aurora does; Copy and Paste
-  carrying the item as it is, as a drag does; drags between two
-  objects' windows under test both ways, a slot's item onto a chest and
-  a chest's onto a taken slot; a weapon dropped on the secondary weapon
-  slot while the primary is free going in the primary, as Aurora puts a
-  longsword, a dagger and a hand axe, a torch in the secondary, and the
-  primary's own dragged there staying in the primary; the Creature
-  Wizard's categories without Familiars, as Aurora's: 2026-10-30; new
-  strings written to a talk-table range, 2026-11-02: [Text typed into the
-  talk table](typed-text-proposal.md)). Left:
-  - **Several items at once:** the inventory selects several (Ctrl,
-    Shift), but a drag, Copy and Paste carry one: `Dragged` and
-    `item_clip` hold one item each place; carrying the selection is a
-    drag of many rows, and where each lands (slots, grid places). (M)
-  (a second builder's review, October 2026)
 - **The feats' order in the Levelup Wizard's spell capture, the
   owner's call:** the capture that settled the review's G8
   (`levelup/spells-after.mod`) was made through Aurora's creature
@@ -361,27 +340,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   that capture alone. Whether Moonglow's Properties window should sort
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
-
-## Bulk editing
-
-- **Advanced Search, what it doesn't do** (from builders' asks on
-  Discord, October 2026; done: changing what it found, ticked or all, in
-  one step: a variable set or removed, an event's script, a field;
-  Edit Together and Edit Areas Together from its results; conditions
-  together, a class by its levels, number ranges and floats; an item
-  blueprint followed through bags in bags, and a creature blueprint
-  into the encounters that spawn it, since 2026-10-29; a spell by the
-  class that knows it, a conversation's lines kept by several
-  conditions, and the haks' and the game's blueprints searched
-  read-only, since 2026-11-02; feats, classes, item properties and
-  items held added and removed on what it found, through Edit
-  Together's list rules, since 2026-11-02:
-  [the design](lists-together-proposal.md)). A field is set only where
-  the object has it (none is added). Edit Together takes blueprints of
-  one type and objects of one kind placed in one area; items held by
-  placed objects, and conversations, open one by one. (S–M; beyond what
-  was asked of the lists' work, which left these as they were: the
-  deferred sprint, 2026-11-02)
 
 ## Palettes
 
@@ -489,26 +447,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   it is that driver on Polaris cards, and the pink is not what Heed
   reports of his interiors (findings, "The lit check's pink on Heed's
   Vulkan"). (S) (Heed's reports, October 2026)
-- **Lights placed on the fly, the flicker** ([the proposal](lights-proposal.md)):
-  way B is built behind its option (Custom Light…, `mg_module::lights`;
-  the server reads the hak, finds the model in it and places the row:
-  `engine_custom_light.rs`), and the client answered the proposal's two
-  questions (2026-10-29, the third client batch): a `LightColor` light
-  and a model's light node light creatures and placeables as they light
-  tiles, so the Custom Light section's "Lights creatures and placeables too" starts
-  ticked; a draw takes as many lights as the client's Max Lights (32 by
-  default). Not built: a flicker (the node's color or multiplier keyed in
-  the model's `default` animation). Read for it (2026-10-30, the fourth
-  client batch, `reading_static_placeable_default_animation`): the
-  client plays a dynamic placeable's `default` (a light's color keyed
-  red, blue, red over 2 s cycled, the floor with it) and not a static
-  one's (it stayed red), so a flickering light is a dynamic placeable;
-  the area view holds a static placeable still since, and plays a
-  dynamic one's light node keys and its meshes' self-illumination keys
-  since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
-  client batch). Left: the flicker itself in the Custom Light section (Custom Light…
-  writing the keyed `default` and a dynamic placeable). (S) (from
-  builders' reports after 1.16.2)
 - **A drag when a key changes the mode, the owner's call:** a drag under
   way is dropped, not committed, when a key changes the mode (the
   review's A12); committing it would be the other way. Asked. (S) (the
@@ -861,16 +799,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   load order without `ashlw_033`. Waits on his hak list or a blueprint.
   (His armor showing only a head and pelvis was Beamdog's HD bodies,
   drawn whole since 1.34.1.) (S–M)
-- **Zoom in the picture viewer, the owner's call:** the hak editor's
-  Preview and a read-only tab show a picture with one viewer
-  (`viewers::Picture`, M5's W6). It is fitted to its room and never
-  enlarged, with no zoom, so a 2048 by 2048 texture is never seen at
-  1:1. W6's brief asked for zoom "by the viewer's own controls", but
-  the hak viewer has none. Adding zoom (the wheel, a 1:1 toggle,
-  panning) would go beyond the viewer the owner's ruling 49 said to
-  share. Asked: whether it gets zoom, and with which controls. (S–M)
-  (the review of M5, reviewer C, W6)
-
 ## The main window and its panes
 
 - **The light theme's own colors:** it is the redesign's Light theme
@@ -950,18 +878,6 @@ where the crates keep theirs, and a client test of what its checks say of
 the game. This is what that review left, and after it what the
 contribution itself states as not done or not checked.
 
-- **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
-  `skin::Assets` keeps its textures beside `images::Loader`
-  (`crates/mg-ui/src/images.rs`). Both find a picture through the game's
-  resource manager with the module being edited in its place, below its
-  haks (`ResMan::get_over` and `texture_over`, since 2026-10-29); their
-  orders of types differ on purpose (a window's pictures JPG, TGA, PNG,
-  BMP, then DDS, as the client looks for a NUI picture; the loader's DDS,
-  then TGA, as for a texture). What is left: the loader keeps a picture by
-  name, not read again when the module's bytes of it change, where a
-  window's are (a portrait added to the module shows once the game data is
-  reloaded); and JPEG and BMP are still read with the `image` crate
-  (nothing else here reads them). (S)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
@@ -1840,7 +1756,10 @@ is not taken for a new gap.
   colour) is drawn as it is at that moment. A part's light nodes are taken
   in the part's rest pose. The model viewer's **Lights** shows the base
   model's light nodes (animated), the appearance's light and, since
-  2026-11-10, its parts' (a tail's effect's) as they stand. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
+  2026-11-10, its parts' (a tail's effect's) as they stand. Since
+  2026-10-30 the area view plays a dynamic placeable's base model's
+  light keys (`point_lights_at`), which Custom Light's flicker
+  (2026-11-25) shows by. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
 - **Moonglow draws the rooms the player can't see:** in an interior the
   client draws only the tiles the player's tile sees (the tileset's
   visibility); the area view draws every tile, as Aurora does. Comparing
@@ -2375,3 +2294,26 @@ is not taken for a new gap.
   the conflict, and the pane's wins until one of them is changed: the
   builder's binding is theirs to change. (Settled by the owner,
   2026-10-30.)
+- **JPEG and BMP pictures of a NUI window are read with the `image`
+  crate:** nothing else in Moonglow reads them, and the client takes
+  them for a NUI picture alone (JPG first, BMP after PNG); the NUI preview's
+  pictures (`skin::Assets`) and the UI's (`images::Loader`) keep their
+  own orders on purpose, and both read a picture the module changes
+  again at once (since 2026-11-25). (By design.)
+- **Advanced Search: conversations edited together** (the last of
+  "Advanced Search, what it doesn't do", from builders' asks on Discord,
+  October 2026; closed 2026-11-25). Its other parts are built: a field
+  set is added where it is missing with **Add where missing** checked
+  (off by default, since the engine reads a missing field as its
+  default; only where the object's kind has the field in the game's
+  files, `mg_schema`, of the type given there); objects of one kind
+  found in several areas open in one Edit Together, one undo step
+  across the areas; and the items placed objects hold or stores sell
+  open together as well. Conversations still open one at a time, by
+  design: a conversation is one tree in its own editor, with no form of
+  fields that several could share, and what a builder changes on many
+  (a line's script or a field found on it) Change the N checked
+  already sets on each line found, in one step. An item inside a bag
+  held is not among the held items edited together, also by design:
+  Properties open on the items a placed object holds itself, the bag
+  among them. (By design.)

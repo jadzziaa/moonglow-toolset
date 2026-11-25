@@ -1445,6 +1445,53 @@ fn a_module_opens_again_with_the_tabs_it_had() {
     );
 }
 
+/// A tab of objects placed in several areas, edited together (Advanced
+/// Search's), opens again with the module, each object in its own area:
+/// kept as `instances-of-areas`, and found again in each area's GIT.
+#[test]
+fn a_tab_of_objects_in_several_areas_opens_again_with_the_module() {
+    use mg_edit::GffPath;
+    use mg_gff::{Gff, Struct, Value};
+    let (path, app, kept) = tabs_app("ui-open-tabs-several-areas");
+    let mut m = Module::open(&path).unwrap();
+    let chest = |tag: &str| {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        p
+    };
+    for (area, list) in
+        [("start", vec![chest("OTHER"), chest("CHEST")]), ("field", vec![chest("CHEST")])]
+    {
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Placeable List", Value::List(list));
+        m.set_gff(ResKey::parse(area, ResType::GIT).unwrap(), &git).unwrap();
+    }
+    m.set(ResKey::parse("field", ResType::ARE).unwrap(), Gff::new(*b"ARE ").to_bytes().unwrap());
+    m.save().unwrap();
+    let (start, field) = (ResRef::from_str("start").unwrap(), ResRef::from_str("field").unwrap());
+    let tab = Tab::Instances {
+        objects: vec![
+            (start, GffPath::root().item("Placeable List", 1)),
+            (field, GffPath::root().item("Placeable List", 0)),
+        ],
+    };
+    let mut h = window_harness(app);
+    h.state_mut().open_module(&path);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(8);
+    assert!(h.state().dock.find_tab(&tab).is_some(), "open");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("instances-of-areas:"), "{text}");
+    h.state_mut().open_module(&path);
+    h.run_steps(8);
+    assert!(h.state().dock.find_tab(&tab).is_some(), "open again, each object in its area");
+}
+
 /// The talk table opens again on the line chosen when the module was
 /// closed.
 #[test]

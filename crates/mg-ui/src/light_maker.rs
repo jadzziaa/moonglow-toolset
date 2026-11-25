@@ -10,7 +10,7 @@ use egui::Ui;
 use glam::Vec3;
 use mg_area::ObjectKind;
 use mg_core::ResRef;
-use mg_module::lights::{HakChoice, LightSpec, Plan};
+use mg_module::lights::{Flicker, HakChoice, LightSpec, Plan};
 use mg_uikit::Controls as _;
 
 use crate::Moonglow;
@@ -186,6 +186,14 @@ pub(crate) fn panel(
             crate::widgets::spin_draft(ui, &mut p, 1..=5, 1.0, |x| x);
             d.spec.priority = p.clamp(1, 5) as u8;
             ui.end_row();
+            crate::widgets::field_label(ui, "Flicker").on_hover_text(
+                "How the light flickers. A flickering light costs the game more.",
+            );
+            crate::widgets::dropdown("custom-light-flicker")
+                .selected_text(d.spec.flicker.name())
+                .width(110.0)
+                .show(ui, &mut d.spec.flicker, &Flicker::ALL, |f| f.name());
+            ui.end_row();
             // (Each wrapped at the page's edge: a cell's width is the
             // grid's last frame's.)
             let boxed = |ui: &mut Ui, on: &mut bool, text: &str| {
@@ -206,6 +214,21 @@ pub(crate) fn panel(
             ui.end_row();
         });
         ui.weak(format!("Its light ends {} m out.", (d.spec.reach() * 100.0).round() / 100.0));
+        if d.spec.flickers() {
+            // (Said where it is chosen: the game plays no static
+            // placeable's flicker, and a dynamic one costs it more.)
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
+                        "It is placed as a dynamic placeable, as the game plays no static \
+                         placeable's flicker. A dynamic placeable costs the game more than a \
+                         static one.",
+                    )
+                    .weak(),
+                )
+                .wrap(),
+            );
+        }
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Written Into");
         for name in &names {
@@ -320,9 +343,10 @@ fn made(app: &mut Moonglow, d: &LightDraft, plan: &Plan) {
     let Some(mut view) = app.area_views.remove(&d.area) else { return };
     if !d.change.is_empty() {
         view.selection = d.change.clone();
-        crate::area_view::set_appearance(app, &view, "Change Light", plan.row);
+        crate::area_view::change_light(app, &view, plan.row, plan.spec.flickers());
     } else if let Some(at) = d.at {
-        crate::area_view::add_light_row(app, &mut view, plan.row, &plan.spec.label(), at);
+        let flickers = plan.spec.flickers();
+        crate::area_view::add_light_row(app, &mut view, plan.row, &plan.spec.label(), at, flickers);
     } else {
         // (The palette's: placed with a click in the view, as its lights.)
         app.palette.placing_light = Some(plan.row);

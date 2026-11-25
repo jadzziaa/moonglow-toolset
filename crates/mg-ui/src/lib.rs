@@ -796,6 +796,9 @@ pub struct Moonglow {
         std::collections::HashSet<(audio::Role, mg_core::ResRef, ResType, usize)>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    /// The module (identity and revision) `pictures` was last checked
+    /// against ([`images::forget_changed`]).
+    pictures_seen: Option<(u64, u64)>,
     /// The game's NUI skin, its fonts and the pictures the open windows
     /// use, as the NUI Creator's preview draws them.
     pub(crate) nui_assets: nui_view::skin::Assets,
@@ -1792,6 +1795,7 @@ impl Moonglow {
             speaker: Box::new(audio::Silence::default()),
             sound_said: Default::default(),
             pictures: HashMap::new(),
+            pictures_seen: None,
             nui_assets: Default::default(),
             nui_views: HashMap::new(),
             new_nui: None,
@@ -2288,6 +2292,12 @@ impl Moonglow {
         self.var_preview = std::mem::take(&mut self.var_preview_next);
         let female = self.settings.armor_on_woman;
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
+        images::forget_changed(
+            &mut self.pictures,
+            &mut self.palettes,
+            self.ws.as_ref(),
+            &mut self.pictures_seen,
+        );
         widgets::install_fonts(ui.ctx());
         script_layout::watch_fonts(ui.ctx());
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
@@ -3699,12 +3709,8 @@ impl Moonglow {
     /// Drops popped-out state for any area whose `Instance`/`Instances`
     /// window or tab is no longer open.
     pub(crate) fn sync_props_popped_out(&mut self) {
-        self.props_popped_out.retain(|area| {
-            self.dock.iter_all_tabs().any(|(_, t)| match t {
-                Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. } => a == area,
-                _ => false,
-            })
-        });
+        self.props_popped_out
+            .retain(|area| self.dock.iter_all_tabs().any(|(_, t)| t.edits_in(*area)));
     }
 
     /// Notes a tab closed, for Reopen Closed Tab: those that show a
@@ -5741,9 +5747,18 @@ impl Moonglow {
                     Tab::Instance { area, path } => {
                         (Some(*area), vec![path.clone()], Some(path.clone()))
                     }
-                    Tab::Instances { area, paths } => {
-                        (Some(*area), paths.clone(), paths.first().cloned())
-                    }
+                    // (Its first object's area, and those of its objects in
+                    // it: the area whose panel it came from.)
+                    Tab::Instances { objects } => match objects.first() {
+                        Some((area, first)) => (
+                            Some(*area),
+                            (objects.iter().filter(|(a, _)| a == area))
+                                .map(|(_, p)| p.clone())
+                                .collect(),
+                            Some(first.clone()),
+                        ),
+                        None => (None, Vec::new(), None),
+                    },
                     _ => (None, Vec::new(), None),
                 };
                 if let (Some(area), Some(first)) = (area, first_path) {
@@ -7307,8 +7322,13 @@ impl Moonglow {
             .game
             .as_deref()
             .map_or(mg_core::Codepage::WINDOWS_1252, mg_rules::GameData::text_codepage);
+        // (Lights Moonglow made that flicker stay dynamic.)
+        let table = self.game.as_deref().and_then(|g| g.table("placeables").ok());
         let Some(ws) = self.ws.as_mut() else { return };
-        let rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
+        let mut rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
+        if let Some(t) = table {
+            rules = rules.with_flickering_rows(&t);
+        }
         let mut edits = Vec::new();
         let (mut made, mut within) = (0, 0);
         let mut left = mg_module::areas::StaticPlan::default();
@@ -7334,7 +7354,11 @@ impl Moonglow {
                 use mg_module::areas::Kept;
                 if matches!(
                     why,
-                    Kept::Variable(_) | Kept::Tag(_) | Kept::ResRef(_) | Kept::Script(..)
+                    Kept::Variable(_)
+                        | Kept::Tag(_)
+                        | Kept::ResRef(_)
+                        | Kept::Script(..)
+                        | Kept::Flickers
                 ) {
                     let tag = list[*i].string("Tag").map(text::decode).unwrap_or_default();
                     named.push(format!("{tag} in {area}: {}", why.describe()));

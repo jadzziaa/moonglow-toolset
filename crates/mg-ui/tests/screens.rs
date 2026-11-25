@@ -344,6 +344,88 @@ fn script_wizard_pages() {
     }
 }
 
+/// The picture viewer's zoom (the owner's ruling of 2026-11-25): a
+/// 1024 by 512 picture of squares and a gradient open read-only, fitted
+/// (before: all it ever was), then zoomed in with the wheel about a point
+/// (its percent at the corner, the squares' edges sharp), then at actual
+/// pixels by a double click. Pictures in `target/item-l919-shots/`.
+#[test]
+#[ignore]
+fn picture_viewer_zoom() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/item-l919-shots");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::output_dir("screens-picture-zoom");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mut image = mg_image::Rgba::new(1024, 512);
+    for y in 0..512usize {
+        for x in 0..1024usize {
+            let square = ((x / 32) + (y / 32)) % 2 == 0;
+            let at = (y * 1024 + x) * 4;
+            let shade = if square { 255u32 } else { 90 };
+            image.data[at] = ((x as u32 / 4) * shade / 255) as u8;
+            image.data[at + 1] = ((y as u32 / 2) * shade / 255) as u8;
+            image.data[at + 2] = (200 * shade / 255) as u8;
+            image.data[at + 3] = 255;
+        }
+    }
+    std::fs::write(user.join("override/mg_l919.tga"), mg_image::write_tga(&image)).unwrap();
+    let key = ResKey::from_filename("mg_l919.tga").unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.palette_dock = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        // (The sampler's own filtering: the tests' default does its own,
+        // smoothing a magnified picture whatever the texture asks.)
+        .with_render_options(egui_wgpu::RendererOptions {
+            predictable_texture_filtering: false,
+            ..egui_wgpu::RendererOptions::PREDICTABLE
+        })
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    let started = std::time::Instant::now();
+    while mg_ui::viewers::picture_drawn(&h.ctx, key).is_none() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "never drawn");
+        h.run_steps(2);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    settle(&mut h);
+    let still = |h: &mut Harness<'_, Moonglow>| {
+        let mut last = None;
+        for _ in 0..200 {
+            h.run_steps(2);
+            let now = mg_ui::viewers::picture_drawn(&h.ctx, key);
+            if now == last {
+                return now.unwrap();
+            }
+            last = now;
+        }
+        panic!("never still");
+    };
+    let (rect, _) = still(&mut h);
+    shoot(&mut h, &dir, "viewer-fitted");
+    let at = egui::pos2(rect.min.x + rect.width() * 0.3, rect.min.y + rect.height() * 0.4);
+    h.hover_at(at);
+    h.run_steps(2);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 40.0 * 9.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let (_, scale) = still(&mut h);
+    assert!(scale > 1.0);
+    shoot(&mut h, &dir, "viewer-zoomed");
+}
+
 /// Module Properties › Custom Content: the hak list, two rows chosen and
 /// some haks not found.
 #[test]
@@ -3437,6 +3519,117 @@ fn creature_inventory_options() {
     pick(&mut h, "Longsword", true);
     h.run_steps(2);
     shoot(&mut h, &dir, "creature-inventory-options-selected");
+}
+
+/// Several items carried at once: a creature's armor, sword and a potion
+/// of its backpack selected (Ctrl) and dragged, the count beside the
+/// pointer (`inventory-several-dragged.png`); a chest's rows selected
+/// two at a time (`inventory-several-chest.png`).
+#[test]
+#[ignore]
+fn inventory_several_carried() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_inventory_warning = true;
+    let game = app.game.as_deref().unwrap();
+    let entry = |id: u32, r: &str| {
+        let mut s = mg_gff::Struct::new(id);
+        s.set("InventoryRes", mg_gff::Value::resref(mg_core::ResRef::from_str(r).unwrap()));
+        s.set("Repos_PosX", mg_gff::Value::Word(id as u16));
+        s.set("Repos_Posy", mg_gff::Value::Word(0));
+        s
+    };
+    let read = |name: &str, t: ResType| {
+        mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap()
+    };
+    let mut bandit = read("nw_bandit001", ResType::UTC);
+    let pack = vec![entry(0, "nw_it_mpotion001"), entry(1, "nw_it_torch001")];
+    bandit.root.set("ItemList", mg_gff::Value::List(pack));
+    let mut chest = read("plc_chest1", ResType::UTP);
+    let held = ["nw_wswls001", "nw_it_mpotion001", "nw_it_torch001", "nw_wswdg001"];
+    let held = held.iter().enumerate().map(|(i, r)| entry(i as u32, r)).collect();
+    chest.root.set("HasInventory", mg_gff::Value::Byte(1));
+    chest.root.set("ItemList", mg_gff::Value::List(held));
+    let mut m = mg_module::Module::new();
+    let (utc, utp) = (
+        ResKey::parse("nw_bandit001", ResType::UTC).unwrap(),
+        ResKey::parse("plc_chest1", ResType::UTP).unwrap(),
+    );
+    m.set_gff(utc, &bandit).unwrap();
+    m.set_gff(utp, &chest).unwrap();
+    let path = dir.join("inventory-several.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    for key in [utc, utp] {
+        app.blueprint_pages.insert((key, GffPath::root()), "Inventory");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1500.0, 1300.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    settle(&mut h);
+    // (Each in a window of its own, side by side.)
+    let windows = [(utc, (10.0, 40.0), (900.0, 1240.0)), (utp, (920.0, 40.0), (570.0, 740.0))];
+    for (key, at, size) in windows {
+        let dock = &mut h.state_mut().dock;
+        let found = dock.find_tab(&mg_ui::Tab::Blueprint(key)).unwrap();
+        let tab = dock.remove_tab(found).unwrap();
+        let surface = dock.add_window(vec![tab]);
+        let w = dock.get_window_state_mut(surface).unwrap();
+        w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
+    }
+    settle(&mut h);
+    for (key, at, size) in windows {
+        place(&mut h, &mg_ui::Tab::Blueprint(key), at, size);
+    }
+    settle(&mut h);
+    // A row's name (not its icon) in the window at the left or the right.
+    let row = |h: &Harness<'_, Moonglow>, label: &str, right: bool| -> egui::Pos2 {
+        h.query_all_by_label(label)
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.rect())
+            .filter(|r| (r.left() > 915.0) == right && r.width() > 80.0)
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap_or_else(|| panic!("no {label}"))
+            .center()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui::Modifiers| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let button = egui::PointerButton::Primary;
+            let e = egui::Event::PointerButton { pos: at, button, pressed, modifiers };
+            h.event_modifiers(e, modifiers);
+        }
+        h.run_steps(2);
+    };
+    let at = row(&h, "Padded Armor", false);
+    click(&mut h, at, egui::Modifiers::NONE);
+    let at = row(&h, "Longsword", false);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    let at = row(&h, "Potion of Cure Light Wounds", false);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    let at = row(&h, "Potion of Cure Light Wounds", true);
+    click(&mut h, at, egui::Modifiers::NONE);
+    let at = row(&h, "Torch", true);
+    click(&mut h, at, egui::Modifiers::COMMAND);
+    shoot(&mut h, &dir, "inventory-several-chest");
+    // The sword dragged towards the chest, held over its list.
+    let from = row(&h, "Longsword", false);
+    let to = row(&h, "Dagger", true) + egui::vec2(0.0, 60.0);
+    h.hover_at(from);
+    h.run_steps(1);
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "inventory-several-dragged");
 }
 
 /// A creature's Inventory page with what the game takes off it marked: a
@@ -8367,6 +8560,51 @@ fn advanced_search() {
     h.state_mut().advanced_search = d;
     settle(&mut h);
     shoot(&mut h, &dir, "advanced-search-or-not");
+    // Every fighter placed, and what opens together: one button for the
+    // fighters of every area; then the items with an enhancement bonus,
+    // those the placed objects hold apart from the blueprints.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), ..Default::default() },
+        placed: Some(true),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    settle(&mut h);
+    h.query_by_label_contains("together").expect("Edit together").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "advanced-search-together");
+    // Opened: one window for the fighters of every area.
+    if let Some(b) = h.query_by_label_contains("areas Together") {
+        b.click();
+        settle(&mut h);
+        shoot(&mut h, &dir, "advanced-search-together-window");
+        let tab = h
+            .state()
+            .dock
+            .iter_all_tabs()
+            .find_map(|(_, t)| matches!(t, mg_ui::Tab::Instances { .. }).then(|| t.clone()));
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(tab.expect("the fighters' tab")));
+        settle(&mut h);
+    }
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::ItemProperty, row: Some(6), ..Default::default() },
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    settle(&mut h);
+    shoot(&mut h, &dir, "advanced-search-together-items");
+    // Set a field on them, with Add where missing.
+    h.query_by_label_contains("together").expect("Edit together").click();
+    {
+        let a = &mut h.state_mut().advanced_search.act;
+        a.act = mg_ui::search::Act::SetField;
+        (a.name, a.value, a.add) = ("Stolen".into(), "1".into(), true);
+    }
+    // (The change's section open since the fighters' search.)
+    h.run_steps(4);
+    shoot(&mut h, &dir, "advanced-search-add-missing");
 }
 
 /// Edit › Find and Replace Text… over Chapter 1, the Bottom Dock's tab
@@ -13048,7 +13286,9 @@ fn board_main_areas_together() {
 
 /// `board_main` with Custom Light open (M4's U29): the area view's menu's
 /// Add Light Here › Custom Light… on the ground at the view's center, the
-/// Right Dock's section beside it; the rest as the Main board.
+/// Right Dock's section beside it; the rest as the Main board. Then
+/// `board_main_custom_light_flicker`: its Flicker a torch's, the note that
+/// says it is placed dynamic under the settings.
 #[test]
 #[ignore]
 fn board_main_custom_light() {
@@ -13096,6 +13336,10 @@ fn board_main_custom_light() {
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker));
     rest_pointer(&mut h);
     shoot(&mut h, &board_dir(), "board_main_custom_light");
+    h.state_mut().light_draft.as_mut().unwrap().spec.flicker = mg_module::lights::Flicker::Torch;
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_custom_light_flicker");
 }
 
 /// `board_main` with Problems open (M4's U28): Build Module's findings of

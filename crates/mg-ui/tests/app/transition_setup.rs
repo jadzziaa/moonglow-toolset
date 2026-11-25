@@ -636,7 +636,7 @@ fn several_objects_take_current_to_target_only() {
     let paths =
         vec![GffPath::root().item("TriggerList", 0), GffPath::root().item("TriggerList", 1)];
     let b1 = object(&mut h, second, "TriggerList", 0);
-    open_setup(&mut h, Tab::Instances { area: field, paths }, Some("second"));
+    open_setup(&mut h, Tab::instances(field, paths), Some("second"));
     pick(&mut h, "TT_B1", 0);
     assert!(h.get_by_label("Both Ways").accesskit_node().is_disabled());
     assert!(h.get_by_label("Target To Current").accesskit_node().is_disabled());

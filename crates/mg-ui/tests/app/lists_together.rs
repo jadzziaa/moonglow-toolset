@@ -678,6 +678,20 @@ fn an_inventory_s_items_are_added_to_each_and_taken_from_each() {
     }
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, items), before);
+    // Two copied (Copy over several items of an inventory): both added to
+    // each, in their order, one step.
+    let two = vec![held_entry("nw_it_gem001", 0), held_entry("nw_it_torch001", 1)];
+    h.state_mut().item_clip = two;
+    h.run();
+    h.get_by_label("Paste").click();
+    settle(&mut h);
+    let pasted = each(&mut h, &keys, items);
+    for (p, b) in pasted.iter().zip(&before) {
+        assert_eq!(p[b.len()..], ["nw_it_gem001", "nw_it_torch001"]);
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste 2 items"));
+    undo(&mut h);
+    assert_eq!(each(&mut h, &keys, items), before);
 }
 
 /// Placeables edited together of which the first has no inventory: the

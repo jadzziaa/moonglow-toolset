@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:00:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1834,6 +1834,24 @@ placeable's emitters run (a brazier's fire and smoke, either way).
   `reading_static_placeable_default_animation` (five pictures half a
   second apart) and `reading_static_placeable_emitters` (2026-10-30).
 - **Moonglow:** `crates/mg-area/src/scene.rs` (`object_time`).
+- **Wiki:** missing.
+
+### A Custom Light's flicker plays on a dynamic placeable
+
+The generated model of a Custom Light with a Torch flicker (a light node
+whose `colorkey` is keyed in `default`, compiled to binary by
+`mg_module::lights`; red 255 0 0, radius 4) flickers in the client placed
+dynamic and stays steady placed static. Eight pictures 0.5 to 0.7 s apart,
+the floor's red under each light (0 to 255): static 43.26, 43.22, 43.26,
+43.23, 43.25, 43.24, 43.30, 43.25 (spread 0.08); dynamic 39.71, 35.38,
+39.70, 36.13, 38.10, 37.52, 42.90, 38.20 (spread 7.52, 83% to 99% of the
+static one's against the key table's 70% to 100%). Green and blue do not
+move.
+
+- **Checked:** game client, `batch4.rs`'s `reading_custom_light_flicker`
+  (2026-11-25, 89.8193.37).
+- **Moonglow:** `crates/mg-module/src/lights.rs` (`Flicker`,
+  `flicker_animation`); the area view plays it as it plays any `default`.
 - **Wiki:** missing.
 
 ### A helmet without its model, and bare skin over nothing

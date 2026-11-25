@@ -21,11 +21,19 @@
 //! distance. The node marks whether it casts shadows ([`LightSpec::shadows`]);
 //! its priority ([`LightSpec::priority`]): either answer changes a
 //! default, not what is written.
+//!
+//! A light can flicker ([`Flicker`]): its node's `color` keyed over a
+//! short cycle in the model's `default` animation, which the client plays,
+//! cycled, on a dynamic placeable and not on a static one (2026-10-30,
+//! `reading_static_placeable_default_animation`). A flickering light's row
+//! is `Static` 0 and its placed instances are dynamic
+//! ([`dynamic_if_flickering`]); a steady light writes what it always did.
 
 use std::path::{Path, PathBuf};
 
 use mg_2da::TwoDa;
 use mg_core::{Codepage, ResRef, ResType};
+use mg_gff::{Struct, Value};
 use mg_resman::{ResKey, ResMan, priority};
 
 /// (Kept in mg-rules, which the area's view tells them by without this
@@ -51,6 +59,61 @@ pub struct LightSpec {
     /// 1 (kept first) to 5: which lights the game keeps where more shine
     /// at one place than it draws (`lightpriority`).
     pub priority: u8,
+    /// How it flickers: none, or its color keyed in its model's `default`
+    /// (a dynamic placeable then).
+    pub flicker: Flicker,
+}
+
+/// A light's flicker: its brightness keyed over a short cycle in its
+/// model's `default` animation, as the light node's `colorkey` (the color
+/// scaled; the client's light node keys its color, measured, and its
+/// multiplier lengthens the reach, not the brightness).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Flicker {
+    /// A steady light (a static placeable, as the game's own lights).
+    #[default]
+    None,
+    /// Small, quick, slight.
+    Candle,
+    /// Quicker and deeper.
+    Torch,
+    /// Quick and deep, as a fire's light leaps.
+    Fire,
+    /// Slow, even swelling and fading.
+    Pulse,
+}
+
+impl Flicker {
+    pub const ALL: [Flicker; 5] =
+        [Flicker::None, Flicker::Candle, Flicker::Torch, Flicker::Fire, Flicker::Pulse];
+
+    /// Its name, as the Custom Light section lists it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Flicker::None => "None",
+            Flicker::Candle => "Candle",
+            Flicker::Torch => "Torch",
+            Flicker::Fire => "Fire",
+            Flicker::Pulse => "Pulse",
+        }
+    }
+
+    /// The cycle: its length, seconds, and the brightness (a share of the
+    /// color) at even steps through it; the first again at its end, so it
+    /// loops without a jump. `None` for a steady light.
+    pub fn cycle(self) -> Option<(f32, &'static [f32])> {
+        match self {
+            Flicker::None => None,
+            Flicker::Candle => {
+                Some((2.0, &[1.0, 0.92, 0.97, 0.88, 1.0, 0.94, 0.85, 0.96, 0.9, 1.0, 0.93, 0.97]))
+            }
+            Flicker::Torch => Some((1.5, &[1.0, 0.8, 0.95, 0.7, 0.9, 1.0, 0.75, 0.88, 0.82, 0.97])),
+            Flicker::Fire => {
+                Some((1.2, &[1.0, 0.6, 0.85, 0.5, 0.95, 0.7, 1.0, 0.55, 0.8, 0.65, 0.9, 0.6]))
+            }
+            Flicker::Pulse => Some((2.4, &[1.0, 0.93, 0.76, 0.56, 0.42, 0.56, 0.76, 0.93])),
+        }
+    }
 }
 
 impl Default for LightSpec {
@@ -62,6 +125,7 @@ impl Default for LightSpec {
             shadows: false,
             lights_objects: true,
             priority: 3,
+            flicker: Flicker::None,
         }
     }
 }
@@ -102,7 +166,7 @@ impl LightSpec {
 
     fn hashed_name(&self, hundredths: fn(f32) -> f32) -> ResRef {
         let s = self.normalized();
-        let text = format!(
+        let mut text = format!(
             "{:?} {} {} {} {} {}",
             s.color,
             hundredths(s.radius * 100.0) as u32,
@@ -111,6 +175,11 @@ impl LightSpec {
             s.lights_objects,
             s.priority
         );
+        // (A steady light's text as it was before lights flickered: its
+        // name, and its model, the same.)
+        if s.flickers() {
+            text += &format!(" {}", s.flicker.name());
+        }
         // (FNV-1a, 64 bits; 48 of them kept.)
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         for b in text.bytes() {
@@ -120,8 +189,14 @@ impl LightSpec {
         ResRef::from_str(&name).expect("16 characters")
     }
 
+    /// It flickers: its placeable must be dynamic for the game to play it.
+    pub fn flickers(&self) -> bool {
+        self.flicker != Flicker::None
+    }
+
     /// Its model as text: a dummy, a square of 0.2 m drawn by nothing (as
-    /// the game's invisible light placeables have), and the light.
+    /// the game's invisible light placeables have), and the light; a
+    /// flickering light's `default` animation keys the light's color.
     pub fn model_text(&self) -> String {
         self.model_text_named(self.model_name())
     }
@@ -131,7 +206,7 @@ impl LightSpec {
         let s = self.normalized();
         let n = name.to_string();
         let [r, g, b] = s.color.map(|c| f32::from(c) / 255.0);
-        format!(
+        let mut text = format!(
             "# A light made by Moonglow Toolset: {} m, multiplier {}\n\
              newmodel {n}\nsetsupermodel {n} NULL\nclassification character\n\
              setanimationscale 1\nbeginmodelgeom {n}\n\
@@ -152,7 +227,14 @@ impl LightSpec {
             u8::from(s.lights_objects),
             u8::from(s.shadows),
             s.priority,
-        )
+        );
+        if let Some(anim) = flicker_animation(&n, s.flicker, [r, g, b]) {
+            let done = format!("donemodel {n}\n");
+            text.truncate(text.len() - done.len());
+            text += &anim;
+            text += &done;
+        }
+        text
     }
 
     /// Its model compiled, as the game's own are.
@@ -172,8 +254,78 @@ impl LightSpec {
     pub fn label(&self) -> String {
         let s = self.normalized();
         let [r, g, b] = s.color;
-        format!("Light, #{r:02x}{g:02x}{b:02x}, {} m", short(s.reach()))
+        let label = format!("Light, #{r:02x}{g:02x}{b:02x}, {} m", short(s.reach()));
+        match s.flicker {
+            Flicker::None => label,
+            f => format!("{label}, {} flicker", f.name().to_lowercase()),
+        }
     }
+}
+
+/// A flickering light's `default` animation (model `n`, its light
+/// `{n}_light`): the color scaled by the cycle's brightness at each key,
+/// as the client's own reading keyed one (`length`, `transtime 0`, the
+/// root as `animroot`).
+fn flicker_animation(n: &str, flicker: Flicker, [r, g, b]: [f32; 3]) -> Option<String> {
+    let (length, steps) = flicker.cycle()?;
+    let step = length / steps.len() as f32;
+    let keys: Vec<String> = steps
+        .iter()
+        .chain(steps.first())
+        .enumerate()
+        .map(|(i, k)| {
+            let t = i as f32 * step;
+            format!("    {t:.4} {:.4} {:.4} {:.4}\n", r * k, g * k, b * k)
+        })
+        .collect();
+    Some(format!(
+        "newanim default {n}\n  length {length}\n  transtime 0\n  animroot {n}\n\
+         node dummy {n}\n  parent NULL\nendnode\n\
+         node light {n}_light\n  parent {n}\n  colorkey {}\n{}endnode\n\
+         doneanim default {n}\n",
+        keys.len(),
+        keys.concat()
+    ))
+}
+
+/// Whether placeables.2da's row `row` is a light Moonglow made that
+/// flickers: its model one of [`MODEL_PREFIX`]'s and the row `Static` 0, as
+/// [`plan`] writes a flickering light's.
+pub fn row_flickers(table: &TwoDa, row: usize) -> bool {
+    table.get(row, "ModelName").is_some_and(is_generated)
+        && table.get(row, "Static").is_some_and(|s| s.trim() == "0")
+}
+
+/// The rows of placeables.2da that are flickering lights ([`row_flickers`]):
+/// what Make Placeables Static leaves dynamic.
+pub fn flickering_rows(table: &TwoDa) -> std::collections::BTreeSet<u32> {
+    (0..table.len())
+        .filter(|&r| row_flickers(table, r))
+        .filter_map(|r| u32::try_from(r).ok())
+        .collect()
+}
+
+/// A placeable instance (or blueprint) whose `Appearance` is a flickering
+/// light's row made dynamic, as the client plays a dynamic placeable's
+/// `default` and holds a static one's still. Whether it was changed.
+pub fn dynamic_if_flickering(item: &mut Struct, table: &TwoDa) -> bool {
+    let row = item.integer("Appearance").and_then(|r| usize::try_from(r).ok());
+    row.is_some_and(|r| row_flickers(table, r)) && make_flickering(item)
+}
+
+/// A flickering light's placeable made dynamic, and Plot: a static
+/// placeable can't be destroyed, a dynamic one can (an area spell, a
+/// fireball, takes placeables), and a light should not be. Whether it was
+/// changed.
+pub fn make_flickering(item: &mut Struct) -> bool {
+    let mut changed = false;
+    for (label, value) in [("Static", 0), ("Plot", 1)] {
+        if item.integer(label) != Some(value) {
+            item.set(label, Value::Byte(value as u8));
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn short(v: f32) -> String {
@@ -218,6 +370,11 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// The placeables.2da it writes: the copy the game reads, with its row.
+    pub fn table(&self) -> &TwoDa {
+        &self.table
+    }
+
     /// What the window says before anything is written.
     pub fn describe(&self) -> String {
         if self.reused {
@@ -357,7 +514,9 @@ pub fn plan(
                 ("ModelName", model_text),
                 ("ShadowSize", "1".into()),
                 ("BodyBag", "0".into()),
-                ("Static", "1".into()),
+                // (A flickering light's is dynamic: the game plays no
+                // static placeable's animation.)
+                ("Static", if spec.flickers() { "0" } else { "1" }.into()),
             ];
             for (name, value) in cells {
                 if let Some(c) = table.column(name) {
@@ -694,6 +853,127 @@ mod tests {
         // And the 0.52 m light itself finds its row by its own name.
         let p = plan(&with(None, &rows52), cp, other, lights, None).unwrap();
         assert_eq!((p.row, p.model), (1, before));
+    }
+
+    fn fnv(bytes: &[u8]) -> u64 {
+        bytes
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
+    }
+
+    /// A steady light writes what it wrote before lights could flicker:
+    /// its model's name, text and compiled bytes, its label and its row's
+    /// `Static` 1 (pinned from the code before; this test passed there).
+    #[test]
+    fn a_steady_light_writes_what_it_wrote_before_flicker() {
+        let other = LightSpec {
+            color: [255, 60, 20],
+            radius: 6.0,
+            multiplier: 1.5,
+            shadows: true,
+            lights_objects: false,
+            priority: 1,
+            flicker: Flicker::None,
+        };
+        let pins = [
+            (
+                LightSpec::default(),
+                "mgl_5b0a9fcccd8a",
+                0x344d_a681_34b1_1f2e,
+                0xabe6_8ea5_1ca8_5e51,
+                "Light, #ffc88c, 10 m",
+            ),
+            (
+                other,
+                "mgl_b1457bbc4677",
+                0x0b49_e38b_244d_f26c,
+                0x9fba_ee5a_d765_1021,
+                "Light, #ff3c14, 18 m",
+            ),
+        ];
+        for (spec, name, text, binary, label) in pins {
+            assert!(!spec.flickers());
+            assert_eq!(spec.model_name().to_string(), name);
+            assert_eq!(fnv(spec.model_text().as_bytes()), text, "{}", spec.model_text());
+            assert_eq!(fnv(&spec.model_binary().unwrap()), binary);
+            assert_eq!(spec.label(), label);
+        }
+        let rm = game(&[("game", priority::KEY, Some(table(&["A **** a **** 1 0 0"])))]);
+        let dir = mg_testkit::scratch_dir("mg-lights-steady");
+        let p =
+            plan(&rm, Codepage::default(), LightSpec::default(), new_hak(&dir, "l").unwrap(), None)
+                .unwrap();
+        assert_eq!(p.table.get(p.row, "Static"), Some("1"));
+        assert!(!row_flickers(&p.table, p.row));
+    }
+
+    /// A flickering light: a model of its own (not the steady light's),
+    /// labelled so, whose `default` animation keys the light's color over
+    /// its cycle (the first key again at its end), compiled into the binary
+    /// model; its row is dynamic (`Static` 0), and an instance of the row
+    /// is made dynamic, a steady light's left as it is.
+    #[test]
+    fn a_flickering_light_keys_its_color_in_its_default_animation() {
+        let steady = LightSpec { color: [200, 100, 50], ..Default::default() };
+        let mut names = std::collections::HashSet::new();
+        for flicker in Flicker::ALL {
+            let spec = LightSpec { flicker, ..steady };
+            assert!(names.insert(spec.model_name()), "each its own model: {flicker:?}");
+            if flicker == Flicker::None {
+                assert!(!spec.model_text().contains("newanim"));
+                continue;
+            }
+            assert!(spec.flickers());
+            let (length, steps) = flicker.cycle().unwrap();
+            assert!(steps.iter().all(|k| (0.0..=1.0).contains(k)) && steps[0] == 1.0);
+            assert_eq!(
+                spec.label(),
+                format!("Light, #c86432, 10 m, {} flicker", flicker.name().to_lowercase())
+            );
+            // The compiled model (as the game reads it) has the keys.
+            let model = mg_mdl::Model::read(&spec.model_binary().unwrap()).unwrap();
+            let anim = model.animation("default").expect("its default animation");
+            assert!((anim.length - length).abs() < 1e-4, "{flicker:?}: {}", anim.length);
+            let light = format!("{}_light", spec.model_name());
+            let node = anim.nodes.iter().find(|n| n.name.eq_ignore_ascii_case(&light));
+            let node = node.unwrap_or_else(|| panic!("{flicker:?}: {anim:#?}"));
+            let color = node.controllers.iter().find(|c| c.name == "color").expect("colorkey");
+            assert_eq!((color.columns, color.times.len()), (3, steps.len() + 1), "{flicker:?}");
+            assert_eq!(color.times[0], 0.0);
+            assert!((color.times[steps.len()] - length).abs() < 1e-3, "{:?}", color.times);
+            let row = |i: usize| &color.values[i * 3..i * 3 + 3];
+            assert_eq!(row(0), row(steps.len()), "the cycle closes");
+            let base = steady.color.map(|c| f32::from(c) / 255.0);
+            for (i, k) in steps.iter().enumerate() {
+                for (got, want) in row(i).iter().zip(base) {
+                    assert!((got - want * k).abs() < 1e-3, "{flicker:?} key {i}");
+                }
+            }
+        }
+        // Its row: dynamic; an instance of it made dynamic.
+        let rm = game(&[("game", priority::KEY, Some(table(&["A **** a **** 1 0 0"])))]);
+        let dir = mg_testkit::scratch_dir("mg-lights-flicker");
+        let cp = Codepage::default();
+        let torch = LightSpec { flicker: Flicker::Torch, ..steady };
+        let p = plan(&rm, cp, torch, new_hak(&dir, "l").unwrap(), None).unwrap();
+        assert_eq!((p.row, p.table.get(1, "Static")), (1, Some("0")));
+        assert!(row_flickers(&p.table, 1) && !row_flickers(&p.table, 0));
+        assert_eq!(flickering_rows(&p.table).into_iter().collect::<Vec<_>>(), [1]);
+        let placed = |row: u32| {
+            let mut s = Struct::new(9);
+            s.set("Appearance", Value::Dword(row));
+            s.set("Static", Value::Byte(1));
+            s
+        };
+        let mut lit = placed(1);
+        assert!(dynamic_if_flickering(&mut lit, &p.table));
+        assert_eq!((lit.integer("Static"), lit.integer("Plot")), (Some(0), Some(1)));
+        assert!(!dynamic_if_flickering(&mut lit, &p.table), "already dynamic");
+        let mut other = placed(0);
+        assert!(!dynamic_if_flickering(&mut other, &p.table));
+        assert_eq!(other.integer("Static"), Some(1));
+        let mut past = placed(7);
+        assert!(!dynamic_if_flickering(&mut past, &p.table), "a row past the table's end");
     }
 
     #[test]

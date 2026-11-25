@@ -263,6 +263,38 @@ type Decoded = Result<(egui::ColorImage, [usize; 2]), String>;
 /// texture made once on the frame, kept with it.
 pub(crate) struct Picture {
     stage: Mutex<Stage>,
+    /// How it is zoomed and where (a new picture is a fresh one, fitted).
+    view: Mutex<View>,
+}
+
+/// A picture's zoom: `None` is fitted (and follows its room), else the
+/// screen points to a pixel of the picture; and where its center is,
+/// from the room's.
+#[derive(Debug, Default, Clone, Copy)]
+struct View {
+    scale: Option<f32>,
+    offset: egui::Vec2,
+}
+
+/// The most a picture is magnified.
+const MAX_ZOOM: f32 = 16.0;
+/// What a wheel notch (40 points) and a key press multiply the zoom by.
+const ZOOM_STEP: f32 = 1.25;
+
+/// Where a zoomed picture of `size` at `scale` goes in `area`: centered
+/// where it is smaller than `area`, else kept over all of `area`.
+fn placed(area: egui::Rect, size: egui::Vec2, scale: f32, offset: egui::Vec2) -> egui::Rect {
+    let shown = size * scale;
+    let slack = ((shown - area.size()) / 2.0).max(egui::Vec2::ZERO);
+    let offset = offset.clamp(-slack, slack);
+    egui::Rect::from_center_size(area.center() + offset, shown)
+}
+
+/// What the picture of `key` was last drawn at, for the tests: where it
+/// is and its scale.
+#[doc(hidden)]
+pub fn picture_drawn(ctx: &egui::Context, key: ResKey) -> Option<(egui::Rect, f32)> {
+    ctx.data(|d| d.get_temp(egui::Id::new(("viewer-picture-drawn", key))))
 }
 
 impl std::fmt::Debug for Picture {
@@ -274,8 +306,10 @@ impl std::fmt::Debug for Picture {
 enum Stage {
     Decoding(Pending),
     /// Its texture and its size in pixels (the texture may be smaller,
-    /// where the picture is larger than the GPU takes).
-    Ready(egui::TextureHandle, [usize; 2]),
+    /// where the picture is larger than the GPU takes), the image it was
+    /// made from and whether its texels are sampled sharp (above 1:1; the
+    /// texture is made again where that changes).
+    Ready(egui::TextureHandle, [usize; 2], Arc<egui::ColorImage>, bool),
     Failed(String),
 }
 
@@ -347,7 +381,7 @@ impl Picture {
                 drop(done);
             }),
         );
-        Picture { stage: Mutex::new(Stage::Decoding(pending)) }
+        Picture { stage: Mutex::new(Stage::Decoding(pending)), view: Mutex::default() }
     }
 
     /// Its texture and size once decoded (the texture made here, once),
@@ -365,35 +399,158 @@ impl Picture {
                     return Ok(None);
                 }
                 Some(Ok((image, size))) => {
-                    let texture = ctx.load_texture(&p.name, image, egui::TextureOptions::LINEAR);
-                    *stage = Stage::Ready(texture, size);
+                    let image = Arc::new(image);
+                    let texture =
+                        ctx.load_texture(&p.name, image.clone(), egui::TextureOptions::LINEAR);
+                    *stage = Stage::Ready(texture, size, image, false);
                 }
                 Some(Err(e)) => *stage = Stage::Failed(e),
             }
         }
         match &*stage {
-            Stage::Ready(t, size) => Ok(Some((t.clone(), *size))),
+            Stage::Ready(t, size, ..) => Ok(Some((t.clone(), *size))),
             Stage::Failed(e) => Err(e.clone()),
             Stage::Decoding(_) => Ok(None),
         }
     }
 
+    /// Its texels sampled sharp (a magnified picture's pixels stay
+    /// crisp) or smoothed, the texture made again where that changes.
+    fn sharpen(&self, sharp: bool) {
+        let mut stage = self.stage.lock().unwrap_or_else(|e| e.into_inner());
+        if let Stage::Ready(t, _, image, now) = &mut *stage
+            && *now != sharp
+        {
+            let options =
+                if sharp { egui::TextureOptions::NEAREST } else { egui::TextureOptions::LINEAR };
+            t.set(image.clone(), options);
+            *now = sharp;
+        }
+    }
+
     /// Draws it in `room` (the hak editor's Preview's look, the Hak
-    /// board's): fitted, never enlarged, its size under it; while it is
-    /// decoded, that it is; why it can't be shown, where it can't.
+    /// board's): fitted at first, never enlarged, its size under it; the
+    /// wheel zooms about the pointer (up to 16 times), a drag pans a
+    /// larger picture, a double click goes between fitted and actual
+    /// pixels, `+`, `-` and `0` over it zoom and fit, and while it is
+    /// zoomed its percent is said at the corner. While it is decoded,
+    /// that it is; why it can't be shown, where it can't.
     pub(crate) fn ui(&self, ui: &mut Ui, key: ResKey, room: egui::Rect) {
         match self.texture(ui.ctx()) {
             Ok(Some((texture, size))) => {
                 let caption = format!("{} by {} pixels", size[0], size[1]);
                 let size = egui::vec2(size[0] as f32, size[1] as f32);
                 let area = room.shrink2(egui::vec2(12.0, 12.0)).with_max_y(room.bottom() - 30.0);
-                let fit =
-                    (area.width() / size.x.max(1.0)).min(area.height() / size.y.max(1.0)).min(1.0);
-                let shown = egui::Rect::from_center_size(area.center(), size * fit.max(0.01));
-                egui::Image::new(&texture).paint_at(ui, shown);
-                let r =
-                    ui.interact(shown, ui.id().with(("viewer-picture", key)), egui::Sense::hover());
-                r.widget_info(|| {
+                let fit = (area.width() / size.x.max(1.0))
+                    .min(area.height() / size.y.max(1.0))
+                    .clamp(0.01, 1.0);
+                let mut view = self.view.lock().unwrap_or_else(|e| e.into_inner());
+                let scale = view.scale.unwrap_or(fit).clamp(fit, MAX_ZOOM);
+                let shown = placed(area, size, scale, view.offset);
+                // (The room to pan in and zoom over, all of it.)
+                let r = ui.interact(
+                    area,
+                    ui.id().with(("viewer-picture-room", key)),
+                    egui::Sense::click_and_drag(),
+                );
+                let mut next = (scale, shown);
+                let zoom_to = |to: f32, at: egui::Pos2, next: &mut (f32, egui::Rect)| {
+                    // The pixel under `at` stays under it.
+                    let to = to.clamp(fit, MAX_ZOOM);
+                    let c = at + (next.1.center() - at) * (to / next.0);
+                    next.0 = to;
+                    next.1 = placed(area, size, to, c - area.center());
+                };
+                if r.hovered() || r.dragged() {
+                    let at = ui.input(|i| i.pointer.hover_pos()).unwrap_or(area.center());
+                    let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+                    if wheel != 0.0 {
+                        zoom_to(next.0 * ZOOM_STEP.powf(wheel / 40.0), at, &mut next);
+                        // (Not the panel's around it too.)
+                        ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
+                    }
+                    if !ui.ctx().egui_wants_keyboard_input() {
+                        let key_down = |ui: &Ui, k: egui::Key, shift: bool| {
+                            let m =
+                                if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+                            ui.input_mut(|i| i.consume_key(m, k))
+                        };
+                        let centre = area.center();
+                        if [egui::Key::Plus, egui::Key::Equals]
+                            .into_iter()
+                            .any(|k| key_down(ui, k, false) || key_down(ui, k, true))
+                        {
+                            zoom_to(next.0 * ZOOM_STEP, centre, &mut next);
+                        }
+                        if key_down(ui, egui::Key::Minus, false) {
+                            zoom_to(next.0 / ZOOM_STEP, centre, &mut next);
+                        }
+                        if key_down(ui, egui::Key::Num0, false) {
+                            zoom_to(fit, centre, &mut next);
+                        }
+                    }
+                }
+                let pannable =
+                    next.1.width() > area.width() + 0.5 || next.1.height() > area.height() + 0.5;
+                if r.dragged_by(egui::PointerButton::Primary) && pannable {
+                    let moved = r.drag_delta();
+                    next.1 = placed(area, size, next.0, next.1.center() - area.center() + moved);
+                }
+                if r.double_clicked()
+                    && let Some(at) = r.interact_pointer_pos()
+                {
+                    if (next.0 - fit).abs() > 1e-4 {
+                        zoom_to(fit, at, &mut next);
+                    } else {
+                        // Actual pixels (a small picture, fitted at 1:1 already,
+                        // 4:1) with the point double clicked in the middle.
+                        let to = if fit >= 0.999 { 4.0 } else { 1.0 };
+                        let pixel = (at - next.1.min) / next.0;
+                        next.0 = to;
+                        next.1 = placed(area, size, to, (size * 0.5 - pixel) * to);
+                    }
+                }
+                let (scale, shown) = next;
+                // Fitted again where it is back at the fit.
+                let fitted = (scale - fit).abs() <= 1e-4;
+                *view = if fitted {
+                    View::default()
+                } else {
+                    View { scale: Some(scale), offset: shown.center() - area.center() }
+                };
+                drop(view);
+                self.sharpen(scale > 1.0);
+                let visible = shown.intersect(area);
+                let uv = egui::Rect::from_min_max(
+                    egui::pos2(
+                        (visible.min.x - shown.min.x) / shown.width(),
+                        (visible.min.y - shown.min.y) / shown.height(),
+                    ),
+                    egui::pos2(
+                        (visible.max.x - shown.min.x) / shown.width(),
+                        (visible.max.y - shown.min.y) / shown.height(),
+                    ),
+                );
+                ui.painter().image(texture.id(), visible, uv, egui::Color32::WHITE);
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(egui::Id::new(("viewer-picture-drawn", key)), (shown, scale));
+                });
+                let r = r.on_hover_text(
+                    "Scroll to zoom, drag to pan, double click to go between fitted and actual size",
+                );
+                if pannable && r.hovered() {
+                    ui.ctx().set_cursor_icon(if r.dragged() {
+                        egui::CursorIcon::Grabbing
+                    } else {
+                        egui::CursorIcon::Grab
+                    });
+                }
+                let image = ui.interact(
+                    visible,
+                    ui.id().with(("viewer-picture", key)),
+                    egui::Sense::hover(),
+                );
+                image.widget_info(|| {
                     egui::WidgetInfo::labeled(
                         egui::WidgetType::Image,
                         true,
@@ -401,6 +558,9 @@ impl Picture {
                     )
                 });
                 let _ = caption_at(ui, room, &caption);
+                if !fitted {
+                    percent_at(ui, key, area, scale * 100.0);
+                }
             }
             Ok(None) => {
                 const READING: &str = "Reading the picture…";
@@ -452,6 +612,25 @@ fn decode_now(
         }
     }
     Ok((egui::ColorImage::from_rgba_unmultiplied([sw, sh], &small), [w, h]))
+}
+
+/// The zoom `percent` of the picture `key`, quiet, at the top right of
+/// `room`.
+fn percent_at(ui: &mut Ui, key: ResKey, room: egui::Rect, percent: f32) {
+    let t = mg_uikit::tokens(ui.ctx());
+    let words = format!("{}%", percent.round());
+    let galley =
+        ui.painter().layout_no_wrap(words.clone(), egui::FontId::proportional(11.0), t.text_3);
+    let rect = egui::Rect::from_min_size(
+        egui::pos2(room.right() - galley.size().x - 14.0, room.top() + 4.0),
+        galley.size() + egui::vec2(10.0, 4.0),
+    );
+    ui.painter().rect_filled(rect, 3.0, t.raised.gamma_multiply(0.85));
+    ui.painter().galley(rect.min + egui::vec2(5.0, 2.0), galley, t.text_3);
+    let r = ui.interact(rect, ui.id().with(("viewer-picture-zoom", key)), egui::Sense::hover());
+    r.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("Zoom {words}"))
+    });
 }
 
 /// A quiet caption at the foot of `room`, centered. Where it stands.

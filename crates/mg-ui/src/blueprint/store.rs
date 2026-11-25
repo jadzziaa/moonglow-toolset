@@ -130,7 +130,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 /// store has none of that page yet), at the first free place, with
 /// `taken` (what took a moved one from where it was) as one step; the
 /// struct id of the last one's page.
-fn add_items(f: &mut Form<'_>, adds: &[Added], taken: Vec<Edit>) -> Option<u32> {
+fn add_items(f: &mut Form<'_>, incoming: inventory::Incoming) -> Option<u32> {
+    let inventory::Incoming { adds, taken, pasted } = incoming;
     let base = f.path.clone();
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
     let mut last = None;
@@ -162,8 +163,8 @@ fn add_items(f: &mut Form<'_>, adds: &[Added], taken: Vec<Edit>) -> Option<u32> 
             item.set("Infinite", Value::Byte(0));
         }
     };
-    let what = if taken.is_empty() { "Add store item" } else { "Move item" };
-    f.add_items(what, adds, taken, bin, infinite);
+    let what = inventory::adding_name("Add store item", adds.len(), !taken.is_empty(), pasted);
+    f.add_items(&what, &adds, taken, bin, infinite);
     last
 }
 
@@ -187,7 +188,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         .unwrap_or(0);
     let mut shown: u32 = ui.data(|d| d.get_temp(shown_id)).unwrap_or(first);
     let mut add = None;
-    let (mut adds, mut taken) = (Vec::new(), Vec::new());
+    let mut incoming = inventory::Incoming::default();
     let mut edits = Vec::new();
     let mark_up = root.integer("MarkUp").unwrap_or(100).max(0) as u64;
     let mark_down = root.integer("MarkDown").unwrap_or(0).max(0) as u64;
@@ -212,6 +213,9 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         };
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
+        // (Ctrl and Shift select several, to drag, copy or cut together.)
+        let chosen_id = egui::Id::new(("item-rows-selected", key, path.to_string()));
+        let selected = inventory::selected_rows(ui, chosen_id, items.len());
         // What the store sells each for and buys it for: its cost at the
         // store's mark up and mark down, as Aurora shows them (a buyer's
         // Appraise is the game's to add).
@@ -232,23 +236,27 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let look = inventory::ItemLook {
             row: &mut row,
             infinite: true,
-            selected: &[],
+            selected: &selected,
+            also: &[],
             equip: false,
             copied,
             palette: &names,
         };
         let mut out = inventory::item_list(ui, key, &path, items, look);
+        // (A move within the page keeps its length: the places selected
+        // then hold other items.)
+        inventory::select_rows(ui, chosen_id, items.len(), out.clicked, !out.moved.is_empty());
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added (to the page its kind goes on).
         let whose = inventory::owner(key, &path);
-        (adds, taken) = f.list_events(ui, items, &mut out, whose, &path);
+        incoming = f.list_events(ui, items, &mut out, whose, &path);
         edits = out.edits;
     });
     f.root = root;
     // (A moved item's removal goes with it, as one step; the page shown,
     // the last one's.)
-    adds.extend(add.map(Added::Blueprint));
-    if let Some(page) = add_items(f, &adds, taken) {
+    incoming.adds.extend(add.map(Added::Blueprint));
+    if let Some(page) = add_items(f, incoming) {
         shown = page;
     }
     for (what, edit) in edits {

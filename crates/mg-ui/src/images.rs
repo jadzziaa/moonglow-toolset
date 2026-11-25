@@ -37,6 +37,42 @@ pub(crate) type Pictures = HashMap<String, Option<Picture>>;
 /// Decoded palettes (`pal_*`), by name.
 pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
 
+/// Lets go of the pictures and palettes kept of what the module's changes
+/// since the last call touched, so that a picture the module adds, changes
+/// or removes is read again (a portrait imported shows at once). `seen` is
+/// the workspace (its identity and revision) last looked at. Where what was
+/// touched isn't known (a change made outside the edit history), all are let
+/// go; another module, or none, is [`Moonglow`]'s own reset.
+pub(crate) fn forget_changed(
+    pictures: &mut Pictures,
+    palettes: &mut Palettes,
+    ws: Option<&Workspace>,
+    seen: &mut Option<(u64, u64)>,
+) {
+    let Some(ws) = ws else { return };
+    let now = (ws.identity(), ws.revision());
+    let was = seen.replace(now);
+    let Some((identity, revision)) = was.filter(|w| *w != now) else { return };
+    let touched = (identity == now.0).then(|| ws.touched_since(revision)).flatten();
+    let Some(touched) = touched else {
+        pictures.clear();
+        palettes.clear();
+        return;
+    };
+    let names: std::collections::HashSet<String> =
+        touched.iter().map(|t| t.key.resref.to_string().to_ascii_lowercase()).collect();
+    if names.is_empty() {
+        return;
+    }
+    // (A key is the name, or the name and `#` and how it was made; a
+    // loading screen is also read from the name with an `s` after it.)
+    pictures.retain(|key, _| {
+        let (base, how) = key.split_once('#').unwrap_or((key, ""));
+        !names.contains(base) && !(how == "loadscreen" && names.contains(&format!("{base}s")))
+    });
+    palettes.retain(|name, _| !names.contains(name));
+}
+
 /// Loads images from the module and the game into the cache.
 pub(crate) struct Loader<'a> {
     pub pictures: &'a mut Pictures,
@@ -845,6 +881,60 @@ mod tests {
         };
         assert_eq!(level("po_bothm"), 10);
         assert_eq!(level("po_modm"), 40);
+    }
+
+    /// A picture the module adds, changes or removes is read again at once;
+    /// pictures of other names stay kept; an undo counts as a change; a
+    /// change made outside the edit history lets every picture go.
+    #[test]
+    fn a_picture_the_module_changes_is_read_again() {
+        let tga = |level: u8| {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8];
+            t.extend([level, level, level, 255]);
+            t
+        };
+        let key = |n: &str| ResKey::parse(n, ResType::TGA).unwrap();
+        let mut game_layer = mg_resman::MemContainer::new();
+        game_layer.insert(key("po_gamem"), tga(10));
+        game_layer.insert(key("po_otherm"), tga(11));
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::HAK, "hak:pics", mg_resman::LayerClass::Erf, game_layer);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut ws = Workspace::new(mg_module::Module::new());
+        let ctx = egui::Context::default();
+        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let mut seen = None;
+        let mut frame = |ws: &Workspace, pictures: &mut Pictures, names: &[&str]| {
+            forget_changed(pictures, &mut palettes, Some(ws), &mut seen);
+            let mut loader =
+                Loader { pictures, palettes: &mut Palettes::new(), ws: Some(ws), game: &game };
+            names
+                .iter()
+                .map(|n| loader.picture(&ctx, n).map(|p| p.texture.id()))
+                .collect::<Vec<_>>()
+        };
+        let set = |ws: &mut Workspace, name: &str, data: Option<Vec<u8>>| {
+            let edit = mg_edit::Edit::SetResource { key: key(name), data };
+            ws.apply(mg_edit::Command::new("Set", vec![edit])).unwrap();
+        };
+        let first = frame(&ws, &mut pictures, &["po_gamem", "po_otherm", "po_newm"]);
+        assert!(first[0].is_some() && first[1].is_some() && first[2].is_none());
+
+        // (The module's own picture over the hak's, and one only it has.)
+        set(&mut ws, "po_gamem", Some(tga(30)));
+        set(&mut ws, "po_newm", Some(tga(40)));
+        let next = frame(&ws, &mut pictures, &["po_gamem", "po_otherm", "po_newm"]);
+        assert_ne!(next[0], first[0], "the module's copy is read");
+        assert_eq!(next[1], first[1], "a picture nothing changed is kept");
+        assert!(next[2].is_some(), "a picture the module adds is found");
+
+        ws.undo().unwrap();
+        let undone = frame(&ws, &mut pictures, &["po_newm"]);
+        assert!(undone[0].is_none(), "an undone picture is gone again");
+
+        ws.derive(|_| ()).unwrap();
+        let outside = frame(&ws, &mut pictures, &["po_otherm"]);
+        assert_ne!(outside[0], first[1], "a change outside the history reads all again");
     }
 
     /// An item icon is drawn only where a TGA of its name is there, in any

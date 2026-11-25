@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T21:15:27Z }
 ---
 
 # Modules
@@ -349,7 +349,12 @@ Each one found in the module is checked; uncheck those to leave out (**Check All
   or **Set a field** (by label, its value typed as the field reads it:
   the field found where it was found, as a class's level, else the
   object's own; an appearance's field is offered after a search of
-  appearances), **Add a feat** and **Remove a feat**, **Add a class**
+  appearances; with **Add where missing** checked, also added to each
+  object without it whose kind of object has that field in the game's
+  files, of the type they give it: a placed chest's Useable, not an
+  area's. The game reads a field missing as its default, so it is off
+  unless checked, and an object without the field is then left and
+  said), **Add a feat** and **Remove a feat**, **Add a class**
   (at a level) and **Remove a class**, **Add an item property** and
   **Remove an item property** (its type, subtype, value and parameter
   chosen as a condition's; removed where an item's matches the parts
@@ -363,9 +368,17 @@ Each one found in the module is checked; uncheck those to leave out (**Check All
   object without that event or field, a door asked for a feat, a
   creature with the feat already) is said, and the search runs again.
 - **Edit the N checked together** (it unfolds, a button for each group)
-  opens blueprints of one type in one tab, and objects of one kind
-  placed in one area in one tab, as the palette's and the area's Edit
-  Together do; **Choose N Areas…** (**Choose 1 Area…** for one) opens
+  opens blueprints of one type in one tab, as the palette's Edit
+  Together does, and objects of one kind placed in the areas in one tab,
+  as the area's does: in one area or several (**Edit 12 creatures in 5
+  areas Together**), a field set there set on each in its own area, in
+  one step that Undo and the window's Cancel take back. The items placed
+  objects hold (in an inventory or equipped) and stores sell open
+  together the same way (**Edit 3 held items in 2 areas Together**),
+  apart from the item blueprints and the items lying in an area, whose
+  pages are not theirs (an item inside a bag held is not among them).
+  Conversations open one at a time: Change sets a script or a field on
+  each line found. **Choose N Areas…** (**Choose 1 Area…** for one) opens
   the Edit Areas Together section of the Right Dock with the areas of what is checked (areas found, or
   those the objects found are placed in) checked.
 

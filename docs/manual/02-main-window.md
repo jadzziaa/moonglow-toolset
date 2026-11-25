@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:44Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:44:55Z }
 ---
 
 # The main window
@@ -1327,9 +1327,19 @@ GFF of fifty thousand fields scrolls as one of fifty.
 
 A picture (a TGA, a DDS, or a PLT in each layer's first color) and a
 sound (a WAV or a BMU) are shown with the hak editor's Preview's viewers:
-the picture fitted to the tab, never enlarged, its size under it ("512
-by 512 pixels"; while a large one is read, "Reading the picture…", the
-window going on meanwhile), and the sound with **Play** and **Stop**, its
+the picture fitted to the tab at first, never enlarged, its size under it
+("512 by 512 pixels"; while a large one is read, "Reading the picture…",
+the window going on meanwhile). The wheel over a picture zooms it about
+the pointer (the pixel under the pointer stays under it), from its fit up
+to 16 times its size, with its pixels kept sharp above actual size, and
+its percent at the corner while it is zoomed; dragging pans a picture
+larger than the tab (it can't be dragged out of it); a double click goes
+from the fit to actual pixels, centered on the point clicked (a small
+picture, already shown at actual size, to four times), and from any zoom
+back to the fit; and with the pointer over it, **+** and **-** zoom and
+**0** fits it again. A picture shown while the room is resized stays
+fitted. The hak editor's Preview zooms its picture the same way. The
+sound with **Play** and **Stop**, its
 size, and a WAVE under `.bmu` marked as one the game does not play. One
 sound plays at a time: another Play anywhere takes over, and the sound
 stops when its tab is closed or put behind another. A model opened

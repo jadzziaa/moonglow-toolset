@@ -1747,3 +1747,214 @@ fn w3_pictures() {
         shot(&mut h, "w3-find-bar");
     }
 }
+
+// The owner's ruling of 2026-11-25 (the picture viewer's zoom): the wheel
+// zooms about the pointer, a drag pans, a double click goes between
+// fitted and actual pixels, and `+`, `-` and `0` over the picture zoom
+// and fit.
+
+/// A wide picture, larger than the tab, as a read-only tab shows it
+/// fitted: the window, and the picture's key.
+fn zoomable(name: &str) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    let pic = w6_key("mg_w6zoom.tga");
+    let files = [("mg_w6zoom.tga", tga_of(2048, 1024)), ("mg_w6zoomb.tga", tga_of(2048, 1024))];
+    let (mut h, _) = viewed_in(name, 1600.0, &files, pic)?;
+    let started = std::time::Instant::now();
+    while mg_ui::viewers::picture_drawn(&h.ctx, pic).is_none() {
+        assert!(started.elapsed() < SETTLE_TIME, "the picture never drawn");
+        h.run_steps(2);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    settle(&mut h);
+    Some((h, pic))
+}
+
+/// Where and at what scale the picture is drawn, once it has been still
+/// for a few frames (the wheel's scroll is smoothed over some).
+fn still(h: &mut Harness<'_, Moonglow>, key: ResKey) -> (egui::Rect, f32) {
+    let started = std::time::Instant::now();
+    let mut last = None;
+    let mut same = 0;
+    loop {
+        h.run_steps(2);
+        let now = mg_ui::viewers::picture_drawn(&h.ctx, key).expect("drawn");
+        same = if last == Some(now) { same + 1 } else { 0 };
+        if same >= 4 {
+            return now;
+        }
+        last = Some(now);
+        assert!(started.elapsed() < SETTLE_TIME, "never still: {now:?}");
+    }
+}
+
+fn wheel_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, notches: f32) {
+    h.hover_at(at);
+    h.run_steps(2);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 40.0 * notches),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+}
+
+/// The picture's pixel under `at`, given where it is drawn.
+fn texel(shown: egui::Rect, scale: f32, at: egui::Pos2) -> egui::Vec2 {
+    (at - shown.min) / scale
+}
+
+/// The room the picture is zoomed in: what its node covers once it is
+/// larger than the tab.
+fn room_of(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    in_tab(h, "mg_w6zoom.tga, 2048 by 1024 pixels").expect("the picture").rect()
+}
+
+#[test]
+fn the_wheel_zooms_a_picture_about_the_pointer() {
+    let Some((mut h, key)) = zoomable("ui-zoom-wheel") else { return };
+    let (fit_rect, fit) = still(&mut h, key);
+    assert!(fit < 1.0, "fitted, smaller than its pixels: {fit}");
+    assert!(in_tab(&h, "Zoom 100%").is_none() && h.query_by_label_contains("Zoom ").is_none());
+    // A quarter of the way in from its left, on its middle line.
+    let at = egui::pos2(fit_rect.min.x + fit_rect.width() * 0.25, fit_rect.center().y);
+    let under = texel(fit_rect, fit, at);
+    wheel_at(&mut h, at, 3.0);
+    let (shown, scale) = still(&mut h, key);
+    let want = fit * 1.25f32.powf(3.0);
+    assert!((scale - want).abs() < 0.02, "three notches: {scale} for {want}");
+    let now = texel(shown, scale, at);
+    assert!((now - under).length() < 1.5, "the pixel under the pointer stays: {under} {now}");
+    let percent = format!("Zoom {}%", (scale * 100.0).round());
+    assert!(h.query_by_label(&percent).is_some(), "said: {percent}");
+    // Back out, to its fit and no further.
+    wheel_at(&mut h, at, -30.0);
+    let (_, scale) = still(&mut h, key);
+    assert!((scale - fit).abs() < 1e-3, "no smaller than fitted: {scale}");
+    assert!(h.query_by_label_contains("Zoom ").is_none(), "no percent while fitted");
+    // In, to 16 times and no more.
+    wheel_at(&mut h, at, 60.0);
+    let (_, scale) = still(&mut h, key);
+    assert!((scale - 16.0).abs() < 1e-3, "no more than 16 times: {scale}");
+    assert!(h.query_by_label("Zoom 1600%").is_some());
+}
+
+#[test]
+fn the_wheel_over_the_picture_does_not_scroll_beyond_it() {
+    let Some((mut h, key)) = zoomable("ui-zoom-no-scroll") else { return };
+    let (rect, _) = still(&mut h, key);
+    wheel_at(&mut h, rect.center(), 2.0);
+    h.run_steps(1);
+    let left = h.ctx.input(|i| i.smooth_scroll_delta);
+    assert_eq!(left, egui::Vec2::ZERO, "the picture took the wheel");
+    // Over the header, not the picture: nothing zooms.
+    let (_, before) = still(&mut h, key);
+    let header = h.get_by_label(mg_ui::RESOURCE_HEADER).rect().center();
+    wheel_at(&mut h, header, 3.0);
+    let (_, after) = still(&mut h, key);
+    assert_eq!(before, after, "the wheel elsewhere leaves it");
+}
+
+#[test]
+fn dragging_pans_a_zoomed_picture_and_stays_over_its_room() {
+    let Some((mut h, key)) = zoomable("ui-zoom-drag") else { return };
+    let (rect, fit) = still(&mut h, key);
+    // Fitted, there is nothing to pan: a drag leaves it.
+    drag(&mut h, rect.center(), rect.center() + egui::vec2(-80.0, 0.0));
+    assert_eq!(still(&mut h, key).0, rect, "fitted, a drag does nothing");
+    wheel_at(&mut h, rect.center(), 6.0);
+    let (shown, scale) = still(&mut h, key);
+    assert!(scale > fit * 3.0);
+    let room = room_of(&h);
+    assert!(shown.contains_rect(room.shrink(0.5)), "covers its room: {shown:?} {room:?}");
+    // A small drag moves it by as much.
+    let from = room.center();
+    drag(&mut h, from, from + egui::vec2(-60.0, 20.0));
+    let (moved, _) = still(&mut h, key);
+    assert!(
+        ((moved.min - shown.min) - egui::vec2(-60.0, 20.0)).length() < 2.0,
+        "moved with the pointer: {:?}",
+        moved.min - shown.min
+    );
+    // A great one stops at its edge: the room stays covered.
+    drag(&mut h, from, from + egui::vec2(-6000.0, 0.0));
+    let (far, _) = still(&mut h, key);
+    assert!((far.max.x - room.max.x).abs() < 1.0, "its right edge at the room's: {far:?}");
+    drag(&mut h, from, from + egui::vec2(6000.0, 6000.0));
+    let (far, _) = still(&mut h, key);
+    assert!((far.min.x - room.min.x).abs() < 1.0 && (far.min.y - room.min.y).abs() < 1.0);
+}
+
+#[test]
+fn a_double_click_goes_between_fitted_and_actual_pixels() {
+    let Some((mut h, key)) = zoomable("ui-zoom-double") else { return };
+    let (rect, fit) = still(&mut h, key);
+    // On the picture's middle, a little to the right.
+    let at = egui::pos2(rect.center().x + 60.0, rect.center().y + 10.0);
+    let under = texel(rect, fit, at);
+    double_click_now(&mut h, at);
+    let (shown, scale) = still(&mut h, key);
+    assert!((scale - 1.0).abs() < 1e-4, "actual pixels: {scale}");
+    assert!(h.query_by_label("Zoom 100%").is_some());
+    // The point double clicked is in the middle of the room.
+    let room = room_of(&h);
+    let centre = texel(shown, scale, room.center());
+    assert!((centre - under).length() < 1.5, "centered on it: {centre} for {under}");
+    // From there (or any zoom but the fit), a double click fits again.
+    double_click_now(&mut h, room.center());
+    let (back, scale) = still(&mut h, key);
+    assert_eq!((back, scale), (rect, fit), "fitted again");
+    assert!(h.query_by_label_contains("Zoom ").is_none());
+    wheel_at(&mut h, at, 2.0);
+    still(&mut h, key);
+    double_click_now(&mut h, at);
+    assert_eq!(still(&mut h, key).1, fit, "from another zoom, it fits");
+}
+
+#[test]
+fn the_keys_zoom_and_fit_a_picture_under_the_pointer() {
+    let Some((mut h, key)) = zoomable("ui-zoom-keys") else { return };
+    let (rect, fit) = still(&mut h, key);
+    h.hover_at(rect.center());
+    h.run_steps(2);
+    for k in [egui::Key::Plus, egui::Key::Plus] {
+        h.key_press(k);
+        h.run_steps(2);
+    }
+    let scale = still(&mut h, key).1;
+    assert!((scale - fit * 1.25 * 1.25).abs() < 1e-3, "two presses of +: {scale}");
+    h.key_press(egui::Key::Minus);
+    h.run_steps(2);
+    assert!((still(&mut h, key).1 - fit * 1.25).abs() < 1e-3, "one of -");
+    h.key_press(egui::Key::Num0);
+    h.run_steps(2);
+    assert_eq!(still(&mut h, key).1, fit, "0 fits");
+    // Not under the pointer elsewhere.
+    h.hover_at(h.get_by_label(mg_ui::RESOURCE_HEADER).rect().center());
+    h.run_steps(2);
+    h.key_press(egui::Key::Plus);
+    h.run_steps(2);
+    assert_eq!(
+        still(&mut h, key).1,
+        fit,
+        "the keys are the picture's own, while it is under the pointer"
+    );
+}
+
+#[test]
+fn another_picture_starts_fitted() {
+    let Some((mut h, key)) = zoomable("ui-zoom-reset") else { return };
+    let (rect, fit) = still(&mut h, key);
+    wheel_at(&mut h, rect.center(), 5.0);
+    assert!(still(&mut h, key).1 > fit);
+    let other = w6_key("mg_w6zoomb.tga");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(other)));
+    settle(&mut h);
+    let started = std::time::Instant::now();
+    while mg_ui::viewers::picture_drawn(&h.ctx, other).is_none() {
+        assert!(started.elapsed() < SETTLE_TIME, "never drawn");
+        h.run_steps(2);
+    }
+    let (_, scale) = still(&mut h, other);
+    assert_eq!(scale, fit, "fitted");
+    assert!(h.query_by_label_contains("Zoom ").is_none(), "no percent");
+}

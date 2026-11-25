@@ -484,8 +484,9 @@ impl Source {
             crate::Tab::Instance { area, path } => {
                 Source::Instance { area: *area, path: path.clone() }
             }
-            crate::Tab::Instances { area, paths } => {
-                Source::Instance { area: *area, path: paths.first()?.clone() }
+            crate::Tab::Instances { objects } => {
+                let (area, path) = objects.first()?;
+                Source::Instance { area: *area, path: path.clone() }
             }
             _ => return None,
         })

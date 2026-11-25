@@ -297,6 +297,9 @@ pub struct ActDraft {
     pub var_type: VarType,
     /// A variable's or field's value, a script's name.
     pub value: String,
+    /// A field set is added where it is missing (Add where missing; off
+    /// unless ticked: `found::Change::SetField`'s `add`).
+    pub add: bool,
     /// The event (its field's label).
     pub event: Option<String>,
     /// The entry added or removed: a feat, a class (its level, as
@@ -314,6 +317,7 @@ impl Default for ActDraft {
             name: String::new(),
             var_type: VarType::Int,
             value: String::new(),
+            add: false,
             event: None,
             entry: Condition { levels: (1, 1), ..Condition::default() },
             said: None,
@@ -340,9 +344,11 @@ impl ActDraft {
                 event: self.event.clone().ok_or("Choose an event")?,
                 script: self.value.trim().to_string(),
             },
-            Act::SetField => {
-                Change::SetField { label: needs_name("field's label")?, value: self.value.clone() }
-            }
+            Act::SetField => Change::SetField {
+                label: needs_name("field's label")?,
+                value: self.value.clone(),
+                add: self.add,
+            },
             Act::AddFeat | Act::RemoveFeat | Act::AddClass | Act::RemoveClass => {
                 let class = matches!(self.act, Act::AddClass | Act::RemoveClass);
                 let row =
@@ -1068,11 +1074,20 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
 }
 
 /// What can be opened together from what is ticked: blueprints of one
-/// type, objects of one kind placed in one area.
+/// type; objects of one kind placed in areas (one or several), each its
+/// area and its path in the area's GIT; the items placed objects hold
+/// (`kind` none), apart from those lying in an area and from the item
+/// blueprints, which have pages of their own.
 #[derive(Debug, Clone, PartialEq)]
 enum Together {
     Blueprints(ResType, Vec<ResKey>),
-    Placed { area: ResRef, kind: ObjectKind, paths: Vec<GffPath> },
+    /// `areas`: how many areas they are in (worked out once, with the
+    /// groups: not each frame the buttons are drawn).
+    Placed {
+        kind: Option<ObjectKind>,
+        objects: Vec<(ResRef, GffPath)>,
+        areas: usize,
+    },
 }
 
 impl Together {
@@ -1080,12 +1095,11 @@ impl Together {
         match self {
             Together::Blueprints(_, keys) if keys.len() == 1 => Tab::Blueprint(keys[0]),
             Together::Blueprints(_, keys) => Tab::Blueprints(keys.clone()),
-            Together::Placed { area, paths, .. } if paths.len() == 1 => {
-                Tab::Instance { area: *area, path: paths[0].clone() }
+            Together::Placed { objects, .. } if objects.len() == 1 => {
+                let (area, path) = objects[0].clone();
+                Tab::Instance { area, path }
             }
-            Together::Placed { area, paths, .. } => {
-                Tab::Instances { area: *area, paths: paths.clone() }
-            }
+            Together::Placed { objects, .. } => Tab::Instances { objects: objects.clone() },
         }
     }
 }
@@ -1094,7 +1108,7 @@ impl Together {
 /// in (or is).
 fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
     let mut blueprints: BTreeMap<ResType, Vec<ResKey>> = BTreeMap::new();
-    let mut placed: BTreeMap<(ResRef, &'static str), Vec<GffPath>> = BTreeMap::new();
+    let mut placed: BTreeMap<Option<ObjectKind>, Vec<(ResRef, GffPath)>> = BTreeMap::new();
     let mut areas: Vec<ResRef> = Vec::new();
     // (Each area looked for in a set, not the list: a persistent world's
     // 8,800 hits in 300 areas were a scan of the list a hit, most of a
@@ -1117,17 +1131,22 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
             && let Some(kind) = ObjectKind::from_list(list)
         {
             placed
-                .entry((o.key.resref, kind.list()))
+                .entry(Some(kind))
                 .or_default()
-                .push(GffPath::root().item(list, i));
+                .push((o.key.resref, GffPath::root().item(list, i)));
+        } else if o.placed() && crate::blueprint::held_item(&o.path) {
+            // (An item a placed object holds, or a store sells: not one in
+            // a bag, edited with the bag.)
+            placed.entry(None).or_default().push((o.key.resref, o.path));
         }
     }
     let mut out: Vec<Together> =
         blueprints.into_iter().map(|(t, keys)| Together::Blueprints(t, keys)).collect();
-    out.extend(placed.into_iter().map(|((area, list), paths)| Together::Placed {
-        area,
-        kind: ObjectKind::from_list(list).expect("a placed object's list"),
-        paths,
+    // (The held items after the kinds of object placed.)
+    let (held, kinds): (Vec<_>, Vec<_>) = placed.into_iter().partition(|(k, _)| k.is_none());
+    out.extend(kinds.into_iter().chain(held).map(|(kind, objects)| {
+        let areas = Tab::areas_of(&objects).len();
+        Together::Placed { kind, objects, areas }
     }));
     (out, areas)
 }
@@ -1226,6 +1245,11 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
         if matches!(a.act, Act::SetVariable | Act::SetField) {
             crate::widgets::field_label(ui, "Value");
             edit(ui, &mut a.value, "the value");
+            ui.end_row();
+        }
+        if a.act == Act::SetField {
+            ui.label("");
+            ui.add(mg_uikit::Checkbox::new(&mut a.add, "Add where missing")).on_hover_text(ADD_TIP);
             ui.end_row();
         }
     });
@@ -1405,7 +1429,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         })
                         .clone();
                     if groups.is_empty() && areas.is_empty() {
-                        ui.weak("Blueprints of one type, objects of one kind placed in one area");
+                        ui.weak(
+                            "Blueprints of one type, objects of one kind placed in areas, \
+                             the items they hold",
+                        );
                     }
                     ui.horizontal_wrapped(|ui| {
                         for g in groups.iter() {
@@ -1415,12 +1442,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                         ObjectKind::from_restype(*t).map_or("", ObjectKind::name);
                                     blueprints_together(kind, keys.len())
                                 }
-                                Together::Placed { area, kind, paths } => {
-                                    let aname = match area_names {
-                                        true => crate::tabs::area_label(app, *area),
-                                        false => area.to_lowercase().to_string(),
+                                Together::Placed { kind, objects, areas } => {
+                                    let area = objects[0].0;
+                                    let place = match *areas {
+                                        1 if area_names => crate::tabs::area_label(app, area),
+                                        1 => area.to_lowercase().to_string(),
+                                        n => format!("{n} areas"),
                                     };
-                                    placed_together(*kind, paths.len(), &aname)
+                                    placed_together(*kind, objects.len(), &place)
                                 }
                             };
                             if ui.button(text).clicked() {
@@ -1629,6 +1658,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     app.advanced_search = draft;
 }
 
+/// Add where missing's tip.
+pub const ADD_TIP: &str = "Also gives the field to those without it, where their kind of object \
+     has it, instead of the game's default";
+
 /// Skill's "At least" field's suffix: " rank" for one, " ranks" else.
 fn rank_suffix(n: u8) -> &'static str {
     if n == 1 { " rank" } else { " ranks" }
@@ -1640,11 +1673,17 @@ fn blueprints_together(kind: &str, n: usize) -> String {
     format!("Edit {n} {kind} {word} Together")
 }
 
-/// Edit Together's button for `n` objects of `kind` placed in the area
-/// `area` (as the window names areas).
-fn placed_together(kind: ObjectKind, n: usize, area: &str) -> String {
-    let noun = if n == 1 { kind.name().to_string() } else { kind.label().to_lowercase() };
-    format!("Edit {n} {noun} in {area} Together")
+/// Edit Together's button for `n` objects of `kind` placed (`None`: items
+/// placed objects hold) in `place`: an area, as the window names areas,
+/// or how many.
+fn placed_together(kind: Option<ObjectKind>, n: usize, place: &str) -> String {
+    let noun = match (kind, n) {
+        (Some(kind), 1) => kind.name().to_string(),
+        (Some(kind), _) => kind.label().to_lowercase(),
+        (None, 1) => "held item".to_string(),
+        (None, _) => "held items".to_string(),
+    };
+    format!("Edit {n} {noun} in {place} Together")
 }
 
 #[cfg(test)]
@@ -1667,16 +1706,14 @@ mod tests {
             blueprints_together(creature, 3),
             format!("Edit 3 {creature} blueprints Together")
         );
-        assert_eq!(
-            placed_together(ObjectKind::Creature, 1, "start"),
-            "Edit 1 creature in start Together"
-        );
-        assert_eq!(
-            placed_together(ObjectKind::Creature, 2, "start"),
-            "Edit 2 creatures in start Together"
-        );
-        assert_eq!(placed_together(ObjectKind::Door, 1, "Inn"), "Edit 1 door in Inn Together");
-        assert_eq!(placed_together(ObjectKind::Door, 4, "Inn"), "Edit 4 doors in Inn Together");
+        let (creature, door) = (Some(ObjectKind::Creature), Some(ObjectKind::Door));
+        assert_eq!(placed_together(creature, 1, "start"), "Edit 1 creature in start Together");
+        assert_eq!(placed_together(creature, 2, "start"), "Edit 2 creatures in start Together");
+        assert_eq!(placed_together(door, 1, "Inn"), "Edit 1 door in Inn Together");
+        assert_eq!(placed_together(door, 4, "Inn"), "Edit 4 doors in Inn Together");
+        assert_eq!(placed_together(door, 4, "3 areas"), "Edit 4 doors in 3 areas Together");
+        assert_eq!(placed_together(None, 1, "Inn"), "Edit 1 held item in Inn Together");
+        assert_eq!(placed_together(None, 5, "2 areas"), "Edit 5 held items in 2 areas Together");
     }
 
     /// A search is kept to each placed object kind by its type and the

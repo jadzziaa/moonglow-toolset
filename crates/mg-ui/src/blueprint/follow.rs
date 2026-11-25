@@ -427,7 +427,7 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
                 open.push((*area, path.clone()))
             }
-            Tab::Instances { area, paths } => open.extend(paths.iter().map(|p| (*area, p.clone()))),
+            Tab::Instances { objects } => open.extend(objects.iter().cloned()),
             _ => {}
         }
     }
@@ -552,14 +552,13 @@ fn moved_tab(tab: &mut Tab, moved: &Followed) -> bool {
                 None => false,
             }
         }
-        // (Several objects of one area edited together: those still in it.)
-        Tab::Instances { area, paths } => {
-            let here = *area;
-            *paths = paths
+        // (Several objects edited together: those still in their areas.)
+        Tab::Instances { objects } => {
+            *objects = objects
                 .iter()
-                .filter_map(|p| now(here, p).filter(|(a, _)| *a == here).map(|(_, p)| p))
+                .filter_map(|(here, p)| now(*here, p).filter(|(a, _)| a == here))
                 .collect();
-            !paths.is_empty()
+            !objects.is_empty()
         }
         _ => true,
     }
@@ -581,11 +580,10 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         let was = tab.clone();
         if !moved_tab(tab, &moved) {
             closed.push(was);
-        } else if let (
-            Tab::Instances { area, paths },
-            Tab::Instances { area: area2, paths: paths2 },
-        ) = (&was, &*tab)
-            && let (Some(old_first), Some(new_first)) = (paths.first(), paths2.first())
+        } else if let (Tab::Instances { objects }, Tab::Instances { objects: objects2 }) =
+            (&was, &*tab)
+            && let (Some((area, old_first)), Some((area2, new_first))) =
+                (objects.first(), objects2.first())
             && moved.get(&(*area, old_first.clone())) == Some(&None)
         {
             shifted_pages.push((
@@ -631,7 +629,7 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
                 open.insert((*area, path.clone()));
             }
-            Tab::Instances { area, paths } => open.extend(paths.iter().map(|p| (*area, p.clone()))),
+            Tab::Instances { objects } => open.extend(objects.iter().cloned()),
             _ => {}
         }
     }
@@ -672,8 +670,8 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
             continue;
         }
         let (to, is_shifted) = match &changes.tab {
-            Tab::Instances { area, paths } => {
-                let Some(first) = paths.first() else { continue };
+            Tab::Instances { objects } => {
+                let Some((area, first)) = objects.first() else { continue };
                 let to = (ResKey::new(*area, ResType::GIT), first.clone());
                 let is_shifted = now(&key, &path) == Some(None);
                 (to, is_shifted)
@@ -1008,7 +1006,7 @@ mod tests {
         let git = ResKey::new(area, ResType::GIT);
         let p0 = GffPath::root().item("Placeable List", 0);
         let p1 = GffPath::root().item("Placeable List", 1);
-        let tab = Tab::Instances { area, paths: vec![p0.clone(), p1.clone()] };
+        let tab = Tab::instances(area, vec![p0.clone(), p1.clone()]);
         app.dock.push_to_focused_leaf(tab.clone());
         app.blueprint_pages.insert((git, p0.clone()), "Advanced");
         app.properties_changed.insert(
@@ -1045,13 +1043,13 @@ mod tests {
             .iter_all_tabs()
             .find_map(|(_, t)| matches!(t, Tab::Instances { .. }).then_some(t))
             .expect("Instances tab should stay open");
-        assert_eq!(*kept_tab, Tab::Instances { area, paths: vec![p0.clone()] });
+        assert_eq!(*kept_tab, Tab::instances(area, vec![p0.clone()]));
         assert_eq!(app.blueprint_pages.get(&(git, p0.clone())), Some(&"Advanced"));
         let changes = app
             .properties_changed
             .get(&(git, p0.clone()))
             .expect("properties_changed should migrate to new first object");
-        assert_eq!(changes.tab, Tab::Instances { area, paths: vec![p0.clone()] });
+        assert_eq!(changes.tab, Tab::instances(area, vec![p0.clone()]));
         assert_eq!(
             changes.was,
             vec![super::super::Was::Field(

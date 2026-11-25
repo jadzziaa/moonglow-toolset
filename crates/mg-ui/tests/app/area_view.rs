@@ -1748,7 +1748,7 @@ fn several_objects_edited_together() {
         mg_edit::GffPath::root().item("WaypointList", 0),
         mg_edit::GffPath::root().item("WaypointList", 1),
     ];
-    assert!(h.state().dock.find_tab(&Tab::Instances { area, paths }).is_some());
+    assert!(h.state().dock.find_tab(&Tab::instances(area, paths)).is_some());
     h.get_by_label_contains("what you change is set on each");
     h.get_by_label("Advanced").click();
     h.run_steps(2);
@@ -3914,7 +3914,7 @@ fn placed_objects_edited_together_have_their_lists_edited_on_each() {
     let git_key = ResKey::new(area, ResType::GIT);
     let paths: Vec<_> =
         (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::instances(area, paths)));
     h.run_steps(4);
     assert!(h.query_by_label("Basic").is_some(), "the window is open");
     assert!(h.query_by_label_contains("at a time").is_none());
@@ -3989,8 +3989,9 @@ fn static_ticked_takes_the_visual_transform_off() {
         let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
         list.iter().map(|p| (p.integer("Static"), VisualTransform::read(p))).collect()
     };
-    let paths = (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    let paths =
+        (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect::<Vec<_>>();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::instances(area, paths)));
     h.run_steps(4);
     let before = chests(&mut h);
     assert_eq!(before, [(Some(0), Some(tilted)); 2]);
@@ -5868,6 +5869,177 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
     assert_eq!(placed[0].integer("Appearance"), Some(row as i64 + 1), "the next row");
     assert_eq!(ws.can_undo(), Some("Change Light"));
+}
+
+/// A flickering Custom Light (the deferred list's "Lights placed on the
+/// fly, the flicker"): Flicker chosen, the section says the light is
+/// placed dynamic; written and placed, its row and its instance are
+/// dynamic, and the area view's light from it changes with the time (its
+/// model's `default` keys its color, which the view plays on a dynamic
+/// placeable); a static copy holds still. Change Light to a steady light
+/// makes it static again in the same one command, and one undo gives back
+/// both.
+#[test]
+fn a_flickering_custom_light_is_placed_dynamic_and_flickers_in_the_view() {
+    use glam::Vec3;
+    let user = mg_testkit::scratch_dir("ui-flicker-light-user");
+    let Some((mut h, area)) =
+        area_harness_with("flicker-light", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.generated_lights = true;
+    settle(&mut h);
+    open_custom_light(&mut h, area);
+    assert!(h.query_by_label_contains("placed as a dynamic placeable").is_none(), "steady");
+    // Flicker: None, Torch chosen from its list.
+    h.get_by_value("None").click();
+    settle(&mut h);
+    h.get_by_label("Torch").click();
+    settle(&mut h);
+    let flicker = h.state().light_draft.as_ref().unwrap().spec.flicker;
+    assert_eq!(flicker, mg_module::lights::Flicker::Torch);
+    h.get_by_label_contains("It is placed as a dynamic placeable");
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    settle(&mut h);
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("mg_lights");
+    settle(&mut h);
+    h.get_by_label("Write and Place").click();
+    settle(&mut h);
+    let git_key = ResKey::new(area, ResType::GIT);
+    // (Placed light `i`'s row, Static and Plot.)
+    let light = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+        let p = &list[i];
+        (p.integer("Appearance").unwrap() as usize, p.integer("Static"), p.integer("Plot"))
+    };
+    let placed = |h: &mut Harness<'_, Moonglow>| {
+        let (row, is_static, _) = light(h, 0);
+        (row, is_static)
+    };
+    let (row, is_static, plot) = light(&mut h, 0);
+    assert_eq!((is_static, plot), (Some(0), Some(1)), "placed dynamic, and Plot");
+    let table = h.state().game.clone().unwrap().table("placeables").unwrap();
+    assert_eq!(table.get(row, "Static"), Some("0"));
+    assert!(table.get(row, "Label").unwrap().ends_with("torch flicker"));
+    // The view's light from it, at two times: the torch's first key, and
+    // its fourth (0.7 of the color, 0.45 s in).
+    let color_at = |h: &Harness<'_, Moonglow>, t: f32| {
+        let lights = h.state().area_views[&area].lights_at(t);
+        let near = lights
+            .iter()
+            .filter(|l| l.position.distance(Vec3::new(15.0, 15.0, 1.5)) < 1.0)
+            .map(|l| l.color)
+            .collect::<Vec<_>>();
+        assert_eq!(near.len(), 1, "{lights:#?}");
+        near[0]
+    };
+    // (0.7 of the color as the model has it, which the view takes as
+    // gamma: about 0.45 of the linear light, each channel alike.)
+    let (first, fourth) = (color_at(&h, 0.0), color_at(&h, 0.45));
+    assert!(first.min_element() > 0.0, "{first}");
+    let ratio = fourth / first;
+    let even = (ratio.max_element() - ratio.min_element()) < 0.01;
+    assert!(even && (0.4..0.5).contains(&ratio.x), "{first} then {fourth}");
+    // Change Light to a steady light: static again, in one command.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
+    settle(&mut h);
+    let on_it = screen(&h, area, Vec3::new(15.0, 15.0, 1.5));
+    h.hover_at(on_it);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: on_it,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(&mut h);
+    h.get_by_label("Change Light…").click();
+    settle(&mut h);
+    h.state_mut().light_draft.as_mut().unwrap().spec.flicker = mg_module::lights::Flicker::None;
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").click();
+    settle(&mut h);
+    h.get_by_label("Write and Change").click();
+    settle(&mut h);
+    let (steady, is_static) = placed(&mut h);
+    assert_ne!(steady, row);
+    assert_eq!(is_static, Some(1), "a steady light: static");
+    assert_eq!(h.state_mut().ws.as_mut().unwrap().can_undo(), Some("Change Light"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(placed(&mut h), (row, Some(0)), "one undo: both back");
+    // Make Placeables Static leaves it dynamic.
+    h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
+    settle(&mut h);
+    assert_eq!(placed(&mut h), (row, Some(0)), "Make Placeables Static keeps it");
+    // A static copy of the flickering row holds still.
+    let edit = mg_edit::Edit::SetField {
+        key: git_key,
+        path: mg_edit::GffPath::root().item("Placeable List", 0),
+        label: "Static".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Static", vec![edit])));
+    settle(&mut h);
+    assert_eq!(placed(&mut h), (row, Some(1)));
+    assert_eq!(color_at(&h, 0.0), color_at(&h, 0.45), "static: no flicker");
+    // Change Light on the static one to another flicker: dynamic again.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
+    settle(&mut h);
+    h.hover_at(on_it);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: on_it,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(&mut h);
+    h.get_by_label("Change Light…").click();
+    settle(&mut h);
+    h.state_mut().light_draft.as_mut().unwrap().spec.flicker = mg_module::lights::Flicker::Pulse;
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").click();
+    settle(&mut h);
+    h.get_by_label("Write and Change").click();
+    settle(&mut h);
+    let (pulse, is_static, plot) = light(&mut h, 0);
+    assert!(pulse != row && pulse != steady);
+    assert_eq!((is_static, plot), (Some(0), Some(1)), "a flicker again: dynamic");
+    // A new flickering light written into the listed hak and placed at a
+    // point: dynamic, as the one into a new hak.
+    open_custom_light(&mut h, area);
+    {
+        let d = h.state_mut().light_draft.as_mut().unwrap();
+        d.spec.flicker = mg_module::lights::Flicker::Fire;
+        d.at = Some(Vec3::new(25.0, 25.0, 0.0));
+    }
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("mg_lights.hak").click();
+    settle(&mut h);
+    h.get_by_label("Write and Place").click();
+    settle(&mut h);
+    let (fire, is_static, plot) = light(&mut h, 1);
+    assert!(fire > pulse, "a row of its own");
+    assert_eq!((is_static, plot), (Some(0), Some(1)), "into a listed hak: dynamic");
 }
 
 /// With Shift held, a selected placeable has a handle that scales its
