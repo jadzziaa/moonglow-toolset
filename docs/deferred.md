@@ -220,14 +220,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
-  - **An area's placed sounds read from its GIT each frame** while its
-    sounds play (`area_audio::update`: every `SoundList` entry made a
-    `PlacedSound` again), seen in the frame test's stacks on area084
-    (2026-11-02, the large entry 10's samples) as a few percent of a
-    frame, not measured apart. Kept per area by the workspace's revision
-    it would be read once; not done for a real unintended consequence
-    until checked: what an editor holds unflushed (a sound dragged, its
-    command not yet given) would be heard where it was. (S, measure first)
   - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
     saves about a tenth of an integrated GPU's picture and 107 MB of
     targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
@@ -296,8 +288,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     "placeables"` (S20);
   - the NUI Creator and the script editor: two Creator tabs side by
     side, and Split source while a picture's name is typed (N3); a
-    column of 1,000 rows (N12); the Design page with 300 controls and a
-    list bound to 1,000 rows (N13); a combo of 10,000 entries, closed
+    column of 1,000 rows (N12); a combo of 10,000 entries, closed
     (N14); 2,000 findings (N15); a docked panel's 2,000-option choice
     (X5); Search Results after Find In Files (X8); Open Script with All
     Resources (X10); the end of a huge script with completions open
@@ -324,18 +315,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its fix's commit: left as beyond what the reviewer's run was asked
   (at most eight new views, the largest costs). (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
-- **The area's Right Dock layout worked out anew each frame:**
-  `shell::active_area_right_base` clones the builder's layout through
-  `AreaRightLayout::normalized` (settings.rs); `area_visible_columns`
-  builds its nested lists two or three times a frame (`arrange_area`,
-  `area_wants_one_column`); and `Moonglow::docked_instance_tabs` is
-  collected again with the other tab lists each frame. Each is a few
-  small allocations, not measured as a share of a frame. Kept by the
-  layout, the wide flag and whether Properties shows (and by the dock's
-  change, for the tab list) they would be made once. Left as beyond
-  what 5.1.0's review asked (it listed them, and settings.rs was
-  another task's file then). (S, measure first) (5.1.0's review, F1)
-
 ## Blueprint editors and inventories
 
 - **Random item properties, what is left** (done: the Item Wizard's
@@ -1058,19 +1037,6 @@ contribution itself states as not done or not checked.
   - the list scrolls by pixels at the same rate, where the client moves
     one in whole rows: snapping to rows was left out.
   (S) (the review of November 2026, N9)
-- **The NUI Creator's lesser copies:** the Design page copies the window
-  and its settings once a frame (the review's N13); not done: `check`'s
-  own copy a frame, Interact's two whole comparisons of its session,
-  and a cache of a variant's context document, suspected in the review
-  and not measured. Charts and polylines are drawn by what their pixels
-  show (N16); Options' and Tabs' entries, named only in the entry's
-  confidence line, are unchanged, bounded by the file's size. A chart of
-  a million samples (`nui_perf`, `a_chart_of_a_million_samples`, 10
-  November) still takes 28.5 ms a frame: each frame copies the bound
-  array out of the document and walks each series for its least and
-  most value, beyond N16's points and shapes. (S, beyond what the
-  timing run was asked; the Design page of 300 controls has no view:
-  the timing entry) (the review of November 2026, N13, N16)
 - **A font of a sliver of a line, not reproduced:** a font whose line is
   a sliver of its em is refused and the skin's numbers are held to a
   range (the review's N17), but the gigabyte glyph itself was not
