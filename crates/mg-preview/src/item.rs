@@ -75,17 +75,10 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
     let armor = cell_int(&baseitems, row, "ModelType") == Some(3);
     if !armor && class != "cloak" {
         // Its own models reflect the area's map (the tileset's `EnvMap`),
-        // where a held one's reflect `chrome1`: a small shield lying in
-        // `tin01` shows its copper map in the client
-        // (`batch6_item_env_map_own_model` in `client_render.rs`,
-        // 2026-11-01).
-        let mut p = item(game, uti)?;
-        for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut()) {
-            if part.env_map.as_deref() == Some("chrome1") {
-                part.env_map = Some("default".into());
-            }
-        }
-        return Ok(p);
+        // lying and held alike: a small shield lying in `tin01` shows its
+        // copper map in the client (`batch6_item_env_map_own_model`,
+        // 2026-11-01), as one held does (`chrome1_helmet_reflection_look`).
+        return item(game, uti);
     }
     let one = |mut part: Part, env: Option<String>| {
         // (A model with a PLT texture takes the item's colors.)
@@ -185,10 +178,14 @@ pub(crate) fn item_parts(
         .ok_or(PreviewError::NoRow { table: "baseitems", row: base })?
         .to_ascii_lowercase();
     let n = |part: usize| i64::from(it.model_parts[part]);
-    // Item environment maps are the default one whatever baseitems says.
+    // Item environment maps are the default one whatever baseitems says:
+    // the area's, on the ground and in a creature's hand alike (a small
+    // shield and a long sword held reflect the area's map in the client,
+    // `chrome1_helmet_reflection_look` with `MG_CHROME_HELD`, 2026-11-25;
+    // `batch6_item_env_map_own_model` read the ground's).
     let part = |model: String| {
         let mut p = Part::new(model);
-        p.env_map = Some("chrome1".into());
+        p.env_map = Some("default".into());
         p
     };
     let parts = match cell_int(&baseitems, row, "ModelType").unwrap_or(0) {

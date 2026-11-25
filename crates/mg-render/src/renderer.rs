@@ -2113,7 +2113,8 @@ impl Renderer {
         // comes here so: `mg_preview::placeable`). A texture's `default`
         // is the object's map where the object names one, else the
         // area's, on a placeable whose own is `default` too
-        // (`Instance::env_map_default`). And the one every lit
+        // (`Instance::env_map_default`); a map the texture names yields to a
+        // placeable's `default`. And the one every lit
         // mesh's specular light reflects, bound to `texUnitEnv`: its own,
         // else the area's (read from the client:
         // `program_choice_in_the_client` in `client_render.rs`).
@@ -2123,6 +2124,10 @@ impl Renderer {
         let named = object.clone().filter(|_| !inst.env_map_default);
         let env = match env {
             Some(e) if e.eq_ignore_ascii_case("default") => Some(named.unwrap_or_else(area)),
+            // A placeable whose `Reflection` is `default` keeps its own
+            // `chrome1` over a map the texture names (the client's, read
+            // with a TXI naming a gradient: `chrome1_reflection_look`).
+            Some(_) if inst.env_map_default => object.clone(),
             Some(e) => Some(e),
             None => object,
         };

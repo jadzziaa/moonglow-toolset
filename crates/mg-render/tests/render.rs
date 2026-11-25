@@ -990,6 +990,8 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     assets.solid("mirror_default", [128, 128, 128, 0]);
     assets.txis.insert("mirror_default".into(), txi("envmaptexture default\n"));
     assets.solid("plain_clear", [128, 128, 128, 0]);
+    assets.solid("mirror_named", [128, 128, 128, 0]);
+    assets.txis.insert("mirror_named".into(), txi("envmaptexture area_env\n"));
     let camera = Camera {
         eye: Vec3::new(0.0, -0.8, 4.0),
         target: Vec3::ZERO,
@@ -1044,6 +1046,13 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     assert!(blue(named), "{named:?}");
     assert!(red(none), "{none:?}");
     assert!(red(creature), "{creature:?}");
+    // A map the texture names: the placeable's `default` keeps its own
+    // `chrome1` over it (the client, read with a TXI naming a gradient),
+    // where another object's reflects the named one.
+    let named_over_default = shot("mirror_named", Some("chrome1"), true);
+    let named_over_object = shot("mirror_named", Some("chrome1"), false);
+    assert!(blue(named_over_default), "{named_over_default:?}");
+    assert!(red(named_over_object), "{named_over_object:?}");
     // Two placeables of one model, one whose `Reflection` is `default`
     // and one naming `chrome1`: each its own (the surfaces kept for a
     // model left the flag out, and both took the first drawn's).
