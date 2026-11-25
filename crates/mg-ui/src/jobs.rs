@@ -292,6 +292,14 @@ impl Moonglow {
             self.log.warn(format!("{title}: waiting for {} to finish", job.title));
             return;
         }
+        // What is typed in a field and not yet set is set first: the job
+        // reads the module with it. (Set later, as the job's window takes
+        // the field's keyboard, it was a step of its own that the job's
+        // write, made from the module before it, then replaced: the typing
+        // was lost.)
+        if needs_module {
+            self.set_held_text();
+        }
         // The module's layer of the game data as the module is now (which
         // changes the game data: before the job shares it).
         self.refresh_module_layer();
@@ -408,6 +416,34 @@ impl Moonglow {
                 self.log.error(format!("{} failed: {}", job.title, panic_text(&panic)));
             }
         }
+    }
+}
+
+impl Moonglow {
+    /// Sets what is typed in a field and not yet set (`Moonglow::held_text`)
+    /// now, as leaving the field would: its command applied (a Properties
+    /// window's noted for its Cancel), or its action queued.
+    pub(crate) fn set_held_text(&mut self) {
+        let Some(held) = self.held_text.take() else { return };
+        if let Some(command) = held.command {
+            if let Some(w) = &held.window {
+                let noted = crate::blueprint::but_for(&command, &w.kept);
+                crate::blueprint::note_command(self, &w.tab, &w.targets, &noted);
+            }
+            match held.typed {
+                true => crate::talk_typed::apply(self, command),
+                false => {
+                    if let Err(e) = self.apply(command)
+                        && !std::mem::take(&mut self.claims.held)
+                    {
+                        self.log.error(e.to_string());
+                    }
+                }
+            }
+        } else if let Some(action) = held.action {
+            self.actions.push(action);
+        }
+        self.buffers.remove(&held.id);
     }
 }
 

@@ -380,6 +380,9 @@ fn hints(
         }
         out.extend(k.hint(Cmd::DropToGround, "Drop to ground"));
     }
+    // (The tileset palette's rows or the Prefabs list with the keys: theirs
+    // after the area's own.)
+    out.extend(crate::palette_view::list_hints(app, ctx));
     out
 }
 

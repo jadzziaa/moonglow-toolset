@@ -263,6 +263,10 @@ pub struct PaletteView {
     /// The row the arrow keys are at: the one clicked last, or come to
     /// with them.
     pub(crate) cursor: Option<At>,
+    /// The tileset palette's rows, and the arrow keys' cursor in them.
+    pub(crate) tile_list: FlatList<crate::terrain_mode::TileRow>,
+    /// The Prefabs list's rows (by name), and the arrow keys' cursor.
+    pub(crate) prefab_list: FlatList<String>,
     /// A category to open or close when the palette is drawn next (the
     /// Left and Right keys).
     toggle: Option<(Branch, bool)>,
@@ -518,6 +522,297 @@ impl Listed {
     }
 }
 
+/// A row of a [`FlatList`] as it was drawn.
+#[derive(Debug, Clone, Copy)]
+struct FlatRow {
+    /// How many headings it is inside.
+    depth: usize,
+    /// A heading: whether it is open.
+    open: Option<bool>,
+    /// Enter opens or closes it (a heading with no action of its own).
+    enter_folds: bool,
+    /// Where its top is.
+    top: f32,
+}
+
+/// The arrow keys' cursor in a list drawn as a flat run of rows (the
+/// tileset palette's headings and brushes, the Prefabs list), moved through
+/// the rows as they were drawn the frame before: Up and Down go a row, Page
+/// Up and Page Down a list's height, Home and End to the first and the last;
+/// Left and Right close and open a heading (Left from a row, or from a
+/// closed heading, goes to the heading it is in); Enter acts on the row, as
+/// a click does. A row asks the list for a place as it is drawn
+/// ([`FlatList::slot`]), says where it is ([`FlatList::seen`], which marks
+/// the cursor) and what the keys asked of it ([`FlatList::asked`]); a click
+/// puts the cursor on it ([`FlatList::click`]); [`FlatList::keys`] at the
+/// frame's start reads the keys and [`FlatList::end`] closes the frame.
+#[derive(Debug)]
+pub(crate) struct FlatList<K> {
+    /// The row the keys are at: the one clicked last, or come to with them.
+    pub(crate) cursor: Option<K>,
+    rows: Vec<(K, FlatRow)>,
+    next: Vec<(K, FlatRow)>,
+    /// A heading to open or close this frame.
+    fold: Option<(K, bool)>,
+    /// A row Enter acts on this frame.
+    enter: Option<K>,
+    /// The cursor's row is to be brought into view: the keys moved it.
+    reveal: bool,
+    /// The list's height in sight, for Page Up and Page Down.
+    page: f32,
+    /// The frame the cursor was asked to go to the first row in (Down out
+    /// of the search, Next Pane): asked for that frame alone.
+    first: Option<u64>,
+    /// A widget in the list (a grid of pictures) has the arrow keys of its
+    /// own, as drawn last, and this: as drawn now.
+    busy: bool,
+    busy_now: bool,
+}
+
+impl<K> Default for FlatList<K> {
+    fn default() -> Self {
+        FlatList {
+            cursor: None,
+            rows: Vec::new(),
+            next: Vec::new(),
+            fold: None,
+            enter: None,
+            reveal: false,
+            page: 0.0,
+            first: None,
+            busy: false,
+            busy_now: false,
+        }
+    }
+}
+
+impl<K: Clone + PartialEq> FlatList<K> {
+    /// The frame's start: the keys pressed, as the palette's have them (the
+    /// palette has the keys and no text is typed), done on the rows as they
+    /// were drawn last.
+    pub(crate) fn keys(&mut self, ui: &egui::Ui) {
+        self.fold = None;
+        self.enter = None;
+        let ctx = ui.ctx();
+        // (Not behind a dialog, a menu or a popover.)
+        let free = !crate::shell::keys_blocked(ctx)
+            && !mg_uikit::popover::Popover::any_open(ctx)
+            && !egui::Popup::is_any_open(ctx);
+        let first = self.first.take() == Some(ctx.cumulative_frame_nr())
+            && free
+            && keys_are(ctx, Keys::Palette)
+            && !self.rows.is_empty();
+        let live =
+            free && keys_are(ctx, Keys::Palette) && !ctx.egui_wants_keyboard_input() && !self.busy;
+        let key = match first {
+            true => Some(egui::Key::Home),
+            false => live.then(|| list_key(ui)).flatten(),
+        };
+        let Some(key) = key.filter(|_| !self.rows.is_empty()) else { return };
+        ctx.request_repaint();
+        let at = self.cursor.as_ref().and_then(|c| self.rows.iter().position(|(k, _)| k == c));
+        let Some(at) = at else {
+            // (No row: the first, or from Up, End and Page Up the last. A
+            // cursor whose row is no longer drawn was moved to the nearest
+            // one as the rows were drawn: [`FlatList::end`].)
+            let up = matches!(key, egui::Key::ArrowUp | egui::Key::End | egui::Key::PageUp);
+            let to = if up { self.rows.len() - 1 } else { 0 };
+            if key != egui::Key::Enter {
+                self.cursor = Some(self.rows[to].0.clone());
+                self.reveal = true;
+            }
+            return;
+        };
+        let rows: Vec<FlatRow> = self.rows.iter().map(|(_, r)| *r).collect();
+        if key == egui::Key::Enter {
+            match rows[at] {
+                FlatRow { open: Some(open), enter_folds: true, .. } => {
+                    self.fold = Some((self.rows[at].0.clone(), !open));
+                }
+                _ => self.enter = Some(self.rows[at].0.clone()),
+            }
+            return;
+        }
+        match flat_step(&rows, at, key, self.page) {
+            Step::To(row) => {
+                self.cursor = Some(self.rows[row].0.clone());
+                self.reveal = true;
+            }
+            Step::Fold(row, open) => self.fold = Some((self.rows[row].0.clone(), open)),
+            Step::Stay => {}
+        }
+    }
+
+    /// Asks for the cursor to go to the first row, as the frame is drawn
+    /// (and not after it).
+    pub(crate) fn ask_first(&mut self, ctx: &egui::Context) {
+        self.first = Some(ctx.cumulative_frame_nr());
+    }
+
+    /// Whether the list has rows, and no widget of its own has the arrow
+    /// keys: the keys move its cursor.
+    pub(crate) fn takes_keys(&self) -> bool {
+        !self.rows.is_empty() && !self.busy
+    }
+
+    /// The row the cursor is at, as it was drawn: whether it is a heading
+    /// (open or closed) that Enter opens and closes.
+    pub(crate) fn cursor_row(&self) -> Option<(Option<bool>, bool)> {
+        let at = self.cursor.as_ref()?;
+        let (_, row) = self.rows.iter().find(|(k, _)| k == at)?;
+        Some((row.open, row.enter_folds))
+    }
+
+    /// A row of `key` about to be drawn, `depth` headings deep: its slot.
+    pub(crate) fn slot(&mut self, key: K, depth: usize) -> usize {
+        let row = FlatRow { depth, open: None, enter_folds: false, top: 0.0 };
+        self.next.push((key, row));
+        self.next.len() - 1
+    }
+
+    /// Slot `slot` drawn at `rect`: marked where the cursor is, in the
+    /// keys' ring while the palette has them, and brought into view if the
+    /// keys moved the cursor there. `open`: a heading, open or closed;
+    /// `enter_folds`: Enter opens or closes it.
+    pub(crate) fn seen(
+        &mut self,
+        ui: &egui::Ui,
+        slot: usize,
+        rect: egui::Rect,
+        open: Option<bool>,
+        enter_folds: bool,
+    ) {
+        let (key, row) = &mut self.next[slot];
+        *row = FlatRow { depth: row.depth, open, enter_folds, top: rect.top() };
+        if self.cursor.as_ref() != Some(&*key) {
+            return;
+        }
+        if keys_are(ui.ctx(), Keys::Palette) {
+            let t = mg_uikit::tokens(ui.ctx());
+            let stroke = egui::Stroke::new(1.0, t.accent);
+            let radius = ui.visuals().widgets.inactive.corner_radius;
+            ui.painter().rect_stroke(rect.shrink(0.5), radius, stroke, egui::StrokeKind::Inside);
+        }
+        if self.reveal {
+            ui.scroll_to_rect(rect, None);
+        }
+    }
+
+    /// What the keys ask of slot `slot`: whether Enter acts on it, and
+    /// whether a heading is to open or close.
+    pub(crate) fn asked(&self, slot: usize) -> (bool, Option<bool>) {
+        let key = &self.next[slot].0;
+        let enter = self.enter.as_ref() == Some(key);
+        let fold = self.fold.as_ref().filter(|(k, _)| k == key).map(|(_, open)| *open);
+        (enter, fold)
+    }
+
+    /// Slot `slot` clicked: the cursor goes there and the palette has the
+    /// keys.
+    pub(crate) fn click(&mut self, ctx: &egui::Context, slot: usize) {
+        self.cursor = Some(self.next[slot].0.clone());
+        self.reveal = false;
+        // (A picture grid that had the keyboard's focus lets it go.)
+        ctx.memory_mut(|m| {
+            if let Some(id) = m.focused() {
+                m.surrender_focus(id);
+            }
+        });
+        self.busy = false;
+        give_keys(ctx, Keys::Palette);
+    }
+
+    /// A widget in the list has the arrow keys (a grid of pictures with the
+    /// keyboard's focus): the cursor keeps still while it does.
+    pub(crate) fn busy(&mut self) {
+        self.busy_now = true;
+    }
+
+    /// The frame's end: the rows drawn are the ones the keys move through.
+    /// `page`: the list's height in sight.
+    pub(crate) fn end(&mut self, page: f32) {
+        let was = std::mem::replace(&mut self.rows, std::mem::take(&mut self.next));
+        // (A cursor whose row is not drawn any more (searched out, under a
+        // heading closed) goes to the heading it was in, else the row that
+        // took its place.)
+        let at = self.cursor.as_ref();
+        if let Some(i) = at.and_then(|c| was.iter().position(|(k, _)| k == c))
+            && !self.rows.iter().any(|(k, _)| Some(k) == at)
+            && !self.rows.is_empty()
+        {
+            let depth = was[i].1.depth;
+            let parent = (0..i)
+                .rev()
+                .filter(|&j| was[j].1.depth < depth)
+                .find(|&j| self.rows.iter().any(|(k, _)| *k == was[j].0));
+            let to = match parent {
+                Some(j) => self.rows.iter().position(|(k, _)| *k == was[j].0).unwrap_or(0),
+                None => i.min(self.rows.len() - 1),
+            };
+            self.cursor = Some(self.rows[to].0.clone());
+        }
+        self.busy = std::mem::take(&mut self.busy_now);
+        self.reveal = false;
+        self.page = page;
+    }
+}
+
+/// The key of a list the palette has the keys of (an arrow, Enter, Home,
+/// End, Page Up or Page Down, pressed alone).
+fn list_key(ui: &egui::Ui) -> Option<egui::Key> {
+    use egui::Key::{
+        ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Enter, Home, PageDown, PageUp,
+    };
+    ui.input(|i| {
+        [ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter, Home, End, PageUp, PageDown]
+            .into_iter()
+            .find(|k| i.modifiers.is_none() && i.key_pressed(*k))
+    })
+}
+
+/// What `key` does at row `at` of a flat list's rows (all of them drawn:
+/// the children of a closed heading are not there): as [`Listed::step`] for
+/// the blueprint palette.
+fn flat_step(rows: &[FlatRow], at: usize, key: egui::Key, page: f32) -> Step {
+    use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Home, PageDown, PageUp};
+    let last = rows.len() - 1;
+    let to = |row: usize| if row == at { Step::Stay } else { Step::To(row) };
+    match key {
+        ArrowDown => to((at + 1).min(last)),
+        ArrowUp => to(at.saturating_sub(1)),
+        Home => to(0),
+        End => to(last),
+        PageDown | PageUp => {
+            let down = key == PageDown;
+            let reach = rows[at].top + if down { page } else { -page };
+            let within = |r: &usize| match down {
+                true => rows[*r].top <= reach + 0.5,
+                false => rows[*r].top >= reach - 0.5,
+            };
+            let farthest = match down {
+                true => (at + 1..=last).take_while(within).last(),
+                false => (0..at).rev().take_while(within).last(),
+            };
+            // (At least the next row.)
+            let next = if down { (at + 1).min(last) } else { at.saturating_sub(1) };
+            to(farthest.unwrap_or(next))
+        }
+        ArrowLeft | ArrowRight => match (rows[at].open, key) {
+            (Some(true), ArrowLeft) => Step::Fold(at, false),
+            (Some(false), ArrowRight) => Step::Fold(at, true),
+            (Some(true), ArrowRight) => (at < last && rows[at + 1].depth > rows[at].depth)
+                .then_some(at + 1)
+                .map_or(Step::Stay, Step::To),
+            // (Left: out to the heading it is in.)
+            (_, _) if key == ArrowLeft => {
+                (0..at).rev().find(|r| rows[*r].depth < rows[at].depth).map_or(Step::Stay, Step::To)
+            }
+            _ => Step::Stay,
+        },
+        _ => Step::Stay,
+    }
+}
+
 /// Whether the arrow keys are the palette's: from a click in its tree
 /// until the pointer is in an area's view again (they move its camera
 /// there, as W, A, S and D go on doing all along). The palette moves by
@@ -691,7 +986,13 @@ pub(crate) fn let_go_of_held_keys(ctx: &egui::Context) {
 /// A thin outline round the pane the keys are (`rect`), so that it shows
 /// where the arrow keys go.
 pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
-    if keys_are(ui.ctx(), list) {
+    keys_outline_when(ui, rect, keys_are(ui.ctx(), list));
+}
+
+/// [`keys_outline`] where the caller knows whether the list has the keys
+/// (a hak's or a tileset's table, whose keys are one's of several open).
+pub(crate) fn keys_outline_when(ui: &egui::Ui, rect: egui::Rect, has: bool) {
+    if has {
         let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
         ui.painter().rect_stroke(rect.shrink(1.0), 2.0, stroke, egui::StrokeKind::Inside);
     }
@@ -735,6 +1036,39 @@ pub(crate) fn gallery_has_the_keys(app: &Moonglow, ctx: &egui::Context) -> bool 
         && keys_are(ctx, Keys::Palette)
 }
 
+/// The Status Bar's hints for the tileset palette's rows or the Prefabs
+/// list while the palette has the keys (and none for the blueprint
+/// palettes' lists, which have their own): empty otherwise.
+pub(crate) fn list_hints(app: &Moonglow, ctx: &egui::Context) -> Vec<mg_uikit::status::Hint> {
+    use mg_uikit::status::Hint;
+    let view = &app.palette;
+    if !keys_are(ctx, Keys::Palette) || crate::shell::keys_blocked(ctx) {
+        return Vec::new();
+    }
+    let mut hints = Vec::new();
+    if view.tiles && view.area.is_some() {
+        let list = &view.tile_list;
+        if !list.takes_keys() {
+            return hints;
+        }
+        hints.push(Hint::either(["Up", "Down"], "Move in the list"));
+        hints.push(Hint::either(["Left", "Right"], "Close or open a heading"));
+        hints.extend(match list.cursor_row() {
+            Some((Some(open), true)) => {
+                Some(Hint::keys(["Enter"], if open { "Close" } else { "Open" }))
+            }
+            Some(_) => Some(Hint::keys(["Enter"], "Choose")),
+            None => None,
+        });
+    } else if view.prefabs && view.prefab_list.takes_keys() {
+        hints.push(Hint::either(["Up", "Down"], "Move in the list"));
+        if view.prefab_list.cursor.is_some() {
+            hints.push(Hint::keys(["Enter"], "Place"));
+        }
+    }
+    hints
+}
+
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
     has_arrows(ctx)
         && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
@@ -769,6 +1103,24 @@ impl PaletteView {
         self.node_meta = None;
         self.palette_total = None;
         self.found = None;
+    }
+
+    /// The name of the prefab the arrow keys' cursor is at in the Prefabs
+    /// list. For the window's tests.
+    #[doc(hidden)]
+    pub fn prefab_cursor(&self) -> Option<&str> {
+        self.prefab_list.cursor.as_deref()
+    }
+
+    /// The name of the row of the tileset palette the arrow keys' cursor is
+    /// at (a heading's or a brush's). For the window's tests.
+    #[doc(hidden)]
+    pub fn tile_cursor(&self) -> Option<String> {
+        use crate::terrain_mode::TileRow;
+        Some(match self.tile_list.cursor.as_ref()? {
+            TileRow::Select => "Select Tiles".to_string(),
+            TileRow::Folder(_, name) | TileRow::Brush(name, _) => name.clone(),
+        })
     }
 
     /// Whether the arrow keys' cursor is at a category's own row (not at
@@ -855,6 +1207,8 @@ impl Default for PaletteView {
             tileset_grass: Default::default(),
             categories: HashMap::new(),
             cursor: None,
+            tile_list: FlatList::default(),
+            prefab_list: FlatList::default(),
             toggle: None,
             reveal: false,
             kept: Default::default(),
@@ -1837,6 +2191,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     if view.prefabs {
         ui.separator();
+        // (Next Pane: the list's first row.)
+        let from_pane = std::mem::take(&mut view.to_first) && view.prefab_list.cursor.is_none();
+        if from_pane {
+            view.prefab_list.ask_first(ui.ctx());
+        }
         app.palette = view;
         prefabs_ui(app, ui);
         return;
@@ -1845,7 +2204,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // As the blueprint palettes: the search, then a row of what there
         // is and how it is shown (the tile palette's own: its headings,
         // brushes and tiles), then the list.
-        search_row(ui, &mut view, "Search name, model");
+        let entered = search_row(ui, &mut view, "Search name, model");
+        // (Down out of the search, or Next Pane: the list's first row.)
+        let from_pane = std::mem::take(&mut view.to_first) && view.tile_list.cursor.is_none();
+        if entered || from_pane {
+            view.tile_list.ask_first(ui.ctx());
+        }
         app.palette = view;
         crate::terrain_mode::palette_ui(app, ui);
         return;
@@ -3700,11 +4064,16 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         renamed = None;
     }
     let names = if renamed_now { crate::prefabs::list(dir.as_deref()) } else { names };
-    egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
-        ui,
-        |ui| {
+    // (The arrow keys' cursor, moved on the rows as they were drawn last.)
+    let mut list = std::mem::take(&mut app.palette.prefab_list);
+    list.keys(ui);
+    let scrolled = egui::ScrollArea::vertical()
+        .id_salt("palette-prefabs")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
             mg_uikit::list_rows(ui);
             for name in names {
+                let slot = list.slot(name.clone(), 0);
                 let being = renamed.as_ref().is_some_and(|(n, _)| n == &name);
                 let r = ui.selectable_label(being, &name).on_hover_ui(|ui| {
                     // What it holds, read while the pointer rests on it.
@@ -3714,7 +4083,12 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     };
                     ui.weak("Click, then click in the area to place it. Right-click for more.");
                 });
+                list.seen(ui, slot, r.rect, None, false);
                 if r.clicked() {
+                    list.click(ui.ctx(), slot);
+                }
+                // (Enter on the row the keys' cursor is at is a click.)
+                if r.clicked() || list.asked(slot).0 {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
                 mg_uikit::context_menu(&r, |ui| {
@@ -3742,8 +4116,10 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     }
                 });
             }
-        },
-    );
+        });
+    list.end(scrolled.inner_rect.height());
+    app.palette.prefab_list = list;
+    keys_outline(ui, scrolled.inner_rect, Keys::Palette);
     ui.data_mut(|d| match renamed {
         Some(v) => {
             d.insert_temp(renamed_id, v);
@@ -4118,5 +4494,109 @@ mod tests {
         assert_eq!(finds(&mut app, "new"), 1, "by the new line");
         assert_eq!(app.load_order, load_order, "no load order change");
         assert!(app.browser.pictures.contains_key(&pictured), "the browser keeps its own");
+    }
+
+    /// A flat list's keys: Up and Down stay in the rows, Left and Right
+    /// close and open a heading, go into it and out to it, and a page goes
+    /// a list's height (at least a row).
+    #[test]
+    fn a_flat_list_s_keys_follow_its_rows() {
+        use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Home, PageDown, PageUp};
+        let row = |depth, open, top| FlatRow { depth, open, enter_folds: true, top };
+        // A closed heading, an open one with two rows in it, a row.
+        let rows = [
+            row(0, Some(false), 0.0),
+            row(0, Some(true), 22.0),
+            row(1, None, 44.0),
+            row(1, None, 66.0),
+            row(0, None, 88.0),
+        ];
+        let step = |at, key| flat_step(&rows, at, key, 44.0);
+        assert_eq!(step(0, ArrowUp), Step::Stay);
+        assert_eq!(step(0, ArrowDown), Step::To(1));
+        assert_eq!(step(3, ArrowUp), Step::To(2));
+        assert_eq!(step(4, ArrowDown), Step::Stay);
+        assert_eq!(step(0, End), Step::To(4));
+        assert_eq!(step(3, Home), Step::To(0));
+        assert_eq!(step(0, ArrowRight), Step::Fold(0, true));
+        assert_eq!(step(1, ArrowRight), Step::To(2), "into the open heading");
+        assert_eq!(step(1, ArrowLeft), Step::Fold(1, false));
+        assert_eq!(step(3, ArrowLeft), Step::To(1), "out to its heading");
+        assert_eq!(step(0, ArrowLeft), Step::Stay, "from a closed heading at the top");
+        assert_eq!(step(4, ArrowRight), Step::Stay);
+        assert_eq!(step(0, PageDown), Step::To(2), "a list's height away");
+        assert_eq!(step(4, PageUp), Step::To(2));
+        let near = [row(0, None, 0.0), row(0, None, 100.0)];
+        assert_eq!(flat_step(&near, 0, PageDown, 10.0), Step::To(1), "at least the next row");
+    }
+
+    /// A flat list's cursor whose row is no longer drawn goes to the
+    /// heading it was in, else to the row that took its place.
+    #[test]
+    fn a_flat_list_s_cursor_moves_off_a_row_no_longer_drawn() {
+        let draw = |list: &mut FlatList<&'static str>, rows: &[(&'static str, usize)]| {
+            for (key, depth) in rows {
+                list.slot(*key, *depth);
+            }
+            list.end(100.0);
+        };
+        let all = [("a", 0), ("b", 0), ("b1", 1), ("b2", 1), ("c", 0)];
+        let mut list = FlatList::default();
+        draw(&mut list, &all);
+        list.cursor = Some("b2");
+        // Its heading closed: the cursor goes to the heading.
+        draw(&mut list, &[("a", 0), ("b", 0), ("c", 0)]);
+        assert_eq!(list.cursor, Some("b"));
+        // A row searched out, with none above it to be in: the row that took
+        // its place.
+        draw(&mut list, &all);
+        list.cursor = Some("c");
+        draw(&mut list, &[("a", 0), ("b", 0)]);
+        assert_eq!(list.cursor, Some("b"));
+        // A row still drawn stays.
+        draw(&mut list, &all);
+        assert_eq!(list.cursor, Some("b"));
+        // Nothing drawn: the cursor is left as it is.
+        draw(&mut list, &[]);
+        assert_eq!(list.cursor, Some("b"));
+        assert!(!list.takes_keys());
+    }
+
+    /// Down out of an empty search (the first row asked for, nothing
+    /// drawn to go to) is not kept: rows that appear later, with the keys
+    /// the palette's again, are not moved to or scrolled to.
+    #[test]
+    fn a_first_row_asked_for_is_not_kept_for_later_rows() {
+        let ctx = egui::Context::default();
+        let mut list: FlatList<&'static str> = FlatList::default();
+        let frame =
+            |list: &mut FlatList<&'static str>, asks: bool, keys: bool, rows: &[&'static str]| {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    let ctx = ui.ctx().clone();
+                    give_keys(&ctx, if keys { Keys::Palette } else { Keys::Area });
+                    if asks {
+                        list.ask_first(&ctx);
+                    }
+                    list.keys(ui);
+                    for row in rows {
+                        list.slot(*row, 0);
+                    }
+                    list.end(100.0);
+                });
+                out.textures_delta.clear();
+            };
+        // Asked on an empty list: used up there.
+        frame(&mut list, true, true, &[]);
+        frame(&mut list, false, true, &["a", "b"]);
+        frame(&mut list, false, true, &["a", "b"]);
+        assert_eq!(list.cursor, None, "rows appeared later");
+        assert!(!list.reveal, "and nothing is scrolled to");
+        // Asked, the keys the palette's no more: let go of too.
+        frame(&mut list, true, false, &["a", "b"]);
+        frame(&mut list, false, true, &["a", "b"]);
+        assert_eq!(list.cursor, None, "the keys went elsewhere");
+        // Asked with rows and the keys: the first row.
+        frame(&mut list, true, true, &["a", "b"]);
+        assert_eq!(list.cursor, Some("a"));
     }
 }

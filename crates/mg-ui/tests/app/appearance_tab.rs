@@ -841,6 +841,74 @@ fn the_grid_takes_the_keys_as_the_tab_comes_to_the_front() {
     assert!(has_keys(&h, "Appearances"), "the page opened: its appearances have the keys");
 }
 
+/// Down in Find gives the grid the keys, its cursor on the first picture
+/// shown (not where the one chosen is); Down and End go on from there.
+#[test]
+fn down_in_find_gives_the_grid_the_keys_at_its_first_picture() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "u26_find_down", ResType::UTC)
+    else {
+        return;
+    };
+    gallery_in_tabs(&mut h, key);
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(find)).click();
+    h.get(egui_kittest::kittest::by().predicate(find)).type_text("dw");
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    assert!(!has_keys(&h, "Creatures"), "Find has the keys while typed in");
+    h.key_press(egui::Key::ArrowDown);
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    assert!(has_keys(&h, "Creatures"), "Down: the grid has the keys");
+    let cursor = |h: &Harness<'_, Moonglow>| crate::gallery_keys::grid_cursor(h, "Creatures");
+    assert_eq!(cursor(&h).map(|c| c.1), Some(1), "its cursor on the first picture");
+    h.key_press(egui::Key::ArrowRight);
+    settle(&mut h);
+    assert_eq!(cursor(&h).map(|c| c.1), Some(2), "Right goes on from it");
+}
+
+/// After Down from Find and a move to another picture, typing more in Find
+/// (the pictures' number changes) puts the cursor back on the chosen
+/// picture, not on the first.
+#[test]
+fn typing_in_find_after_down_keeps_the_cursor_on_the_chosen_picture() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "u26_find_retype", ResType::UTC)
+    else {
+        return;
+    };
+    gallery_in_tabs(&mut h, key);
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    let cursor = |h: &Harness<'_, Moonglow>| crate::gallery_keys::grid_cursor(h, "Creatures");
+    let chosen = cursor(&h).expect("opened at the chosen picture").0;
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(find)).click();
+    h.get(egui_kittest::kittest::by().predicate(find)).type_text("human");
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::ArrowRight);
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    assert_eq!(cursor(&h).map(|c| c.1), Some(2), "Down, then Right: the second picture");
+    // More typed: the pictures' number changes, the cursor is the chosen's.
+    let typed = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("human")
+    };
+    h.get_by(typed).click();
+    h.get_by(typed).type_text(" male");
+    for _ in 0..5 {
+        settle(&mut h);
+    }
+    let now = cursor(&h).expect("a cursor");
+    assert_eq!(now.0, chosen, "on the chosen picture");
+}
+
 /// A user folder whose portraits.2da has `count` creature portraits
 /// (human males, "mgpNNNN"), each with a tiny picture in its override,
 /// then `extra` rows as given (`BaseResRef Sex Race InanimateType Plot`).
