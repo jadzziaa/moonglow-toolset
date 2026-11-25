@@ -59,6 +59,9 @@ struct Area {
     scheme: Option<Scheme>,
     /// The strokes of `area:batch` under way, held until it ends.
     batch: RefCell<Option<Batch>>,
+    /// Its own random choices, when it was opened with a seed; else the
+    /// job's.
+    rng: Option<RefCell<fastrand::Rng>>,
 }
 
 /// What `area:batch` holds while its function runs: the area's tiles as
@@ -86,7 +89,7 @@ fn tileset(sh: &Shared, name: ResRef) -> mlua::Result<Tileset> {
 }
 
 impl Area {
-    fn open(sh: &Shared, name: &str) -> mlua::Result<Area> {
+    fn open(sh: &Shared, name: &str, seed: Option<u64>) -> mlua::Result<Area> {
         let name = resref(name)?;
         let are = ResKey::new(name, ResType::ARE);
         let root = sh.ws.borrow_mut().doc(&are).or_else(fail)?.root.clone();
@@ -101,7 +104,14 @@ impl Area {
             Scheme::read(game, row).ok()
         });
         let git = ResKey::new(name, ResType::GIT);
-        Ok(Area { are, git, set, index, rules, scheme, batch: RefCell::new(None) })
+        let rng = seed.map(|s| RefCell::new(fastrand::Rng::with_seed(s)));
+        Ok(Area { are, git, set, index, rules, scheme, batch: RefCell::new(None), rng })
+    }
+
+    /// The random choices its tiles and lights are made with: its own,
+    /// or the job's.
+    fn rng<'a>(&'a self, sh: &'a Shared) -> std::cell::RefMut<'a, fastrand::Rng> {
+        self.rng.as_ref().unwrap_or(&sh.rng).borrow_mut()
     }
 
     /// The area's tiles as they are now, the job's edits included (and,
@@ -161,12 +171,12 @@ impl Area {
     /// batch, held until it ends).
     fn stroke(&self, sh: &Shared, before: &Grid, stroke: Stroke) -> mlua::Result<()> {
         if let Some(b) = &mut *self.batch.borrow_mut() {
-            let changes = b.now.apply(&self.index, stroke, &mut sh.rng.borrow_mut());
+            let changes = b.now.apply(&self.index, stroke, &mut self.rng(sh));
             b.changed.extend(changes);
             return Ok(());
         }
         let mut after = before.clone();
-        let changes = after.apply(&self.index, stroke, &mut sh.rng.borrow_mut());
+        let changes = after.apply(&self.index, stroke, &mut self.rng(sh));
         self.put(sh, before, &changes)
     }
 
@@ -222,7 +232,7 @@ impl Area {
         }
         let root = sh.ws.borrow_mut().doc(&self.are).or_else(fail)?.root.clone();
         let mut lights =
-            || self.scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut sh.rng.borrow_mut()));
+            || self.scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut self.rng(sh)));
         let mut edits = tile_edits(self.are, &root, &self.set, changes, &mut lights);
         // (Many tiles: the list as one edit, not each tile's fields.)
         if changes.len() > WHOLE_LIST
@@ -553,9 +563,31 @@ pub(crate) fn terrain(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     let s = sh.clone();
     t.set(
         "open",
-        lua.create_function(move |lua, (_, area): (This, String)| {
-            handle(lua, &s, Area::open(&s, &area)?)
+        lua.create_function(move |lua, (_, area, options): (This, String, Option<Table>)| {
+            let seed = match options {
+                Some(o) => o.get::<Option<mlua::Value>>("seed")?.map(seed).transpose()?,
+                None => None,
+            };
+            handle(lua, &s, Area::open(&s, &area, seed)?)
+        })?,
+    )?;
+    let s = sh.clone();
+    t.set(
+        "seed",
+        lua.create_function(move |_, (_, n): (This, mlua::Value)| {
+            *s.rng.borrow_mut() = fastrand::Rng::with_seed(seed(n)?);
+            Ok(())
         })?,
     )?;
     Ok(t)
+}
+
+/// A seed as a plugin gives it: a whole number (a negative one taken by
+/// its bits).
+fn seed(v: mlua::Value) -> mlua::Result<u64> {
+    match v {
+        mlua::Value::Integer(i) => Ok(i as u64),
+        mlua::Value::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e18 => Ok(n as i64 as u64),
+        other => fail(format!("a seed is a whole number, not {other:?}")),
+    }
 }

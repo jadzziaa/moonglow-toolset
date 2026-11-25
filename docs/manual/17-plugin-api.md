@@ -8,7 +8,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.9. The API is
+Everything a plugin's code can use, for plugin API 0.10. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,7 +29,7 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.9"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.10"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
@@ -605,7 +605,8 @@ that fit, as it does under the pointer. It needs a game installation.
 | --- | --- |
 | `ctx.terrain:tilesets()` | The tilesets the game offers (with the module's haks), as the Area Wizard lists them: a list of `{ resref = "ttr01", name = "Rural" }`. |
 | `ctx.terrain:new_area(spec)` | Makes an area as the Area Wizard does (its three files, and its place in the module's list). `spec` is `{ name = "…", tileset = "ttr01", width = 8, height = 8 }`, the sizes in tiles, 2 to 32. Returns the area's resref. |
-| `ctx.terrain:open(area)` | An area's terrain, by the area's resref, as an `area` (below). It fails for an area whose tiles are not all the tileset's. |
+| `ctx.terrain:open(area, options?)` | An area's terrain, by the area's resref, as an `area` (below). It fails for an area whose tiles are not all the tileset's. `options` is `{ seed = 42 }` (since API 0.10): the area's tiles and lights are chosen with random choices of its own, begun from that seed (a whole number), whatever else the job does. |
+| `ctx.terrain:seed(n)` | Begins the job's random choices again from `n`, a whole number (since API 0.10): the tiles and lights chosen from then on, in `new_area` and in every area opened without a seed of its own. |
 
 An `area`. Cells (tiles) and corners count from the area's south-west,
 from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
@@ -632,7 +633,10 @@ from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
 | `area:batch(f)` | Calls `f()` with the area's strokes held (since API 0.5): its tiles are read once, each stroke made on them as `f` goes (`corner` and `tile` read what they left; `ctx.module` reads the area as it was until `f` returns), and the tiles that changed go in when it returns, as one edit of its tile list. If `f` fails, none of them go in. A `set_tile` in it puts in the strokes before it first. Returns what `f` returns. |
 
 Tiles are chosen at random among those that fit, as in the area editor:
-two runs paint the same ground with different tiles. New tiles get
+two runs paint the same ground with different tiles. With a seed
+(`ctx.terrain:seed`, or `open`'s `seed`), the same calls made in the
+same order on the same tiles choose the same tiles and lights again, so
+an area can be made again exactly; without one, each run chooses anew. New tiles get
 lights from the area's lighting scheme, and bring and take the doors
 their tiles have.
 
