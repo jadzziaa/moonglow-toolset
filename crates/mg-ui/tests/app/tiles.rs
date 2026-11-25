@@ -3717,6 +3717,23 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     assert_eq!(h.state().area_views[&area].outlines_laid(), laid, "not every frame");
     set_waypoint_tag(&mut h, area);
     assert!(h.state().area_views[&area].outlines_laid() > laid, "laid again for the area read");
+    // (Their lines on screen kept while the camera, the area and the tiles
+    // selected rest; made again when one changes.)
+    let made = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].tile_lines_made.get();
+    h.run_steps(2);
+    let was = made(&h);
+    h.run_steps(6);
+    assert_eq!(made(&h), was, "kept at rest");
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw += 0.1;
+    h.run_steps(2);
+    assert!(made(&h) > was, "made again for the camera turned");
+    let was = made(&h);
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_selection.push((2, 1));
+    h.run_steps(2);
+    assert!(made(&h) > was, "made again for a tile more");
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_selection.pop();
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw -= 0.1;
+    h.run_steps(3);
     // Along the ground in half-metre steps, from the plateau down into the
     // corner and back; a flat tile, its four corners.
     let view = &h.state().area_views[&area];

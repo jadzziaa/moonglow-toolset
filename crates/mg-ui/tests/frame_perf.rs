@@ -137,7 +137,19 @@ const KNOWN_OVER: &[(&str, &str)] = &[
     ("549 objects) (Sound Ranges on), all selected, walkmesh (pointer)", LARGEST),
     ("549 objects) (Sound Ranges on), all selected, walkmesh (idle)", LARGEST),
     ("549 objects) (Sound Ranges on), all selected, walkmesh (wheel)", LARGEST),
+    // `area_editor_at_scale`, 2026-11-25 (load 9 to 12, other agents
+    // building): an area of 5,000 placeables, one dragged, 10.2 to 10.3 ms
+    // (its picture drawn again each frame: the largest areas' cost); all
+    // of them selected and dragged, 18.7 to 19.1 ms (their boxes made anew
+    // each frame, 3 ms, and the Properties panel of 5,000, 2.2 to 2.9).
+    // (At load 4 to 5, those at rest are under the budget, 6.3 to 7.0 ms;
+    // at load 12 to 16 they crossed its margin, 9.0 to 11.4.)
+    ("area of 5,000 placeables, one selected, dragged", LARGEST),
+    ("area of 5,000 placeables, all selected, dragged", TIMING),
 ];
+/// The entry of `docs/deferred.md` for the review's costs without a
+/// timing view, which holds what the area editor's views left.
+const TIMING: &str = "The review of November 2026's performance fixes without a timing view";
 /// The entry of `docs/deferred.md` for the largest areas' frames.
 const LARGEST: &str = "The largest areas in full view";
 
@@ -157,6 +169,9 @@ enum Pointer {
     Scrolls,
     /// Away from the window: nothing happens.
     Away,
+    /// Rests at the point, still (on a menu's row, say, which a pointer
+    /// moving across the view would close).
+    Rests(egui::Pos2),
     /// Pressed at the first point, moved to the second and let go at the
     /// last frame: a drag (of a selection, in an area's view).
     Drags(egui::Pos2, egui::Pos2),
@@ -315,6 +330,7 @@ fn frames(
                 });
             }
             Pointer::Away => {}
+            Pointer::Rests(at) => input.events.push(egui::Event::PointerMoved(at)),
             Pointer::Keys(at, key, every) => {
                 input.events.push(egui::Event::PointerMoved(at));
                 if n % every.max(1) == 0 {
@@ -3895,4 +3911,856 @@ fn rows_rect(h: &App<'_>) -> Option<egui::Rect> {
     .map(|n| n.rect().intersect(screen))
     .filter(|r| r.is_positive())
     .reduce(|a, b| a.union(b))
+}
+
+/// The review of November 2026's area editor findings at the sizes they
+/// name (A16, A17, A18's Update Instances, A20, A21, A22, A24: the deferred
+/// list's "performance fixes without a timing view"), each against the
+/// same view at rest, timed just before it: a 32 by 32 area of the Rural
+/// tileset (ttr01) with 5,000 placeables, every one selected (the
+/// selection's overlays), dragged, with Adjust Location open (a value
+/// changed, so that the selection is posed anew each frame) and with the
+/// context menu open, and 2,000 of them with the Position menu open; an
+/// empty 32 by 32 area with Paint at radius 25 m and density 50 (the
+/// pointer still: the next dab's ghosts), a light being placed and the
+/// area's menu open (Add Light Here) with a placeables.2da of 30,000 more
+/// rows (copies of the game's rows that are not lights, in the scratch
+/// user folder's `override`); a 32 by 32 area of the Rural tileset's
+/// hills, every tile selected (Select Tiles), still and turning; Update
+/// Instances of the 30,000 placed in six areas; and the tileset editor's
+/// Tiles page of a 2,000-tile set (the Rural tileset's tiles copied),
+/// its first and its last tile chosen. Each line ends with the view's
+/// interface time against its resting one's: over by more than
+/// [`UI_LINE`] is a cost to find. `FRAME_VIEW=<part of a name>` picks them
+/// ("5,000 placeables", "empty area", "hills", "Update Instances",
+/// "2,000-tile").
+#[test]
+#[ignore]
+fn area_editor_at_scale() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("frame-perf-area-scale");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let (scale, light, set_path) = {
+        let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+        let light = big_placeables(&game, &user);
+        (scale_module(&game, &dir), light, big_tileset(&game, &dir))
+    };
+    let mut r = Report::new();
+    let mut lines = Vec::new();
+    println!("the area editor at scale: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.set_render_state(rs.clone());
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.open_module(&scale.path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let rows = h.state().game.as_deref().and_then(|g| g.table("placeables").ok()).map(|t| t.len());
+    println!("  (placeables.2da: {rows:?} rows; light row {light})");
+    close_areas(&mut h);
+    // (A part of a group's name, or a view's whole name, which begins with it.)
+    let wanted = |r: &Report, what: &str| {
+        r.only.as_ref().is_none_or(|o| what.contains(o.as_str()) || o.starts_with(what))
+    };
+
+    // A16 and A20: the area of 5,000 placeables.
+    let name = "area of 5,000 placeables";
+    if wanted(&r, name) {
+        let area = scale.placed;
+        let rect = open_area(&mut h, area);
+        let placeables: Vec<_> = h.state().area_views[&area]
+            .model
+            .as_ref()
+            .map(|m| m.objects.iter().map(|o| (o.kind, o.index)).collect())
+            .unwrap_or_default();
+        println!("  ({} objects in {name})", placeables.len());
+        let Some((one, grip)) = grip_near(&h, area, rect, |_| true) else {
+            panic!("{name}: no placeable to hold in sight")
+        };
+        let select = |h: &mut App<'_>, keys: &[(mg_area::ObjectKind, usize)]| {
+            h.state_mut().area_views.get_mut(&area).unwrap().selection = keys.to_vec();
+            h.hover_at(grip);
+            h.run_steps(3);
+        };
+        let one_key = placeables[one];
+        // The noise floor: the resting view twice.
+        select(&mut h, &[one_key]);
+        let rest = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, one selected"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        let again = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, one selected, again"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        against(&mut lines, &format!("{name}, one selected, timed again (the noise)"), rest, again);
+        select(&mut h, &placeables);
+        let all = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, all selected"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        against(&mut lines, &format!("{name}, all selected"), rest, all);
+        let moving = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, all selected"),
+            "pointer",
+            rect,
+            Pointer::Moves,
+        );
+        select(&mut h, &[one_key]);
+        let moving_one = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, one selected"),
+            "pointer",
+            rect,
+            Pointer::Moves,
+        );
+        against(
+            &mut lines,
+            &format!("{name}, all selected, the pointer moving"),
+            moving_one,
+            moving,
+        );
+        // Dragged: one, then all, 60 points east (the last frame lets go:
+        // the move's command made).
+        let undo =
+            |h: &App<'_>| h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
+        let dragged = |h: &mut App<'_>, r: &mut Report, what: &str| {
+            if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) || r.shots {
+                return None;
+            }
+            let grip = h.state().area_views[&area].move_grip(one).expect("a grip");
+            let to = grip + egui::vec2(60.0, 0.0);
+            let f = frames(h, rect, Pointer::Drags(grip, to), r.count, |_, _| {});
+            said(r, what, "drag", &f);
+            h.run_steps(2);
+            assert_eq!(undo(h).as_deref(), Some("Move"), "{what}: the drag moved them");
+            h.state_mut().actions.push(Action::Undo);
+            h.run_steps(3);
+            Some(pick(f.ui, 0.5))
+        };
+        let one_drag = dragged(&mut h, &mut r, &format!("{name}, one selected, dragged"));
+        select(&mut h, &placeables);
+        let all_drag = dragged(&mut h, &mut r, &format!("{name}, all selected, dragged"));
+        against(&mut lines, &format!("{name}, all selected, dragged"), one_drag, all_drag);
+        // At rest again after the drag and its undo: what the next two
+        // are set against (timed just before them, as the others are).
+        h.hover_at(grip);
+        h.run_steps(3);
+        let all_again = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, all selected, after the drag"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        // Adjust Location open on all of them, X changed (posed anew).
+        let adjust = mg_ui::area_tools::adjust(&h.state().area_views[&area]).map(|mut a| {
+            a.position.x += 3.0;
+            a.changed[0] = true;
+            a
+        });
+        assert!(adjust.is_some(), "{name}: no Adjust Location for the selection");
+        h.state_mut().adjust = adjust;
+        h.run_steps(3);
+        let adjusting = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, all selected, Adjust Location open"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        assert!(h.state().adjust.is_some(), "{name}: Adjust Location closed");
+        against(
+            &mut lines,
+            &format!("{name}, all selected, Adjust Location open"),
+            all_again,
+            adjusting,
+        );
+        h.state_mut().adjust = None;
+        h.run_steps(3);
+        // The context menu open on them, the pointer on its first row.
+        if let Some(at) = menu_on(&mut h, grip, "Adjust Location…") {
+            let menu = timed(
+                &mut h,
+                &mut r,
+                &format!("{name}, all selected, the context menu open"),
+                "still",
+                rect,
+                Pointer::Rests(at),
+            );
+            h.run_steps(1);
+            assert!(h.query_by_label("Adjust Location…").is_some(), "{name}: the menu closed");
+            against(
+                &mut lines,
+                &format!("{name}, all selected, the context menu open"),
+                all_again,
+                menu,
+            );
+            close_menu(&mut h);
+        }
+        // And once more, the menu closed (the noise of the two).
+        h.hover_at(grip);
+        h.run_steps(3);
+        let all_last = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, all selected, the menu closed"),
+            "still",
+            rect,
+            Pointer::Rests(grip),
+        );
+        against(
+            &mut lines,
+            &format!("{name}, all selected, timed again after the menu (the noise)"),
+            all_again,
+            all_last,
+        );
+        // A20: 2,000 of them, the Position menu open (the pointer on it).
+        let two: Vec<_> = placeables.iter().copied().take(2_000).collect();
+        let Some((_, grip2)) = grip_near(&h, area, rect, |i| i < 2_000) else {
+            panic!("{name}: none of the 2,000 in sight")
+        };
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = two.clone();
+        h.hover_at(grip2);
+        h.run_steps(3);
+        let rest2 = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, 2,000 selected"),
+            "still",
+            rect,
+            Pointer::Rests(grip2),
+        );
+        if let Some(at) = menu_on(&mut h, grip2, "Position") {
+            h.hover_at(at);
+            h.run_steps(5);
+            assert!(
+                h.query_by_label_contains("Random Facing").is_some(),
+                "{name}: no Position menu"
+            );
+            let menu = timed(
+                &mut h,
+                &mut r,
+                &format!("{name}, 2,000 selected, the Position menu open"),
+                "still",
+                rect,
+                Pointer::Rests(at),
+            );
+            h.run_steps(1);
+            assert!(
+                h.query_by_label_contains("Random Facing").is_some(),
+                "{name}: Position closed"
+            );
+            against(
+                &mut lines,
+                &format!("{name}, 2,000 selected, the Position menu open"),
+                rest2,
+                menu,
+            );
+            close_menu(&mut h);
+        }
+        h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+        close(&mut h, &Tab::Area(area));
+    }
+
+    // A17 and A21: the empty area.
+    let name = "empty area";
+    if wanted(&r, name) {
+        let area = scale.empty;
+        let rect = open_area(&mut h, area);
+        let at = rect.center();
+        h.hover_at(at);
+        h.run_steps(3);
+        let rest = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, the pointer still"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        // Paint: radius 25 m, density 50 a tile, one placeable chosen.
+        {
+            let app = h.state_mut();
+            app.palette.tiles = false;
+            app.palette.kind = BlueprintKind::Placeable;
+            app.palette.chosen = ResKey::parse("plc_tree", ResType::UTP).into_iter().collect();
+            let p = &mut app.settings.paint;
+            (p.row, p.fill, p.erase) = (false, false, false);
+            (p.radius_cm, p.density) = (2_500, 50);
+            app.paint = true;
+        }
+        h.run_steps(5);
+        let painting = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Paint at 25 m and 50 a tile, the pointer still"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        let paint = &h.state().area_views[&area].paint;
+        println!("  (Paint's next dab: {} ghosts shown, {} more)", paint.shown, paint.more);
+        assert!(paint.shown > 0, "{name}: Paint shows no next dab");
+        against(
+            &mut lines,
+            &format!("{name}, Paint at 25 m and 50 a tile, the pointer still"),
+            rest,
+            painting,
+        );
+        {
+            let app = h.state_mut();
+            app.paint = false;
+            app.palette.chosen.clear();
+        }
+        h.run_steps(3);
+        // A light being placed (its status line asks for the lights).
+        h.state_mut().palette.placing_light = Some(light);
+        h.run_steps(3);
+        let placing = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, a light being placed, placeables.2da +30,000"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        // (Still in hand, and the area's status line worked out: its
+        // hints name the light from the table of 46,500.)
+        assert_eq!(h.state().palette.placing_light, Some(light), "{name}: no light in hand");
+        assert!(h.query_by_label("32 by 32 tiles").is_some(), "{name}: no status line");
+        against(
+            &mut lines,
+            &format!("{name}, a light being placed, placeables.2da +30,000"),
+            rest,
+            placing,
+        );
+        h.state_mut().palette.placing_light = None;
+        h.run_steps(3);
+        // The area's menu (on the ground): Add Light Here.
+        if let Some(on) = menu_on(&mut h, at, "Add Light Here") {
+            let menu = timed(
+                &mut h,
+                &mut r,
+                &format!("{name}, its menu open, placeables.2da +30,000"),
+                "still",
+                rect,
+                Pointer::Rests(on),
+            );
+            against(
+                &mut lines,
+                &format!("{name}, its menu open, placeables.2da +30,000"),
+                rest,
+                menu,
+            );
+            close_menu(&mut h);
+        }
+        // The resting view once more, after the others (the noise).
+        h.hover_at(at);
+        h.run_steps(3);
+        let again = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, the pointer still, again"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        against(&mut lines, &format!("{name}, timed again (the noise)"), rest, again);
+        close(&mut h, &Tab::Area(area));
+    }
+
+    // A24: the hills, every tile selected.
+    let name = "hills";
+    if wanted(&r, name) {
+        let area = scale.hills;
+        println!("  ({} of the 1,024 tiles of the hills' area sloped)", scale.sloped);
+        let rect = open_area(&mut h, area);
+        let at = rect.center();
+        {
+            let v = h.state_mut().area_views.get_mut(&area).unwrap();
+            v.selection.clear();
+            v.tile_mode = true;
+            v.tile_selection.clear();
+        }
+        h.state_mut().palette.tiles = true;
+        h.hover_at(at);
+        h.run_steps(3);
+        let turn = |app: &mut Moonglow, _: usize| {
+            if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+                o.yaw += 0.01;
+            }
+        };
+        let rest = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Select Tiles on, none selected"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        let rest_turning = timed_with(
+            &mut h,
+            &mut r,
+            &format!("{name}, Select Tiles on, none selected"),
+            "turning",
+            rect,
+            Pointer::Rests(at),
+            turn,
+        );
+        h.state_mut().area_views.get_mut(&area).unwrap().tile_selection =
+            (0..32).flat_map(|y| (0..32).map(move |x| (x, y))).collect();
+        h.run_steps(3);
+        let all = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Select Tiles on, all 1,024 selected"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        let all_turning = timed_with(
+            &mut h,
+            &mut r,
+            &format!("{name}, Select Tiles on, all 1,024 selected"),
+            "turning",
+            rect,
+            Pointer::Rests(at),
+            turn,
+        );
+        against(&mut lines, &format!("{name}, every tile selected"), rest, all);
+        against(
+            &mut lines,
+            &format!("{name}, every tile selected, turning"),
+            rest_turning,
+            all_turning,
+        );
+        {
+            let v = h.state_mut().area_views.get_mut(&area).unwrap();
+            v.tile_mode = false;
+            v.tile_selection.clear();
+        }
+        h.state_mut().palette.tiles = false;
+        close(&mut h, &Tab::Area(area));
+    }
+
+    // A18's rest: Update Instances of the 30,000, no area open.
+    let name = "Update Instances";
+    if wanted(&r, name) {
+        close_areas(&mut h);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+        let rest = timed(
+            &mut h,
+            &mut r,
+            "Update Instances' resting view (nothing open)",
+            "pointer",
+            screen,
+            Pointer::Moves,
+        );
+        let key = ResKey::parse("plc_armoire", ResType::UTP).unwrap();
+        h.state_mut().update_instances_of(vec![key]);
+        h.run_steps(5);
+        let listed = h.state().update_draft.as_ref().map_or(0, |d| d.objects.len());
+        assert_eq!(listed, 30_000, "{name}: not the 30,000 listed");
+        assert!(h.query_by_label("Update 30000").is_some(), "{name}: its foot not drawn");
+        let rows = h
+            .query_all_by(|n| n.label().is_some_and(|l| l.contains("(plc_armoire)")))
+            .map(|n| n.rect())
+            .reduce(|a, b| a.union(b))
+            .unwrap_or(screen);
+        let list = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, 30,000 listed"),
+            "pointer",
+            rows,
+            Pointer::Moves,
+        );
+        against(&mut lines, &format!("{name}, 30,000 listed"), rest, list);
+        let _ = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, 30,000 listed"),
+            "wheel",
+            rows,
+            Pointer::Scrolls,
+        );
+        h.state_mut().update_draft = None;
+        h.run_steps(3);
+    }
+
+    // A22: the 2,000-tile set's Tiles page.
+    let name = "2,000-tile set";
+    if wanted(&r, name) {
+        mg_ui::tileset_view::open_path(h.state_mut(), set_path);
+        h.run_steps(3);
+        let id = h.state().tilesets.last().expect("the tileset open").id;
+        let t = Tab::Tileset(id);
+        let tiles = h
+            .state()
+            .tilesets
+            .iter()
+            .find(|d| d.id == id)
+            .and_then(|d| d.tileset())
+            .map_or(0, |s| s.tiles.len());
+        assert_eq!(tiles, 2_000, "{name}: not 2,000 tiles");
+        let choose = |h: &mut App<'_>, tile: usize| {
+            let d = h.state_mut().tilesets.iter_mut().find(|d| d.id == id).unwrap();
+            d.page = mg_ui::tileset_view::Page::Tiles;
+            d.tile = Some(tile);
+            h.run_steps(5);
+        };
+        let rect = rect_of(h.state(), &t).expect("the tileset's tab");
+        choose(&mut h, 0);
+        let first = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Tiles page, its first tile chosen"),
+            "pointer",
+            rect,
+            Pointer::Moves,
+        );
+        choose(&mut h, 1_999);
+        assert!(
+            h.query_all_by_label_contains("tile 1999").next().is_some(),
+            "{name}: tile 1999 not shown"
+        );
+        let last = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Tiles page, its last tile chosen"),
+            "pointer",
+            rect,
+            Pointer::Moves,
+        );
+        against(&mut lines, &format!("{name}, Tiles page, its last tile chosen"), first, last);
+        let _ = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}, Tiles page, its last tile chosen"),
+            "idle",
+            rect,
+            Pointer::Away,
+        );
+        close(&mut h, &t);
+    }
+    println!(
+        "against their resting views (the line {} µs):\n  {}",
+        UI_LINE.as_micros(),
+        lines.join("\n  ")
+    );
+    r.end();
+}
+
+/// How much more of the interface's time a view may take than the same
+/// view at rest before its cost is one to find (a hundredth of the
+/// budget, the review's line).
+const UI_LINE: Duration = Duration::from_micros(70);
+
+/// A view's frames timed one way (`how`) after a few to settle in, the
+/// pointer doing `pointer` within `rect`: the median of the interface's
+/// pass. `None` where `FRAME_VIEW` leaves it out.
+fn timed(
+    h: &mut App<'_>,
+    r: &mut Report,
+    what: &str,
+    how: &str,
+    rect: egui::Rect,
+    pointer: Pointer,
+) -> Option<Duration> {
+    timed_with(h, r, what, how, rect, pointer, |_, _| {})
+}
+
+fn timed_with(
+    h: &mut App<'_>,
+    r: &mut Report,
+    what: &str,
+    how: &str,
+    rect: egui::Rect,
+    pointer: Pointer,
+    mut each: impl FnMut(&mut Moonglow, usize),
+) -> Option<Duration> {
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) || r.shots {
+        return None;
+    }
+    frames(h, rect, pointer, 4, &mut each);
+    let f = frames(h, rect, pointer, r.count, &mut each);
+    said(r, what, how, &f);
+    Some(pick(f.ui, 0.5))
+}
+
+/// A line for a view's interface time against its resting view's: over
+/// by more than [`UI_LINE`] is "find".
+fn against(lines: &mut Vec<String>, what: &str, rest: Option<Duration>, it: Option<Duration>) {
+    let (Some(rest), Some(it)) = (rest, it) else { return };
+    let micros = |d: Duration| d.as_secs_f64() * 1e6;
+    let by = micros(it) - micros(rest);
+    let verdict = if by > micros(UI_LINE) { "find" } else { "within" };
+    let line =
+        format!("{what}: ui {:.3} ms, at rest {:.3} ms: {by:+.0} µs, {verdict}", ms(it), ms(rest));
+    println!("  {line}");
+    lines.push(line);
+}
+
+/// Closes every area's tab.
+fn close_areas(h: &mut App<'_>) {
+    let shown: Vec<Tab> = (h.state().dock.iter_all_tabs())
+        .map(|(_, t)| t.clone())
+        .filter(|t| matches!(t, Tab::Area(_)))
+        .collect();
+    for t in &shown {
+        close(h, t);
+    }
+}
+
+/// Opens an area and waits until it is drawn whole, its camera over its
+/// middle from 120 m, looking down steeply: where its view is.
+fn open_area(h: &mut App<'_>, area: ResRef) -> egui::Rect {
+    open(h, Tab::Area(area));
+    let begun = Instant::now();
+    loop {
+        h.run_steps(1);
+        let app = h.state();
+        let view = app.area_views.get(&area);
+        let pending = app
+            .viewport
+            .as_ref()
+            .map_or(0, |v| v.renderer.drawn.textures_pending + v.renderer.drawn.game_pending);
+        if view.is_some_and(|v| v.model.is_some() && v.pictures > 0) && pending == 0 {
+            break;
+        }
+        assert!(begun.elapsed() < Duration::from_secs(120), "area {area} not drawn");
+    }
+    let middle = (h.state().area_views[&area].model.as_ref())
+        .map(|m| glam::Vec3::new(m.width as f32 * 5.0, m.height as f32 * 5.0, 0.0))
+        .unwrap_or_default();
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        (o.target, o.pitch, o.distance) = (middle, 0.9, 120.0);
+    }
+    h.run_steps(5);
+    rect_of(h.state(), &Tab::Area(area)).expect("the area's tab")
+}
+
+/// An object `keep` takes (by its place in the model) nearest the view's
+/// middle that a press there would move: its place and where to press.
+fn grip_near(
+    h: &App<'_>,
+    area: ResRef,
+    rect: egui::Rect,
+    keep: impl Fn(usize) -> bool,
+) -> Option<(usize, egui::Pos2)> {
+    let v = h.state().area_views.get(&area)?;
+    let m = v.model.as_ref()?;
+    let mut near: Vec<(f32, usize)> = (m.objects.iter().enumerate())
+        .filter(|(i, o)| keep(*i) && o.kind == mg_area::ObjectKind::Placeable)
+        .filter_map(|(i, o)| Some((v.screen_pos(o.position)?.distance(rect.center()), i)))
+        .collect();
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    near.iter().take(60).find_map(|&(_, i)| Some((i, v.move_grip(i)?)))
+}
+
+/// Opens the area's context menu with a right click at `at` and gives
+/// where its row `row` is (`None`, said, where it is not there).
+fn menu_on(h: &mut App<'_>, at: egui::Pos2, row: &str) -> Option<egui::Pos2> {
+    h.hover_at(at);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    let on = h.query_all_by_label_contains(row).next().map(|n| n.rect().center());
+    if on.is_none() {
+        println!("  (no {row:?} in the area's menu)");
+    }
+    let on = on?;
+    h.hover_at(on);
+    h.run_steps(3);
+    Some(on)
+}
+
+fn close_menu(h: &mut App<'_>) {
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+}
+
+/// The areas [`area_editor_at_scale`] times, in a module of its own.
+struct Scale {
+    path: std::path::PathBuf,
+    /// 32 by 32, 5,000 placeables (`plc_armoire`).
+    placed: ResRef,
+    /// 32 by 32, nothing placed.
+    empty: ResRef,
+    /// 32 by 32 of the Rural tileset's hills.
+    hills: ResRef,
+    /// How many of the hills' tiles are sloped (their corners not all at
+    /// one height).
+    sloped: usize,
+}
+
+/// The module of [`Scale`]: its three areas and five more of 8 by 8 with
+/// 5,000 placeables each (30,000 placed from `plc_armoire` in all).
+fn scale_module(game: &mg_rules::GameData, dir: &std::path::Path) -> Scale {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let mut rng = fastrand::Rng::with_seed(16);
+    let mut m = new_module(game, "Area editor at scale", &mut rng).unwrap();
+    let ttr01 = ResRef::from_str("ttr01").unwrap();
+    let spec = |name: &str, side: u32| AreaSpec {
+        name: name.into(),
+        tileset: ttr01,
+        width: side,
+        height: side,
+    };
+    let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let placed = add_area(&mut m, game, &spec("Placed", 32), &mut rng).unwrap();
+    place(&mut m, game, &bp.root, placed, 5_000, 320.0, &mut rng);
+    for n in 0..5 {
+        let more = add_area(&mut m, game, &spec(&format!("More {n}"), 8), &mut rng).unwrap();
+        place(&mut m, game, &bp.root, more, 5_000, 80.0, &mut rng);
+    }
+    let empty = add_area(&mut m, game, &spec("Empty", 32), &mut rng).unwrap();
+    // The hills: two by two corners raised a step in every four by four,
+    // over the tileset's default terrain.
+    let hills = add_area(&mut m, game, &spec("Hills", 32), &mut rng).unwrap();
+    let set = game.resman.get_named("ttr01", ResType::SET).unwrap();
+    let set = mg_set::Tileset::parse(&set, game.codepage()).unwrap();
+    let index = mg_tiles::TileIndex::new(&set);
+    let mut lattice = mg_tiles::new_area(&index, &set, 32, 32).unwrap();
+    let ground = index.terrain(&set.general.default).unwrap();
+    let up = |v: u32| v % 4 == 1 || v % 4 == 2;
+    for y in 1..32 {
+        for x in 1..32 {
+            let height = i32::from(up(x) && up(y));
+            lattice.set_corner(x, y, mg_tiles::Corner { terrain: ground, height });
+        }
+    }
+    let tiles = mg_tiles::fill(&index, &lattice, &mut rng).unwrap();
+    let mut sloped = 0;
+    for y in 0..32 {
+        for x in 0..32 {
+            let h = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                .map(|(dx, dy)| lattice.corner(x + dx, y + dy).height);
+            sloped += usize::from(h.iter().any(|v| *v != h[0]));
+        }
+    }
+    let key = ResKey::new(hills, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    for (t, p) in are.root.list_mut("Tile_List").unwrap().iter_mut().zip(&tiles) {
+        t.set("Tile_ID", Value::Int(p.tile as i32));
+        t.set("Tile_Orientation", Value::Int(i32::from(p.orientation)));
+        t.set("Tile_Height", Value::Int(p.height));
+    }
+    m.set_gff(key, &are).unwrap();
+    let path = dir.join("scale.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    Scale { path, placed, empty, hills, sloped }
+}
+
+/// Places `count` of blueprint `bp` in `area` at random within `span`
+/// meters of its south-west corner.
+fn place(
+    m: &mut mg_module::Module,
+    game: &mg_rules::GameData,
+    bp: &mg_gff::Struct,
+    area: ResRef,
+    count: usize,
+    span: f32,
+    rng: &mut fastrand::Rng,
+) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let placed: Vec<_> = (0..count)
+        .map(|_| {
+            let at = Placement {
+                position: [rng.f32() * span, rng.f32() * span, 0.0],
+                rotation: rng.f32() * 360.0,
+            };
+            instance(&placing, ResType::UTP, bp, at, &[]).unwrap()
+        })
+        .collect();
+    let key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&key).unwrap().unwrap();
+    git.root.set("Placeable List", mg_gff::Value::List(placed));
+    m.set_gff(key, &git).unwrap();
+}
+
+/// The game's placeables.2da with 30,000 more rows (its rows that are not
+/// lights, copied in turn), in the scratch user folder's `override`: the
+/// row of one of the game's lights ("Light, White" or the first).
+fn big_placeables(game: &mg_rules::GameData, user: &std::path::Path) -> usize {
+    let data = game.resman.get_named("placeables", ResType::TWODA).unwrap();
+    let mut t = mg_2da::TwoDa::parse(&data, game.codepage()).unwrap();
+    let is_light = |t: &mg_2da::TwoDa, row: usize| {
+        t.get(row, "ModelName").is_some_and(|m| m.eq_ignore_ascii_case("dag_invisible"))
+            && t.get_int(row, "LightColor").is_some_and(|c| c > 0)
+    };
+    let lights: Vec<usize> = (0..t.len()).filter(|&row| is_light(&t, row)).collect();
+    let others: Vec<usize> = (0..t.len())
+        .filter(|&row| !is_light(&t, row) && t.get(row, "ModelName").is_some())
+        .collect();
+    let columns = t.columns().len();
+    for k in 0..30_000 {
+        let from = others[k % others.len()];
+        let row = t.add_row();
+        for c in 0..columns {
+            let value = t.cell(from, c).map(str::to_string);
+            t.set(row, c, value).unwrap();
+        }
+    }
+    std::fs::write(user.join("override/placeables.2da"), t.to_bytes(game.codepage()).unwrap())
+        .unwrap();
+    let white = lights.iter().copied().find(|&row| t.get(row, "Label") == Some("Light, White"));
+    white.or(lights.first().copied()).expect("a light in placeables.2da")
+}
+
+/// The Rural tileset's `.set` with its tiles copied in turn to 2,000 (the
+/// copies' sections after its groups, where a scan from the first line
+/// goes farthest), in the scratch folder.
+fn big_tileset(game: &mg_rules::GameData, dir: &std::path::Path) -> std::path::PathBuf {
+    let data = game.resman.get_named("ttr01", ResType::SET).unwrap();
+    let mut f = mg_set::edit::SetFile::parse(&String::from_utf8_lossy(&data));
+    let n: usize = f
+        .entries("TILES")
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Count"))
+        .and_then(|(_, v)| v.trim().parse().ok())
+        .expect("a tile count");
+    for j in n..2_000 {
+        let entries = f.entries(&format!("TILE{}", j % n));
+        f.add_section(&format!("TILE{j}"), &entries);
+    }
+    f.set("TILES", "Count", "2000");
+    let path = dir.join("set").join("ttr01.set");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, f.text()).unwrap();
+    path
 }

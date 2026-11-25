@@ -1953,21 +1953,44 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     // On the ground the pointer picks (some tilesets build theirs above the
     // tiles' heights), smoothed, and past `BOXES_MESHED` lines as one mesh
     // (`outlines`).
-    let stroke = egui::Stroke::new(2.0, blue);
-    let mut lines = Vec::with_capacity(view.tile_selection.len() * 4);
-    for &(x, y) in &view.tile_selection {
-        let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-        let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z) else {
-            continue;
-        };
-        if crate::area_view::beside(&screen, view.rect) {
-            continue;
+    // (Kept while the camera, the view, the area and the tiles selected
+    // stay as they were.)
+    let at = crate::area_view::OverlayKey::of(view);
+    let kept = at.and_then(|at| {
+        let kept = view.tile_lines_kept.borrow();
+        let (was, shapes) = kept.as_ref()?;
+        let same =
+            (was.at, was.revision) == (at, view.revision) && was.tiles == view.tile_selection;
+        same.then(|| shapes.clone())
+    });
+    let shapes = kept.unwrap_or_else(|| {
+        let stroke = egui::Stroke::new(2.0, blue);
+        let mut lines = Vec::with_capacity(view.tile_selection.len() * 4);
+        for &(x, y) in &view.tile_selection {
+            let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
+            let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z) else {
+                continue;
+            };
+            if crate::area_view::beside(&screen, view.rect) {
+                continue;
+            }
+            for k in 0..screen.len() {
+                lines.push(([screen[k], screen[(k + 1) % screen.len()]], stroke));
+            }
         }
-        for k in 0..screen.len() {
-            lines.push(([screen[k], screen[(k + 1) % screen.len()]], stroke));
+        let shapes = crate::area_view::outlines(&lines);
+        if let Some(at) = at {
+            let key = crate::area_view::TileLinesKey {
+                at,
+                revision: view.revision,
+                tiles: view.tile_selection.clone(),
+            };
+            *view.tile_lines_kept.borrow_mut() = Some((key, shapes.clone()));
         }
-    }
-    painter.extend(crate::area_view::outlines(&lines).iter().cloned());
+        view.tile_lines_made.set(view.tile_lines_made.get() + 1);
+        shapes
+    });
+    painter.extend(shapes.iter().cloned());
     // The pasted block, under the pointer (over the view, not over a
     // window in front of it).
     if view.tile_pasting
