@@ -1204,22 +1204,6 @@ contribution itself states as not done or not checked.
   `[TILE1869573190]` (one section, no hang). What to do with a file
   whose count lies is asked. (S) (what the fixers of the review of
   November 2026 saw on the way)
-- **A tileset kept in the module, changed, not redrawn in open areas:**
-  the areas and the Tiles palette draw a tileset from the game data
-  (`GameData`, the install, haks, override and development folders),
-  which a tileset changed outside in one of those is read again into
-  (M5's W5) with every area view reloaded; a `.set` kept inside the
-  module (or put into it) changes only the game data's module layer,
-  in place (`update_module_layer`, which forgets the tables for a 2DA,
-  the Appearance marks for a model and the drawn textures, not the
-  tilesets read nor the areas drawn from them), so an open area keeps
-  drawing the tileset as it was until it is opened again. Redrawing
-  them means dropping the game data's tileset and every area and
-  palette made from it on a module change too, which reloads every
-  open area for any `.set` change of the module's: a change to how the
-  module layer and the views meet, beyond what the answer asked (the
-  editor's own file, at any path, is read again).
-  (M) (the review of M5's W5)
 
 ## The install, starting and crashes
 
@@ -1466,60 +1450,6 @@ log.
   Aurora with a fenced patch as for return types. (S) (a builder's
   report, November 2026)
 
-- **xtul's mirror at full size in the game:** the client draws a
-  dynamic placeable with Scale 0.46 at 0.46 (`visual_transforms_look`),
-  upright and turned on its stand by X Rotation -50.8; at full size and
-  unturned only when it is static. Whether his mirror is static in the
-  module the game ran (a build step that makes placeables static, or
-  Static ticked after the transform), or the full size was by eye,
-  would settle it. (S) (xtul's report, October 2026)
-
-- **The rectangle by two clicks on a builder's Linux:** 1.25.1 made the
-  right Alt place it, which was not his trouble; the next release has Alt
-  pressed and let go before the click, on the reading that his window
-  manager keeps a click with Alt held (the rectangle went when he
-  clicked and came back when Alt was pressed again). Not seen on his
-  system: his word that it places would settle it. (a builder's report,
-  October 2026)
-- **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page of every kind is walked whole, top to bottom on
-  the window's one scroll, at four window sizes at 100% interface size
-  (`blueprint_editor_pages_draw_nothing_over_anything_else`, since M4's
-  U9) and none draws over another. A screenshot, or the page and the
-  interface size, would find it. (S) (a senior builder's review, October
-  2026)
-- **A drag on a number field moving objects in the area behind:**
-  reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the
-  Properties panel beside the area since M4's U6,
-  `a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`). (needs the
-  steps) (a second builder's review, October 2026)
-- **"It kept randomly exiting"** on a persistent world's module (ten
-  times before it stayed open), reported without a log. One cause was
-  found and fixed: the compiler walks a script by recursion, and a very
-  long `else if` chain or expression overflowed the stack of the thread
-  it ran on, which ends the program at once and leaves no crash report
-  (a 60,000-link chain did it on Linux; Windows' main thread has an
-  eighth of that stack). Compiles run on a stack of their own now.
-  Whether that was the reporter's crash isn't known: asked for the debug
-  log (Options › General) and what was being done. (needs the log)
-  (from builders' reports after 1.14.1)
-- **A hak's 2DA not seen until a restart** (a builder: a creature
-  showed "appearance.2da has no row 8241", from a hak above CEP's whose
-  table has more rows; gone after restarting Moonglow): not reproduced.
-  Haks and folders that change on disk are read again every few seconds
-  and their tables forgotten, which a test holds for the override
-  folder. Suspected and not shown: `reload_resources` and `sync_haks`
-  give up without a word while anything else holds the game data (a
-  job), and try again later; on Windows a hak Moonglow has open cannot
-  be replaced by another program at all, so a hak tool may have failed
-  to write it. If it comes back: the log around it, and whether Tools ›
-  Reload Resources cures it. While
-  something else holds the game data, the look is put off and the
-  debug log says so ("the game data is held"), which would show this.
-  (S–M) (from builders' reports after 1.19.1)
-- **"Area transitions can't be selected visually":** not understood;
-  asked.
 
 ## Settled: as it is, by decision or by design
 

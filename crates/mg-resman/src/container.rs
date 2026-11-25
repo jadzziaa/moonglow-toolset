@@ -78,6 +78,11 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
         None
     }
+    /// The container as a [`MemContainer`], to read its resources' shared
+    /// data (whether one is another now); `None` for others.
+    fn as_mem(&self) -> Option<&MemContainer> {
+        None
+    }
 }
 
 impl<T: Container + ?Sized> Container for Arc<T> {
@@ -140,6 +145,10 @@ impl<T: Container + ?Sized> Container for Arc<T> {
 
     fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
         Arc::get_mut(self).and_then(|c| c.as_mem_mut())
+    }
+
+    fn as_mem(&self) -> Option<&MemContainer> {
+        (**self).as_mem()
     }
 }
 
@@ -553,6 +562,10 @@ impl Container for MemContainer {
     }
 
     fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
+        Some(self)
+    }
+
+    fn as_mem(&self) -> Option<&MemContainer> {
         Some(self)
     }
 }

@@ -546,6 +546,63 @@ fn a_panel_header_s_detail_is_12_after_its_title() {
     assert_eq!(title.left() - 8.0, shell::DOCK_TAB_PADDING, "the harness's margin, then 10");
 }
 
+/// A panel header's badges: after its title in the order given, each a
+/// label named by its words, the detail after the last (the viewer's
+/// diagnostics' error and warning counts).
+#[test]
+fn a_panel_header_s_badges_follow_its_title() {
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        PanelHeader::new("Diagnostics")
+            .badge(mg_uikit::Badge::new("3").kind(mg_uikit::BadgeKind::Error))
+            .badge(mg_uikit::Badge::new("12").kind(mg_uikit::BadgeKind::Warn))
+            .detail("c_golemerald")
+            .show(ui, |_| {});
+    });
+    h.run();
+    h.run();
+    let words = texts(&h);
+    let at = |w: &str| words.iter().find(|(t, _)| t == w).map(|(_, r)| *r).unwrap();
+    let (title, detail) = (at("Diagnostics"), at("c_golemerald"));
+    let (errors, warnings) = (h.get_by_label("3").rect(), h.get_by_label("12").rect());
+    assert_eq!(errors.left() - title.right(), shell::DOCK_TAB_BADGE_GAP, "{title:?} {errors:?}");
+    assert_eq!(warnings.left() - errors.right(), shell::DOCK_TAB_BADGE_GAP);
+    assert_eq!(detail.left() - warnings.right(), shell::PANEL_DETAIL_GAP);
+    h.get_by_label("Diagnostics");
+}
+
+/// A document tab's close button: named as asked, its tip "Close this
+/// tab", clicked where it is, its state Hovered under the pointer.
+#[test]
+fn a_document_tab_s_close_button_is_named_and_clicked() {
+    use mg_uikit::icons::ButtonState;
+    let clicks = Cell::new(0);
+    let state = Cell::new(ButtonState::Rest);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let tab = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(140.0, 30.0));
+        let parts = shell::doc_tab_parts(tab, 80.0, false);
+        let (r, drawn) = shell::doc_tab_close(
+            ui,
+            egui::Id::new("close"),
+            (ui.layer_id(), tab),
+            parts.close,
+            "Close map_m1q1a",
+        );
+        state.set(drawn);
+        if r.clicked() {
+            clicks.set(clicks.get() + 1);
+        }
+    });
+    h.run();
+    h.get_by_label("Close map_m1q1a").hover();
+    h.run();
+    assert_eq!(state.get(), ButtonState::Hovered);
+    h.get_by_label("Close map_m1q1a").click();
+    h.run();
+    assert_eq!(clicks.get(), 1);
+}
+
 /// The Top Bar's middle slot: centered in the room the two groups leave,
 /// at most the cap wide (and less where the room is less); the group
 /// named "Top Bar".
