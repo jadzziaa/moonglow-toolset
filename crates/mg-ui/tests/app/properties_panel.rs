@@ -1551,9 +1551,20 @@ fn rearrange_right_dock_and_half_height_on_ultrawide() {
     let bar = h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Palette").rect();
     assert!(h.get_by_label(OPEN_IN_TAB).rect().top() > bar.bottom());
 
-    // Drag Properties header up onto Palette | Preview tab bar -> combines into One Tab Bar.
+    // Let go over the Left Dock: the toolset keeps its panels in their
+    // own dock, so the drop lands nowhere.
     let props_header = h.get_by_label(OPEN_IN_TAB).rect();
     let drag_from = egui::pos2(props_header.left() - 60.0, props_header.center().y);
+    let left = left_dock_rect(&h);
+    drag(&mut h, drag_from, left.center());
+    settle(&mut h);
+    assert_eq!(
+        h.state().settings.area_right_layout,
+        Some(mg_ui::settings::AreaRightLayout::stacked()),
+        "a drop over the Left Dock moves nothing"
+    );
+
+    // Drag Properties header up onto Palette | Preview tab bar -> combines into One Tab Bar.
     let drag_to = bar.center();
     drag(&mut h, drag_from, drag_to);
     settle(&mut h);

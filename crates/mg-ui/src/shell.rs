@@ -71,7 +71,7 @@
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
-use mg_uikit::stack::StackZone;
+use mg_uikit::stack::{DropSection, StackDrop, StackZone};
 use mg_uikit::status::{
     self, Hint, HintPart, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch,
 };
@@ -1750,13 +1750,7 @@ enum AreaRightCommand {
     ResetLayout,
 }
 
-struct AreaSectionBox {
-    col: usize,
-    sec: usize,
-    rect: egui::Rect,
-    panels: Vec<Panel>,
-    tabs: Vec<(Panel, egui::Rect)>,
-}
+type AreaSectionBox = DropSection<Panel>;
 
 /// `dragged` dropped at `zone` in the area's Right Dock as `layout`
 /// arranges it: the arrangement it makes (the kit's rules, `StackLayout::apply`).
@@ -1783,20 +1777,10 @@ fn area_drop(
         app.right_dock_drag = None;
         return;
     };
-    let t = mg_uikit::tokens(ui.ctx());
     let pointer = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
     let drop = pointer.and_then(|pos| area_drop_target(app, pane, dragged, pos, section_boxes));
     if let Some((_, preview)) = drop {
-        let layer =
-            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("right-dock-drop-preview"));
-        let painter = ui.ctx().layer_painter(layer);
-        painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
-        painter.rect_stroke(
-            preview,
-            2.0,
-            egui::Stroke::new(2.0, t.accent),
-            egui::StrokeKind::Inside,
-        );
+        mg_uikit::stack::paint_drop_preview(ui.ctx(), preview);
     }
     if !ui.input(|i| i.pointer.any_down()) {
         if let Some((zone, _)) = drop
@@ -1810,6 +1794,9 @@ fn area_drop(
     }
 }
 
+/// Where `dragged` lands in the area's Right Dock with the pointer at
+/// `pos` (the kit's [`StackDrop`]): the Right Dock alone takes it, so a
+/// panel let go over the Left or Bottom Dock lands nowhere.
 fn area_drop_target(
     app: &Moonglow,
     pane: egui::Rect,
@@ -1818,69 +1805,15 @@ fn area_drop_target(
     boxes: &[AreaSectionBox],
 ) -> Option<(StackZone, egui::Rect)> {
     let dragged_ap = to_area_panel(dragged)?;
-    if !pane.contains(pos) {
-        return None;
-    }
-    let bar_h = mg_uikit::metrics::DOCK_TABS + 4.0;
-    let base = active_area_right_base(app);
-    // 1. Over a section's tab bar: reorder tab within the section or add to another section's tab bar.
-    for b in boxes {
-        let header_rect = b.rect.with_max_y((b.rect.top() + bar_h).min(b.rect.bottom()));
-        if header_rect.contains(pos) {
-            if b.panels.contains(&dragged) {
-                if b.panels.len() > 1 {
-                    for (idx, (p, tr)) in b.tabs.iter().enumerate() {
-                        if *p != dragged && tr.contains(pos) {
-                            return Some((
-                                StackZone::Tab { col: b.col, sec: b.sec, index: idx },
-                                *tr,
-                            ));
-                        }
-                    }
-                }
-                continue;
-            }
-            return Some((StackZone::Into { col: b.col, sec: b.sec }, header_rect));
-        }
-    }
-    // 2. Outer left/right column edges on ultrawide when removing the dragged panel leaves <= 1 column.
-    if app.yields.wide {
-        let remaining =
-            base.stack().normalized(&crate::settings::AREA_RIGHT_RULES).without(dragged_ap);
-        if remaining.columns.len() <= 1 {
-            let edge = (pane.width() * 0.18).max(40.0).min(pane.width() * 0.4);
-            if pos.x <= pane.left() + edge {
-                let preview = pane.with_max_x(pane.center().x);
-                return Some((StackZone::Column { last: false }, preview));
-            }
-            if pos.x >= pane.right() - edge {
-                let preview = pane.with_min_x(pane.center().x);
-                return Some((StackZone::Column { last: true }, preview));
-            }
-        }
-    }
-    // 3. Over a section body: top -> split above, bottom -> split below, middle -> combine into tab bar.
-    for b in boxes {
-        if !b.rect.contains(pos) {
-            continue;
-        }
-        let only_self = b.panels == [dragged];
-        if only_self {
-            continue;
-        }
-        let h = b.rect.height();
-        let rel = (pos.y - b.rect.top()) / h.max(1.0);
-        if rel < 0.30 {
-            let preview = b.rect.with_max_y(b.rect.top() + h * 0.5);
-            return Some((StackZone::Above { col: b.col, sec: b.sec }, preview));
-        }
-        if rel > 0.70 {
-            let preview = b.rect.with_min_y(b.rect.top() + h * 0.5);
-            return Some((StackZone::Below { col: b.col, sec: b.sec }, preview));
-        }
-        return Some((StackZone::Into { col: b.col, sec: b.sec }, b.rect));
-    }
-    None
+    let rules = &crate::settings::AREA_RIGHT_RULES;
+    let drop = StackDrop {
+        pane,
+        sections: boxes,
+        bar_height: mg_uikit::metrics::DOCK_TABS + 4.0,
+        new_columns: app.yields.wide
+            && active_area_right_base(app).stack().room_for_column(rules, dragged_ap),
+    };
+    drop.target(dragged, pos)
 }
 
 fn show_area_context_menu(
