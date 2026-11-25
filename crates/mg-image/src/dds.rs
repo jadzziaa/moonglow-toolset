@@ -28,6 +28,21 @@ pub fn is_gray(data: &[u8]) -> bool {
             .is_some_and(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]) & DDPF_LUMINANCE != 0)
 }
 
+/// Whether a DDS is of luminance alone: a standard one whose pixel format
+/// is luminance with no alpha (the one channel an 8 or 16 bit
+/// uncompressed DDS keeps). The game draws it in colors of no rule (a gray
+/// of 60 blue, of 128 dark red, of 0 and 255 black), where it draws the
+/// same gray as a DXT1 or a true-color TGA in gray (`part_textures_look`
+/// in mg-corpus-tests' `client_render.rs`, rows R to U). Too short a
+/// header: not.
+pub fn is_luminance_alone(data: &[u8]) -> bool {
+    let flags = data
+        .get(80..84)
+        .filter(|_| data.starts_with(b"DDS "))
+        .map(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]));
+    flags.is_some_and(|f| f & DDPF_LUMINANCE != 0 && f & (DDPF_ALPHAPIXELS | DDPF_FOURCC) == 0)
+}
+
 /// Reads either kind of DDS.
 pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     if data.starts_with(b"DDS ") { standard(data) } else { bioware(data) }
@@ -319,6 +334,14 @@ mod tests {
         assert!(!is_gray(&header(DDPF_RGB)) && !is_gray(&header(DDPF_FOURCC)));
         assert!(!is_gray(&header(DDPF_LUMINANCE)[..82]));
         assert!(!is_gray(&[0; 128]));
+        // Luminance alone (the game misdraws it): not with alpha, a FourCC,
+        // a BioWare DDS or a short file.
+        assert!(is_luminance_alone(&header(DDPF_LUMINANCE)));
+        assert!(!is_luminance_alone(&header(DDPF_LUMINANCE | DDPF_ALPHAPIXELS)));
+        assert!(!is_luminance_alone(&header(DDPF_LUMINANCE | DDPF_FOURCC)));
+        assert!(!is_luminance_alone(&header(DDPF_RGB)));
+        assert!(!is_luminance_alone(&header(DDPF_LUMINANCE)[..82]));
+        assert!(!is_luminance_alone(&[0; 128]));
     }
 
     fn bioware_file(w: u32, h: u32, channels: u32, levels: usize) -> Vec<u8> {

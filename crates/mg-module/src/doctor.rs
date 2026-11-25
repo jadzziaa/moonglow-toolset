@@ -54,6 +54,7 @@ pub enum Check {
     MdlText,
     MtrName,
     MtrTexture,
+    DdsLuminance,
     ShaderCompile,
     ShaderPair,
     TwoDaRow,
@@ -98,7 +99,7 @@ pub enum Check {
 macro_rules! check_table {
     ($(($variant:ident, $id:expr, $group:ident, $about:expr),)+) => {
         impl Check {
-            pub const ALL: [Check; 55] = [$(Check::$variant),+];
+            pub const ALL: [Check; 56] = [$(Check::$variant),+];
 
             pub fn id(self) -> &'static str {
                 match self {
@@ -187,6 +188,13 @@ check_table! {
     ),
     (MtrName, "mtr-name", Models, "a material's texture names fit a resource name"),
     (MtrTexture, "mtr-texture", Models, "a material's textures are in the load order"),
+    (
+        DdsLuminance,
+        "dds-luminance",
+        Models,
+        "a DDS of one luminance channel, which the game draws in the wrong colors, has a \
+         PLT of its name"
+    ),
     (
         ShaderCompile,
         "shader-compile",
@@ -1059,7 +1067,12 @@ pub fn examine_groups(
             for key in layer.container.keys() {
                 if !matches!(
                     key.restype,
-                    ResType::SET | ResType::TWODA | ResType::MTR | ResType::MDL | ResType::SHD
+                    ResType::SET
+                        | ResType::TWODA
+                        | ResType::MTR
+                        | ResType::MDL
+                        | ResType::SHD
+                        | ResType::DDS
                 ) {
                     continue;
                 }
@@ -1083,6 +1096,7 @@ pub fn examine_groups(
         ResType::SET => Some(("tilesets", Group::Tilesets)),
         ResType::TWODA => Some(("2das", Group::Tables)),
         ResType::MTR => Some(("materials", Group::Models)),
+        ResType::DDS => Some(("textures", Group::Models)),
         ResType::MDL => Some(("models", Group::Models)),
         _ => None,
     };
@@ -1094,6 +1108,7 @@ pub fn examine_groups(
             runs(&[TwoDaRow, TwoDaRead, TwoDaLimit, TwoDaShadow, TwoDaStrRef, TwoDaRef])
         }
         ResType::MTR => runs(&[MtrName, MtrTexture]),
+        ResType::DDS => runs(&[DdsLuminance]),
         ResType::MDL => runs(&[MdlText]),
         _ => false,
     };
@@ -1124,6 +1139,7 @@ pub fn examine_groups(
                 ResType::SET => tileset(&mut d, source, *key, layer),
                 ResType::TWODA => two_da(&mut d, source, *key, layer),
                 ResType::MTR => material(&mut d, source, *key, layer),
+                ResType::DDS => texture(&mut d, source, *key, layer),
                 ResType::MDL => model_text(&mut d, source, *key, layer),
                 _ => {}
             }
@@ -2054,6 +2070,36 @@ fn material(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
             );
         }
     }
+}
+
+/// A custom DDS of one luminance channel, which the game draws in colors
+/// of no rule (a gray of 60 blue, 128 dark red, 0 and 255 black; Moonglow
+/// draws it gray). Where the game draws a PLT of the name over it (on a
+/// creature's or an item's colored part: a gray texture loses to its
+/// PLT, as the renderer reads it), or another copy is the one it takes,
+/// nothing is said. Only the file's start is read.
+fn texture(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    if d.skip.check(Check::DdsLuminance) {
+        return;
+    }
+    let Ok(start) = d.rm.layers()[layer].container.read_start(&key, 128) else { return };
+    if !mg_image::dds::is_luminance_alone(&start)
+        || d.rm.texture_layer(key.resref) != Some((ResType::DDS, layer))
+        || d.rm.contains(&ResKey::new(key.resref, ResType::PLT))
+    {
+        return;
+    }
+    d.push(
+        Severity::Warning,
+        Check::DdsLuminance,
+        source,
+        key,
+        "",
+        "a DDS of one luminance channel: the game draws it in the wrong colors (a gray comes \
+         out blue or dark red, black and white black); save it as a DXT1 DDS or a true-color \
+         TGA"
+        .to_string(),
+    );
 }
 
 /// The custom content's shader programs that don't compile: those its
@@ -5252,6 +5298,64 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(!left.iter().any(|c| c.starts_with("set-") || c == "mdl-read"), "{left:?}");
         assert!(left.contains(&"mtr-name".to_string()), "{left:?}");
         assert!(!read_left.contains(&ResType::SET), "{read_left:?}");
+    }
+
+    /// A DDS of the standard header and one pixel format: luminance (with
+    /// alpha or not), or true color; 4×4, its one level.
+    fn standard_dds(flags: u32, bits: u32) -> Vec<u8> {
+        let mut h = b"DDS ".to_vec();
+        for x in [124u32, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000, 4, 4, 0, 0, 1] {
+            h.extend(x.to_le_bytes());
+        }
+        h.extend([0; 44]);
+        for x in [32u32, flags, 0, bits, 0xFF, 0, 0, 0, 0x1000, 0, 0, 0, 0] {
+            h.extend(x.to_le_bytes());
+        }
+        h.extend(vec![60; 16 * (bits as usize / 8)]);
+        h
+    }
+
+    /// A DDS of one luminance channel is drawn by the game in colors of no
+    /// rule: said (`dds-luminance`) of custom content, but not where a PLT
+    /// of the name is in the load order, nor of a DDS the game doesn't
+    /// take (another copy of the name is drawn), nor of a true-color or a
+    /// luminance-and-alpha one.
+    #[test]
+    fn a_dds_of_one_luminance_channel_is_said() {
+        let lum = standard_dds(0x2_0000, 8);
+        let both = standard_dds(0x2_0000 | 0x1, 16);
+        let color = standard_dds(0x40 | 0x1, 32);
+        let hak: &[(&str, ResType, &[u8])] = &[
+            ("lum_a", ResType::DDS, &lum),
+            ("lum_plt", ResType::DDS, &lum),
+            ("lum_plt", ResType::PLT, b"PLT V1  "),
+            ("lum_alpha", ResType::DDS, &both),
+            ("color", ResType::DDS, &color),
+            ("short", ResType::DDS, b"DDS "),
+            ("lum_hidden", ResType::DDS, &lum),
+        ];
+        let mut rm = resman(hak);
+        // (A copy of a higher class, a folder's true-color TGA, is the one drawn.)
+        let mut over = MemContainer::new();
+        over.insert(key("lum_hidden", ResType::TGA), vec![0; 32]);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let said: Vec<_> = f.iter().filter(|f| f.check == "dds-luminance").collect();
+        assert_eq!(said.len(), 1, "{f:?}");
+        assert_eq!(
+            (said[0].resource.to_string(), said[0].severity),
+            ("lum_a.dds".into(), Severity::Warning)
+        );
+        assert!(said[0].message.contains("DXT1") && said[0].message.contains("true-color TGA"));
+        let none = examine_groups(
+            &Module::new(),
+            &rm,
+            TalkTables::default(),
+            &Skip::parse(&["dds-luminance"]).unwrap(),
+            &mut Timings::default(),
+            None,
+        );
+        assert!(none.iter().all(|f| f.check != "dds-luminance"));
     }
 
     /// A hak's models are read once: what was found of each (a text's
