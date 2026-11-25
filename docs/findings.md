@@ -1384,7 +1384,13 @@ in Moonglow until its map was the area's. A placeable's `chrome1` is the
 placeable's alone. And on a placeable whose `Reflection` is `default`, a
 texture's TXI `envmaptexture` naming a map is not taken: the client
 keeps `chrome1` (the TXI's gradient did not show), where Moonglow
-reflected the named one.
+reflected the named one. A held item's top still differs in brightness
+either way, from 30 below the client's to 46 above it (a shield's top:
+95 82 73 in the client, 142 125 112 in Moonglow). The pictures put this
+down to the pose, not the shading: each man holds his box at another
+angle in the client, at his own phase of the idle animation, so the tops
+face other parts of the map. The sides match to a level or two, and the
+Shaders switch changes nothing.
 
 - **Checked:** `chrome1_helmet_reflection_look` (2026-11-25; a worn
   `helm_241` box, a held shield and a held long sword, with
