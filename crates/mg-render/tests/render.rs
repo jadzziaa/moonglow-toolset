@@ -6678,6 +6678,96 @@ fn high_shadows_darken_exactly_the_volume_s_footprint() {
     }
 }
 
+/// High's stencil volumes made apart (`Renderer::volumes_apart`, as the
+/// area view has them): a frame never makes a mesh's volume itself. While
+/// the making is held, every frame draws the cube without its shadow, its
+/// caster counted as waiting, and no volume is kept; let go, the frames
+/// after show the shadow as a frame that makes them draws it, to the bit.
+/// The renderer keeps the volumes (not the meshes): they are let go of
+/// with their model, whichever way they were made.
+#[test]
+fn high_shadows_volumes_are_made_apart_and_let_go_with_their_model() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let cube = Arc::new(GpuModel::new(&gpu, Arc::new(cube())));
+    let scene = move |opacity: Option<f32>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(8.0)))
+            },
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(cube.clone(), Mat4::from_translation(Vec3::new(-0.5, -0.5, 1.0)))
+            },
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::new(0.8, 0.6, 1.0).normalize(),
+        },
+        shadows: opacity.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (96u32, 96u32);
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let samples = gpu.samples(4);
+    let bare = Renderer::new(&gpu, format, samples).render_image(
+        &gpu,
+        &NoAssets,
+        &scene(None),
+        &camera,
+        w,
+        h,
+    );
+    let shadowed = scene(Some(0.5));
+    // In the frame (a picture drawn once): the volumes made by it.
+    let mut once = Renderer::new(&gpu, format, samples);
+    once.shadow_volumes = true;
+    let made_in_frame = once.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert_eq!(once.drawn.volumes_pending, 0);
+    let kept = once.shadow_volumes_kept();
+    assert!(kept >= 1, "the cube's volume kept: {kept}");
+    assert_ne!(made_in_frame.data, bare.data, "the cube's shadow drawn");
+    // Apart, held: no frame makes one.
+    let mut r = Renderer::new(&gpu, format, samples);
+    r.shadow_volumes = true;
+    r.volumes_apart = true;
+    r.hold_volumes(true);
+    for frame in 0..3 {
+        let picture = r.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        assert!(r.drawn.volumes_pending >= 1, "frame {frame}: {:?}", r.drawn);
+        assert_eq!(r.shadow_volumes_kept(), 0, "frame {frame}: none made by the frame");
+        assert_eq!(picture.data, bare.data, "frame {frame}: drawn without the shadow");
+    }
+    // Let go: shown in a frame after they are made.
+    r.hold_volumes(false);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let picture = loop {
+        let picture = r.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        if r.drawn.volumes_pending == 0 {
+            break picture;
+        }
+        assert!(std::time::Instant::now() < deadline, "the volumes never came");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(r.shadow_volumes_kept(), kept);
+    assert_eq!(picture.data, made_in_frame.data, "as a frame that makes them draws it");
+    // The models gone: their volumes let go of at the next frame.
+    drop((shadowed, scene));
+    for renderer in [&mut r, &mut once] {
+        renderer.render_image(&gpu, &NoAssets, &Scene::default(), &camera, w, h);
+        assert_eq!(renderer.shadow_volumes_kept(), 0, "let go with their model");
+    }
+}
+
 /// What the lights' shadows cost at their most: as many creatures as cast
 /// them at once ([`mg_render`]'s 16), each with a light, over a ground
 /// that receives, at the development machine's screen (3440×1440, 4×

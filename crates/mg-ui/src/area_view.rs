@@ -3925,7 +3925,8 @@ fn viewport(
     if kept
         && let Some(s) = since
         && (vp.renderer.textures_read() != view.textures_drawn
-            || vp.renderer.drawn.textures_pending > 0)
+            || vp.renderer.drawn.textures_pending > 0
+            || vp.renderer.drawn.volumes_pending > 0)
     {
         crate::jobs::repaint_in(ui.ctx(), f64::from(ANIMATION_STEP - s));
     }
@@ -4022,6 +4023,10 @@ fn viewport(
         // kept going: a large area's took seconds. A model shows once its
         // textures are read.)
         vp.renderer.textures_apart = background;
+        // (And the casters' stencil volumes made apart: a large area's
+        // first frame with High made them for 20 ms. A caster casts its
+        // shadow once its volume is made.)
+        vp.renderer.volumes_apart = background;
         if background && let Some(game) = &game_arc {
             let from = vp.textures_from(game);
             vp.renderer.read_textures_apart(&vp.gpu, Some(from));
@@ -4035,12 +4040,14 @@ fn viewport(
         view.watching.after_drawing(vp, &frame, &failed, ground, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
+        vp.renderer.volumes_apart = false;
         view.textures_drawn = vp.renderer.textures_read();
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }
     // (What the picture still waits for: drawn again when it comes.)
-    let pending = vp.renderer.drawn.textures_pending > 0 || vp.renderer.drawn.game_pending > 0;
+    let drawn = &vp.renderer.drawn;
+    let pending = drawn.textures_pending > 0 || drawn.game_pending > 0 || drawn.volumes_pending > 0;
     let watch_failed = view.watching.read(vp, &view.area.to_string());
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))

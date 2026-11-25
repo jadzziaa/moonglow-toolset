@@ -491,9 +491,17 @@ pub struct Renderer {
     /// on; off (the default), a shadow map stands in for them (Fast:
     /// cheaper, its edges a texel of the map wide).
     pub shadow_volumes: bool,
-    /// The stencil volumes' pipelines, made at the first frame with
-    /// [`Renderer::shadow_volumes`].
+    /// The stencil volumes' pipelines and the meshes' volumes, made at the
+    /// first frame with [`Renderer::shadow_volumes`].
     volumes: Option<crate::volume::ShadowVolumes>,
+    /// The meshes' shadow volumes not made yet are made apart from the
+    /// frames, on threads of their own, a caster casting nothing until its
+    /// volume is ([`Drawn::volumes_pending`]): a large area's first frame
+    /// with High made them for 20 ms. Off (pictures drawn once, tests),
+    /// a frame makes them. Off by default.
+    pub volumes_apart: bool,
+    /// Nothing is made apart while it is on ([`Renderer::hold_volumes`]).
+    volumes_held: Arc<std::sync::atomic::AtomicBool>,
     /// Shiny water is drawn by the game's programs this frame: they are
     /// on, [`Renderer::game_water`], and the target has its copies.
     water_now: bool,
@@ -715,6 +723,10 @@ pub struct Drawn {
     /// ([`Renderer::read_textures_apart`]): a frame drawn again once they
     /// are shows them.
     pub textures_pending: usize,
+    /// The casters that cast no stencil volume for theirs still being made
+    /// apart ([`Renderer::volumes_apart`]): a frame drawn again once they
+    /// are shows their shadows.
+    pub volumes_pending: usize,
     /// The sun's shadow map's casters, and the creatures casting the
     /// lights' shadows.
     pub sun_casters: usize,
@@ -1488,6 +1500,8 @@ impl Renderer {
             shadow_maps: None,
             shadow_volumes: false,
             volumes: None,
+            volumes_apart: false,
+            volumes_held: Default::default(),
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: Default::default(),
@@ -2264,7 +2278,22 @@ impl Renderer {
     /// ([`crate::watch::Observation::progress`]).
     pub fn progress(&self) -> u64 {
         let s = &self.game.stats;
-        self.textures_read() + (s.pipelines + s.failed) as u64
+        let volumes = self.volumes.as_ref().map_or(0, |v| v.meshes.taken);
+        self.textures_read() + (s.pipelines + s.failed) as u64 + volumes
+    }
+
+    /// How many meshes' shadow volumes the renderer keeps
+    /// ([`Renderer::shadow_volumes`]): let go of with their models, or
+    /// when none of a model's has been cast for half a minute.
+    pub fn shadow_volumes_kept(&self) -> usize {
+        self.volumes.as_ref().map_or(0, |v| v.meshes.count())
+    }
+
+    /// Holds the making of shadow volumes apart ([`Renderer::volumes_apart`])
+    /// while `held`: those asked for wait (for a test).
+    #[doc(hidden)]
+    pub fn hold_volumes(&mut self, held: bool) {
+        self.volumes_held.store(held, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Takes the textures read apart since the last frame.
@@ -2407,6 +2436,9 @@ impl Renderer {
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
         self.let_go_of_stale_textures();
+        if let Some(v) = &mut self.volumes {
+            v.meshes.begin(self.kept.now);
+        }
         // (A target's copies of its own size only: the game's programs',
         // and Moonglow's soft particles'.)
         let all_copies = copies;
@@ -3611,22 +3643,32 @@ impl Renderer {
                     drop(pass);
                     let format = (self.color_format, self.sample_count);
                     if volumes {
-                        let device = &gpu.device;
-                        self.volumes
-                            .get_or_insert_with(|| crate::volume::ShadowVolumes::new(device))
-                            .lay(
-                                gpu,
-                                &mut encoder,
-                                (target, depth),
-                                format,
-                                (shadow_plan.as_ref(), light_plan.as_ref()),
-                                camera,
-                                size,
-                                scene.fog,
-                                &mut kept_view.stencil,
-                                stable_targets.then_some(&mut kept_view.vol_copy_group),
-                                stable_targets.then_some(&mut kept_view.vol_darken_groups),
+                        let (device, waker) = (&gpu.device, &self.game.waker);
+                        let held = &self.volumes_held;
+                        let now = self.kept.now;
+                        let vols = self.volumes.get_or_insert_with(|| {
+                            let mut v = crate::volume::ShadowVolumes::new(
+                                device,
+                                waker.clone(),
+                                held.clone(),
                             );
+                            v.meshes.begin(now);
+                            v
+                        });
+                        vols.meshes.apart = self.volumes_apart;
+                        self.drawn.volumes_pending = vols.lay(
+                            gpu,
+                            &mut encoder,
+                            (target, depth),
+                            format,
+                            (shadow_plan.as_ref(), light_plan.as_ref()),
+                            camera,
+                            size,
+                            scene.fog,
+                            &mut kept_view.stencil,
+                            stable_targets.then_some(&mut kept_view.vol_copy_group),
+                            stable_targets.then_some(&mut kept_view.vol_darken_groups),
+                        );
                     }
                     if let (false, Some(plan), Some(maps), Some(map)) =
                         (volumes, &shadow_plan, &mut self.shadow_maps, &kept_view.sun)

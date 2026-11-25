@@ -1113,6 +1113,9 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     let mut opening = Vec::new();
     let begun = Instant::now();
     let (mut shown, mut whole) = (None, None);
+    // (The frames drawn while casters waited for their stencil volumes,
+    // made apart with High: from the first such frame to the last.)
+    let (mut volumes_from, mut volumes_until, mut volume_frames) = (None, None, 0);
     while begun.elapsed() < Duration::from_secs(120) {
         let t = Instant::now();
         h.run_steps(1);
@@ -1123,7 +1126,13 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         if shown.is_none() && view.is_some_and(|v| v.model.is_some()) {
             shown = Some(begun.elapsed());
         }
-        let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+        let drawn = app.viewport.as_ref().map(|v| v.renderer.drawn).unwrap_or_default();
+        let pending = drawn.textures_pending + drawn.volumes_pending;
+        if drawn.volumes_pending > 0 {
+            volumes_from.get_or_insert(begun.elapsed());
+            volumes_until = Some(begun.elapsed());
+            volume_frames += 1;
+        }
         if shown.is_some() && view.is_some_and(|v| v.pictures > 0) && pending == 0 {
             whole = Some(begun.elapsed());
             break;
@@ -1153,6 +1162,13 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             shown.map_or(f64::NAN, ms),
             whole.map_or(f64::NAN, ms),
         );
+        if let (Some(from), Some(until)) = (volumes_from, volumes_until) {
+            println!(
+                "      casters waited for their stencil volumes in {volume_frames} frames, \
+                 {:.0} ms from the first to the last",
+                ms(until - from)
+            );
+        }
         if r.detail {
             let each: Vec<String> = opening.iter().map(|d| format!("{:.1}", ms(*d))).collect();
             println!("      frames: {}", each.join(" "));
