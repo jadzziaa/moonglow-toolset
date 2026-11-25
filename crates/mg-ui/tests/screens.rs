@@ -1928,7 +1928,14 @@ fn model_viewer() {
         .with_size(egui::vec2(1100.0, 760.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
+    // (Stepped until the window's work is done: the models' views play,
+    // repainting as long as they are open.)
+    h.run_steps(2);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.state().under_way().is_some() {
+        assert!(std::time::Instant::now() < deadline, "{:?}", h.state().under_way());
+        h.run_steps(1);
+    }
     shoot(&mut h, &dir, "model-viewer");
 }
 
@@ -4133,8 +4140,8 @@ fn update_notice_and_options() {
     shoot(&mut h, &dir, "options-updates-flatpak");
 }
 
-/// Installing an update from the app: the notice with Install Now and
-/// Later, the window with the release's notes, a download under way, the
+/// Installing an update from the app: the window with the release's notes,
+/// opened by the check itself (a builder's ask), a download under way, the
 /// restart asked once it is installed, a refusal (another key signed it)
 /// and Options › Updates' switches. The release is served on 127.0.0.1 and
 /// the AppImage replaced is a scratch copy: no network, nothing of the
@@ -4184,8 +4191,6 @@ fn update_install() {
         let server = serve(&key);
         let mut h = app_for(&server, Some(key.public()));
         h.run();
-        shoot(&mut h, &dir, "update-notice-install");
-        h.get_by_label("What's New…").click();
         shoot(&mut h, &dir, "update-whats-new");
         // Half way (the server holds the rest back for a while).
         let stored = format!("/files/v3.3.0/{name}");
@@ -4218,8 +4223,6 @@ fn update_install() {
     let other = mg_testkit::signing::TestKey::new();
     let server = serve(&other);
     let mut h = app_for(&server, Some(key.public()));
-    h.run();
-    h.get_by_label("What's New…").click();
     h.run_steps(2);
     h.get_all_by_label("Install Now").last().unwrap().click();
     shoot(&mut h, &dir, "update-refused");
@@ -4293,8 +4296,8 @@ fn script_editor() {
 }
 
 /// The script's Reference and Help where no board draws them (M4's U12):
-/// As Tabs at 1280 (one tab bar of the two, Help in front after a name
-/// is chosen), at 2560 (the wide layout's two columns), and floating in a
+/// As Tabs at 1280 (Reference on the right, Help switched on below the
+/// text), at 2560 (the wide layout's two columns), and floating in a
 /// window 600 wide (the pane at half the window).
 #[test]
 #[ignore]
@@ -4335,7 +4338,7 @@ fn script_reference_layouts() {
         h.run_steps(5);
         if tabs {
             shoot(&mut h, &dir, "script-reference-1280");
-            h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Help").click();
+            h.get_by_label("Status Bar").get_by_label("Help").click();
             h.run_steps(5);
             shoot(&mut h, &dir, "script-help-1280");
             h.set_size(egui::vec2(2560.0, 1000.0));
