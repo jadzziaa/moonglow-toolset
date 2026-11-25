@@ -165,3 +165,137 @@ fn only_the_window_holds_the_game_data_once_it_lets_go() {
     assert!(new_module < Duration::from_secs(5), "New Module took {new_module:.0?}");
     assert_eq!(in_use, 0, "{:?}", h.state().log.entries);
 }
+
+/// A picture of one color, 8 by 8 pixels.
+pub(crate) fn swatch(rgba: [u8; 4]) -> Vec<u8> {
+    let mut img = mg_image::Rgba::new(8, 8);
+    for px in img.data.chunks_mut(4) {
+        px.copy_from_slice(&rgba);
+    }
+    mg_image::write_tga(&img)
+}
+
+pub(crate) const RED: [u8; 4] = [255, 0, 0, 255];
+pub(crate) const BLUE: [u8; 4] = [0, 0, 255, 255];
+pub(crate) const GREEN: [u8; 4] = [0, 255, 0, 255];
+
+/// A hak of ours, `name`, in `user`'s `hak` folder, with texture
+/// `texture` of one color.
+pub(crate) fn swatch_hak(user: &std::path::Path, name: &str, texture: &str, rgba: [u8; 4]) {
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    w.add(ResRef::from_str(texture).unwrap(), ResType::TGA, swatch(rgba)).unwrap();
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+}
+
+/// `module` (a module file) made to list `haks`, in that order.
+pub(crate) fn list_haks(module: &std::path::Path, haks: &[&str]) {
+    let mut m = Module::open(module).unwrap();
+    let mut info = m.info().unwrap();
+    let haks: Vec<String> = haks.iter().map(|h| h.to_string()).collect();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &haks));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+}
+
+/// The game data's layers of a module: its haks and itself, in order.
+fn module_layers(app: &Moonglow) -> Vec<String> {
+    let game = app.game.as_deref().expect("the game data");
+    (game.resman.layers().iter())
+        .filter(|l| l.priority == mg_resman::priority::MODULE || l.label.starts_with("hak:"))
+        .map(|l| l.label.clone())
+        .collect()
+}
+
+/// The texture of the name the haks share, as the game data has it.
+fn texture(app: &Moonglow) -> Option<Vec<u8>> {
+    let game = app.game.as_deref()?;
+    game.resman.get_named(SWATCH, ResType::TGA).ok().map(|d| d.into_owned())
+}
+
+const SWATCH: &str = "mg_swatch";
+
+/// Module A, listing a hak whose `mg_swatch` is red, closed and module B
+/// opened (its two haks: blue, then green) while a job holds the game
+/// data (issue #50, where a copy kept by mistake held it): nothing is
+/// waited for, the log says once what waits for the game data, and the
+/// Status Bar while it waits; the job done, B's haks are layered in their
+/// order and A's are gone, as an open with nothing holding it has them,
+/// and the log says so.
+#[test]
+fn a_module_opened_while_the_game_data_is_held_has_its_haks_once_it_is_free() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-haks-wait");
+    let user = user_folder(&dir, &["hak"]);
+    swatch_hak(&user, "mg_red", SWATCH, RED);
+    swatch_hak(&user, "mg_blue", SWATCH, BLUE);
+    swatch_hak(&user, "mg_green", SWATCH, GREEN);
+    let (a_dir, b_dir) = (dir.join("a"), dir.join("b"));
+    std::fs::create_dir_all(&a_dir).unwrap();
+    std::fs::create_dir_all(&b_dir).unwrap();
+    let (a, b) = (sample_module(&a_dir), sample_module(&b_dir));
+    list_haks(&a, &["mg_red"]);
+    list_haks(&b, &["mg_blue", "mg_green"]);
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&a);
+    let mut h = window_harness(app);
+    settle(&mut h);
+    assert_eq!(module_layers(h.state()), ["hak:mg_red", "module"]);
+    assert_eq!(texture(h.state()), Some(swatch(RED)));
+
+    // A job holds the game data until it is let go.
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests("Held", move |_| {
+        let _ = held.recv();
+    });
+    assert!(h.state().busy());
+    let logged = h.state().log.entries.len();
+    let started = Instant::now();
+    h.state_mut().close();
+    h.state_mut().open_module(&b);
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(3), "waited {took:.0?} under a job");
+    let said: Vec<String> =
+        h.state().log.entries[logged..].iter().map(|(_, m)| m.clone()).collect();
+    let waits: Vec<&String> =
+        said.iter().filter(|m| m.starts_with("The game data is still in use")).collect();
+    assert_eq!(waits.len(), 1, "said once: {said:#?}");
+    assert!(waits[0].contains("the module's haks and resources"), "{}", waits[0]);
+    assert!(h.state().game_changes_waiting());
+    // (Not yet: A's haks are still there.)
+    assert_eq!(module_layers(h.state()), ["hak:mg_red", "module"]);
+    h.run_steps(2);
+    let note = "Waiting for the game data to be free…";
+    assert!(
+        h.get_by_label("Status Bar").query_by_label(note).is_some(),
+        "the Status Bar says so: {:?}",
+        h.state().status_said()
+    );
+
+    // The job ends: the waiting changes are made.
+    go.send(()).unwrap();
+    let started = Instant::now();
+    while h.state().busy() || h.state().game_changes_waiting() {
+        assert!(started.elapsed() < Duration::from_secs(20), "never made");
+        std::thread::sleep(Duration::from_millis(5));
+        h.step();
+    }
+    let layered = module_layers(h.state());
+    assert_eq!(layered, ["hak:mg_blue", "hak:mg_green", "module"]);
+    assert_eq!(texture(h.state()), Some(swatch(BLUE)), "B's first hak's, not A's red");
+    let entries = &h.state().log.entries;
+    assert!(
+        entries.iter().any(|(_, m)| m.starts_with("The game data is free again")),
+        "{entries:#?}"
+    );
+    h.run_steps(2);
+    assert!(h.get_by_label("Status Bar").query_by_label(note).is_none(), "nothing waits");
+
+    // As B opened with nothing holding the game data has them.
+    h.state_mut().close();
+    assert_eq!(module_layers(h.state()), Vec::<String>::new());
+    h.state_mut().open_module(&b);
+    assert_eq!(module_layers(h.state()), layered);
+    assert!(!h.state().game_changes_waiting());
+}
