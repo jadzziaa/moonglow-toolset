@@ -1592,8 +1592,12 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     // Alt alone: down, then up with no key or button between.
     let (alt_down, other) = ctx.input(|i| {
         // (Alt+Tab to another program and back is not Alt alone: the
-        // window lost the keyboard meanwhile.)
+        // window lost the keyboard meanwhile. Nor is Alt held while a
+        // button is down: a door dragged off its hooks, one dropped from
+        // the palette freely.)
         let other = i.pointer.any_pressed()
+            || i.pointer.any_down()
+            || i.pointer.any_released()
             || !i.focused
             || i.events.iter().any(|e| {
                 matches!(

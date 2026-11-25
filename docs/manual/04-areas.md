@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T06:31:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:24:57Z }
 ---
 
 # Areas
@@ -471,7 +471,7 @@ Options › Keyboard):
 | Z, C | move the camera up, down |
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
-| F, . | Focus Selection: center and zoom the camera onto the selected objects (framing the bounding box of an encounter or trigger outline, or the start location); `.` also works right after clicking a row in the Outliner or module tree, where letters go to the rows |
+| F, . | Focus Selection: center the camera on the middle of what is drawn of the selected objects (their models' boxes, the yellow box a selected object shows, not the point at their feet; an encounter's or trigger's outline; for a sound or anything without a model of its own, where it stands; or the start location), drawing back far enough to see a tall one whole; `.` also works right after clicking a row in the Outliner or module tree, where letters go to the rows |
 | F10 | select tiles or objects (Aurora's; with the pointer over the area's view, shelf or header) |
 | B | Paint on or off |
 | Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
@@ -834,8 +834,11 @@ Properties last, as in Aurora):
   seconds), drawn at its end. Setting that value here ends the lerp; a
   value left as it is keeps it.
 - **Focus Selection** (F or `.`): centers and zooms the camera onto the
-  selected objects or start location (framing the bounding box of a
-  trigger or encounter outline).
+  selected objects or start location: the middle of their models' boxes
+  (a tree's crown and trunk, not its foot), a trigger's or encounter's
+  outline, or where an object without a model stands. A double click on
+  an object's row in the module tree or the Outliner frames it the same
+  way.
 - **Position**, the quick ways of setting where the selection stands
   and how it faces:
   - **Position › Drop to Ground** (G): puts raised objects back on the
@@ -1040,11 +1043,11 @@ file](03-modules.md#the-project-file-moonglowtoml)'s `[store]`:
 Choose a blueprint in the palette and click in the area to place it, or
 drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it
-would go (on the snapping grid; a door on the nearest hook). Nothing is
+would go (on the snapping grid; a door on the hook in reach, see below). Nothing is
 placed or pasted on the void around the area, where no copy shows, and
 a drag leads what it moves no further than the area's edge. **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
-placed facing that way; a door faces as its hook does. With **Onto
+placed facing that way; a door on a hook faces as the hook does. With **Onto
 Objects** on (the header, beside Together) it goes onto the top of the
 placeable or door the pointer is on, by that object's model (a book on a
 table, a skull on an altar), as Drop onto Object sets it after; where
@@ -1053,7 +1056,29 @@ the ground, as with the switch off. Shift + click places it and keeps it
 chosen for another; a right click or Escape over the view lets it go
 (over a window in front of the view, the window takes Escape, and the
 copy and the coordinates in the view's corner wait for the pointer to
-come back to the view). Doors go on a tile's door hook when you click near one. Triggers
+come back to the view).
+
+**Doors** go on a tile's door hook when you click or drop them within
+4 m of one: the hooks show as short green lines across the doorways
+while a door is chosen, the one it would go on bright, and the door
+faces as that hook does (of the tile under the pointer, where a doorway
+between two tiles has a hook in each). With no hook in reach, the door
+is placed where you click or drop it, on the ground as a placeable is,
+and **Q** and **E** turn it. Hold **Alt** (Option on a Mac) to place it freely near a hook
+too (no hook is lit then; on Linux, where the window manager takes Alt
++ click to move windows, press Alt after the button, before you let
+go). The Status Bar says which it will be: *On a
+door hook* or *Free*. Dragging a placed door moves it freely and snaps
+it onto a hook once it comes within reach of one, facing as the hook
+does; hold Alt (pressed after the drag begins, since Alt + drag raises
+the selection) to keep it off the hook. A door placed freely turns as
+any object does (Q and E, its ring, Adjust Location). Aurora places
+doors on hooks alone, and builders moved one off its hook with Adjust
+Location; Moonglow places them anywhere. A tile changed (painted,
+replaced, Change Tileset, Resize Area) takes away only the doors that
+stand on its own door hooks; a door placed freely stays where it is.
+
+Triggers
 and encounters are drawn point by point: click each corner, double-click
 to close the outline. For a rectangle, click one corner, press Alt (the
 rectangle to the pointer shows), then click the corner opposite: its

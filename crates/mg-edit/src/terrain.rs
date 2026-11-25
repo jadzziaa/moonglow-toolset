@@ -250,6 +250,49 @@ Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
         assert!((bearing - std::f32::consts::PI).abs() < 1e-5, "{bearing}");
     }
 
+    /// A tile changed takes away only the doors standing on its typed
+    /// hooks (within 5 cm of one): a door placed freely in the same tile,
+    /// off its hooks, stays, as does one on an untyped hook.
+    #[test]
+    fn a_tile_changed_takes_its_hooks_doors_and_leaves_free_ones() {
+        let text = SET.replace("[TILES]\nCount=1\n", "[TILES]\nCount=2\n").replace(
+            "[TILE0]\nModel=t0\n",
+            "[TILE0]\nModel=t0\nDoors=2\n[TILE0DOOR0]\nType=3\nX=5\nY=0\nZ=0\n\
+             Orientation=90\n[TILE0DOOR1]\nType=0\nX=0\nY=5\nZ=0\nOrientation=0\n\
+             [TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n",
+        );
+        let set = Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(set.tiles.len(), 2);
+        let door = |x: f32, y: f32| {
+            let mut d = Struct::new(8);
+            d.set("X", Value::Float(x));
+            d.set("Y", Value::Float(y));
+            d
+        };
+        // Cell (0, 0), unturned: the typed hook at (10, 5), the untyped
+        // one at (5, 10).
+        let mut git = Struct::new(0);
+        let list = vec![door(10.0, 5.0), door(7.0, 3.0), door(10.04, 5.0), door(5.0, 10.0)];
+        git.set("Door List", Value::List(list));
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let key = ResKey::parse("a", ResType::GIT).unwrap();
+        let before = |_| Placement { tile: 0, orientation: 0, height: 0 };
+        let changes = [((0, 0), Placement { tile: 1, orientation: 0, height: 0 })];
+        let edits = door_edits(&game, key, &git, &set, 5.0, &before, &changes, &|_| None);
+        let gone: Vec<usize> = edits
+            .iter()
+            .map(|e| match e {
+                Edit::RemoveItem { index, .. } => *index,
+                other => panic!("only removals (no doortypes.2da here): {other:?}"),
+            })
+            .collect();
+        assert_eq!(gone, [2, 0], "the two on the typed hook, from the last");
+        // The tile left as it was: nothing goes.
+        let same = [((0, 0), Placement { tile: 0, orientation: 0, height: 0 })];
+        assert!(door_edits(&game, key, &git, &set, 5.0, &before, &same, &|_| None).is_empty());
+    }
+
     /// An ARE's numbers are whatever the file says: a tile two billion
     /// steps up is read as far up as the area view shows one (Change
     /// Tileset raised its corners a level at a time), a tile number past

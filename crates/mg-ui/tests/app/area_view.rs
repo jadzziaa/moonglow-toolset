@@ -1725,40 +1725,6 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
 }
 
 #[test]
-fn doors_go_on_door_hooks() {
-    use glam::Vec3;
-    use mg_area::ObjectKind;
-    // A castle tile with three door hooks (east one at 20, 15, facing 270°).
-    let Some((mut h, area)) = area_harness_on("doors", "tic01", Some(7)) else { return };
-    let doors = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
-        let ws = h.state_mut().ws.as_mut().unwrap();
-        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
-        git.root.list("Door List").unwrap_or(&[]).to_vec()
-    };
-    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
-        let at = screen(h, area, p);
-        h.hover_at(at);
-        press(h, at, true, egui::Modifiers::NONE);
-        press(h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    };
-    // Far from any hook: nothing, and a word why.
-    h.state_mut().palette.selected = ResKey::parse("nw_door_normal", ResType::UTD);
-    h.run_steps(1);
-    click(&mut h, Vec3::new(35.0, 35.0, 0.0));
-    assert!(doors(&mut h).is_empty());
-    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("door hooks")));
-    // Near the east hook, inside the tile: on the hook, turned as it is.
-    click(&mut h, Vec3::new(18.5, 15.5, 0.0));
-    let placed = doors(&mut h);
-    assert_eq!(placed.len(), 1);
-    let d = &placed[0];
-    assert_eq!((d.float("X"), d.float("Y"), d.float("Z")), (Some(20.0), Some(15.0), Some(0.0)));
-    assert!((d.float("Bearing").unwrap() + std::f32::consts::FRAC_PI_2).abs() < 1e-5);
-    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Door, 0)]);
-}
-
-#[test]
 fn several_objects_edited_together() {
     use glam::Vec3;
     use mg_area::ObjectKind;
@@ -9682,8 +9648,13 @@ fn focus_selection_with_f_and_period_keys() {
     h.run_steps(2);
     h.key_press(egui::Key::F);
     settle(&mut h);
+    // (On the middle of the waypoint's model, its flag, above where it
+    // stands: `focus_frames.rs`.)
+    let on_waypoint = |target: Vec3, at: Vec3| {
+        (target - at).truncate().length() < 0.5 && target.z > at.z && target.z < at.z + 2.5
+    };
     let o = h.state().area_views[&area].orbit.unwrap();
-    assert!((o.target - Vec3::new(20.0, 20.0, 0.0)).length() < 0.01, "F focuses waypoint 0");
+    assert!(on_waypoint(o.target, Vec3::new(20.0, 20.0, 0.0)), "F focuses waypoint 0: {o:?}");
     assert!(o.distance <= 25.0);
 
     // Click waypoint 1 in the Outliner (camera stays put, Outliner gets keys), then press `.`.
@@ -9701,7 +9672,7 @@ fn focus_selection_with_f_and_period_keys() {
     press(&h, second.center(), false, egui::Modifiers::NONE);
     settle(&mut h);
     let after_click = h.state().area_views[&area].orbit.unwrap();
-    assert!((after_click.target - Vec3::new(20.0, 20.0, 0.0)).length() < 0.01, "no auto-zoom");
+    assert!((after_click.target - o.target).length() < 0.01, "no auto-zoom");
     let expected = h.state().area_views[&area]
         .model
         .as_ref()
@@ -9715,7 +9686,7 @@ fn focus_selection_with_f_and_period_keys() {
     h.key_press(egui::Key::Period);
     settle(&mut h);
     assert!(
-        (h.state().area_views[&area].orbit.unwrap().target - expected).length() < 0.01,
+        on_waypoint(h.state().area_views[&area].orbit.unwrap().target, expected),
         "`.` focuses selected waypoint straight after clicking in the Outliner"
     );
 }

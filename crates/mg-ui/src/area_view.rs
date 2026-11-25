@@ -48,6 +48,34 @@ pub(crate) use bar::status;
 /// How far from a door hook a click places a door on it, metres.
 const DOOR_REACH: f32 = 4.0;
 
+/// Where a door put down with the pointer somewhere goes: on the door
+/// hook within [`DOOR_REACH`] of the ground there, facing as it does
+/// (Aurora's only place for one), else freely, where a placeable would
+/// go, turned as Q and E turned it. `held_off`: a hook was in reach and
+/// Alt kept the door off it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum DoorAt {
+    Hook(mg_area::DoorHook),
+    Free { at: Vec3, held_off: bool },
+}
+
+/// Whether the doors' Alt is held: a door placed, dropped or dragged then
+/// goes where the pointer is, on no door hook.
+fn hooks_off(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.modifiers.alt)
+}
+
+/// Where a door put down with the pointer at `pos` goes ([`DoorAt`]), Alt
+/// held or not (`off`); `None` off the area.
+fn door_at(view: &AreaView, pos: Pos2, off: bool) -> Option<DoorAt> {
+    let model = view.model.as_ref()?;
+    let hook = view.ground_at(pos, 0.0).and_then(|g| model.hook_near(g, DOOR_REACH)).copied();
+    match hook {
+        Some(h) if !off => Some(DoorAt::Hook(h)),
+        _ => Some(DoorAt::Free { at: view.placed_at(pos)?, held_off: hook.is_some() }),
+    }
+}
+
 /// The steepest the camera looks down (just short of straight down, where
 /// "up" on screen would be undefined).
 const MAX_PITCH: f32 = 1.5695;
@@ -725,6 +753,12 @@ pub struct AreaView {
     ghost: Option<(ResKey, Option<u64>, Option<mg_area::AreaObject>)>,
     /// The blueprint about to be placed as the last frame showed it.
     pub ghost_shown: Option<mg_area::AreaObject>,
+    /// Where the door about to be placed goes, as its ghost shows it (on
+    /// a hook or free); `None` for other blueprints.
+    pub(crate) ghost_door: Option<DoorAt>,
+    /// Alt is held ([`hooks_off`], read each frame): a door placed,
+    /// dropped or dragged goes on no door hook.
+    hooks_off: bool,
     /// How far Q and E have turned the blueprint about to be placed
     /// (radians, anticlockwise); it is placed so.
     ghost_turn: f32,
@@ -1315,6 +1349,8 @@ impl AreaView {
             particles_shown: 0,
             ghost: None,
             ghost_shown: None,
+            ghost_door: None,
+            hooks_off: false,
             ghost_turn: 0.0,
             ghost_step: 0,
             menu_at: None,
@@ -2541,6 +2577,39 @@ impl AreaView {
         }
     }
 
+    /// The door hook a door dragged by `offset` goes onto: the selection
+    /// one door, a hook within [`DOOR_REACH`] of where the drag leads it,
+    /// Alt not held. With the door's place in the model's objects.
+    fn door_drag_hook(
+        &self,
+        model: &AreaModel,
+        offset: Vec2,
+    ) -> Option<(usize, mg_area::DoorHook)> {
+        if self.hooks_off {
+            return None;
+        }
+        let mut chosen = self.selected_indices();
+        let (Some(i), None) = (chosen.next(), chosen.next()) else { return None };
+        let o = &model.objects[i];
+        if o.kind != ObjectKind::Door {
+            return None;
+        }
+        let to = o.position.truncate() + offset;
+        model.hook_near(to.extend(o.position.z), DOOR_REACH).map(|h| (i, *h))
+    }
+
+    /// Whether a door dragged now goes onto a hook (`Some(true)`) or
+    /// freely (`Some(false)`, Alt held where one is in reach too): for the
+    /// Status Bar and the tests. `None` while no lone door is moved.
+    pub fn door_drag_hooked(&self) -> Option<bool> {
+        let model = self.model.as_ref()?;
+        let Some(Drag::Move { offset, .. }) = self.drag else { return None };
+        let mut chosen = self.selected_indices();
+        let (Some(i), None) = (chosen.next(), chosen.next()) else { return None };
+        (model.objects[i].kind == ObjectKind::Door)
+            .then(|| self.door_drag_hook(model, offset).is_some())
+    }
+
     /// Where each selected object stands and turns with the drag applied
     /// (and Q and E's turning under way): its place in the model's
     /// objects, position and turn.
@@ -2612,6 +2681,15 @@ impl AreaView {
             Some(&(tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
             None => (i, p, r),
         };
+        // A door dragged alone onto a hook in reach: on it, facing as it
+        // does (Alt keeps it free).
+        let hooked = match drag {
+            Drag::Move { offset, .. } if locked.is_none() => self.door_drag_hook(model, offset),
+            _ => None,
+        };
+        if let Some((i, h)) = hooked {
+            return vec![(i, h.position, h.bearing)];
+        }
         self.selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
@@ -3131,9 +3209,14 @@ fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
     true
 }
 
-/// Axis-aligned bounding corners for framing `o`: an outline's bounding box
-/// for triggers and encounters, or the object's position otherwise.
-fn object_bounds_for_focus(o: &mg_area::AreaObject) -> (Vec3, Vec3) {
+/// Axis-aligned world corners for framing object `i` of `model`: an
+/// outline's box for triggers and encounters; for an object whose model
+/// `scene` draws, that model's box where it stands (turned, tilted and
+/// scaled as drawn, the box selected objects show), so that the view
+/// looks at the middle of what is seen rather than its feet; else (a
+/// waypoint's arrow, a sound, a model not loaded yet) its position.
+fn object_bounds_for_focus(scene: Option<&AreaScene>, model: &AreaModel, i: usize) -> (Vec3, Vec3) {
+    let o = &model.objects[i];
     if o.kind.has_outline() && !o.outline.is_empty() {
         let mut min = o.outline[0];
         let mut max = o.outline[0];
@@ -3141,13 +3224,20 @@ fn object_bounds_for_focus(o: &mg_area::AreaObject) -> (Vec3, Vec3) {
             min = min.min(p);
             max = max.max(p);
         }
-        (min, max)
-    } else {
-        (o.position, o.position)
+        return (min, max);
     }
+    let Some((low, high)) = scene.and_then(|s| s.model_bounds(model, i)) else {
+        return (o.position, o.position);
+    };
+    let t = o.model_transform();
+    let corners = mg_render::box_corners(low, high).map(|p| t.transform_point3(p));
+    let min = corners.iter().copied().reduce(Vec3::min).unwrap_or(o.position);
+    let max = corners.iter().copied().reduce(Vec3::max).unwrap_or(o.position);
+    (min, max)
 }
 
-/// Frames the camera on the center of `min..=max`, pulling back if wide.
+/// Frames the camera on the center of `min..=max`, pulling back if wide,
+/// or if nearer than shows all of it.
 fn focus_bounds(orbit: &mut Orbit, min: Vec3, max: Vec3) {
     let center = (min + max) * 0.5;
     let half_extent = ((max - min) * 0.5).length();
@@ -3155,7 +3245,7 @@ fn focus_bounds(orbit: &mut Orbit, min: Vec3, max: Vec3) {
     orbit.distance = if half_extent > 8.0 {
         (half_extent * 2.4).clamp(12.0, 200.0)
     } else {
-        orbit.distance.min(25.0)
+        orbit.distance.min(25.0).max(half_extent * 2.4)
     };
 }
 
@@ -3167,10 +3257,13 @@ fn focus_selection(app: &mut Moonglow, view: &mut AreaView) -> bool {
     let (Some(model), Some(orbit)) = (&view.model, &mut view.orbit) else {
         return false;
     };
+    let scene = view.scene.as_ref();
     let mut bounds: Option<(Vec3, Vec3)> = None;
     for &(kind, index) in &view.selection {
-        let Some(o) = model.object(kind, index) else { continue };
-        let (omin, omax) = object_bounds_for_focus(o);
+        let Some(i) = model.objects.iter().position(|o| o.kind == kind && o.index == index) else {
+            continue;
+        };
+        let (omin, omax) = object_bounds_for_focus(scene, model, i);
         bounds = Some(match bounds {
             Some((bmin, bmax)) => (bmin.min(omin), bmax.max(omax)),
             None => (omin, omax),
@@ -3424,8 +3517,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         && a == area
         && let Some(model) = &view.model
     {
-        if let Some(o) = model.object(kind, index) {
-            let (min, max) = object_bounds_for_focus(o);
+        if let Some(i) = model.objects.iter().position(|o| o.kind == kind && o.index == index) {
+            let (min, max) = object_bounds_for_focus(view.scene.as_ref(), model, i);
             view.selection = vec![(kind, index)];
             view.start_selected = false;
             if let Some(orbit) = &mut view.orbit {
@@ -5049,10 +5142,13 @@ fn overlays(
         }
     }
     if door_brush {
-        // The door hooks: a short line across the doorway, the nearest to
-        // the pointer bright.
-        let pointer = hover.and_then(|p| view.ground_at(p, 0.0));
-        let near = pointer.and_then(|p| shown.hook_near(p, DOOR_REACH)).copied();
+        // The door hooks: a short line across the doorway, the one the door
+        // would go on bright (none with Alt, which places it freely).
+        let off = hooks_off(ui.ctx());
+        let near = match hover.and_then(|p| door_at(view, p, off)) {
+            Some(DoorAt::Hook(h)) => Some(h),
+            _ => None,
+        };
         for h in &shown.hooks {
             let lit = near.is_some_and(|n| n.position == h.position && n.bearing == h.bearing);
             let color =
@@ -5180,6 +5276,7 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
+    view.hooks_off = hooks_off(ui.ctx());
     // Alt with an outline's first corner set: a rectangle from there on,
     // until the outline is done or dropped; while it is held, and after
     // it was let go (or taken away with the click, see `rectangle`).
@@ -5278,8 +5375,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     let read_only = read_only.is_some();
     // Q and E turn a blueprint about to be placed (dragged, or chosen in
-    // the palette), as they turn a selection; doors face as their hooks do.
-    let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some()
+    // the palette), as they turn a selection; a door on a hook faces as
+    // the hook does.
+    let on_hook = matches!(view.ghost_door, Some(DoorAt::Hook(_)));
+    let placing = view.ghost_shown.as_ref().filter(|_| !on_hook).is_some()
         || crate::paint_mode::active(app).is_some()
         || view.pasting;
     if placing && !ui.ctx().memory(|m| m.focused().is_some()) {
@@ -5564,15 +5663,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     }
                 }
             } else if kind == ObjectKind::Door {
-                // Doors stand on door hooks (Aurora places none elsewhere).
-                match view.model.as_ref().and_then(|m| m.hook_near(at, DOOR_REACH)).copied() {
-                    Some(h) => {
-                        place(app, view, key, h.position, h.bearing, &[]);
-                        if !shift {
-                            app.palette.selected = None;
-                        }
+                // On the door hook in reach (Aurora places doors nowhere
+                // else); away from one, or with Alt, where clicked.
+                if let Some(door) = door_at(view, pos, alt) {
+                    place_door(app, view, key, door);
+                    if !shift {
+                        app.palette.selected = None;
                     }
-                    None => app.log.warn("Doors go on door hooks: click near one"),
                 }
             } else if let Some(at) = view.placed_at(pos) {
                 place(app, view, key, at, view.ghost_turn, &[]);
@@ -6295,7 +6392,8 @@ fn boxed(view: &AreaView, rect: Rect) -> Vec<(ObjectKind, usize)> {
 }
 
 /// A blueprint dragged from the palette and dropped on the view: placed
-/// where it was dropped (a door on the nearest door hook); a trigger or
+/// where it was dropped (a door on the door hook in reach, unless Alt
+/// keeps it free: [`door_at`]); a trigger or
 /// encounter begins its outline there, to be drawn on with clicks.
 fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Response, key: ResKey) {
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
@@ -6308,9 +6406,9 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
         app.log.info("Click the outline's corners; double-click to close it");
         return;
     } else if kind == ObjectKind::Door {
-        match view.model.as_ref().and_then(|m| m.hook_near(at, DOOR_REACH)).copied() {
-            Some(h) => place(app, view, key, h.position, h.bearing, &[]),
-            None => app.log.warn("Doors go on door hooks: drop it near one"),
+        let off = hooks_off(&response.ctx);
+        if let Some(door) = pointer.and_then(|pos| door_at(view, pos, off)) {
+            place_door(app, view, key, door);
         }
     } else if let Some(at) = pointer.and_then(|pos| view.placed_at(pos)) {
         place(app, view, key, at, view.ghost_turn, &[]);
@@ -6406,8 +6504,8 @@ fn place(
 ) {
     use mg_module::instances::{OUTLINE_LIFT, Placement};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
-    // (`at` is on the grid already, or onto an object: `put_down_at`.
-    // Doors go on their hooks; outlines are drawn point by point.)
+    // (`at` is on the grid already, or onto an object: `put_down_at`;
+    // a door on its hook, `door_at`. Outlines are drawn point by point.)
     let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
     let position = at + Vec3::Z * lift(kind);
     let mut relative: Vec<[f32; 3]> = outline
@@ -6435,6 +6533,15 @@ fn place(
     recent.retain(|x| *x != r);
     recent.insert(0, r);
     recent.truncate(RECENT);
+}
+
+/// Places door blueprint `key` where [`door_at`] said: on its hook,
+/// facing as the hook does, or freely, turned as its ghost was.
+fn place_door(app: &mut Moonglow, view: &mut AreaView, key: ResKey, door: DoorAt) {
+    match door {
+        DoorAt::Hook(h) => place(app, view, key, h.position, h.bearing, &[]),
+        DoorAt::Free { at, .. } => place(app, view, key, at, view.ghost_turn, &[]),
+    }
 }
 
 /// The turn keys and how far each turns (radians, anticlockwise): Q and E
@@ -6571,9 +6678,13 @@ pub(crate) fn template(app: &mut Moonglow, key: ResKey) -> Option<mg_area::AreaO
 /// The blueprint about to be placed, where it would go if the pointer
 /// placed it now: one dragged (from the palette or the module tree) over
 /// the view, else the palette's choice while the pointer is over it.
-/// Snapped to the grid, a door on the nearest hook; not for triggers and
-/// encounters (drawn point by point).
+/// Snapped to the grid, a door on the hook in reach (else free, as
+/// [`door_at`] has it); not for triggers and encounters (drawn point by
+/// point).
 fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_area::AreaObject> {
+    // (Said anew each frame: with the pointer off the view, no door goes
+    // anywhere.)
+    view.ghost_door = None;
     // (Nothing is placed in a read-only area.)
     if view.read_only.is_some() {
         return None;
@@ -6598,9 +6709,15 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     };
     let kind = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline())?;
     let pos = view.pointer_over(ui)?;
+    // A door on the hook in reach, facing as it does; else (or with Alt)
+    // freely, as the others go.
     let (at, rotation) = if kind == ObjectKind::Door {
-        let hook = view.model.as_ref()?.hook_near(view.ground_at(pos, 0.0)?, DOOR_REACH)?;
-        (hook.position, Some(hook.bearing))
+        let door = door_at(view, pos, hooks_off(ui.ctx()))?;
+        view.ghost_door = Some(door);
+        match door {
+            DoorAt::Hook(h) => (h.position, Some(h.bearing)),
+            DoorAt::Free { at, .. } => (at, None),
+        }
     } else {
         (view.placed_at(pos)?, None)
     };
@@ -6628,7 +6745,8 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     }
     let mut o = view.ghost.as_ref()?.2.clone()?;
     o.position = at + Vec3::Z * lift(kind);
-    // A door faces as its hook does; the others as Q and E turned them.
+    // A door on a hook faces as the hook does; the others (a free door
+    // too) as Q and E turned them.
     o.rotation = rotation.unwrap_or(o.rotation + view.ghost_turn);
     Some(o)
 }
