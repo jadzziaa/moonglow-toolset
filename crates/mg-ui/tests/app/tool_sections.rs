@@ -131,14 +131,14 @@ fn edit_areas_together_shows_the_right_dock_with_its_section() {
         assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::AreasTogether), "{name}");
         assert!(in_front(&h, "Edit Areas Together"), "{name}: its tab in front");
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
-        for control in ["Open in Tab", "Close", "Tick Shown", "area0000 (Area 0)"] {
+        for control in ["Open in Tab", "Close", "Check Shown", "area0000 (Area 0)"] {
             // (At the least window the page scrolls to them.)
             h.get_by_label(control).scroll_to_me();
             settle(&mut h);
             let r = h.get_by_label(control).rect();
             assert!(screen.contains_rect(r), "{name}: {control} at {r:?}, in {screen:?}");
         }
-        h.get_by_label("No areas ticked");
+        h.get_by_label("No areas checked");
         h.get_by_label("Close").click();
         settle(&mut h);
         assert!(h.state().areas_together_ticked().is_none(), "{name}: closed");
@@ -166,7 +166,7 @@ fn edit_areas_together_s_keys_move_tick_open_and_close() {
     key(&mut h, Key::ArrowDown);
     key(&mut h, Key::Space);
     assert_eq!(ticked(&h), ["area0000"], "the first row, ticked");
-    h.get_by_label("1 area ticked");
+    h.get_by_label("1 area checked");
     key(&mut h, Key::End);
     key(&mut h, Key::Space);
     assert_eq!(ticked(&h), ["area0000", "area0003"], "the last");
@@ -332,9 +332,9 @@ fn three_thousand_areas_are_walked_only_when_they_change() {
             assert!(row.contains(&at), "{k:?}: {at}");
         }
     }
-    h.get_by_label("Tick Shown").click();
+    h.get_by_label("Check Shown").click();
     settle(&mut h);
-    h.get_by_label("3000 areas ticked");
+    h.get_by_label("3000 areas checked");
     for page in ["Areas", "Visual", "Grass", "Audio", "Events", "Advanced", "Variables"] {
         rail(&mut h, page);
         let before = h.state().areas_together_counts();
@@ -459,7 +459,7 @@ fn tab_brings_each_control_of_the_plugins_tab_into_sight_at_the_least_window() {
     h.state_mut().plugin_dir = Some(plugin_fixtures());
     h.state_mut().load_plugins();
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    menu_command(&mut h, "Plugins", "Manage Plugins");
     let tab = h.state().tab_rect(&Tab::Plugins).expect("the Plugins tab");
     let editors = h.state().editor_area_rect().expect("the editor area");
     let body = egui::Rect::from_min_max(egui::pos2(editors.left(), tab.bottom()), editors.max);
@@ -711,7 +711,7 @@ fn a_plugin_s_buttons_wrap_in_a_narrow_plugins_tab() {
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
     h.state_mut().enable_plugin("example.builder-tags", true);
     settle(&mut h);
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    menu_command(&mut h, "Plugins", "Manage Plugins");
     let screen = h.ctx.content_rect();
     for button in ["Remove…", "Settings…", "Run Tests"] {
         let is = |n: &egui_kittest::Node<'_>| words(n).as_deref() == Some(button);
@@ -754,7 +754,7 @@ fn u29_pictures_plugins_enabled() {
             h.state_mut().settings.plugin_grants =
                 vec![(format!("{} {version}", ids[0]), "q".into(), "yes".into())];
             settle(&mut h);
-            menu_command(&mut h, "Plugins", "Manage Plugins…");
+            menu_command(&mut h, "Plugins", "Manage Plugins");
             let screen = h.state().editor_area_rect().expect("the editor area drawn");
             let label =
                 |l: &'static str| move |n: &egui_kittest::Node<'_>| words(n).as_deref() == Some(l);
@@ -798,7 +798,7 @@ fn u29_pictures_plugins_tab() {
                 h.state_mut().settings.light_theme = light;
                 h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
                 settle(&mut h);
-                menu_command(&mut h, "Plugins", "Manage Plugins…");
+                menu_command(&mut h, "Plugins", "Manage Plugins");
                 // (What each is named for: the empty list's words, a
                 // plugin's row, the line of the one that does not read.)
                 let mark = match *name {
@@ -836,7 +836,7 @@ fn u29_pictures_plugins_tab() {
                 h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Plugins]));
                 settle(&mut h);
                 h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
-                menu_command(&mut h, "Plugins", "Manage Plugins…");
+                menu_command(&mut h, "Plugins", "Manage Plugins");
                 picture_of(&mut h, "plugins-floating", "the Plugins tab in a window", |h| {
                     let at = h.state().dock.find_tab(&Tab::Plugins);
                     at.is_some_and(|a| !a.surface.is_main()) && on_screen(h, "Install from File")
@@ -1203,7 +1203,7 @@ fn cancel_reason(h: &mut Harness<'_, Moonglow>) -> &'static str {
     advance_clock(h, 1.5);
     let shows = |h: &Harness<'_, Moonglow>, words: &str| h.query_by_label_contains(words).is_some();
     let reason = match (
-        shows(h, "Nothing has been edited here since the areas were ticked"),
+        shows(h, "Nothing has been edited here since the areas were checked"),
         shows(h, "came after the edits made here"),
     ) {
         (true, false) => "none",

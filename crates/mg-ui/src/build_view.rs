@@ -560,7 +560,7 @@ fn finish(app: &mut Moonglow, built: Built) -> Vec<Finding> {
     {
         out.push(Finding::error(format!("Error: {e}"), None));
     }
-    app.log.info("Building Module...");
+    app.log.info("Building Module…");
     for n in notes {
         app.log.info(n);
     }

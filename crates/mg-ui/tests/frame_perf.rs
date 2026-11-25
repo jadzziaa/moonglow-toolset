@@ -3816,7 +3816,7 @@ fn edit_areas_together_3000() {
     // U29.)
     let rows = rows_rect(&h);
     view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas listed"), rows, |_, _| {});
-    click(&mut h, "Tick Shown");
+    click(&mut h, "Check Shown");
     h.run_steps(2);
     let rows = rows_rect(&h);
     view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas ticked"), rows, |_, _| {});

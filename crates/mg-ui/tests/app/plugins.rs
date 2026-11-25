@@ -196,7 +196,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.get_by_label("Plugins").click();
     h.run();
     assert!(h.query_by_label("Fix Creature Tags").is_none());
-    h.get_by_label("Manage Plugins…").click();
+    h.get_by_label("Manage Plugins").click();
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
@@ -1335,7 +1335,7 @@ fn started_without_plugins_none_is_loaded() {
     plugins_menu(&mut h);
     h.run();
     assert!(h.query_by_label("Fix Creature Tags").is_none());
-    h.get_by_label("Manage Plugins…").click();
+    h.get_by_label("Manage Plugins").click();
     h.run();
     h.get_by_label("Started with --no-plugins: none are loaded.");
     assert!(h.query_by_label_contains("No plugins are installed").is_none());
@@ -2608,7 +2608,7 @@ fn plugins_is_a_document_tab() {
     let mut h = harness(app, 1280.0, 720.0);
     settle(&mut h);
     assert!(h.state().ws.is_none());
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    menu_command(&mut h, "Plugins", "Manage Plugins");
     let path = h.state().dock.find_tab(&Tab::Plugins).expect("the tab");
     assert!(path.surface.is_main(), "docked");
     settle(&mut h);
@@ -2624,7 +2624,7 @@ fn plugins_is_a_document_tab() {
     assert!(h.state().dock.find_tab(&Tab::Plugins).is_none(), "Ctrl+W closes it");
     // As floating windows: a window of its own.
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    menu_command(&mut h, "Plugins", "Manage Plugins");
     let path = h.state().dock.find_tab(&Tab::Plugins).expect("the tab");
     assert!(!path.surface.is_main(), "a window of its own");
     settle(&mut h);
@@ -2653,7 +2653,7 @@ fn plugins_comes_to_the_front_when_open_and_its_tab_s_menu_closes_it() {
         app.open_module(&sample_module(&dir));
         let mut h = harness(app, 1280.0, 720.0);
         settle(&mut h);
-        menu_command(&mut h, "Plugins", "Manage Plugins…");
+        menu_command(&mut h, "Plugins", "Manage Plugins");
         settle(&mut h);
         // Another tab in front of it in its group.
         h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
@@ -2663,7 +2663,7 @@ fn plugins_comes_to_the_front_when_open_and_its_tab_s_menu_closes_it() {
             Some(&Tab::Manual),
             "{no_reopen}: the manual in front"
         );
-        menu_command(&mut h, "Plugins", "Manage Plugins…");
+        menu_command(&mut h, "Plugins", "Manage Plugins");
         settle(&mut h);
         assert_eq!(
             h.state().active_editor(),
@@ -2691,7 +2691,7 @@ fn plugins_comes_to_the_front_when_open_and_its_tab_s_menu_closes_it() {
             Some(&Tab::Manual),
             "{no_reopen}: the split's manual"
         );
-        menu_command(&mut h, "Plugins", "Manage Plugins…");
+        menu_command(&mut h, "Plugins", "Manage Plugins");
         settle(&mut h);
         assert_eq!(h.state().active_editor(), Some(&Tab::Plugins), "{no_reopen}: from the split");
         assert_eq!(count(&h), 1, "{no_reopen}: one tab in the split");
@@ -2746,7 +2746,7 @@ fn the_plugins_folder_s_path_takes_the_room_there_is() {
         h.set_size(egui::vec2(words + 160.0, 720.0));
     }
     settle(&mut h);
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    menu_command(&mut h, "Plugins", "Manage Plugins");
     settle(&mut h);
     let r = h.get_by_label(&path).rect();
     assert!(r.width() + 1.0 >= words, "whole: {r:?} for {words} of words");

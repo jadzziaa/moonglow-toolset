@@ -3565,7 +3565,7 @@ fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
             let place =
                 if on("Positional") { "from where it stands" } else { "everywhere in the area" };
             let how = if on("Continuous") { "without a pause" } else { "at intervals" };
-            out.push(format!("Heard {place}, {how}; volume {}", int("Volume")));
+            out.push(format!("Heard {place}, {how}, volume {}", int("Volume")));
         }
         T::UTT => out.push(match int("Type") {
             1 => "An area transition".into(),
@@ -3652,7 +3652,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     let names = crate::prefabs::list(dir.as_deref());
     if names.is_empty() {
-        ui.weak("No prefabs yet. Select objects in an area, then Save Selection as Prefab….");
+        ui.weak("No prefabs yet. Select objects in an area, then Save Selection as Prefab…");
         return;
     }
     // The prefab Rename… was chosen for, and the name typed so far.
@@ -3699,7 +3699,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui,
         |ui| {
             mg_uikit::list_rows(ui);
-            for name in crate::prefabs::list(dir.as_deref()) {
+            for name in names {
                 let being = renamed.as_ref().is_some_and(|(n, _)| n == &name);
                 let r = ui.selectable_label(being, &name).on_hover_ui(|ui| {
                     // What it holds, read while the pointer rests on it.

@@ -255,8 +255,10 @@ impl Moonglow {
             };
             self.actions.push(Action::Apply(Command::new(what, edits)));
             self.log.info(format!(
-                "Updated {total} object(s) from {} blueprint(s):",
-                draft.blueprints.len()
+                "Updated {total} {} from {} {}:",
+                if total == 1 { "object" } else { "objects" },
+                draft.blueprints.len(),
+                if draft.blueprints.len() == 1 { "blueprint" } else { "blueprints" },
             ));
             // Which ones, as Aurora's log lists them: the area, the kind,
             // the tag and the blueprint of each (a long list is cut short).
@@ -586,7 +588,10 @@ impl Moonglow {
         if !edits.is_empty() {
             let what = format!("Replace {find:?} with {:?}", draft.with);
             self.actions.push(Action::Apply(Command::new(what, edits)));
-            self.log.info(format!("Replaced {find:?} {total} time(s)"));
+            self.log.info(format!(
+                "Replaced {find:?} {total} {}",
+                if total == 1 { "time" } else { "times" },
+            ));
         }
         total
     }

@@ -621,7 +621,7 @@ pub(crate) fn hints(
                     if n > 0 {
                         hints.push(arrows());
                         if chosen {
-                            hints.push(Hint::keys(["Space"], "Tick"));
+                            hints.push(Hint::keys(["Space"], "Check"));
                             hints.push(Hint::keys(["Enter"], "Go to"));
                         }
                         hints.push(Hint::keys(["Double Click"], "Go to"));

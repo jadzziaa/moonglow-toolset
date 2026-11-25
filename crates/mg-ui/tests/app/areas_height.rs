@@ -81,11 +81,11 @@ fn dragging_the_well_s_foot_sizes_it_in_whole_rows_kept_after_a_restart() {
     assert_eq!(h.state().settings.areas_height, taller);
     // (The other groups pushed down: the last out of sight, reached by
     // the tree's own scroll.)
-    let last = group(&h, "Journal and factions").rect();
+    let last = group(&h, "Journal and Factions").rect();
     assert!(last.bottom() > view_bottom(&h), "pushed down: {last:?}");
     let at = group(&h, "Conversations").rect().center();
     wheel(&mut h, at, -200.0, 10);
-    let last = group(&h, "Journal and factions").rect();
+    let last = group(&h, "Journal and Factions").rect();
     assert!(last.bottom() <= view_bottom(&h) + 0.5, "the tree scrolls to it: {last:?}");
     assert_eq!(well_rows(&h), fit + 3.0);
     let at = group(&h, "Conversations").rect().center();
@@ -186,7 +186,7 @@ fn opened_out_the_areas_are_the_tree_s_rows_and_it_alone_scrolls() {
     let last = h.get_by_label(&all[all.len() - 1].to_string()).rect();
     let conversations = group(&h, "Conversations").rect();
     assert!(last.bottom() <= conversations.top() + 0.5, "{last:?} {conversations:?}");
-    let journal = group(&h, "Journal and factions").rect();
+    let journal = group(&h, "Journal and Factions").rect();
     assert!(journal.bottom() <= view_bottom(&h) + 0.5, "at the tree's end: {journal:?}");
     // The handle under the last area, over Conversations' row.
     let foot = handle(&h).expect("the handle under the last area");

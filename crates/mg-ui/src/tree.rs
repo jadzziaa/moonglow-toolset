@@ -26,14 +26,14 @@ pub(crate) const GROUPS: &[(&str, &[ResType])] = &{
     groups[0] = ("Areas", &[ResType::ARE]);
     groups[1] = ("Conversations", &[ResType::DLG]);
     groups[2] = ("Scripts", &[ResType::NSS]);
-    groups[3] = ("NUI windows", &[ResType::JUI]);
+    groups[3] = ("NUI Windows", &[ResType::JUI]);
     let mut i = 0;
     while i < ObjectKind::ALL.len() {
         let kind = ObjectKind::ALL[i];
         groups[4 + i] = (kind.label(), kind.restypes());
         i += 1;
     }
-    groups[13] = ("Journal and factions", &[ResType::JRL, ResType::FAC]);
+    groups[13] = ("Journal and Factions", &[ResType::JRL, ResType::FAC]);
     groups
 };
 
@@ -4124,7 +4124,7 @@ mod tests {
         // The journal and factions are one of each: nothing to make.
         assert_eq!(new_command(&[ResType::JRL, ResType::FAC]), None);
         // Every group of blueprints has one.
-        for (_, types) in GROUPS.iter().filter(|(n, _)| *n != "Journal and factions") {
+        for (_, types) in GROUPS.iter().filter(|(n, _)| *n != "Journal and Factions") {
             assert!(new_command(types).is_some(), "{types:?}");
         }
         // Each kind of blueprint is a group by the name the toolset calls

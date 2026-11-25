@@ -2423,7 +2423,7 @@ fn several_of_every_kind_have_delete_and_export_in_their_menu() {
     add("Areas", ResType::ARE, &["area_1", "area_2", "area_3"], &|| gff(b"ARE "));
     add("Conversations", ResType::DLG, &["talk_1", "talk_2", "talk_3"], &|| gff(b"DLG "));
     add("Scripts", ResType::NSS, &["code_1", "code_2", "code_3"], &|| b"void main() {}\n".to_vec());
-    add("NUI windows", ResType::JUI, &["nui_1", "nui_2", "nui_3"], &|| b"{}".to_vec());
+    add("NUI Windows", ResType::JUI, &["nui_1", "nui_2", "nui_3"], &|| b"{}".to_vec());
     for kind in mg_rules::ObjectKind::ALL {
         let t = kind.restype();
         let sig: [u8; 4] = format!("{:<4}", t.extension().unwrap().to_ascii_uppercase())
@@ -2437,7 +2437,7 @@ fn several_of_every_kind_have_delete_and_export_in_their_menu() {
     m.set(ResKey::parse("module", ResType::JRL).unwrap(), gff(b"JRL "));
     m.set(ResKey::parse("repute", ResType::FAC).unwrap(), gff(b"FAC "));
     groups.push((
-        "Journal and factions".into(),
+        "Journal and Factions".into(),
         vec![
             ResKey::parse("module", ResType::JRL).unwrap(),
             ResKey::parse("repute", ResType::FAC).unwrap(),

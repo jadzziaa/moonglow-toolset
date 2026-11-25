@@ -1832,14 +1832,14 @@ pub(crate) const TOGETHER_PAGES: [&str; 7] =
 
 /// Its Open in Tab's tip.
 const TOGETHER_OPEN_TIP: &str =
-    "Open the ticked areas' Area Properties in a tab or window of their own, with OK and Cancel";
+    "Open the checked areas' Area Properties in a tab or window of their own, with OK and Cancel";
 
 /// Its Cancel All's tip: the rule (ruling 66).
 const CANCEL_ALL_TIP: &str =
-    "Take back the edits made here since the areas were ticked, up to one made elsewhere";
+    "Take back the edits made here since the areas were checked, up to one made elsewhere";
 
 /// Why Cancel All is disabled: nothing made here.
-const CANCEL_ALL_NONE: &str = "Nothing has been edited here since the areas were ticked";
+const CANCEL_ALL_NONE: &str = "Nothing has been edited here since the areas were checked";
 
 /// Why Cancel All is disabled: what was made here is under another step.
 const CANCEL_ALL_UNDER: &str = "An edit made elsewhere or Undo came after the edits made here";
@@ -2268,7 +2268,7 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
             let can = !c.chosen.is_empty() && crate::saved::valid_name(&c.set_name);
             if ui
                 .add_enabled(can, egui::Button::new("Save Set"))
-                .on_hover_text("Keeps the ticked areas as a set under this name, for this module")
+                .on_hover_text("Keeps the checked areas as a set under this name, for this module")
                 .clicked()
             {
                 let name = c.set_name.trim().to_string();
@@ -2298,17 +2298,17 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
         let holding = c.holding(app).cloned();
         let shown = c.shown(&areas, holding.as_deref());
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Tick Shown").clicked() {
+            if ui.button("Check Shown").clicked() {
                 c.chosen.extend(shown.iter().map(|&i| areas[i].0));
                 c.ticked();
             }
-            if ui.button("Untick Shown").clicked() {
+            if ui.button("Uncheck Shown").clicked() {
                 for &i in shown.iter() {
                     c.chosen.remove(&areas[i].0);
                 }
                 c.ticked();
             }
-            if ui.button("Untick All").clicked() {
+            if ui.button("Uncheck All").clicked() {
                 c.chosen.clear();
                 c.ticked();
             }

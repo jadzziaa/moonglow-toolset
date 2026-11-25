@@ -1319,7 +1319,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     // The log says which were updated: the one ticked, by its area, kind,
     // tag and blueprint; not the one left out.
     let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
-    assert!(log.iter().any(|l| l == "Updated 1 object(s) from 2 blueprint(s):"), "{log:?}");
+    assert!(log.iter().any(|l| l == "Updated 1 object from 2 blueprints:"), "{log:?}");
     let listed: Vec<&String> = log.iter().filter(|l| l.starts_with("  ")).collect();
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert!(listed[0].contains("trigger") && listed[0].contains("(mg_trig_a)"), "{listed:?}");

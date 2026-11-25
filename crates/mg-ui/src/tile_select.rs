@@ -1366,7 +1366,7 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
 pub const ALL_TILES_SEARCH: &str = "Search model, number";
 
 /// Tile Properties' All tiles switch's name.
-pub const ALL_TILES: &str = "All tiles (ignore fit)";
+pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
 
 /// The pictures' Size slider, beside their heading.
 fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {

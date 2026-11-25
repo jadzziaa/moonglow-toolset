@@ -115,7 +115,7 @@ fn each_start_without_and_help_row_runs_its_command() {
         ("2DA File…", |_, asked| asked == ["open Table"]),
         ("Talk Table", |h, _| has(h, &Tab::TalkTable)),
         ("Resource Browser", |h, _| h.state().left_dock_shows() == Some(mg_ui::Panel::Resources)),
-        ("Appearance Gallery…", |h, _| h.state().placeable_gallery.is_some()),
+        ("Appearance Gallery", |h, _| h.state().placeable_gallery.is_some()),
         ("User Manual", |h, _| has(h, &Tab::Manual)),
         ("Command Palette…", |h, _| h.state().quick_open.is_open()),
         ("Check for Updates…", |h, _| h.state().updates.window),
@@ -1018,7 +1018,7 @@ fn the_page_s_headings_are_headings() {
     let mut h = harness(app, 1400.0, 800.0);
     settle(&mut h);
     let heading = egui::accesskit::Role::Heading;
-    for name in ["Recent Modules", "Start", "Without a module", "Status", "Learn", "Help"] {
+    for name in ["Recent Modules", "Start", "Without a Module", "Status", "Learn", "Help"] {
         let by = egui_kittest::kittest::by().label(name).role(heading);
         assert_eq!(h.query_all(by).count(), 1, "{name}");
     }

@@ -515,7 +515,7 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     // A variable set on the ticked one, in one step.
     h.state_mut().advanced_search.ticked[1] = false;
     h.run();
-    h.get_by_label("Change the 1 ticked").click();
+    h.get_by_label("Change the 1 checked").click();
     h.run();
     type_into_hint(&mut h, "its name, e.g. nQuestState", "nTest");
     type_into_hint(&mut h, "the value", "5");
@@ -551,9 +551,9 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     }
 
     // Edit Together, and their area chosen in Edit Areas Together.
-    h.get_by_label("Edit the 2 ticked together").click();
+    h.get_by_label("Edit the 2 checked together").click();
     h.run();
-    h.get_by_label("Edit 2 creature(s) in start Together").click();
+    h.get_by_label("Edit 2 creatures in start Together").click();
     h.run_steps(2);
     let paths = vec![
         mg_edit::GffPath::root().item("Creature List", 0),
@@ -565,11 +565,11 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     // (Closed: in this small screen it lies over the search's.)
     h.state_mut().actions.push(mg_ui::Action::CloseTab(both));
     h.run_steps(2);
-    h.get_by_label("Choose 1 Area(s)…").click();
+    h.get_by_label("Choose 1 Area…").click();
     h.run_steps(2);
     // (Edit Areas Together's section, in front in the Right Dock: one area
-    // ticked.)
-    h.get_by_label("1 area ticked");
+    // checked.)
+    h.get_by_label("1 area checked");
 }
 
 /// What Advanced Search found is a list of places (`start.git /Creature
@@ -840,7 +840,7 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     h.get_by_label("Find").click();
     h.run();
     h.get_by_label("2 found:");
-    h.get_by_label("Change the 2 ticked").click();
+    h.get_by_label("Change the 2 checked").click();
     h.run();
     let act = |h: &mut Harness<'_, Moonglow>, act: Act, row: usize| {
         // (The kind of row chosen first: a new kind starts with none.)
@@ -1149,7 +1149,7 @@ fn advanced_search_finds_a_spell_by_its_class_and_the_game_s_blueprints() {
     assert_eq!(d.hits[1].layer.as_deref(), Some("base"));
     assert_eq!(d.ticked, [true, false], "the game's is not ticked");
     assert_eq!(d.chosen().len(), 1);
-    h.get_by_label("Change the 1 ticked");
+    h.get_by_label("Change the 1 checked");
     // Tick All leaves it out; a tick set by hand is not taken.
     h.state_mut().advanced_search.ticked = vec![true, true];
     h.run();

@@ -511,7 +511,7 @@ fn a_known_spell_is_added_to_each_creature_of_the_class() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Clear class spell list"));
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, known), before);
-    assert!(h.get_by_label("Save Class Spell List").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Save Class Spell List…").accesskit_node().is_disabled());
 }
 
 /// Item properties: an Enhancement Bonus +1 on the first and +2 on the

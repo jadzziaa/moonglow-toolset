@@ -312,9 +312,9 @@ impl Cmd {
             Cmd::RotateTileClockwise => {
                 ("rotate-tile-clockwise", Some("Rotate Tile Clockwise"), Area)
             }
-            Cmd::TurnLeft => ("turn-left", Some("Turn Anticlockwise"), Area),
+            Cmd::TurnLeft => ("turn-left", Some("Turn Counterclockwise"), Area),
             Cmd::TurnRight => ("turn-right", Some("Turn Clockwise"), Area),
-            Cmd::TurnLeft90 => ("turn-left-90", Some("Turn Anticlockwise 90°"), Area),
+            Cmd::TurnLeft90 => ("turn-left-90", Some("Turn Counterclockwise 90°"), Area),
             Cmd::TurnRight90 => ("turn-right-90", Some("Turn Clockwise 90°"), Area),
             Cmd::DropToGround => ("drop", Some("Drop to the Ground"), Area),
             Cmd::DropOntoObject => ("drop-onto", Some("Drop onto the Object Below"), Area),

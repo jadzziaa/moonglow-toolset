@@ -607,18 +607,21 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
             crate::widgets::fit_width(ui, 460.0);
             ui.label("No placeable of this module uses these any longer:");
             ui.add_space(4.0);
-            for r in &ask.unused.rows {
-                ui.label(format!("  •  row {} ({}): {}", r.row, r.model, r.label));
-            }
-            let in_rows = |m: &str| ask.unused.rows.iter().any(|r| r.model.eq_ignore_ascii_case(m));
-            for m in ask.unused.models.iter().filter(|m| !in_rows(m)) {
-                ui.label(format!("  •  {m} in {hak}.hak, which no row names"));
-            }
+            egui::ScrollArea::vertical().id_salt("bake-unused").max_height(240.0).show(ui, |ui| {
+                for r in &ask.unused.rows {
+                    ui.label(format!("  •  row {} ({}): {}", r.row, r.model, r.label));
+                }
+                let in_rows =
+                    |m: &str| ask.unused.rows.iter().any(|r| r.model.eq_ignore_ascii_case(m));
+                for m in ask.unused.models.iter().filter(|m| !in_rows(m)) {
+                    ui.label(format!("  •  {m} in {hak}.hak, which no row names"));
+                }
+            });
             ui.add_space(4.0);
             ui.weak(
                 "This module alone was looked at: another module, or a blueprint in a hak, may \
                  still use one. Tidy Up takes them out of the rows file and the hak (kept \
-                 beside itself as .bak); Keep Them leaves them.",
+                 beside itself as .bak). Keep Them leaves them.",
             );
             (
                 (),

@@ -97,7 +97,10 @@ pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, Stri
             .iter()
             .zip(counts)
             .filter(|(_, n)| *n > 0)
-            .map(|(k, n)| format!("{n} {}", k.label().to_lowercase()))
+            .map(|(k, n)| {
+                let noun = if n == 1 { k.name().to_string() } else { k.label().to_lowercase() };
+                format!("{n} {noun}")
+            })
             .collect();
         if kinds.is_empty() {
             return Err("no objects".into());
@@ -241,5 +244,39 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     } else if open && !cancel {
         app.prefab_save = Some((name, clip));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_uses_singular_for_one_and_plural_for_many() {
+        let dir = mg_testkit::scratch_dir("prefab-summary-plurals");
+        let item = |kind: ObjectKind, tag: &str| {
+            let mut obj = mg_gff::Struct::new(kind.struct_id());
+            obj.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            let mut s = mg_gff::Struct::new(0);
+            s.set("Kind", Value::Byte(kind.index() as u8));
+            s.set("Object", Value::Struct(obj));
+            s
+        };
+        let mut g = Gff::new(*b"MGPF");
+        g.root.set(
+            "Objects",
+            Value::List(vec![
+                item(ObjectKind::Waypoint, "WP_1"),
+                item(ObjectKind::Creature, "CRE_1"),
+                item(ObjectKind::Creature, "CRE_2"),
+            ]),
+        );
+        let json = to_json(&g, Codepage::default()).unwrap();
+        std::fs::write(dir.join("Camp.prefab.json"), to_json_text(&json, TextStyle::default()))
+            .unwrap();
+        let text = summary(Some(&dir), "Camp").unwrap();
+        assert!(text.contains("2 creatures"), "{text}");
+        assert!(text.contains("1 waypoint"), "{text}");
+        assert!(!text.contains("1 waypoints"), "{text}");
     }
 }

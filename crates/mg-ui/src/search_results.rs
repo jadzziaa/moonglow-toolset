@@ -435,7 +435,7 @@ fn lines(app: &mut Moonglow, ui: &mut Ui) {
     if results.hits.is_empty() && results.what.is_empty() {
         ui.weak(
             "Find In Files, Find In Currently Open Scripts (a script's Find…) and References list \
-             what they find here; Find Instance and Find and Replace Text (Edit) search here too.",
+             what they find here. Find Instance and Find and Replace Text (Edit) search here too.",
         );
         return;
     }
@@ -777,9 +777,8 @@ fn text(app: &mut Moonglow, ui: &mut Ui) {
             labeled(ui, "Find what", 200.0, |ui, w| {
                 let r = field(ui, &mut d.find, "", w, true, &mut focus, &mut asked);
                 r.on_hover_text(
-                    "The module's names, descriptions, conversation lines and journal, in every \
-                     language they're written in (not the game's talk table); and, ticked, its \
-                     tags, resrefs, variables and other text fields.",
+                    "Searches names, descriptions, conversation lines, and journal entries across \
+                     languages. Check fields below to include tags, ResRefs, and variables.",
                 );
             });
             labeled(ui, "Replace with", 200.0, |ui, w| {
@@ -830,7 +829,7 @@ fn text(app: &mut Moonglow, ui: &mut Ui) {
             asked.search |= main_button(ui, "Find", can).clicked();
             asked.replace |= ui
                 .add_enabled(n > 0 && !busy, egui::Button::new(format!("Replace in {n}")))
-                .on_hover_text("Replace the text in the strings ticked, as one step to undo")
+                .on_hover_text("Replace the text in the checked strings, as one step to undo")
                 .clicked();
             let t = mg_uikit::tokens(ui.ctx());
             if let Some(e) = &bad {
@@ -857,8 +856,8 @@ fn text(app: &mut Moonglow, ui: &mut Ui) {
         go = strings(ui, &mut d);
     } else if d.searched.is_none() {
         ui.weak(
-            "Find lists here the module's strings with the text in them, each ticked to be \
-             replaced; Replace in N replaces it in those ticked, as one step to undo.",
+            "Find lists here the module's strings with the text in them, each checked to be \
+             replaced. Replace in N replaces it in those checked, as one step to undo.",
         );
     }
     if asked.close {

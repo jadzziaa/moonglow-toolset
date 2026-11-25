@@ -137,8 +137,8 @@ pub(crate) fn detail(app: &Moonglow, panel: Panel) -> Option<String> {
         Panel::AreasTogether => {
             let n = app.area_chooser.as_ref().map_or(0, |c| c.chosen.len());
             Some(match n {
-                0 => "No areas ticked".to_string(),
-                n => format!("{} ticked", count(n, "area", "areas")),
+                0 => "No areas checked".to_string(),
+                n => format!("{} checked", count(n, "area", "areas")),
             })
         }
         Panel::LightMaker => {
@@ -516,7 +516,7 @@ pub(crate) fn hints(app: &Moonglow, ctx: &egui::Context) -> Option<Vec<mg_uikit:
             let c = app.area_chooser.as_ref()?;
             if c.list_keys() && !typing {
                 hints.push(Hint::either(["Up", "Down"], "Move in the list"));
-                hints.push(Hint::keys(["Space"], "Tick"));
+                hints.push(Hint::keys(["Space"], "Check"));
             }
             let main = if c.enter_opens() { "Open in Tab" } else { "" };
             (main, "Close")

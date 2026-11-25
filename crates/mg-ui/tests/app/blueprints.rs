@@ -3416,7 +3416,7 @@ fn class_spell_lists_save_clear_and_load() {
     assert!(before.iter().any(|l| !l.is_empty()), "the sorcerer knows spells");
     h.state_mut().dialogs =
         Box::new(mg_ui::NoDialogs { save: vec![path.clone()], ..Default::default() });
-    h.get_by_label("Save Class Spell List").click();
+    h.get_by_label("Save Class Spell List…").click();
     h.run();
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("[Spells9]\r\nSpell000="), "{text}");
@@ -3424,7 +3424,7 @@ fn class_spell_lists_save_clear_and_load() {
     h.run();
     assert!(known(&mut h).iter().all(Vec::is_empty));
     h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![path], ..Default::default() });
-    h.get_by_label("Load Class Spell List").click();
+    h.get_by_label("Load Class Spell List…").click();
     h.run();
     assert_eq!(known(&mut h), before, "each spell back at its level");
 }

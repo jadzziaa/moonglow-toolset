@@ -2179,8 +2179,8 @@ fn general_section(
                 );
             ui.check_box(&mut draft.tree_extensions, "Show file extensions in the module tree")
                 .on_hover_text(
-                    "Write guard.utc, not guard, for blueprints, NUI windows, the journal and \
-                     factions, as a row's words or dimmed after its name, before its tag",
+                    "Show extensions such as guard.utc on blueprints, NUI windows, journal, and \
+                     factions in the module tree",
                 );
             ui.check_box(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
                 .on_hover_text("Leave groups with nothing in them out of the module tree");

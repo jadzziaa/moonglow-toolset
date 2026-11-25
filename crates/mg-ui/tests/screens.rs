@@ -6014,8 +6014,8 @@ fn areas_edited_together() {
     top_menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Edit Areas Together…").click();
-    at_rest(&mut h, |h| h.get_by_label("Tick Shown").rect());
-    h.get_by_label("Tick Shown").click();
+    at_rest(&mut h, |h| h.get_by_label("Check Shown").rect());
+    h.get_by_label("Check Shown").click();
     h.run_steps(2);
     shoot(&mut h, &dir, "areas-chooser");
     // (Since M4's U29 the shared pages are the Right Dock section's, beside

@@ -12,7 +12,7 @@ const KEPT: &[(&str, usize, &str)] = &[
     ("area_grass.rs", 1, "the light ground behind a grass texture's tufts (a picture)"),
     (
         "area_view.rs",
-        48,
+        47,
         "outlines (an encounter's own color too), kind colors and labels drawn over the 3D view",
     ),
     (

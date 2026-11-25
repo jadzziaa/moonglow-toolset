@@ -124,11 +124,11 @@ fn the_list_s_hints_only_where_its_keys_are() {
     let has = |h: &Harness<'_, Moonglow>, w: &str| h.state().status_said().iter().any(|s| s == w);
     let said = |h: &Harness<'_, Moonglow>| h.state().status_said();
     let mut h = ticked_harness("u29f-hints", 4, 2);
-    for w in ["Up or Down: Move in the list", "Space: Tick", "Enter: Open in Tab"] {
+    for w in ["Up or Down: Move in the list", "Space: Check", "Enter: Open in Tab"] {
         assert!(has(&h, w), "the Areas page, rows: {w} in {:?}", said(&h));
     }
     rail(&mut h, "Visual");
-    for w in ["Up or Down: Move in the list", "Space: Tick", "Enter: Open in Tab"] {
+    for w in ["Up or Down: Move in the list", "Space: Check", "Enter: Open in Tab"] {
         assert!(!has(&h, w), "a shared page: {w} in {:?}", said(&h));
     }
     rail(&mut h, "Areas");
@@ -140,7 +140,7 @@ fn the_list_s_hints_only_where_its_keys_are() {
     h.get_by_label_contains("Tick the areas to edit").click();
     settle(&mut h);
     assert!(!has(&h, "Up or Down: Move in the list"), "no rows: {:?}", said(&h));
-    assert!(!has(&h, "Space: Tick"), "no rows: {:?}", said(&h));
+    assert!(!has(&h, "Space: Check"), "no rows: {:?}", said(&h));
 }
 
 /// A module opened over Edit Areas Together (one with areas of the same
@@ -281,7 +281,7 @@ fn three_thousand_claimed_areas_are_asked_once() {
     key(&mut h, Key::End);
     key(&mut h, Key::Space);
     // (Every area ticked: Tick Shown.)
-    click_in_sight(&mut h, "Tick Shown");
+    click_in_sight(&mut h, "Check Shown");
     settle(&mut h);
     rail(&mut h, "Visual");
     let walks = |h: &Harness<'_, Moonglow>| h.state().areas_together_counts().2;
@@ -310,7 +310,7 @@ fn an_area_ticked_renamed_or_deleted_under_the_section() {
         literals: false,
     });
     settle(&mut h);
-    h.get_by_label("2 areas ticked");
+    h.get_by_label("2 areas checked");
     click_in_sight(&mut h, "Always Dark");
     settle(&mut h);
     assert_eq!(are(&mut h, "area0000").integer("IsNight"), Some(1));

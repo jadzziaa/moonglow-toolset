@@ -1051,7 +1051,7 @@ fn the_menus_open_by_their_keys_in_the_least_window() {
         (egui::Key::W, "Area Wizard…"),
         (egui::Key::T, "Options…"),
         (egui::Key::B, "Verify Module"),
-        (egui::Key::P, "Manage Plugins…"),
+        (egui::Key::P, "Manage Plugins"),
         (egui::Key::H, "About Moonglow Toolset"),
     ] {
         h.key_press_modifiers(egui::Modifiers::ALT, letter);

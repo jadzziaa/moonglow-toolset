@@ -2702,9 +2702,8 @@ pub(crate) fn tab(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let mut seconds = app.plugin_event_budget().as_secs() as u32;
             crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
-                "How long each plugin's handlers of a save, a paste or a wizard's Finish \
-                         may take, which wait for them; past it, they are stopped (and a save \
-                         goes on)",
+                "Maximum time plugin handlers may run during a save, paste, or wizard Finish before \
+                 being stopped",
             );
             let r = ui
                 .add(egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"));
@@ -3243,9 +3242,8 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                     tidy = ui
                         .button("Tidy Up")
                         .on_hover_text(
-                            "Take out what is not of its kind or of no setting (its default is \
-                             used, as now), and move what is in the other file where its scope \
-                             keeps it",
+                            "Remove invalid or default settings and move misplaced entries to \
+                             their proper scope file",
                         )
                         .clicked();
                 });

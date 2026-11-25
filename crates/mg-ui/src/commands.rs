@@ -549,7 +549,7 @@ impl Id {
             }
             Id::PlaceableGallery => (
                 "placeable-gallery",
-                "Appearance Gallery…",
+                "Appearance Gallery",
                 "Every placeable, creature and door appearance as a picture, to give to the \
                  selection",
             ),
@@ -621,7 +621,7 @@ impl Id {
             Id::AreaStatistics => ("area-statistics", "Area Statistics", ""),
             Id::Plugins => (
                 "plugins",
-                "Manage Plugins…",
+                "Manage Plugins",
                 "The plugins installed: enable them, and try the plugin console",
             ),
             Id::InstallPlugin => (

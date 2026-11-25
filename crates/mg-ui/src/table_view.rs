@@ -4220,7 +4220,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
             };
             let foot = crate::widgets::Foot::new()
                 .main(label, n + m > 0)
-                .tip("Take each row ticked whole, and each cell chosen alone. One step to undo.")
+                .tip("Take each checked row whole, and each chosen cell alone. One step to undo.")
                 .cancel();
             ((), foot)
         });

@@ -202,7 +202,7 @@ pub(crate) fn panel(
             ui.end_row();
             ui.label("");
             boxed(ui, &mut d.spec.lights_objects, "Lights creatures and placeables too")
-                .on_hover_text("The light node's affectdynamic: off, it lights the ground alone");
+                .on_hover_text("When off, this light illuminates the ground only");
             ui.end_row();
         });
         ui.weak(format!("Its light ends {} m out.", (d.spec.reach() * 100.0).round() / 100.0));

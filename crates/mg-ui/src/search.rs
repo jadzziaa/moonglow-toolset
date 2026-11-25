@@ -681,7 +681,7 @@ impl Moonglow {
             draft.found_at = Some(ws.revision());
         }
         draft.note = Some(
-            "The module changed since this was found. Found again, everything ticked: look the \
+            "The module changed since this was found. Found again, everything checked: look the \
              list over first."
                 .into(),
         );
@@ -913,7 +913,8 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             }
             if c.kind == Kind::Skill {
                 crate::widgets::field_label(ui, "At least");
-                ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(" rank(s)"));
+                let rank_suffix = if c.min_rank == 1 { " rank" } else { " ranks" };
+                ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(rank_suffix));
                 ui.end_row();
             }
             if c.kind == Kind::Class {
@@ -1376,21 +1377,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if outside > 0 {
                     ui.weak(format!("({outside} of them the haks' or the game's, read-only)"));
                 }
-                if ui.small_button("Tick All").clicked() {
+                if ui.small_button("Check All").clicked() {
                     for (t, h) in draft.ticked.iter_mut().zip(&draft.hits) {
                         *t = h.layer.is_none();
                     }
                 }
-                if ui.small_button("Tick None").clicked() {
+                if ui.small_button("Check None").clicked() {
                     draft.ticked.fill(false);
                 }
             });
-            egui::CollapsingHeader::new(format!("Change the {n} ticked"))
+            egui::CollapsingHeader::new(format!("Change the {n} checked"))
                 .icon(mg_uikit::collapsing_icon)
                 .id_salt("advanced-search-change")
                 .show(ui, |ui| change = act_ui(ui, &mut draft, n, app.game.as_deref()));
             let area_names = app.settings.area_names;
-            egui::CollapsingHeader::new(format!("Edit the {n} ticked together"))
+            egui::CollapsingHeader::new(format!("Edit the {n} checked together"))
                 .icon(mg_uikit::collapsing_icon)
                 .id_salt("advanced-search-together")
                 .show(ui, |ui| {
@@ -1412,18 +1413,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 Together::Blueprints(t, keys) => {
                                     let kind =
                                         ObjectKind::from_restype(*t).map_or("", ObjectKind::name);
-                                    format!("Edit {} {kind} blueprint(s) Together", keys.len())
+                                    let word =
+                                        if keys.len() == 1 { "blueprint" } else { "blueprints" };
+                                    format!("Edit {} {kind} {word} Together", keys.len())
                                 }
                                 Together::Placed { area, kind, paths } => {
                                     let aname = match area_names {
                                         true => crate::tabs::area_label(app, *area),
                                         false => area.to_lowercase().to_string(),
                                     };
-                                    format!(
-                                        "Edit {} {}(s) in {aname} Together",
-                                        paths.len(),
-                                        kind.name(),
-                                    )
+                                    let noun = if paths.len() == 1 {
+                                        kind.name().to_string()
+                                    } else {
+                                        kind.label().to_lowercase()
+                                    };
+                                    format!("Edit {} {noun} in {aname} Together", paths.len())
                                 }
                             };
                             if ui.button(text).clicked() {
@@ -1432,9 +1436,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         if !areas.is_empty()
                             && ui
-                                .button(format!("Choose {} Area(s)…", areas.len()))
+                                .button(format!(
+                                    "Choose {} {}…",
+                                    areas.len(),
+                                    if areas.len() == 1 { "Area" } else { "Areas" }
+                                ))
                                 .on_hover_text(
-                                    "Edit Areas Together with the areas of the ticked results",
+                                    "Edit Areas Together with the areas of the checked results",
                                 )
                                 .clicked()
                         {

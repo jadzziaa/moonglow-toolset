@@ -511,7 +511,7 @@ impl Moonglow {
             _ => Some("their areas' other files and compiled scripts"),
         };
         if let Some(with) = with {
-            note.push(format!("Ticked with {with} ({}).", came.0 + came.1));
+            note.push(format!("Checked with {with} ({}).", came.0 + came.1));
         }
         if found.changed.iter().any(|k| !exported_changed(k)) {
             note.push(
@@ -1452,7 +1452,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if ui
                         .add_enabled(!all, egui::Button::new("Select Changed"))
                         .on_hover_text(tip)
-                        .on_disabled_hover_text("They are ticked")
+                        .on_disabled_hover_text("They are checked")
                         .clicked()
                     {
                         draft.selected.extend(changed.iter().copied());
@@ -1595,7 +1595,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             if draft.overwrites.iter().any(|(k, on)| *on && is_unsaved(k)) {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!("Careful: one ticked is open with unsaved changes; {UNSAVED}."),
+                    format!("Careful: one checked item is open with unsaved changes. {UNSAVED}."),
                 );
             }
             if !draft.compile.is_empty() {

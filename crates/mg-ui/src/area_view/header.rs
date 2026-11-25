@@ -783,7 +783,7 @@ fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
     let rotate = match (key(Cmd::RotateTile), key(Cmd::RotateTileClockwise)) {
         (k, c) if c.is_empty() => k,
         (k, c) if k.is_empty() => format!("{c}: clockwise"),
-        (k, c) => format!("{k}; {c}: clockwise"),
+        (k, c) => format!("{k}, {c}: clockwise"),
     };
     // (egui's own Copy, Cut and Paste, which Options › Keyboard doesn't
     // bind.)
@@ -814,7 +814,7 @@ fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
         paste: with("Paste tiles: click to place the copies", edit('V')),
         delete: with(
             "Delete: remove crossers, and a group or a feature whole",
-            format!("Delete; the Eraser, {}", key(Cmd::Eraser)),
+            format!("Delete, or Eraser ({})", key(Cmd::Eraser)),
         ),
     }
 }

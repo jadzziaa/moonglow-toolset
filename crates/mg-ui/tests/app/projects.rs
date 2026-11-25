@@ -30,14 +30,14 @@ fn a_nui_window_the_include_leaves_out_is_said_and_taken_in() {
     h.run();
     let log = format!("{:?}", h.state().log.entries);
     assert!(log.contains("src/scripts/chat-commands/test.jui"), "{log}");
-    assert!(h.query_by_label("NUI windows (0)").is_some());
+    assert!(h.query_by_label("NUI Windows (0)").is_some());
     h.get_by_label("Build").click();
     h.run();
     h.get_by_label("Add Left-Out Files to nasher.cfg").click();
     h.run_steps(3);
     let jui = ResKey::parse("test", ResType::JUI).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&jui), "{:?}", h.state().log.entries);
-    assert!(h.query_by_label("NUI windows (1)").is_some());
+    assert!(h.query_by_label("NUI Windows (1)").is_some());
     let cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
     assert!(cfg.contains("include = \"src/**/*.{jui,txt}\""), "{cfg}");
 }

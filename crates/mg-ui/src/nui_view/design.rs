@@ -563,8 +563,8 @@ pub(super) fn window_settings(ui: &mut Ui, s: &mut Settings) {
          script sends the layout",
     );
     ui.check_box(&mut s.event_function, "Events go to the module's event script").on_hover_text(
-        "Build writes the event script as an include with a function to call from the module's \
-         OnNuiEvent script. Off, the window has an event script of its own",
+        "Writes the event script as an include called from the module's OnNuiEvent script. When \
+         off, the window uses its own event script.",
     );
 }
 

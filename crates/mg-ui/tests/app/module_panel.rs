@@ -57,7 +57,7 @@ pub(crate) fn group<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittes
 pub(crate) const BELOW: [&str; 13] = [
     "Conversations",
     "Scripts",
-    "NUI windows",
+    "NUI Windows",
     "Creatures",
     "Doors",
     "Encounters",
@@ -67,7 +67,7 @@ pub(crate) const BELOW: [&str; 13] = [
     "Stores",
     "Triggers",
     "Waypoints",
-    "Journal and factions",
+    "Journal and Factions",
 ];
 
 /// Where each group's row is.
@@ -778,7 +778,7 @@ fn home_and_end_go_to_the_well_s_ends_over_it_and_the_tree_s_elsewhere() {
         key(&mut h, egui::pos2(x, y), egui::Key::End);
         let at = group(&h, "Scripts").rect().top();
         assert!(at < scripts.top() - 1000.0, "at the tree's end (y {y}): Scripts at {at}");
-        let last = group(&h, "Journal and factions").rect();
+        let last = group(&h, "Journal and Factions").rect();
         assert!(last.bottom() <= view_bottom(&h) + 0.5, "the last group in sight: {last:?}");
         key(&mut h, egui::pos2(x, y), egui::Key::Home);
         assert_eq!(group(&h, "Scripts").rect(), scripts, "back at the tree's top (y {y})");
@@ -871,11 +871,11 @@ fn every_group_is_reached_in_the_least_window() {
         let (r, v) = (group(h, name).rect(), view(h));
         v.contains(&(r.top() + 0.5)) && v.contains(&(r.bottom() - 0.5))
     };
-    assert!(!in_sight(&h, "Journal and factions"), "out of sight at first");
+    assert!(!in_sight(&h, "Journal and Factions"), "out of sight at first");
     // Wheeled over Conversations' row: down to the last group.
     let at = group(&h, "Conversations").rect().center();
     wheel(&mut h, at, -100.0, 10);
-    assert!(in_sight(&h, "Journal and factions"), "wheeled to");
+    assert!(in_sight(&h, "Journal and Factions"), "wheeled to");
     wheel(&mut h, at, 100.0, 10);
     // By the keys (given to the tree by a click on Areas' row, twice:
     // closed and opened again), Home, then Down to every group.
@@ -898,7 +898,7 @@ fn every_group_is_reached_in_the_least_window() {
             assert!(in_sight(&h, name), "{name} in sight as the keys come to it");
             seen.push(name);
         }
-        if seen.last() == Some(&"Journal and factions") {
+        if seen.last() == Some(&"Journal and Factions") {
             break;
         }
     }
@@ -1329,7 +1329,7 @@ fn the_keys_go_on_past_resources_deleted() {
     assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(4))), "the keys the tree's");
     // The last of the group: the one before it, in sight.
     // (The keys to it: past it, and Up.)
-    h.state_mut().tree_cursor = Some(TreeAt::Group("NUI windows"));
+    h.state_mut().tree_cursor = Some(TreeAt::Group("NUI Windows"));
     key(&mut h, egui::Key::ArrowUp);
     assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(39))));
     delete(&mut h, &[script(39)]);

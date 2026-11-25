@@ -1642,7 +1642,7 @@ fn each_dock_list_s_hints_are_true_of_it_now() {
     let first = rows_named(&h, "camp_00000.utw › LocalizedName: ");
     in_dock(&h, &first[0]).click();
     h.run();
-    for w in [MOVE_IN_THE_LIST, "Space: Tick", "Enter: Go to", "Ctrl, C: Copy"] {
+    for w in [MOVE_IN_THE_LIST, "Space: Check", "Enter: Go to", "Ctrl, C: Copy"] {
         assert!(has(&h, w), "the strings: {w} in {:?}", said(&h));
     }
 }

@@ -482,7 +482,7 @@ fn start_section(
     }
     y += PART_GAP + SUB_OVER;
     let g = ui.painter().layout_no_wrap(
-        "Without a module".into(),
+        "Without a Module".into(),
         FontId::proportional(metrics::BODY_SIZE),
         t.text_2,
     );

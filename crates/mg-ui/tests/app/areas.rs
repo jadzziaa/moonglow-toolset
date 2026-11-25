@@ -990,7 +990,7 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Var", vec![edit])));
     h.run();
     h.get_by_label_contains("Wolf Cave");
-    h.get_by_label("Tick Shown").click();
+    h.get_by_label("Check Shown").click();
     h.run();
     // Kept as a set, and ticked again.
     type_into_hint(&mut h, "set name", "Caves");
@@ -1000,14 +1000,14 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!(kept["areas"], serde_json::json!(["cave1", "cave2"]));
     assert_eq!(kept["module"], "sample");
-    h.get_by_label("Untick All").click();
+    h.get_by_label("Uncheck All").click();
     h.run();
-    h.get_by_label("No areas ticked");
+    h.get_by_label("No areas checked");
     h.get_by_value("Tick a Set…").click();
     h.run();
     h.get_all_by_label("Caves").last().unwrap().click();
     h.run();
-    h.get_by_label("2 areas ticked");
+    h.get_by_label("2 areas checked");
 }
 
 /// Edit › Edit Areas Together…: areas ticked in the Right Dock's section
@@ -1070,11 +1070,11 @@ fn several_areas_are_edited_together() {
     h.get_all_by_label("Underground").last().unwrap().click();
     h.run();
     assert!(h.query_by_label_contains("Apple Inn").is_none(), "the inn is above ground");
-    h.get_by_label("No areas ticked");
+    h.get_by_label("No areas checked");
     assert!(h.get_by_label("Open in Tab").accesskit_node().is_disabled(), "two at the least");
-    h.get_by_label("Tick Shown").click();
+    h.get_by_label("Check Shown").click();
     h.run();
-    h.get_by_label("2 areas ticked");
+    h.get_by_label("2 areas checked");
     h.get_by_label("Open in Tab").click();
     h.run_steps(3);
     let caves: Vec<ResRef> = ["cave1", "cave2"].map(|n| ResRef::from_str(n).unwrap()).to_vec();

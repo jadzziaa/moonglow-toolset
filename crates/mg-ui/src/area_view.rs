@@ -5169,7 +5169,13 @@ fn overlays(
     }
     if let Some(Drag::Box { from, to, .. }) = view.drag {
         let r = Rect::from_two_pos(from, to);
-        painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::YELLOW), egui::StrokeKind::Inside);
+        painter.rect(
+            r,
+            0.0,
+            t.accent_fill.gamma_multiply(0.14),
+            Stroke::new(1.5, t.accent),
+            egui::StrokeKind::Inside,
+        );
     }
     if !view.outline.is_empty() {
         let stroke = Stroke::new(2.0, Color32::from_rgb(120, 230, 255));
@@ -7783,12 +7789,15 @@ fn editing_items(
     ui.add_enabled_ui(any, |ui| {
         mg_uikit::menu_button(ui, "Position", |ui| {
             mg_uikit::menu_rows(ui);
-            if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
+            let drop = app.keymap.titled("Drop to Ground", crate::keys::Cmd::DropToGround, ui.ctx());
+            if ui.add_enabled(any, egui::Button::new(drop)).clicked() {
                 drop_to_ground(app, view);
                 ui.close();
             }
+            let drop_onto =
+                app.keymap.titled("Drop onto Object", crate::keys::Cmd::DropOntoObject, ui.ctx());
             if ui
-                .add_enabled(any, egui::Button::new("Drop onto Object (Shift+G)"))
+                .add_enabled(any, egui::Button::new(drop_onto))
                 .on_hover_text(
                     "Set each selected object on the placeable or door below it, else on the ground",
                 )

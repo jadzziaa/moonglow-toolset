@@ -251,7 +251,7 @@ fn a_first_save_builds_once_and_not_when_called_off() {
     h.state_mut().settings.build_on_save = true;
     h.run();
     let builds = |h: &Harness<'_, Moonglow>| {
-        h.state().log.entries.iter().filter(|(_, m)| m == "Building Module...").count()
+        h.state().log.entries.iter().filter(|(_, m)| m == "Building Module…").count()
     };
     let dialogs = std::mem::replace(&mut h.state_mut().dialogs, Box::new(NoDialogs::default()));
     h.state_mut().actions.push(mg_ui::Action::Save);
@@ -708,7 +708,7 @@ fn export_changed_resources_leaves_module_ifo_out_and_warns_of_unsaved_scripts()
     let wanted: std::collections::BTreeSet<ResKey> = [area, git, gic].into();
     assert_eq!(draft.selected, wanted, "the area whole, module.ifo unticked");
     h.get_by_label("1 resource changed since the module was opened");
-    h.get_by_label("Ticked with their areas' other files (2).");
+    h.get_by_label("Checked with their areas' other files (2).");
     h.get_by_label_contains("module.ifo changed too, left unticked");
     h.get_by_label("1 resource was removed since, not exported.");
     h.get_by_label_contains("Careful: open with unsaved changes, which the export leaves out");
@@ -1132,10 +1132,10 @@ fn import_files_says_which_editors_hold_unsaved_changes() {
     settle(&mut h);
     assert_eq!(h.state().import.as_ref().unwrap().unsaved, [hello]);
     h.get_by_label("hello.nss (open, with unsaved changes)");
-    assert!(h.query_by_label_contains("Careful: one ticked is open").is_none());
+    assert!(h.query_by_label_contains("Careful: one checked item is open").is_none());
     h.get_by_label("Select All").click();
     settle(&mut h);
-    h.get_by_label_contains("Careful: one ticked is open with unsaved changes");
+    h.get_by_label_contains("Careful: one checked item is open with unsaved changes");
     h.get_by_label("Import").click();
     settle(&mut h);
     let log = &h.state().log.entries;

@@ -717,8 +717,8 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let (mut clear, mut save, mut load) = (false, false, false);
     ui.horizontal_wrapped(|ui| {
         clear = ui.button("Clear Class Spell List").clicked();
-        save = ui.button("Save Class Spell List").clicked();
-        load = ui.button("Load Class Spell List").clicked();
+        save = ui.button("Save Class Spell List…").clicked();
+        load = ui.button("Load Class Spell List…").clicked();
     });
     let (index, class, _, slots) = casters[which].clone();
     let prepares = slots.prepares;
@@ -1157,9 +1157,9 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     let (mut clear, mut load) = (false, false);
     ui.horizontal_wrapped(|ui| {
         clear = ui.button("Clear Class Spell List").clicked();
-        ui.add_enabled(false, egui::Button::new("Save Class Spell List"))
+        ui.add_enabled(false, egui::Button::new("Save Class Spell List…"))
             .on_disabled_hover_text("It saves one creature's list: open one to save it");
-        load = ui.button("Load Class Spell List").clicked();
+        load = ui.button("Load Class Spell List…").clicked();
     });
     let spells = class_spells(ui.ctx(), game, class.max(0) as usize);
     let names = game.choice_list("spells", SPELL_NAMES).unwrap_or_default();
