@@ -12,11 +12,18 @@
 //! One device at a time made the UI tests one long queue (each opens and
 //! draws in about a fifth of a second: 42 s of the UI tests' 42), so a few
 //! share the GPU now: `MG_TEST_GPUS` sets how many (1 for one at a time).
+//!
+//! Test binaries run at once (several worktrees, several suites) would add
+//! those counts up, so each test also takes a slot of the machine, a lock on
+//! one of `MG_TEST_GPUS` files ([`crate::slots`]): at most that many devices
+//! are open machine-wide by tests. [`alone`] is alone in its process only
+//! (it is about process-wide render state): it takes one slot.
 
 use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use crate::places::{Places, Taken};
+use crate::slots::{self, Slot};
 
 static GPU: Places = Places::new();
 
@@ -33,7 +40,21 @@ thread_local! {
     /// This thread's places, while its test holds them; given back when
     /// the test's thread ends (libtest runs each test on its own thread),
     /// also when it fails.
-    static HELD: RefCell<Option<Taken>> = const { RefCell::new(None) };
+    static HELD: RefCell<Option<Held>> = const { RefCell::new(None) };
+}
+
+/// A test's places and its machine slot, given back together (the slot
+/// first: it is the one another process waits for).
+struct Held {
+    _slot: Option<Slot>,
+    taken: Taken,
+}
+
+/// Whether the calling thread's test holds a place on the GPU now. The
+/// display lock (`mg_testkit::display`) is never taken while it does: the
+/// order of the machine's locks is the display, then the GPU.
+pub fn holding() -> bool {
+    HELD.with(|held| held.borrow().is_some())
 }
 
 /// Takes a place on the GPU for the rest of the calling test, waiting while
@@ -66,13 +87,16 @@ pub fn alone() {
 fn take(wanted: usize) {
     HELD.with(|held| {
         let mut held = held.borrow_mut();
-        if held.as_ref().is_some_and(|t| t.count >= wanted) {
+        if held.as_ref().is_some_and(|h| h.taken.count >= wanted) {
             return;
         }
         // (What it held is given back while it waits for more, so that two
         // tests waiting to be alone do not wait for each other.)
         *held = None;
-        *held = Some(GPU.take(wanted, places()));
+        let taken = GPU.take(wanted, places());
+        // (After the places: a test of this process never waits for a slot
+        // of the machine while others of it wait for its place.)
+        *held = Some(Held { _slot: slots::take(places()), taken });
     });
 }
 

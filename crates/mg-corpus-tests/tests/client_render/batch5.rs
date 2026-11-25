@@ -600,7 +600,7 @@ fn moonglow_light_shadows() {
         ("equal_ns_east", &[(20.0, 24.5), (20.0, 19.5)], 0.0),
     ];
     let only = std::env::var("MG_CASES").ok();
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

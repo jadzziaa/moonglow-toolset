@@ -6,6 +6,7 @@
 //! Set `MOONGLOW_REQUIRE_CORPUS=1` (as CI runners with the game do) to turn a
 //! missing corpus into a failure instead.
 
+pub mod display;
 pub mod engine;
 pub mod erf;
 #[cfg(feature = "hlsl")]

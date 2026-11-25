@@ -14,7 +14,15 @@
 # Environment:
 #   NWN_ROOT        game install (default: Steam's "Neverwinter Nights")
 #   MOONGLOW_ORACLE oracle state dir (default: ~/.local/share/moonglow-oracle)
+#
+# `run` takes the machine's display lock (tools/locks.sh, docs/locks.md)
+# unless an ancestor holds it (MOONGLOW_LOCKS_HELD), and Wine inherits its
+# descriptor: the lock lives as long as Aurora, and ends a few seconds after
+# it closes (its wineserver lingers) or at `run-aurora.sh kill`. Drive it
+# only under that hold.
 set -euo pipefail
+
+. "$(dirname "$0")/../locks.sh"
 
 NWN_ROOT=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
 ORACLE=${MOONGLOW_ORACLE:-"$HOME/.local/share/moonglow-oracle"}
@@ -25,6 +33,7 @@ EXE="$NWN_ROOT/bin/win32/nwtoolset.exe"
 
 case "${1:-run}" in
   run)
+    mg_lock_display "run-aurora.sh run"
     "$(dirname "$0")/headless.sh" check
     mkdir -p "$ORACLE/userdir" "$WINEPREFIX"
     [[ -f "$WINEPREFIX/system.reg" ]] || wineboot -i

@@ -1524,7 +1524,7 @@ fn moonglow(
     client: &Rgba,
     camera: &str,
 ) {
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("Moonglow's side skipped: no GPU");
         return;

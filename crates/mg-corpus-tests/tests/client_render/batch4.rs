@@ -47,7 +47,7 @@ pub(super) fn shoot_close(
     .unwrap();
     let (dir, client) =
         r.shoot(&enter(&super::readings::logged(body), (facing, distance, pitch)), settings);
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         return (dir, client);
     };
