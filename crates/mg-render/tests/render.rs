@@ -6747,6 +6747,27 @@ fn high_shadows_volumes_are_made_apart_and_let_go_with_their_model() {
         assert_eq!(r.shadow_volumes_kept(), 0, "frame {frame}: none made by the frame");
         assert_eq!(picture.data, bare.data, "frame {frame}: drawn without the shadow");
     }
+    // Asked apart and still held, then needed by a frame drawn once (apart
+    // off): that frame makes them itself, and the late ones are dropped.
+    let mut late = Renderer::new(&gpu, format, samples);
+    late.shadow_volumes = true;
+    late.volumes_apart = true;
+    late.hold_volumes(true);
+    late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert!(late.drawn.volumes_pending >= 1);
+    late.volumes_apart = false;
+    let picture = late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert_eq!(late.drawn.volumes_pending, 0);
+    assert_eq!(picture.data, made_in_frame.data, "made in the frame though asked apart");
+    late.hold_volumes(false);
+    late.volumes_apart = true;
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    for _ in 0..3 {
+        let picture = late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        assert_eq!((late.drawn.volumes_pending, late.shadow_volumes_kept()), (0, kept));
+        assert_eq!(picture.data, made_in_frame.data, "the late ones dropped");
+    }
+    drop(late);
     // Let go: shown in a frame after they are made.
     r.hold_volumes(false);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);

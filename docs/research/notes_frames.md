@@ -608,12 +608,13 @@ the build before).
 
 The pictures are unchanged. `FRAME_SHOTS=1 FRAME_SHADOW_QUALITY=high`
 shots of area084's 14 views (Sound Ranges off) from the build with the
-volumes made in the frame matched those from the build before, bit for
-bit, all but the Log's clock. With the volumes made apart, the
-opening's frames are what change: the opening goes on until no caster
-waits, 6 frames longer. Then 13 views match and the close view's grass
+volumes made in the frame (and the opening timed as before) matched
+those from the build before, bit for bit, all but the Log's clock. With
+the volumes made apart, where the opening goes on until no caster waits
+(6 frames longer), 13 views match and the close view's grass
 tufts move by up to 16 of 255 (172 pixels). Fast's close view is the
-same with either build.
+same with either build. The cause of the grass's change was not taken
+further than that: it is shaped as the tufts, not as a shadow.
 
 The renderer lets go of a model's volumes with the model, or when none
 of them has been cast for 30 s of its frames (High turned to Fast). With
@@ -621,7 +622,10 @@ of them has been cast for 30 s of its frames (High turned to Fast). With
 MiB of volumes (1,692 buffers) and 69.8 MiB of stencil target. Three
 seconds after its tab closed (the view lets go of its scene) both were
 gone, with no volume kept (`shadow volumes kept: 0`), and no other view
-drew.
+drew. So were area084's targets and framebuffer copies (the review's
+R10): the 238.5 MiB left are the module's own first area's view
+(aquarium001, its tab still open), the one view the renderer still
+keeps something for.
 
 ## Not covered
 
