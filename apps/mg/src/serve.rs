@@ -469,6 +469,34 @@ pub(crate) fn refuse_dir(gi: &GameInstall, dir: &Path, real_user_dir: Option<boo
     Ok(())
 }
 
+/// What a line the server's console printed says: that the module loaded
+/// (`Ready`, `seconds` since `started`), that it could not (`failed`), and
+/// the line itself.
+fn console_events(line: String, started: Instant, failed: &mut bool) -> Vec<Event> {
+    let mut events = Vec::new();
+    if line.starts_with("Server: Module loaded") {
+        events.push(Event::Ready { seconds: started.elapsed().as_secs_f32() });
+    }
+    *failed |= line.contains("Unable to load module");
+    events.push(Event::Console(line));
+    events
+}
+
+/// The last of the console's lines, after the loop: reported as the loop
+/// does, so a load that came late is still a `Ready`.
+fn drain_console(
+    lines: impl Iterator<Item = String>,
+    started: Instant,
+    failed: &mut bool,
+    each: &mut dyn FnMut(&Event) -> Flow,
+) {
+    for line in lines {
+        for e in console_events(line, started, failed) {
+            each(&e);
+        }
+    }
+}
+
 /// Serves the module until `each` says to stop or the server ends.
 pub(crate) fn serve(
     gi: &GameInstall,
@@ -566,11 +594,7 @@ pub(crate) fn serve(
         let end = loop {
             let mut events = Vec::new();
             for line in console.try_iter() {
-                if line.starts_with("Server: Module loaded") {
-                    events.push(Event::Ready { seconds: started.elapsed().as_secs_f32() });
-                }
-                failed |= line.contains("Unable to load module");
-                events.push(Event::Console(line));
+                events.extend(console_events(line, started, &mut failed));
             }
             events.extend(engine.more().into_iter().filter(grave).map(Event::Engine));
             events.extend(log.more().into_iter().map(Event::Log));
@@ -626,10 +650,7 @@ pub(crate) fn serve(
             if let Some(status) = server.exited() {
                 // (What it said last.)
                 std::thread::sleep(Duration::from_millis(100));
-                for line in console.try_iter() {
-                    failed |= line.contains("Unable to load module");
-                    each(&Event::Console(line));
-                }
+                drain_console(console.try_iter(), started, &mut failed, each);
                 for line in engine.more().into_iter().filter(grave) {
                     each(&Event::Engine(line));
                 }
@@ -650,9 +671,7 @@ pub(crate) fn serve(
         server.stop(Duration::from_secs(5));
         // (What it said last, once its console has closed.)
         std::thread::sleep(Duration::from_millis(100));
-        for line in console.try_iter() {
-            each(&Event::Console(line));
-        }
+        drain_console(console.try_iter(), started, &mut failed, each);
         for line in engine.more().into_iter().filter(grave) {
             each(&Event::Engine(line));
         }
@@ -741,6 +760,23 @@ pub(crate) fn text(e: &Event) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The server's last lines, read after the loop has ended (at the
+    /// timeout, or at its exit), still tell that the module loaded.
+    #[test]
+    fn a_load_said_after_the_loop_is_still_ready() {
+        let lines = ["Server: Loading module", "Server: Module loaded", "Server: Exiting..."];
+        let mut seen = Vec::new();
+        let mut failed = false;
+        drain_console(lines.iter().map(|l| l.to_string()), Instant::now(), &mut failed, &mut |e| {
+            seen.push(json(e).unwrap()["event"].as_str().unwrap().to_string());
+            Flow::Continue
+        });
+        assert_eq!(seen, ["console", "ready", "console", "console"]);
+        assert!(!failed);
+        let mut e = console_events("Unable to load module x".into(), Instant::now(), &mut failed);
+        assert!(failed && matches!(e.pop(), Some(Event::Console(_))) && e.is_empty());
+    }
 
     #[test]
     fn a_module_s_name_for_the_server() {

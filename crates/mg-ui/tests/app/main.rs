@@ -38,6 +38,7 @@ mod form_pages;
 mod free_doors;
 mod galleries;
 mod gallery_keys;
+mod game_data_holders;
 mod gpu_memory;
 mod hak_closing;
 mod hak_panels;

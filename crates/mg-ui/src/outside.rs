@@ -331,6 +331,9 @@ impl Moonglow {
         if let Some(note) = self.outside.shown_note {
             return Some(note);
         }
+        if self.game_waits.any() {
+            return Some("Waiting for the game data to be free…");
+        }
         if self.outside.compiling.as_ref().is_some_and(|c| c.queue.len() > 1) {
             return Some("Compiling scripts changed outside Moonglow…");
         }

@@ -888,6 +888,11 @@ pub struct Moonglow {
     pub typed: talk_typed::TypedState,
     /// The haks layered into the game data, as the module listed them.
     pub(crate) haks_layered: Vec<String>,
+    /// Changes to the game data asked for while something else still read
+    /// it, made once it is free ([`Moonglow::make_waiting_game_changes`]),
+    /// and whether the log has said so.
+    pub(crate) game_waits: GameWaits,
+    pub(crate) game_waits_told: bool,
     /// The keys of commands (Options › Keyboard), and the settings they
     /// were read from.
     pub keymap: keys::Keymap,
@@ -1800,6 +1805,8 @@ impl Moonglow {
             talk_view: Default::default(),
             game_talk: None,
             haks_layered: Vec::new(),
+            game_waits: GameWaits::default(),
+            game_waits_told: false,
             keymap: Default::default(),
             keymap_from: Default::default(),
             project_keys_from: Vec::new(),
@@ -2420,6 +2427,7 @@ impl Moonglow {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         self.poll_job(ui.ctx());
+        self.make_waiting_game_changes(ui.ctx());
         updates::frame(self, ui.ctx());
         self.next_plugin_event();
         self.panels_frame(ui.ctx());
@@ -4798,8 +4806,11 @@ impl Moonglow {
             self.game.as_ref().map_or(0, |g| Arc::strong_count(g) - 1),
             if self.install.is_some() { "known" } else { "none" },
         ));
-        self.release_game_data();
-        if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
+        // (Something still reading the game data: the haks are layered
+        // once it is free, and the log says so meanwhile.)
+        if self.game_free_for(|w| w.layers = true)
+            && let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install)
+        {
             let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
             for h in missing {
                 self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
@@ -4810,13 +4821,9 @@ impl Moonglow {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
             self.haks_layered = m.haks().unwrap_or_default();
-        } else if self.game.is_some() && self.install.is_some() {
-            // (Something still reads the game data: said, rather than a
-            // module opened without its haks and nothing to show why.)
-            self.log.error(
-                "The module's haks could not be added to the game data (it is in use): its \
-                 custom content will be missing. Close and open the module again.",
-            );
+            // (The textures drawn are read again from these haks: the last
+            // module's were forgotten as it closed, before its layers went.)
+            self.forget_drawn_textures();
         }
         let mut m = m;
         self.restore_locks(&mut m);
@@ -4886,7 +4893,9 @@ impl Moonglow {
     /// the user's `tlk/` folder, as the game looks) when the module names
     /// another one than is loaded.
     fn load_custom_tlk(&mut self) {
-        self.release_game_data();
+        if self.ws.is_none() || !self.game_free_for(|w| w.tlk = true) {
+            return;
+        }
         let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
         if name == self.custom_tlk {
@@ -5298,8 +5307,9 @@ impl Moonglow {
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
         self.search_kept = Default::default();
-        self.release_game_data();
-        if let Some(game) = exclusive(&mut self.game) {
+        if self.game_free_for(|w| w.layers = true)
+            && let Some(game) = exclusive(&mut self.game)
+        {
             remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
@@ -5308,7 +5318,9 @@ impl Moonglow {
 
     /// Refreshes the module layer of the game data after edits.
     pub(crate) fn refresh_module_layer(&mut self) {
-        self.release_game_data();
+        if self.ws.is_none() || !self.game_free_for(|w| w.layers = true) {
+            return;
+        }
         let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
@@ -5336,7 +5348,9 @@ impl Moonglow {
     /// ([`crate::outside`]). The game data's tables are forgotten only
     /// where a 2DA is among them.
     pub(crate) fn update_module_layer(&mut self, keys: &[ResKey]) {
-        self.release_game_data();
+        if self.ws.is_none() || !self.game_free_for(|w| w.layers = true) {
+            return;
+        }
         let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
@@ -7075,7 +7089,9 @@ impl Moonglow {
     /// refreshes what was shown from them. Asked for (Tools › Reload
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
-        self.release_game_data();
+        if !self.game_free_for(|w| w.reload = Some(asked || w.reload == Some(true))) {
+            return;
+        }
         let Some(game) = exclusive(&mut self.game) else { return };
         let mut changed = match game.resman.reload_changed(user_content) {
             Ok(c) => c,
@@ -7118,10 +7134,11 @@ impl Moonglow {
 
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
-        self.release_game_data();
         // (Quick Open's part of the load order is read again from it.)
         self.quick_open.index.forget_game();
-        if let Some(game) = exclusive(&mut self.game) {
+        if self.game_free_for(|w| w.changed = true)
+            && let Some(game) = exclusive(&mut self.game)
+        {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
@@ -7283,8 +7300,19 @@ impl Moonglow {
         if self.haks_layered.is_empty() {
             return false;
         }
-        self.release_game_data();
-        let Some(game) = exclusive(&mut self.game) else { return false };
+        // (Needed now, before the command runs: not kept for later, and not
+        // waited for again where other changes wait already.)
+        let waiting = self.game_waits.any();
+        if !waiting {
+            self.release_game_data();
+        }
+        let Some(game) = exclusive(&mut self.game).filter(|_| !waiting) else {
+            self.log.warn(
+                "The module's haks stay open while the command runs: the game data is still in \
+                 use",
+            );
+            return false;
+        };
         remove_layers(&mut game.resman, is_hak_layer);
         self.haks_layered.clear();
         self.game_data_changed();
@@ -7299,7 +7327,9 @@ impl Moonglow {
             return;
         }
         let baked = self.ws.as_ref().and_then(|ws| ws.module.project_file.baked_rows().ok());
-        self.release_game_data();
+        if !self.game_free_for(|w| w.layers = true) {
+            return;
+        }
         let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
         remove_layers(&mut game.resman, is_hak_layer);
         match game.resman.add_haks(gi, &listed) {
@@ -7332,7 +7362,9 @@ impl Moonglow {
         if !had && now.is_none() {
             return;
         }
-        self.release_game_data();
+        if !self.game_free_for(|w| w.layers = true) {
+            return;
+        }
         let Some(game) = exclusive(&mut self.game) else { return };
         mg_module::bake::layer_pending(&mut game.resman, Default::default(), baked.as_ref());
         self.game_data_changed();
@@ -7942,6 +7974,118 @@ impl Moonglow {
         }
     }
 
+    /// Whether the game data may be changed now ([`exclusive`] then gives
+    /// it): the window lets go of it first ([`Moonglow::release_game_data`]),
+    /// unless a change waits already. Where it is still held, or a change
+    /// waits, what `wait` marks is kept, to be made once it is free
+    /// ([`Moonglow::make_waiting_game_changes`]), and the log says so, once:
+    /// not lost, as it was, and not waited for again by every change after.
+    pub(crate) fn game_free_for(&mut self, wait: impl FnOnce(&mut GameWaits)) -> bool {
+        if self.game.is_none() {
+            return false;
+        }
+        if !self.game_waits.any() {
+            self.release_game_data();
+            if exclusive(&mut self.game).is_some() {
+                return true;
+            }
+        }
+        wait(&mut self.game_waits);
+        trace::note(format!("game data still held: {} wait", self.game_waits.said()));
+        if !std::mem::replace(&mut self.game_waits_told, true) {
+            self.log.warn(format!(
+                "The game data is still in use (read on another thread, or by a job): {} will \
+                 be updated once it is free",
+                self.game_waits.said()
+            ));
+        }
+        false
+    }
+
+    /// Each frame: the changes to the game data that wait for it
+    /// ([`Moonglow::game_free_for`]) made once it is free, as the window
+    /// has things then (the module open now, its haks as listed now: not
+    /// as they were when asked). Never waits: where a job or a thread
+    /// still holds it, asks again in a while. Where only the 3D views and
+    /// the haks' model views hold it, it is let go of here.
+    pub(crate) fn make_waiting_game_changes(&mut self, ctx: &egui::Context) {
+        if !self.game_waits.any() {
+            return;
+        }
+        if self.game.is_none() {
+            (self.game_waits, self.game_waits_told) = Default::default();
+            return;
+        }
+        if exclusive(&mut self.game).is_none() && !self.busy() && !self.game_data_held() {
+            self.release_game_data();
+        }
+        if exclusive(&mut self.game).is_none() {
+            self.frame_after(ctx, std::time::Duration::from_millis(250));
+            return;
+        }
+        let waits = std::mem::take(&mut self.game_waits);
+        self.game_waits_told = false;
+        trace::note(format!("game data free: {} made", waits.said()));
+        if waits.layers {
+            self.layer_open_module();
+        }
+        if let Some(asked) = waits.reload {
+            self.reload_resources(asked);
+        }
+        if waits.layers || waits.tlk {
+            self.reload_custom_tlk();
+        }
+        if waits.layers || waits.changed {
+            self.game_data_changed();
+        }
+        self.log.info(format!("The game data is free again: {} updated", waits.said()));
+    }
+
+    /// The game data's module layers (its haks, the walkmesh bake's rows
+    /// and the module itself) made as the open module has them now, the
+    /// last module's taken out: none with no module open. The game data
+    /// must be free.
+    fn layer_open_module(&mut self) {
+        let Some(game) = exclusive(&mut self.game) else { return };
+        remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
+        let mut layered = Vec::new();
+        match (&mut self.ws, &self.install) {
+            (Some(ws), Some(gi)) => {
+                // (Module Properties' hak list as it is now, unsaved
+                // changes included.)
+                let _ = ws.flush();
+                let (missing, wrong) = ws.module.stack_onto(&mut game.resman, gi);
+                for h in missing {
+                    self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
+                }
+                if let Some(e) = wrong {
+                    self.log.error(format!("Could not open the module's haks: {e}"));
+                }
+                layered = ws.module.haks().unwrap_or_default();
+            }
+            // (No game install: the module's own layer alone, as
+            // `refresh_module_layer` makes it.)
+            (Some(ws), None) => {
+                let _ = ws.flush();
+                let c = ws.module.container();
+                game.resman.add(priority::MODULE, mg_resman::MODULE_LABEL, LayerClass::Erf, c);
+            }
+            (None, _) => {
+                mg_module::bake::layer_pending(&mut game.resman, Default::default(), None);
+            }
+        }
+        game.invalidate();
+        text::set_game_codepage(Some(game.codepage()));
+        self.haks_layered = layered;
+    }
+
+    /// Whether changes to the game data wait for it to be free
+    /// ([`Moonglow::game_free_for`]).
+    #[doc(hidden)]
+    pub fn game_changes_waiting(&self) -> bool {
+        self.game_waits.any()
+    }
+
     /// Whether something other than the window reads the game data (a job,
     /// an area read on a thread): not the 3D views, which let go of it to
     /// have it changed ([`Moonglow::release_game_data`]).
@@ -7952,6 +8096,51 @@ impl Moonglow {
         // go with the views: `hak_view::resources`.)
         let haks = self.haks.iter().filter(|d| d.holds_game()).count();
         Arc::strong_count(game) - 1 > usize::from(views) + haks
+    }
+}
+
+/// Changes to the game data that could not be made when they were asked
+/// for, something else reading it still: made once it is free
+/// ([`Moonglow::make_waiting_game_changes`]), worked out from what the
+/// window has then.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GameWaits {
+    /// The module's haks, the walkmesh bake's rows and the module's own
+    /// layer, made as the open module has them (none with none open).
+    pub(crate) layers: bool,
+    /// The module's custom talk table, read again.
+    pub(crate) tlk: bool,
+    /// Tools › Reload Resources (`Some(asked)`: said when nothing changed).
+    pub(crate) reload: Option<bool>,
+    /// The game's tables and names, read again from its layers.
+    pub(crate) changed: bool,
+}
+
+impl GameWaits {
+    pub(crate) fn any(&self) -> bool {
+        *self != Self::default()
+    }
+
+    /// What waits, in a few words, for the log.
+    pub(crate) fn said(&self) -> String {
+        let mut what = Vec::new();
+        if self.layers {
+            what.push("the module's haks and resources");
+        }
+        if self.tlk {
+            what.push("the custom talk table");
+        }
+        if self.reload.is_some() {
+            what.push("the reloaded resources");
+        }
+        if self.changed && !self.layers {
+            what.push("the game's tables");
+        }
+        match what.split_last() {
+            Some((last, [])) => (*last).into(),
+            Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+            None => "nothing".into(),
+        }
     }
 }
 

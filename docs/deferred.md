@@ -1448,38 +1448,7 @@ Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
 
-- **xtul's mirror at full size in the game:** the client draws a
-  dynamic placeable with Scale 0.46 at 0.46 (`visual_transforms_look`),
-  upright and turned on its stand by X Rotation -50.8; at full size and
-  unturned only when it is static. Whether his mirror is static in the
-  module the game ran (a build step that makes placeables static, or
-  Static ticked after the transform), or the full size was by eye,
-  would settle it. (S) (xtul's report, October 2026)
-
-- **"It kept randomly exiting"** on a persistent world's module (ten
-  times before it stayed open), reported without a log. One cause was
-  found and fixed: the compiler walks a script by recursion, and a very
-  long `else if` chain or expression overflowed the stack of the thread
-  it ran on, which ends the program at once and leaves no crash report
-  (a 60,000-link chain did it on Linux; Windows' main thread has an
-  eighth of that stack). Compiles run on a stack of their own now.
-  Whether that was the reporter's crash isn't known: asked for the debug
-  log (Options › General) and what was being done. (needs the log)
-  (from builders' reports after 1.14.1)
-- **A hak's 2DA not seen until a restart** (a builder: a creature
-  showed "appearance.2da has no row 8241", from a hak above CEP's whose
-  table has more rows; gone after restarting Moonglow): not reproduced.
-  Haks and folders that change on disk are read again every few seconds
-  and their tables forgotten, which a test holds for the override
-  folder. Suspected and not shown: `reload_resources` and `sync_haks`
-  give up without a word while anything else holds the game data (a
-  job), and try again later; on Windows a hak Moonglow has open cannot
-  be replaced by another program at all, so a hak tool may have failed
-  to write it. If it comes back: the log around it, and whether Tools ›
-  Reload Resources cures it. While
-  something else holds the game data, the look is put off and the
-  debug log says so ("the game data is held"), which would show this.
-  (S–M) (from builders' reports after 1.19.1)
+None open (the last seven were dropped on 2026-11-25).
 
 ## Settled: as it is, by decision or by design
 

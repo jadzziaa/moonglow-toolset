@@ -392,7 +392,9 @@ place of the one in your tlk folder.
 - **`--json`** prints each of these as a line of JSON (`event`:
   `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
   `note`, `changed`, `ended`, the last with `how` it ended and whether
-  it `failed`, as `mg watch --serve` ends too).
+  it `failed`, as `mg watch --serve` ends too). `ready` is reported
+  whenever the server says its module loaded, also when that line
+  comes only as the server is stopping or exiting.
 
 ## Testing scripts in the server
 
