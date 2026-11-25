@@ -669,70 +669,41 @@ impl AreaRightLayout {
         }
     }
 
+    /// The arrangement as the kit's stack ([`mg_uikit::stack`]).
+    pub fn stack(&self) -> mg_uikit::stack::StackLayout<AreaRightPanel> {
+        mg_uikit::stack::StackLayout { columns: self.columns.clone() }
+    }
+
     /// Deduplicates panes, drops empty sections and columns, caps at two
-    /// columns, and ensures every [`AreaRightPanel`] appears once.
+    /// columns, and ensures every [`AreaRightPanel`] appears once
+    /// ([`AREA_RIGHT_RULES`]).
     pub fn normalized(&self) -> Self {
-        let mut seen = [false; 3];
-        let idx = |p: AreaRightPanel| match p {
-            AreaRightPanel::Palette => 0,
-            AreaRightPanel::Preview => 1,
-            AreaRightPanel::Properties => 2,
-        };
-        let mut columns: Vec<Vec<Vec<AreaRightPanel>>> = Vec::new();
-        for col in &self.columns {
-            let mut clean_col: Vec<Vec<AreaRightPanel>> = Vec::new();
-            for sec in col {
-                let mut clean_sec: Vec<AreaRightPanel> = Vec::new();
-                for &p in sec {
-                    let i = idx(p);
-                    if !seen[i] {
-                        seen[i] = true;
-                        clean_sec.push(p);
-                    }
-                }
-                if !clean_sec.is_empty() {
-                    clean_col.push(clean_sec);
-                }
-            }
-            if !clean_col.is_empty() {
-                if columns.len() >= 2 {
-                    columns[1].extend(clean_col);
-                } else {
-                    columns.push(clean_col);
-                }
-            }
-        }
-        if columns.is_empty() {
-            return Self::two_columns();
-        }
-        for p in AreaRightPanel::ALL {
-            if !seen[idx(p)] {
-                columns.last_mut().unwrap()[0].push(p);
-            }
-        }
-        Self { columns }
+        self.stack().normalized(&AREA_RIGHT_RULES).into()
     }
 
     /// Returns columns with [`AreaRightPanel::Properties`] removed, dropping
     /// any section or column that becomes empty.
     pub fn without_properties(&self) -> Vec<Vec<Vec<AreaRightPanel>>> {
-        let norm = self.normalized();
-        norm.columns
-            .into_iter()
-            .filter_map(|col| {
-                let kept: Vec<Vec<AreaRightPanel>> = col
-                    .into_iter()
-                    .filter_map(|sec| {
-                        let s: Vec<_> =
-                            sec.into_iter().filter(|&p| p != AreaRightPanel::Properties).collect();
-                        (!s.is_empty()).then_some(s)
-                    })
-                    .collect();
-                (!kept.is_empty()).then_some(kept)
-            })
-            .collect()
+        self.normalized().stack().without(AreaRightPanel::Properties).columns
     }
 }
+
+impl From<mg_uikit::stack::StackLayout<AreaRightPanel>> for AreaRightLayout {
+    fn from(stack: mg_uikit::stack::StackLayout<AreaRightPanel>) -> Self {
+        AreaRightLayout { columns: stack.columns }
+    }
+}
+
+/// What the area's Right Dock holds and allows: its three panels, two
+/// columns at most, Two Columns where nothing is kept.
+pub const AREA_RIGHT_RULES: mg_uikit::stack::StackRules<'static, AreaRightPanel> =
+    mg_uikit::stack::StackRules {
+        all: &AreaRightPanel::ALL,
+        most_columns: 2,
+        default: || mg_uikit::stack::StackLayout {
+            columns: AreaRightLayout::two_columns().columns,
+        },
+    };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

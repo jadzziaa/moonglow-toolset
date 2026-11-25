@@ -47,6 +47,7 @@ pub mod popover;
 pub mod scrolling;
 pub mod shelf;
 pub mod shell;
+pub mod stack;
 pub mod status;
 pub mod theme;
 pub mod tokens;

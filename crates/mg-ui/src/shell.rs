@@ -71,6 +71,7 @@
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
+use mg_uikit::stack::StackZone;
 use mg_uikit::status::{
     self, Hint, HintPart, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch,
 };
@@ -1749,16 +1750,6 @@ enum AreaRightCommand {
     ResetLayout,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AreaDropZone {
-    LeftColumn,
-    RightColumn,
-    IntoSection(usize, usize),
-    AboveSection(usize, usize),
-    BelowSection(usize, usize),
-    MoveTab(usize, usize, usize),
-}
-
 struct AreaSectionBox {
     col: usize,
     sec: usize,
@@ -1767,137 +1758,14 @@ struct AreaSectionBox {
     tabs: Vec<(Panel, egui::Rect)>,
 }
 
-fn find_area_panel(
-    layout: &crate::settings::AreaRightLayout,
-    target: crate::settings::AreaRightPanel,
-) -> Option<(usize, usize, usize)> {
-    for (c, col) in layout.columns.iter().enumerate() {
-        for (s, sec) in col.iter().enumerate() {
-            if let Some(i) = sec.iter().position(|&p| p == target) {
-                return Some((c, s, i));
-            }
-        }
-    }
-    None
-}
-
-type AreaRightColumns = Vec<Vec<Vec<crate::settings::AreaRightPanel>>>;
-
-fn layout_with_panel_removed(
-    layout: &crate::settings::AreaRightLayout,
-    target: crate::settings::AreaRightPanel,
-) -> (AreaRightColumns, Option<(usize, usize)>) {
-    let norm = layout.normalized();
-    let src = find_area_panel(&norm, target);
-    let mut cols = Vec::with_capacity(norm.columns.len());
-    for col in norm.columns {
-        let mut kept_col = Vec::with_capacity(col.len());
-        for sec in col {
-            let kept_sec: Vec<_> = sec.into_iter().filter(|&p| p != target).collect();
-            if !kept_sec.is_empty() {
-                kept_col.push(kept_sec);
-            }
-        }
-        if !kept_col.is_empty() {
-            cols.push(kept_col);
-        }
-    }
-    (cols, src.map(|(c, s, _)| (c, s)))
-}
-
+/// `dragged` dropped at `zone` in the area's Right Dock as `layout`
+/// arranges it: the arrangement it makes (the kit's rules, `StackLayout::apply`).
 fn apply_area_drop(
     layout: &crate::settings::AreaRightLayout,
     dragged: crate::settings::AreaRightPanel,
-    zone: AreaDropZone,
+    zone: StackZone,
 ) -> crate::settings::AreaRightLayout {
-    use crate::settings::AreaRightLayout;
-    let norm = layout.normalized();
-    match zone {
-        AreaDropZone::MoveTab(c, s, to_idx) => {
-            if let Some((sc, ss, si)) = find_area_panel(&norm, dragged)
-                && sc == c
-                && ss == s
-            {
-                let mut cols = norm.columns;
-                let sec = &mut cols[c][s];
-                if si != to_idx && to_idx < sec.len() {
-                    let p = sec.remove(si);
-                    sec.insert(to_idx, p);
-                }
-                return AreaRightLayout { columns: cols }.normalized();
-            }
-            apply_area_drop(layout, dragged, AreaDropZone::IntoSection(c, s))
-        }
-        AreaDropZone::LeftColumn => {
-            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
-            if cols.len() >= 2 {
-                cols[0].insert(0, vec![dragged]);
-            } else {
-                cols.insert(0, vec![vec![dragged]]);
-            }
-            AreaRightLayout { columns: cols }.normalized()
-        }
-        AreaDropZone::RightColumn => {
-            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
-            if cols.len() >= 2 {
-                cols[1].insert(0, vec![dragged]);
-            } else {
-                cols.push(vec![vec![dragged]]);
-            }
-            AreaRightLayout { columns: cols }.normalized()
-        }
-        AreaDropZone::IntoSection(c, s) => {
-            let Some(&anchor) = norm
-                .columns
-                .get(c)
-                .and_then(|col| col.get(s))
-                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
-            else {
-                return norm;
-            };
-            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
-            if let Some((nc, ns, _)) =
-                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
-            {
-                cols[nc][ns].push(dragged);
-            }
-            AreaRightLayout { columns: cols }.normalized()
-        }
-        AreaDropZone::AboveSection(c, s) => {
-            let Some(&anchor) = norm
-                .columns
-                .get(c)
-                .and_then(|col| col.get(s))
-                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
-            else {
-                return norm;
-            };
-            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
-            if let Some((nc, ns, _)) =
-                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
-            {
-                cols[nc].insert(ns, vec![dragged]);
-            }
-            AreaRightLayout { columns: cols }.normalized()
-        }
-        AreaDropZone::BelowSection(c, s) => {
-            let Some(&anchor) = norm
-                .columns
-                .get(c)
-                .and_then(|col| col.get(s))
-                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
-            else {
-                return norm;
-            };
-            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
-            if let Some((nc, ns, _)) =
-                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
-            {
-                cols[nc].insert(ns + 1, vec![dragged]);
-            }
-            AreaRightLayout { columns: cols }.normalized()
-        }
-    }
+    layout.stack().apply(&crate::settings::AREA_RIGHT_RULES, dragged, zone).into()
 }
 
 /// A Palette, Preview or Properties tab or header dragged in an area's
@@ -1948,7 +1816,7 @@ fn area_drop_target(
     dragged: Panel,
     pos: egui::Pos2,
     boxes: &[AreaSectionBox],
-) -> Option<(AreaDropZone, egui::Rect)> {
+) -> Option<(StackZone, egui::Rect)> {
     let dragged_ap = to_area_panel(dragged)?;
     if !pane.contains(pos) {
         return None;
@@ -1963,27 +1831,31 @@ fn area_drop_target(
                 if b.panels.len() > 1 {
                     for (idx, (p, tr)) in b.tabs.iter().enumerate() {
                         if *p != dragged && tr.contains(pos) {
-                            return Some((AreaDropZone::MoveTab(b.col, b.sec, idx), *tr));
+                            return Some((
+                                StackZone::Tab { col: b.col, sec: b.sec, index: idx },
+                                *tr,
+                            ));
                         }
                     }
                 }
                 continue;
             }
-            return Some((AreaDropZone::IntoSection(b.col, b.sec), header_rect));
+            return Some((StackZone::Into { col: b.col, sec: b.sec }, header_rect));
         }
     }
     // 2. Outer left/right column edges on ultrawide when removing the dragged panel leaves <= 1 column.
     if app.yields.wide {
-        let (remaining, _) = layout_with_panel_removed(&base, dragged_ap);
-        if remaining.len() <= 1 {
+        let remaining =
+            base.stack().normalized(&crate::settings::AREA_RIGHT_RULES).without(dragged_ap);
+        if remaining.columns.len() <= 1 {
             let edge = (pane.width() * 0.18).max(40.0).min(pane.width() * 0.4);
             if pos.x <= pane.left() + edge {
                 let preview = pane.with_max_x(pane.center().x);
-                return Some((AreaDropZone::LeftColumn, preview));
+                return Some((StackZone::Column { last: false }, preview));
             }
             if pos.x >= pane.right() - edge {
                 let preview = pane.with_min_x(pane.center().x);
-                return Some((AreaDropZone::RightColumn, preview));
+                return Some((StackZone::Column { last: true }, preview));
             }
         }
     }
@@ -2000,13 +1872,13 @@ fn area_drop_target(
         let rel = (pos.y - b.rect.top()) / h.max(1.0);
         if rel < 0.30 {
             let preview = b.rect.with_max_y(b.rect.top() + h * 0.5);
-            return Some((AreaDropZone::AboveSection(b.col, b.sec), preview));
+            return Some((StackZone::Above { col: b.col, sec: b.sec }, preview));
         }
         if rel > 0.70 {
             let preview = b.rect.with_min_y(b.rect.top() + h * 0.5);
-            return Some((AreaDropZone::BelowSection(b.col, b.sec), preview));
+            return Some((StackZone::Below { col: b.col, sec: b.sec }, preview));
         }
-        return Some((AreaDropZone::IntoSection(b.col, b.sec), b.rect));
+        return Some((StackZone::Into { col: b.col, sec: b.sec }, b.rect));
     }
     None
 }
@@ -2040,7 +1912,7 @@ fn show_area_context_menu(
         ui.close();
     }
     if let Some(ap) = to_area_panel(panel)
-        && let Some((c, s, i)) = find_area_panel(&menu.base, ap)
+        && let Some((c, s, i)) = menu.base.stack().find(ap)
     {
         mg_uikit::menu_separator(ui);
         let sec = &menu.base.columns[c][s];
@@ -2049,7 +1921,7 @@ fn show_area_context_menu(
                 *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                     &menu.base,
                     ap,
-                    AreaDropZone::MoveTab(c, s, i - 1),
+                    StackZone::Tab { col: c, sec: s, index: i - 1 },
                 ))));
                 ui.close();
             }
@@ -2057,7 +1929,7 @@ fn show_area_context_menu(
                 *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                     &menu.base,
                     ap,
-                    AreaDropZone::MoveTab(c, s, i + 1),
+                    StackZone::Tab { col: c, sec: s, index: i + 1 },
                 ))));
                 ui.close();
             }
@@ -2065,7 +1937,7 @@ fn show_area_context_menu(
                 *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                     &menu.base,
                     ap,
-                    AreaDropZone::BelowSection(c, s),
+                    StackZone::Below { col: c, sec: s },
                 ))));
                 ui.close();
             }
@@ -2074,7 +1946,7 @@ fn show_area_context_menu(
             *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                 &menu.base,
                 ap,
-                AreaDropZone::AboveSection(c, s - 1),
+                StackZone::Above { col: c, sec: s - 1 },
             ))));
             ui.close();
         }
@@ -2082,7 +1954,7 @@ fn show_area_context_menu(
             *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                 &menu.base,
                 ap,
-                AreaDropZone::BelowSection(c, s + 1),
+                StackZone::Below { col: c, sec: s + 1 },
             ))));
             ui.close();
         }
@@ -2097,7 +1969,7 @@ fn show_area_context_menu(
                     *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                         &menu.base,
                         ap,
-                        AreaDropZone::IntoSection(oc, os),
+                        StackZone::Into { col: oc, sec: os },
                     ))));
                     ui.close();
                 }
@@ -2114,19 +1986,19 @@ fn show_area_context_menu(
                     && sec.len() == 1
                     && menu.base.columns[c].len() == 1
                 {
-                    apply_area_drop(&menu.base, ap, AreaDropZone::LeftColumn)
+                    apply_area_drop(&menu.base, ap, StackZone::Column { last: false })
                 } else {
                     apply_area_drop(
                         &menu.base,
                         ap,
-                        AreaDropZone::BelowSection(0, menu.base.columns[0].len() - 1),
+                        StackZone::Below { col: 0, sec: menu.base.columns[0].len() - 1 },
                     )
                 };
                 *cmd = Some(AreaRightCommand::SetLayout(Some(next)));
                 ui.close();
             }
             if can_right && ui.button("Move to Right Column").clicked() {
-                let next = apply_area_drop(&menu.base, ap, AreaDropZone::RightColumn);
+                let next = apply_area_drop(&menu.base, ap, StackZone::Column { last: true });
                 *cmd = Some(AreaRightCommand::SetLayout(Some(next)));
                 ui.close();
             }
@@ -7253,22 +7125,23 @@ mod dock_tests {
         use crate::settings::{AreaRightLayout, AreaRightPanel as P};
         let two = AreaRightLayout::two_columns();
         // Stack Properties below Palette | Preview.
-        let stacked = apply_area_drop(&two, P::Properties, AreaDropZone::BelowSection(0, 0));
+        let stacked = apply_area_drop(&two, P::Properties, StackZone::Below { col: 0, sec: 0 });
         assert_eq!(stacked, AreaRightLayout::stacked());
         // Combine Properties into Palette | Preview tab bar.
-        let tabbed = apply_area_drop(&two, P::Properties, AreaDropZone::IntoSection(0, 0));
+        let tabbed = apply_area_drop(&two, P::Properties, StackZone::Into { col: 0, sec: 0 });
         assert_eq!(tabbed, AreaRightLayout::one_tab_bar());
         // Dragging Properties out of One Tab Bar into RightColumn restores Two Columns.
-        let split_right = apply_area_drop(&tabbed, P::Properties, AreaDropZone::RightColumn);
+        let split_right = apply_area_drop(&tabbed, P::Properties, StackZone::Column { last: true });
         assert_eq!(split_right, two);
         // Dragging Properties to LeftColumn swaps columns.
-        let props_left = apply_area_drop(&two, P::Properties, AreaDropZone::LeftColumn);
+        let props_left = apply_area_drop(&two, P::Properties, StackZone::Column { last: false });
         assert_eq!(
             props_left.columns,
             vec![vec![vec![P::Properties]], vec![vec![P::Palette, P::Preview]]]
         );
         // Reordering tabs in One Tab Bar.
-        let reordered = apply_area_drop(&tabbed, P::Properties, AreaDropZone::MoveTab(0, 0, 0));
+        let reordered =
+            apply_area_drop(&tabbed, P::Properties, StackZone::Tab { col: 0, sec: 0, index: 0 });
         assert_eq!(reordered.columns, vec![vec![vec![P::Properties, P::Palette, P::Preview]]]);
     }
 }
