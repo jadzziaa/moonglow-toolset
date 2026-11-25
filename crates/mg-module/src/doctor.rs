@@ -3631,6 +3631,22 @@ fn items_without_model(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
             }
             _ => {}
         }
+        // Items lying in the area: the item itself, with its own fields.
+        if key.restype == ResType::GIT {
+            let list = mg_rules::ObjectKind::Item.list();
+            for (i, item) in gff.root.list(list).unwrap_or(&[]).iter().enumerate() {
+                if item.get("BaseItem").is_none() {
+                    continue;
+                }
+                let Some(problem) = judge(item) else { continue };
+                let what = name(item).unwrap_or_else(|| format!("#{}", i + 1));
+                let message = format!(
+                    "the item {what} lying in {}: {problem}. The game can't make this item",
+                    key.resref
+                );
+                found.push((GffPath::root().item(list, i).field("BaseItem"), message));
+            }
+        }
         for (at, creature) in creatures {
             let who = name(creature).unwrap_or_else(|| key.resref.to_string());
             for (list, verb, reference) in
@@ -7614,6 +7630,9 @@ endmodelgeom fx\ndonemodel fx\n";
         orc.set("ItemList", Value::List(vec![item(3, 1).root, held]));
         let mut git = Gff::new(*b"GIT ");
         git.root.set("Creature List", Value::List(vec![orc]));
+        let mut ground = item(3, 9).root;
+        ground.set("Tag", Value::String(b"LOST_HAT".to_vec()));
+        git.root.set(mg_rules::ObjectKind::Item.list(), Value::List(vec![ground, item(3, 1).root]));
         m.set_gff(key("area", ResType::GIT), &git).unwrap();
         // (Verify's resources have the module layered in.)
         let mut rm = rm;
@@ -7628,6 +7647,7 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(
             at,
             [
+                "area › item LOST_HAT › BaseItem",
                 "area › creature ORC › inventory BaseItem",
                 "badhelm.uti › BaseItem",
                 "guard.utc › InventoryRes",
@@ -7637,14 +7657,20 @@ endmodelgeom fx\ndonemodel fx\n";
             "{said:#?}"
         );
         assert!(said.iter().all(|f| f.severity == Severity::Warning));
-        let orc = said[0].message.as_str();
+        let orc = said[1].message.as_str();
         assert!(orc.starts_with("ORC holds the item orc_hat: No model: helm_009 (its ModelPart1)"));
         assert!(orc.contains("DefaultModel") && orc.contains("the area won't load"), "{orc}");
-        assert!(said[2].message.starts_with("guard holds the item badhelm: "), "{said:#?}");
-        assert!(said[3].message.starts_with(
+        assert!(said[3].message.starts_with("guard holds the item badhelm: "), "{said:#?}");
+        assert!(said[4].message.starts_with(
             "guard wears the item odd: No model: baseitems.2da row 2 has no ItemClass"
         ));
-        assert!(said[1].message.contains("the area won't load"), "{said:#?}");
+        assert!(said[2].message.contains("the area won't load"), "{said:#?}");
+        // An item lying in the area: named with the area, no claim of the area.
+        assert!(
+            said[0].message.starts_with("the item LOST_HAT lying in area: No model: helm_009"),
+            "{said:#?}"
+        );
+        assert!(!said[0].message.contains("won't load"), "{said:#?}");
         // (Said once: `object-row` leaves the part it would say of the same item.)
         assert!(
             f.iter().all(|f| f.check != "object-row" || !f.at.starts_with("badhelm")),
