@@ -71,7 +71,7 @@
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
-use mg_uikit::stack::{DropSection, StackDrop, StackZone};
+use mg_uikit::stack::{DockDrop, DropSection, StackDrop, StackZone};
 use mg_uikit::status::{
     self, Hint, HintPart, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch,
 };
@@ -1806,14 +1806,15 @@ fn area_drop_target(
 ) -> Option<(StackZone, egui::Rect)> {
     let dragged_ap = to_area_panel(dragged)?;
     let rules = &crate::settings::AREA_RIGHT_RULES;
-    let drop = StackDrop {
+    let right = StackDrop {
         pane,
         sections: boxes,
         bar_height: mg_uikit::metrics::DOCK_TABS + 4.0,
         new_columns: app.yields.wide
             && active_area_right_base(app).stack().room_for_column(rules, dragged_ap),
     };
-    drop.target(dragged, pos)
+    let target = DockDrop::new().dock(Dock::Right, right).target(dragged, pos)?;
+    Some((target.zone, target.preview))
 }
 
 fn show_area_context_menu(
