@@ -458,6 +458,66 @@ fn the_table_s_keys_are_the_active_editor_s() {
     assert_eq!(chosen(&h), [key("zz_box.mdl")], "the first table's keys do nothing");
 }
 
+/// Down in Find goes on to the table, at its first row (the table has the
+/// keys, outlined): Down and End go on from there in the table's order,
+/// Enter shows the resource again where its Preview was closed.
+#[test]
+fn down_in_find_goes_to_the_table_s_first_row() {
+    let (mut h, _, id) = hak_window(Mode::Tabs, "ui-hak-find-down", 1600.0, None, false);
+    let chosen =
+        |h: &Harness<'_, Moonglow>| doc(h, id).selected.iter().copied().collect::<Vec<_>>();
+    hak_tool(&mut h, hv::FIND).click();
+    h.get_by_label(HAK_HEADER).get_by_label(hv::FIND).type_text("zz");
+    settle(&mut h);
+    let order = rows_shown(&h);
+    assert!(order.len() >= 3, "{order:?}");
+    assert_eq!(accent_outlines(&h, 100.0), 0, "no keys yet");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(chosen(&h), [key(&order[0])], "the first row, as the table is ordered");
+    assert_eq!(accent_outlines(&h, 100.0), 1, "the table outlined");
+    says(&mut h, &["Up or Down: Move in the list", "Enter: View"], &[]);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(chosen(&h), [key(&order[1])], "Down goes on in the table");
+    h.key_press(egui::Key::End);
+    settle(&mut h);
+    assert_eq!(chosen(&h), [key(order.last().unwrap())], "End");
+    // Enter views it: its Preview, closed, is shown again.
+    h.get_by_label(hv::PREVIEW_CLOSE).click();
+    settle(&mut h);
+    assert_eq!(doc(&h, id).preview_key(), None, "closed");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert_eq!(doc(&h, id).preview_key(), Some(key(order.last().unwrap())), "Enter");
+}
+
+/// Down in Find inside the header's More closes the popover, and the table's
+/// arrows work at once.
+#[test]
+fn down_in_find_in_more_closes_it_and_the_table_has_the_keys() {
+    use mg_uikit::header::{self, Place};
+    let (mut h, _, id) = hak_window(Mode::Tabs, "ui-hak-find-more", 400.0, None, false);
+    let rec = header::records(&h.ctx, HAK_HEADER).into_iter().next().expect("a hak header");
+    let place = rec.places.iter().find(|(n, _)| n == hv::FIND).map(|(_, p)| *p);
+    assert_eq!(place, Some(Place::More), "Find in More at this width: {:?}", rec.places);
+    let chosen =
+        |h: &Harness<'_, Moonglow>| doc(h, id).selected.iter().copied().collect::<Vec<_>>();
+    hak_tool(&mut h, hv::FIND).click();
+    settle(&mut h);
+    assert!(h.query_by_label(HAK_MORE).is_some(), "More open");
+    h.get_by_label(HAK_MORE).get_by_label(hv::FIND).type_text("zz");
+    settle(&mut h);
+    let order = rows_shown(&h);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert!(h.query_by_label(HAK_MORE).is_none(), "More closed by Down");
+    assert_eq!(chosen(&h), [key(&order[0])], "the first row");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(chosen(&h), [key(&order[1])], "the arrows work at once");
+}
+
 /// The Outliner lists the hak's types with their counts, the most first
 /// (the board's), with no module open (the Left Dock holding it alone); a
 /// click on a type finds it (Find ".tga", the table that type's alone, the

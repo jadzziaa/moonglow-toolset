@@ -703,6 +703,9 @@ pub(crate) fn shown(
         return Shown { hints, counts, note: None };
     }
     if d.page == Page::Tiles && d.set.is_ok() {
+        if super::list_has_keys(app, ctx, id) {
+            hints.push(Hint::either(["Up", "Down"], "Move in the list"));
+        }
         hints.push(Hint::keys(["Click"], "Choose a tile"));
         if d.hovered {
             hints.extend(k.hint(Cmd::Find, "Find"));

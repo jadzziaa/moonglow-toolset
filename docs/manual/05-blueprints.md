@@ -376,6 +376,9 @@ framed in red, marked **No model**, is a row with no model to draw (see
 "An appearance with no model" below); the pointer resting on it says
 why.
 
+**Down** in Find gives the pictures the arrow keys, with the cursor on the
+first picture shown, and Enter or Space takes it as a click does.
+
 **Gallery…** beside the appearance in a placeable's, creature's or
 door's Properties (a blueprint's, or a placed one's) opens the gallery
 at that object's

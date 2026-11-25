@@ -241,7 +241,7 @@ fn upright_particles_look() {
             (facing, dir, are, git, client)
         })
         .collect();
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

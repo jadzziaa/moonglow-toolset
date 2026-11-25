@@ -3211,3 +3211,19 @@ fn painted(shape: &egui::Shape, f: &mut impl FnMut(&egui::Shape)) {
         shape => f(shape),
     }
 }
+
+/// How many outlines in the accent (one point wide) are drawn round a
+/// rectangle `high` or taller as the last frame had them: the ring round a
+/// list that has the keys ([`mg_ui::palette_view::keys_are_the_logs`]'s
+/// sibling in the lists' own panes).
+pub(crate) fn accent_outlines(h: &Harness<'_, Moonglow>, high: f32) -> usize {
+    let accent = mg_uikit::tokens(&h.ctx).accent;
+    (h.output().shapes.iter())
+        .filter(|c| match &c.shape {
+            egui::Shape::Rect(r) => {
+                r.stroke.color == accent && r.stroke.width == 1.0 && r.rect.height() >= high
+            }
+            _ => false,
+        })
+        .count()
+}

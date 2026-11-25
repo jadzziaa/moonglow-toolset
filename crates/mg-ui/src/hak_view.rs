@@ -542,6 +542,11 @@ impl HakDoc {
         facts
     }
 
+    /// Whether the table, as last made, has rows (the Find leaves some).
+    pub(crate) fn has_rows_shown(&self) -> bool {
+        self.rows.as_ref().is_some_and(|(.., rows)| !rows.is_empty())
+    }
+
     /// [`HakDoc::facts`] as last counted, where they are the hak's now.
     pub(crate) fn facts_seen(&self) -> Option<&Arc<Facts>> {
         self.facts.as_ref().filter(|(c, _)| *c == self.hak.changes()).map(|(_, f)| f)
@@ -1116,6 +1121,8 @@ struct HeaderAsked {
     rename: bool,
     edit_table: bool,
     pressed: Option<crate::blueprint::Pressed>,
+    /// Down in Find: on to the table, at its first row.
+    down: bool,
 }
 
 /// The editor's header (the Hak board's, `Hak.png` and `Hak-h.png`, its
@@ -1132,15 +1139,22 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
     let id = d.id;
     let over = d.hovered;
     let filter = RefCell::new(std::mem::take(&mut d.filter));
+    let down = std::cell::Cell::new(false);
     let find = |ui: &mut Ui| {
         let mut text = filter.borrow_mut();
-        crate::widgets::SearchField::new(egui::Id::new(("hak-filter-field", id)), &mut text)
-            .name(FIND)
-            .hint("name or .type")
-            .width(FIND_WIDTH)
-            .clear_inside()
-            .find_when(over)
-            .show(ui);
+        let left =
+            crate::widgets::SearchField::new(egui::Id::new(("hak-filter-field", id)), &mut text)
+                .name(FIND)
+                .hint("name or .type")
+                .width(FIND_WIDTH)
+                .clear_inside()
+                .find_when(over)
+                .down()
+                .show(ui)
+                .left;
+        if left == Some(crate::widgets::FilterLeft::Down) {
+            down.set(true);
+        }
     };
     let n = d.selected.len();
     let one = (n == 1).then(|| d.selected.first().copied()).flatten();
@@ -1188,13 +1202,21 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
                 .more(FIND_WIDTH, |ui| {
                     let mut text = filter.borrow_mut();
                     let field = egui::Id::new(("hak-filter-field", id));
-                    crate::widgets::SearchField::new(field, &mut text)
+                    let left = crate::widgets::SearchField::new(field, &mut text)
                         .name(FIND)
                         .hint("name or .type")
                         .width(FIND_WIDTH)
                         .clear_inside()
                         .find_when(over)
-                        .show(ui);
+                        .down()
+                        .show(ui)
+                        .left;
+                    if left == Some(crate::widgets::FilterLeft::Down) {
+                        down.set(true);
+                        // (The popover closes, as choosing there does: the
+                        // table has the keys at once.)
+                        ui.close();
+                    }
                 })
                 .primary(),
         )
@@ -1251,6 +1273,7 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
         rename: out.clicked(RENAME),
         edit_table: out.clicked(EDIT_TABLE),
         pressed: out.end,
+        down: down.get(),
     }
 }
 
@@ -1421,8 +1444,9 @@ pub(crate) fn table_has_keys(app: &Moonglow, ctx: &egui::Context, id: u32) -> bo
 /// the keys. A click selects (Ctrl adds, Shift selects a run) and gives the
 /// table the keys: Up, Down, Page Up, Page Down, Home and End choose a
 /// resource, while the hak is the active editor (Undo and Redo its own
-/// then); a double click views it; a right click has View, Edit Table,
-/// Rename…, Extract… and Remove.
+/// then) and Enter views it, the table outlined meanwhile; Down in Find goes
+/// to its first row; a double click views it; a right click has View, Edit
+/// Table, Rename…, Extract… and Remove.
 fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
     use crate::table_view::look;
     let ctx = ui.ctx().clone();
@@ -1695,6 +1719,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
         clicked
     });
     d.rename_focus = rename_focus;
+    crate::palette_view::keys_outline_when(ui, shown.inner_rect, has);
     if let Some(key) = shown.inner {
         let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
         let items = d.hak.items();
@@ -1772,6 +1797,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         crate::outliner::strip(app, ui, owner);
     }
     let mut doc = app.haks.remove(i);
+    // (Down out of Find: the table has the keys, at its first row.)
+    if asked.down {
+        take_keys(ui.ctx(), id);
+        if let Some(&first) = doc.rows().first() {
+            let key = doc.hak.items()[first].key;
+            doc.choose(key);
+            // (Brought into sight, though it was chosen already.)
+            doc.scrolled_to = None;
+        }
+    }
     let rows = table(app, ui, &mut doc);
     app.haks.insert(i, doc);
     if strip {

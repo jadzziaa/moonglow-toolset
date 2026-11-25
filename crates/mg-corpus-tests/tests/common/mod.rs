@@ -285,10 +285,39 @@ pub(crate) fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// One client at a time in this process, and the machine's display lock
+/// (`mg_testkit::display`, taken once and kept to the end of the run: a batch
+/// reads `DISPLAY` once). Every run of the client takes it first, before its
+/// readiness clock starts; `run-client.sh` is told it is held
+/// ([`client_script`]).
 #[allow(dead_code)]
 pub(crate) fn client_lock() -> std::sync::MutexGuard<'static, ()> {
     static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    let only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    mg_testkit::display::hold();
+    only
+}
+
+/// A client test's start: the display lock, then the GPU (the machine's
+/// order: a test holding the GPU never waits for the display), unless the
+/// test only replays pictures of an earlier run (`MG_CLIENT_PICTURES`),
+/// which never runs the client. (`MG_CLIENT_CAPTURED` still takes it: a
+/// picture not kept yet is taken with the client.)
+#[allow(dead_code)]
+pub(crate) fn gpu_after_display() {
+    if std::env::var_os("MG_CLIENT_PICTURES").is_none() {
+        mg_testkit::display::hold();
+    }
+    mg_testkit::gpu::hold();
+}
+
+/// The client's launcher, told that the display is held (by
+/// [`client_lock`]), so that it takes nothing of its own.
+#[allow(dead_code)]
+pub(crate) fn client_script() -> Command {
+    let mut command = Command::new(repo().join("tools/nwclient/run-client.sh"));
+    mg_testkit::display::held_by_us(&mut command);
+    command
 }
 
 /// Runs the client until the scene is ready and screenshots its window.
@@ -313,7 +342,7 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
     // In single player the game's server logs to the client's log.
     let log = dir.join("user/logs/nwclientLog1.txt");
     let _ = std::fs::remove_file(&log);
-    let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
+    let mut child = client_script()
         .arg(dir)
         .args(["+TestNewModule", module])
         .stdout(Stdio::null())
@@ -402,7 +431,7 @@ pub(crate) fn client_screenshots_with(
     let _only = client_lock();
     let log = dir.join("user/logs/nwclientLog1.txt");
     let _ = std::fs::remove_file(&log);
-    let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
+    let mut child = client_script()
         .arg(dir)
         .args(["+TestNewModule", module])
         .envs(env.iter().copied())

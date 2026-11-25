@@ -345,7 +345,7 @@ fn batch7_timer_origin() {
 #[test]
 #[ignore]
 fn batch7_fountain_phase() {
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

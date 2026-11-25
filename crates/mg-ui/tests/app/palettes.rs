@@ -1709,6 +1709,258 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     assert!(h.query_by_label("Undo Delete").is_none());
 }
 
+/// The Prefabs list by the keyboard: a click on a prefab gives the list the
+/// keys (outlined, its cursor on the row); Up, Down, Home and End move the
+/// cursor through the rows as they are drawn; Enter places the prefab, as a
+/// click does.
+#[test]
+fn the_prefabs_list_is_moved_through_by_the_keys() {
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_ui_harness("prefab-keys") else { return };
+    let prefabs = mg_testkit::scratch_dir("ui-prefab-keys");
+    h.state_mut().prefab_dir = Some(prefabs.clone());
+    show_palette(h.state_mut());
+    h.run_steps(3);
+    palette_type(&mut h, "Prefabs");
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
+    h.run_steps(2);
+    area_click(&mut h, "Save 2 as Prefab…");
+    let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
+    h.state_mut().prefab_save = None;
+    for name in ["Alpha", "Bravo", "Charlie", "Delta"] {
+        h.state_mut().save_prefab(name, &clip).unwrap();
+    }
+    settle(&mut h);
+    let order = mg_ui::prefabs::list(Some(&prefabs));
+    assert_eq!(order, ["Alpha", "Bravo", "Charlie", "Delta"]);
+    let cursor = |h: &Harness<'_, Moonglow>| h.state().palette.prefab_cursor().map(String::from);
+    let placed = |h: &Harness<'_, Moonglow>, name: &str| {
+        let said = format!("Prefab {name}: click in the area to place it");
+        h.state().log.entries.iter().filter(|e| e.1.contains(&said)).count()
+    };
+    assert_eq!(accent_outlines(&h, 100.0), 0, "no keys yet");
+    // A click places it, and puts the cursor on its row, the list outlined.
+    palette_row(&h, "Bravo").click();
+    settle(&mut h);
+    assert_eq!(placed(&h, "Bravo"), 1, "the click placed it");
+    assert_eq!(cursor(&h).as_deref(), Some("Bravo"));
+    assert_eq!(accent_outlines(&h, 100.0), 1, "the list outlined");
+    says(&mut h, &["Up or Down: Move in the list", "Enter: Place"], &[]);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(cursor(&h).as_deref(), Some("Charlie"), "Down");
+    h.key_press(egui::Key::ArrowUp);
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    assert_eq!(cursor(&h).as_deref(), Some("Alpha"), "Up, Up");
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    assert_eq!(cursor(&h).as_deref(), Some("Alpha"), "Up from the first");
+    h.key_press(egui::Key::End);
+    settle(&mut h);
+    assert_eq!(cursor(&h).as_deref(), Some("Delta"), "End");
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    assert_eq!(cursor(&h).as_deref(), Some("Alpha"), "Home");
+    // Enter places the one the cursor is at, not the others.
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert_eq!(placed(&h, "Bravo"), 2, "Enter placed it");
+    assert_eq!(placed(&h, "Alpha") + placed(&h, "Charlie") + placed(&h, "Delta"), 0);
+}
+
+/// The tiles palette by the keyboard: Down in its search goes to its first
+/// row (Features); Up and Down follow the rows as they are drawn, a
+/// closed heading's rows not among them; Right and Left open and close a
+/// heading, Left from a row goes to the heading it is in; Enter does what
+/// a click does (a brush chosen, a heading opened or closed); the list is
+/// outlined while it has the keys.
+#[test]
+fn the_tiles_palette_is_moved_through_by_the_keys() {
+    let Some((mut h, _)) = area_ui_harness("tiles-palette-keys") else { return };
+    h.state_mut().palette.tiles = true;
+    h.state_mut().palette.filter.clear();
+    h.state_mut().settings.palette_gallery = false;
+    show_palette(h.state_mut());
+    settle(&mut h);
+    let cursor = |h: &Harness<'_, Moonglow>| h.state().palette.tile_cursor();
+    let hint = search_rect(&h, "Search name, model");
+    let rows = |h: &Harness<'_, Moonglow>| -> Vec<(f32, String)> {
+        let mut rows: Vec<(f32, String)> = palette_labels(h, hint)
+            .into_iter()
+            .filter_map(|l| {
+                let r =
+                    h.query_all_by_label(&l).map(|n| n.rect()).find(|r| r.top() > hint.bottom())?;
+                Some((r.top(), l))
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        rows
+    };
+    // The rows as drawn: the headings (Terrain open, with the tools and the
+    // terrains in it; Features and Groups closed), top down.
+    let list = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let all = rows(h).into_iter().map(|r| r.1);
+        all.skip_while(|l| l != "Features").collect()
+    };
+    let drawn = list(&h);
+    assert_eq!(&drawn[..4], ["Features", "Groups", "Terrain", "Select Tiles"], "{drawn:?}");
+    assert_eq!(drawn.last().map(String::as_str), Some("Water"), "{drawn:?}");
+    assert_eq!(accent_outlines(&h, 100.0), 0, "no keys yet");
+    let key = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        settle(h);
+    };
+    // Down in the search: the first row, the list outlined.
+    h.get(egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("Search name, model")))
+        .click();
+    settle(&mut h);
+    assert_eq!(cursor(&h), None);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Features"), "Down in the search");
+    assert_eq!(accent_outlines(&h, 100.0), 1, "the list outlined");
+    says(&mut h, &["Up or Down: Move in the list", "Left or Right: Close or open a heading"], &[]);
+    // Down follows the rows drawn: past Features and Groups, closed, to
+    // Terrain and into it.
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Groups"));
+    key(&mut h, egui::Key::ArrowDown);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Select Tiles"), "into the open Terrain");
+    key(&mut h, egui::Key::End);
+    assert_eq!(cursor(&h).as_deref(), Some("Water"), "End");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(cursor(&h).as_deref(), Some("Wall 2"), "Up");
+    key(&mut h, egui::Key::Home);
+    assert_eq!(cursor(&h).as_deref(), Some("Features"), "Home");
+    // Right opens a closed heading (the cursor stays), Down goes into it;
+    // Left goes out to its heading, again closes it, and Down is past it.
+    key(&mut h, egui::Key::ArrowRight);
+    assert_eq!(cursor(&h).as_deref(), Some("Features"), "opened, the cursor stays");
+    let opened = list(&h);
+    assert!(opened.len() > drawn.len(), "its rows drawn: {opened:?}");
+    let inside = opened[1].clone();
+    assert_ne!(inside, "Groups", "{opened:?}");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some(inside.as_str()), "Down goes into it");
+    key(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(cursor(&h).as_deref(), Some("Features"), "Left goes out to its heading");
+    key(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(list(&h), drawn, "Left again closes it");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Groups"), "past its closed rows");
+    // Enter does what a click does: a heading opens and closes, a brush is
+    // chosen (and put down by another Enter).
+    key(&mut h, egui::Key::Enter);
+    assert!(list(&h).len() > drawn.len(), "Enter opened Groups");
+    key(&mut h, egui::Key::Enter);
+    assert_eq!(list(&h), drawn, "and closed it");
+    key(&mut h, egui::Key::End);
+    key(&mut h, egui::Key::PageUp);
+    let at = cursor(&h).expect("a row");
+    assert_ne!(at, "Water", "Page Up");
+    palette_row(&h, "Raise/Lower").click();
+    settle(&mut h);
+    assert_eq!(
+        h.state().palette.tile_brush.as_ref().map(|b| b.label.as_str()),
+        Some("Raise/Lower")
+    );
+    assert_eq!(cursor(&h).as_deref(), Some("Raise/Lower"), "a click puts the cursor there");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(cursor(&h).as_deref(), Some("Rotate Tile"));
+    key(&mut h, egui::Key::Enter);
+    assert_eq!(
+        h.state().palette.tile_brush.as_ref().map(|b| b.label.as_str()),
+        Some("Rotate Tile"),
+        "Enter chose it"
+    );
+    key(&mut h, egui::Key::Enter);
+    assert!(h.state().palette.tile_brush.is_none(), "again put it down");
+}
+
+/// The tiles palette's Gallery: its headings (and a terrain's, with its
+/// pictures under it) are rows for the keys too, Right opens one and Enter
+/// chooses the brush.
+#[test]
+fn the_tiles_palette_s_gallery_headings_take_the_keys() {
+    let Some((mut h, _)) = area_ui_harness("tiles-gallery-keys") else { return };
+    h.state_mut().palette.tiles = true;
+    h.state_mut().palette.filter.clear();
+    h.state_mut().settings.palette_gallery = true;
+    show_palette(h.state_mut());
+    settle(&mut h);
+    let cursor = |h: &Harness<'_, Moonglow>| h.state().palette.tile_cursor();
+    let key = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        settle(h);
+    };
+    h.get(egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("Search name, model")))
+        .click();
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Features"), "Down in the search");
+    key(&mut h, egui::Key::ArrowDown);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(cursor(&h).as_deref(), Some("Terrain"));
+    key(&mut h, egui::Key::ArrowDown);
+    key(&mut h, egui::Key::ArrowDown);
+    let at = cursor(&h).expect("a row");
+    key(&mut h, egui::Key::Enter);
+    let brush = h.state().palette.tile_brush.as_ref().map(|b| b.label.clone());
+    assert_eq!(brush.as_deref(), Some(at.as_str()), "Enter chose {at}");
+}
+
+/// A picture grid in the tiles palette's Gallery with the keyboard's focus
+/// keeps its arrow keys: the list's cursor stays where it was and the
+/// Status Bar says nothing of the list, while the grid's own cursor moves.
+#[test]
+fn a_picture_grid_in_the_tiles_palette_keeps_its_keys() {
+    use egui::accesskit::Role;
+    let Some((mut h, _)) = area_ui_harness("tiles-grid-busy") else { return };
+    h.set_size(egui::vec2(1600.0, 1400.0));
+    h.state_mut().palette.tiles = true;
+    h.state_mut().settings.palette_gallery = true;
+    show_palette(h.state_mut());
+    settle(&mut h);
+    h.state_mut().palette.filter = "wall".into();
+    settle(&mut h);
+    let grid = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by(|n| n.role() == Role::List && n.label().as_deref() == Some("Tiles")).count()
+    };
+    assert!(grid(&h) > 0, "a grid of tiles under a heading");
+    let list = |h: &Harness<'_, Moonglow>| h.state().palette.tile_cursor();
+    // The list's cursor on its first row, by Down in the search.
+    h.get_by(|n| n.role() == Role::TextInput && n.value().as_deref() == Some("wall")).click();
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    let at = list(&h);
+    assert!(at.is_some(), "the list's cursor");
+    says(&mut h, &["Up or Down: Move in the list"], &[]);
+    // A picture clicked: its grid has the focus.
+    let count = h
+        .query_all_by(|n| n.role() == Role::List && n.label().as_deref() == Some("Tiles"))
+        .next()
+        .and_then(|g| g.accesskit_node().data().size_of_set())
+        .expect("a grid");
+    h.get_by(|n| {
+        n.role() != Role::List
+            && n.data().size_of_set() == Some(count)
+            && n.data().position_in_set() == Some(1)
+    })
+    .click();
+    settle(&mut h);
+    let cell = crate::gallery_keys::grid_cursor(&h, "Tiles").map(|c| c.1);
+    h.key_press(egui::Key::ArrowRight);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(list(&h), at, "the list's cursor stays");
+    let moved = crate::gallery_keys::grid_cursor(&h, "Tiles").map(|c| c.1);
+    assert_ne!(moved, cell, "the grid's cursor moved");
+    says(&mut h, &[], &["Up or Down: Move in the list"]);
+}
+
 /// The palettes come with a module, as in Aurora: the Right Dock on the
 /// Palette panel, 320 points wide at first (the board's), on the area's
 /// tiles. Folded, Tools › Palettes brings them back; folded with every

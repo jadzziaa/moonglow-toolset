@@ -2015,8 +2015,10 @@ folder's files, subfolders included, to look over and save.
   Click to select, Ctrl+click to add to the selection, Shift+click to
   select from the one clicked last to this one; right-click for
   **View**, **Edit Table** (a 2DA), **Rename…**, **Extract…** and
-  **Remove**. With the table clicked (or reached with F6), Up, Down,
-  Page Up, Page Down, Home and End choose a resource and Enter views it;
+  **Remove**. With the table clicked (or reached with F6, or with Down
+  from **Find**, which chooses its first row), Up, Down,
+  Page Up, Page Down, Home and End choose a resource and Enter views it,
+  the table outlined while it has the keys;
   the selection stays with its resources through a sort, Find, an add and
   a remove. The Status Bar shows the hak's count and size, how many are
   selected and, with the pointer over the editor, its clicks.
