@@ -1448,6 +1448,24 @@ Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
 
+- **"41 changed" after Aurora's Build (an include with a `main`):** the
+  one way of writing found where Aurora 8193.37 and the built-in compiler
+  make other bytes (`aurora_scripts::codegen_compiles_as_aurora_builds_it`;
+  line ends, haks, constant folding, switch, structs, vectors, a batch's
+  order and 1,036 of the base game's scripts make Aurora's) is a script
+  that includes a file with a `void main()` of its own: Aurora compiles
+  an `int StartingConditional()` script, and one that is only the
+  `#include`, as the include's `main`; Moonglow (neverwinter.nim
+  d20453e3) takes the script's own entry point and passes the other
+  over. In the game Aurora's runs the include's `main` and always fails
+  (`engine_include_entry`): Moonglow's is what was written. Waits on the
+  builder (are the 41 such conditions, their include a library with a
+  `main` for Aurora's editor?) and on the owner's ruling: keep Moonglow's
+  code and warn of the include's `main` (what the rule of matching
+  Aurora weighs against: Aurora's is broken in the game), or match
+  Aurora with a fenced patch as for return types. (S) (a builder's
+  report, November 2026)
+
 - **xtul's mirror at full size in the game:** the client draws a
   dynamic placeable with Scale 0.46 at 0.46 (`visual_transforms_look`),
   upright and turned on its stand by X Rotation -50.8; at full size and

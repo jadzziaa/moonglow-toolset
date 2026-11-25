@@ -47,6 +47,8 @@ mod engine_git_runtime;
 mod engine_grass;
 #[path = "../engine_hak_names.rs"]
 mod engine_hak_names;
+#[path = "../engine_include_entry.rs"]
+mod engine_include_entry;
 #[path = "../engine_item_cost.rs"]
 mod engine_item_cost;
 #[path = "../engine_item_flags.rs"]
