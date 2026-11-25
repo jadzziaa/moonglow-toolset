@@ -10,7 +10,6 @@
 use std::collections::{HashMap, HashSet};
 
 use mg_uikit::dock::DocTabMark;
-use mg_uikit::icons::ButtonState;
 
 use crate::{Action, Moonglow, tabs};
 
@@ -46,26 +45,10 @@ impl Moonglow {
             let mut state = None;
             if tab.closeable() && (active || hovered) && shown.contains_rect(parts.close) {
                 let id = egui::Id::new(("doc-tab-close", tab));
-                let builder = egui::UiBuilder::new().layer_id(layer).max_rect(parts.close);
-                let r = ui
-                    .scope_builder(builder, |ui| {
-                        ui.set_clip_rect(shown);
-                        // (Registered after its tab: it takes the clicks.)
-                        ui.interact(parts.close, id, egui::Sense::click())
-                    })
-                    .inner;
-                r.widget_info(|| {
-                    let name = format!("Close {}", look.name);
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
-                });
-                state = Some(if r.is_pointer_button_down_on() {
-                    ButtonState::Pressed
-                } else if r.hovered() || r.has_focus() {
-                    ButtonState::Hovered
-                } else {
-                    ButtonState::Rest
-                });
-                let r = r.on_hover_text("Close this tab");
+                let name = format!("Close {}", look.name);
+                let (r, drawn) =
+                    mg_uikit::shell::doc_tab_close(ui, id, (layer, shown), parts.close, &name);
+                state = Some(drawn);
                 if r.clicked() || r.middle_clicked() {
                     close = Some(tab.clone());
                 }

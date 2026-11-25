@@ -2074,15 +2074,11 @@ fn steer(ui: &egui::Ui, view: &mut ModelView, response: &egui::Response) {
 /// are let go when there are many.
 #[derive(Default)]
 pub struct Thumbnails {
-    made: HashMap<Kept, Made>,
-    /// Asked for this frame and not made (or made before the module last
-    /// changed), in the order asked.
-    wanted: Vec<Kept>,
-    /// The pictures asked for this frame, made or not, counted: every one
-    /// ([`Thumbnails::shown_now`], for the tests of what asks).
-    shown_now: usize,
-    /// The frames, counted, and the module's revision in this one.
-    frame: u64,
+    /// The pictures made; those asked for this frame and not made (or made
+    /// before the module last changed), in the order asked; the frames,
+    /// counted (the kit's [`Pictures`](mg_uikit::pictures::Pictures)).
+    pictures: mg_uikit::pictures::Pictures<Kept, Made>,
+    /// The module's revision in this frame.
     revision: Option<u64>,
     /// Armor is shown on a woman in this frame (Options › General): an
     /// item blueprint's picture is hers.
@@ -2138,8 +2134,6 @@ struct Made {
     /// picture is kept if the blueprint still looks the same.
     look: Option<Preview>,
     revision: Option<u64>,
-    /// The frame it was last asked for in.
-    used: u64,
     /// A blueprint with nothing to draw because its appearance has no
     /// model ([`mg_rules::appearance`]): the palette's Gallery marks it.
     no_model: bool,
@@ -2188,17 +2182,15 @@ impl Thumbnails {
     /// `Some(None)` made with nothing to draw. Looked up, where the
     /// galleries made a map of every picture each frame.
     pub(crate) fn made(&self, key: Pictured) -> Option<Option<egui::TextureId>> {
-        self.made.get(&self.kept_as(key)).map(Made::id)
+        self.pictures.get(&self.kept_as(key)).map(Made::id)
     }
 
     /// A new frame, the module at `revision`, armor shown on a woman where
     /// `female`.
     pub(crate) fn begin_frame(&mut self, revision: Option<u64>, female: bool) {
-        self.frame += 1;
+        self.pictures.begin_frame();
         self.revision = revision;
         self.female = female;
-        self.wanted.clear();
-        self.shown_now = 0;
     }
 
     /// What pictures `item` (an item's fields: as it would be with another
@@ -2254,24 +2246,15 @@ impl Thumbnails {
     /// changed since).
     pub(crate) fn show(&mut self, keys: impl IntoIterator<Item = Pictured>) {
         for key in keys {
-            self.shown_now += 1;
-            let kept = self.kept_as(key);
-            match self.made.get_mut(&kept) {
-                Some(made) => {
-                    made.used = self.frame;
-                    if key.follows_the_module() && made.revision != self.revision {
-                        self.wanted.push(kept);
-                    }
-                }
-                None => self.wanted.push(kept),
-            }
+            let (kept, revision) = (self.kept_as(key), self.revision);
+            self.pictures.show(kept, |made| key.follows_the_module() && made.revision != revision);
         }
     }
 
     /// Whether `key`'s picture is made with nothing to draw because the
     /// blueprint's appearance has no model.
     pub(crate) fn no_model(&self, key: Pictured) -> bool {
-        self.made.get(&self.kept_as(key)).is_some_and(|m| m.no_model)
+        self.pictures.get(&self.kept_as(key)).is_some_and(|m| m.no_model)
     }
 
     /// [`no_model`](Self::no_model) of blueprint `key`'s picture.
@@ -2283,20 +2266,19 @@ impl Thumbnails {
     /// it); it is asked for either way, as [`Thumbnails::show`] asks.
     pub(crate) fn get(&mut self, key: Pictured) -> Option<Option<egui::TextureId>> {
         self.show([key]);
-        self.made.get(&self.kept_as(key)).map(Made::id)
+        self.pictures.get(&self.kept_as(key)).map(Made::id)
     }
 
     /// Lets go of every picture (another module, or the game's data read
     /// anew: the same names may now look different).
     pub(crate) fn forget(&mut self, viewport: Option<&Viewport3d>) {
-        let old = std::mem::take(&mut self.made);
+        let old = self.pictures.forget();
         if let Some(vp) = viewport {
             let mut r = vp.render_state.renderer.write();
-            for (_, id) in old.into_values().filter_map(|made| made.picture) {
+            for (_, id) in old.into_iter().filter_map(|made| made.picture) {
                 r.free_texture(&id);
             }
         }
-        self.wanted.clear();
         self.items.clear();
         // (Not the creatures: a gallery keeps the id it was given for one
         // and asks for its pictures by it, and they are made anew from
@@ -2311,12 +2293,12 @@ impl Thumbnails {
 
     /// How many pictures are kept.
     pub fn kept(&self) -> usize {
-        self.made.len()
+        self.pictures.len()
     }
 
     /// How many pictures asked for this frame are still to make.
     pub fn waiting(&self) -> usize {
-        self.wanted.len()
+        self.pictures.wanted().len()
     }
 
     /// How many pictures were asked for in the frame drawn last, made or
@@ -2324,14 +2306,14 @@ impl Thumbnails {
     /// those in sight and a row ahead, never a whole palette).
     #[doc(hidden)]
     pub fn shown_now(&self) -> usize {
-        self.shown_now
+        self.pictures.shown_now()
     }
 
     /// How many pictures were asked for and are made or still to make:
     /// for the tests of what asks for them.
     #[doc(hidden)]
     pub fn asked(&self) -> usize {
-        self.made.len() + self.wanted.len()
+        self.pictures.len() + self.pictures.wanted().len()
     }
 
     /// The creatures' pictures in other appearances made (a gallery's
@@ -2339,7 +2321,7 @@ impl Thumbnails {
     /// were made with nothing (their creature not found).
     #[doc(hidden)]
     pub fn creature_pictures(&self) -> (usize, usize) {
-        let made = self.made.iter().filter(|((k, _), _)| matches!(k, Pictured::Creature(..)));
+        let made = self.pictures.iter().filter(|((k, _), _)| matches!(k, Pictured::Creature(..)));
         made.fold((0, 0), |(drawn, none), (_, m)| match m.picture.is_some() || m.no_model {
             true => (drawn + 1, none),
             false => (drawn, none + 1),
@@ -2361,7 +2343,7 @@ impl Made {
 
 impl std::fmt::Debug for Thumbnails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Thumbnails").field("made", &self.made.len()).finish()
+        f.debug_struct("Thumbnails").field("made", &self.pictures.len()).finish()
     }
 }
 
@@ -2376,7 +2358,7 @@ const THUMBNAIL_STEP: f32 = 0.1;
 /// The pictures kept at most, those not shown in this frame or the last:
 /// past it, the ones longest unseen are let go. (What a view shows is
 /// kept, however much: a gallery over a wide window shows hundreds.)
-const THUMBNAILS_KEPT: usize = 512;
+const THUMBNAILS_KEPT: usize = mg_uikit::pictures::PICTURES_KEPT;
 
 /// How long pictures are made for in a frame: once it has passed, the
 /// rest wait for the next frame (one is made in every frame, however
@@ -2389,7 +2371,7 @@ const THUMBNAIL_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 /// [`THUMBNAIL_TIME`], and asks for another frame if there are more (or
 /// to show those made).
 pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
-    let wanted = std::mem::take(&mut app.thumbnails.wanted);
+    let wanted = app.thumbnails.pictures.take_wanted();
     let started = std::time::Instant::now();
     let revision = app.thumbnails.revision;
     // The editors' working copies, which a blueprint's look is read from.
@@ -2413,17 +2395,15 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
         }
     }
     let (mut made, mut waiting) = (0, Vec::new());
+    let budget = mg_uikit::pictures::Budget { time: THUMBNAIL_TIME, most: usize::MAX };
     for key in wanted {
-        let current = app
-            .thumbnails
-            .made
-            .get(&key)
+        let current = (app.thumbnails.pictures.get(&key))
             .is_some_and(|m| !key.0.follows_the_module() || m.revision == revision);
         // (Asked for twice in the frame, and made the first time.)
         if current {
             continue;
         }
-        if made > 0 && started.elapsed() >= THUMBNAIL_TIME {
+        if !budget.more(made, started) {
             waiting.push(key);
             continue;
         }
@@ -2437,43 +2417,35 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
     if !app.thumbnails.loading.is_empty() || !app.thumbnails.ready.is_empty() {
         ctx.request_repaint_after(std::time::Duration::from_millis(8));
     }
-    app.thumbnails.wanted = waiting;
+    app.thumbnails.pictures.set_wanted(waiting);
     // Those not shown any more go, the longest unseen first, when there
     // are many.
     let thumbnails = &mut app.thumbnails;
     let keep = thumbnails.keep.unwrap_or(THUMBNAILS_KEPT);
-    if thumbnails.made.len() > keep {
-        let frame = thumbnails.frame;
-        let mut unseen: Vec<(u64, Kept)> = thumbnails
-            .made
-            .iter()
-            .filter(|(_, m)| m.used + 1 < frame)
-            .map(|(k, m)| (m.used, *k))
-            .collect();
-        unseen.sort_unstable_by_key(|(used, _)| *used);
-        let over = thumbnails.made.len() - keep;
-        let gone: Vec<Made> =
-            unseen.iter().take(over).filter_map(|(_, k)| thumbnails.made.remove(k)).collect();
-        if let Some(vp) = &app.viewport {
-            let mut r = vp.render_state.renderer.write();
-            for (_, id) in gone.into_iter().filter_map(|made| made.picture) {
-                r.free_texture(&id);
-            }
+    let gone = thumbnails.pictures.let_go_unseen(keep);
+    if !gone.is_empty()
+        && let Some(vp) = &app.viewport
+    {
+        let mut r = vp.render_state.renderer.write();
+        for (_, id) in gone.into_iter().filter_map(|made| made.picture) {
+            r.free_texture(&id);
         }
     }
     // The items pictured by their looks that are neither kept nor still
     // to make (a row the pointer has left).
     let thumbnails = &mut app.thumbnails;
     if !thumbnails.items.is_empty() {
-        let (made, wanted) = (&thumbnails.made, &thumbnails.wanted);
+        let pictures = &thumbnails.pictures;
         thumbnails.items.retain(|id, _| {
             let key = (Pictured::Item(*id), false);
-            made.contains_key(&key) || wanted.contains(&key)
+            pictures.get(&key).is_some() || pictures.wanted().contains(&key)
         });
     }
     if !thumbnails.creatures.is_empty() {
         let mut used = std::collections::HashSet::new();
-        for (key, _) in thumbnails.made.keys().chain(&thumbnails.wanted) {
+        for (key, _) in
+            thumbnails.pictures.iter().map(|(k, _)| k).chain(thumbnails.pictures.wanted())
+        {
             if let Pictured::Creature(id, _) = key {
                 used.insert(*id);
             }
@@ -2489,7 +2461,7 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
 /// once they are (a model with large textures took a frame of 7 to 9 ms,
 /// read on the window's thread). Else it is made at once.
 fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
-    let (frame, revision) = (app.thumbnails.frame, app.thumbnails.revision);
+    let revision = app.thumbnails.revision;
     let key = kept.0;
     // Its models read apart: drawn once its textures are read too.
     if let Some(ready) = app.thumbnails.ready.remove(&kept) {
@@ -2503,13 +2475,8 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
         match drawn {
             Err(Waiting) => _ = app.thumbnails.ready.insert(kept, ready),
             Ok(picture) => {
-                let made = Made {
-                    picture,
-                    look: ready.look,
-                    revision: ready.revision,
-                    used: frame,
-                    no_model: false,
-                };
+                let made =
+                    Made { picture, look: ready.look, revision: ready.revision, no_model: false };
                 keep_made(app, kept, made);
             }
         }
@@ -2529,12 +2496,12 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
             return;
         }
         let picture = draw_group_thumbnail(app, tileset, group);
-        keep_made(app, kept, Made { picture, look: None, revision, used: frame, no_model: false });
+        keep_made(app, kept, Made { picture, look: None, revision, no_model: false });
         return;
     }
     let look = pictured_look(app, kept);
     let same = key.follows_the_module().then_some(look.as_ref().map(|(_, preview)| preview));
-    if let (Some(made), Some(now)) = (app.thumbnails.made.get_mut(&kept), same)
+    if let (Some(made), Some(now)) = (app.thumbnails.pictures.get_mut(&kept), same)
         && made.look.as_ref() == now
     {
         made.revision = revision;
@@ -2551,7 +2518,7 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
         look.as_ref().and_then(|(source, preview)| draw_thumbnail(app, key, source, preview));
     // (Nothing to draw: whether for an appearance with no model.)
     let no_model = look.is_none() && has_no_model(app, key);
-    keep_made(app, kept, Made { picture, look: kept_look, revision, used: frame, no_model });
+    keep_made(app, kept, Made { picture, look: kept_look, revision, no_model });
 }
 
 /// Whether `key` is a blueprint whose appearance has no model to draw
@@ -2570,7 +2537,7 @@ fn has_no_model(app: &Moonglow, key: Pictured) -> bool {
 /// Keeps a picture made, letting go of the one it takes the place of.
 fn keep_made(app: &mut Moonglow, kept: Kept, made: Made) {
     app.thumbnails.drawn += 1;
-    if let Some(old) = app.thumbnails.made.insert(kept, made)
+    if let Some(old) = app.thumbnails.pictures.insert(kept, made)
         && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
     {
         vp.render_state.renderer.write().free_texture(&id);

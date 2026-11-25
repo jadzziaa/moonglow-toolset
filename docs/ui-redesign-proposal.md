@@ -2289,6 +2289,8 @@ Open: the toolset release itself (the version change to 5.0.0, the tag, the owne
 - Its renames (Nodes to Outliner, Animation to Timeline, the View menu names) and Gallery mode for Resources, with **its manual updated in the same change**.
 - Exit: the viewer's boards (Model with ASCII Editor, Creature and Colors, 3440 by 1440, Gallery) reproduced in pictures; frame time measured.
 
+**Kit parts for the viewer, 2026-11-25.** What the viewer would otherwise copy from `mg-ui` is in `mg-uikit`, and the toolset runs on it: the docks' stacks (`mg_uikit::stack`: the arrangement, the drops among one dock or several, the sections' heights and seams, the record kept for a kind), the galleries' picture bookkeeping (`mg_uikit::pictures`, without threads or GPU: each application reads and draws its own), a panel header's badges and the document tab's close button (`shell`). The toolset keeps its panels in their own dock; moving one between docks is the viewer's to turn on.
+
 ## 17. Open for the owner
 
 Nothing in the design is open. Two things are the owner's by custom: ruling 7 (Ubuntu Light) is judged after M2, and each release is signed by the owner (M5, M6).
