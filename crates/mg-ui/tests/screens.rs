@@ -344,6 +344,88 @@ fn script_wizard_pages() {
     }
 }
 
+/// The picture viewer's zoom (the owner's ruling of 2026-11-25): a
+/// 1024 by 512 picture of squares and a gradient open read-only, fitted
+/// (before: all it ever was), then zoomed in with the wheel about a point
+/// (its percent at the corner, the squares' edges sharp), then at actual
+/// pixels by a double click. Pictures in `target/item-l919-shots/`.
+#[test]
+#[ignore]
+fn picture_viewer_zoom() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/item-l919-shots");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::output_dir("screens-picture-zoom");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mut image = mg_image::Rgba::new(1024, 512);
+    for y in 0..512usize {
+        for x in 0..1024usize {
+            let square = ((x / 32) + (y / 32)) % 2 == 0;
+            let at = (y * 1024 + x) * 4;
+            let shade = if square { 255u32 } else { 90 };
+            image.data[at] = ((x as u32 / 4) * shade / 255) as u8;
+            image.data[at + 1] = ((y as u32 / 2) * shade / 255) as u8;
+            image.data[at + 2] = (200 * shade / 255) as u8;
+            image.data[at + 3] = 255;
+        }
+    }
+    std::fs::write(user.join("override/mg_l919.tga"), mg_image::write_tga(&image)).unwrap();
+    let key = ResKey::from_filename("mg_l919.tga").unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.palette_dock = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        // (The sampler's own filtering: the tests' default does its own,
+        // smoothing a magnified picture whatever the texture asks.)
+        .with_render_options(egui_wgpu::RendererOptions {
+            predictable_texture_filtering: false,
+            ..egui_wgpu::RendererOptions::PREDICTABLE
+        })
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    let started = std::time::Instant::now();
+    while mg_ui::viewers::picture_drawn(&h.ctx, key).is_none() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "never drawn");
+        h.run_steps(2);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    settle(&mut h);
+    let still = |h: &mut Harness<'_, Moonglow>| {
+        let mut last = None;
+        for _ in 0..200 {
+            h.run_steps(2);
+            let now = mg_ui::viewers::picture_drawn(&h.ctx, key);
+            if now == last {
+                return now.unwrap();
+            }
+            last = now;
+        }
+        panic!("never still");
+    };
+    let (rect, _) = still(&mut h);
+    shoot(&mut h, &dir, "viewer-fitted");
+    let at = egui::pos2(rect.min.x + rect.width() * 0.3, rect.min.y + rect.height() * 0.4);
+    h.hover_at(at);
+    h.run_steps(2);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 40.0 * 9.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let (_, scale) = still(&mut h);
+    assert!(scale > 1.0);
+    shoot(&mut h, &dir, "viewer-zoomed");
+}
+
 /// Module Properties › Custom Content: the hak list, two rows chosen and
 /// some haks not found.
 #[test]

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T21:15:27Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:44:55Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -799,16 +799,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   load order without `ashlw_033`. Waits on his hak list or a blueprint.
   (His armor showing only a head and pelvis was Beamdog's HD bodies,
   drawn whole since 1.34.1.) (S–M)
-- **Zoom in the picture viewer, the owner's call:** the hak editor's
-  Preview and a read-only tab show a picture with one viewer
-  (`viewers::Picture`, M5's W6). It is fitted to its room and never
-  enlarged, with no zoom, so a 2048 by 2048 texture is never seen at
-  1:1. W6's brief asked for zoom "by the viewer's own controls", but
-  the hak viewer has none. Adding zoom (the wheel, a 1:1 toggle,
-  panning) would go beyond the viewer the owner's ruling 49 said to
-  share. Asked: whether it gets zoom, and with which controls. (S–M)
-  (the review of M5, reviewer C, W6)
-
 ## The main window and its panes
 
 - **The light theme's own colors:** it is the redesign's Light theme
