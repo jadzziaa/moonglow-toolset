@@ -450,6 +450,93 @@ pub fn column_seam(ui: &egui::Ui, id: egui::Id, pane: Rect, x: f32, least: f32) 
     Some((at.x - pane.left()).clamp(least.min(most), most).round())
 }
 
+/// What a dock keeps of its arrangement for one kind of editor, by the
+/// panels' names (a name a later version does not know is passed by):
+/// the panel in front of each section, the sections' shares of the
+/// height as their seams were dragged, the first column's width where the
+/// dock stands in two, and the panel in front where the sections fold
+/// into one tab bar. Serialized with what is not kept left out. The
+/// toolset keeps the same fields in its own record (with more beside
+/// them) through [`keep_front`] and [`keep_shares`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeptLayout {
+    /// The panel in front of each section, from the top (`""`: none
+    /// chosen, its first).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fronts: Vec<String>,
+    /// Each section's share of the height, from the top, in thousandths
+    /// of an equal share (1000 each, or none kept: equal).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<u16>,
+    /// The first column's width where the dock stands in two.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u16>,
+    /// The panel in front of the one tab bar the sections fold into.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folded: Option<String>,
+}
+
+impl KeptLayout {
+    /// The name of the panel kept in front of section `index`.
+    pub fn front(&self, index: usize) -> Option<&str> {
+        self.fronts.get(index).map(String::as_str).filter(|n| !n.is_empty())
+    }
+
+    /// `name` chosen in front of section `index` (`folded`: chosen in the
+    /// one tab bar, that bar's front too).
+    pub fn set_front(&mut self, index: usize, name: &str, folded: bool) {
+        if folded {
+            self.folded = Some(name.to_string());
+        }
+        keep_front(&mut self.fronts, index, name);
+    }
+
+    /// Section `index`'s share as kept (at least 1), for [`stack_heights`].
+    pub fn share(&self, index: usize) -> Option<f32> {
+        self.shares.get(index).map(|s| f32::from((*s).max(1)))
+    }
+
+    /// The heights a seam's drag made ([`SeamDrag::heights`]), kept as
+    /// shares (see [`keep_shares`]).
+    pub fn keep_shares(&mut self, sections: usize, heights: &[f32], own: &[Option<usize>]) {
+        keep_shares(&mut self.shares, sections, heights, own);
+    }
+
+    /// Nothing kept: the record can be left out.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// `name` kept in front of section `index` of `fronts`, those before it
+/// with none chosen (`""`) where there were none.
+pub fn keep_front(fronts: &mut Vec<String>, index: usize, name: &str) {
+    if fronts.len() <= index {
+        fronts.resize(index + 1, String::new());
+    }
+    fronts[index] = name.to_string();
+}
+
+/// The sections' `heights` (from the top, as a seam's drag made them)
+/// kept in `shares` (thousandths of an equal share): each section's at
+/// its own place (`own`, by the section; none: one not the kind's own,
+/// not kept), `shares` at least `sections` long (1000 each where none
+/// was kept).
+pub fn keep_shares(shares: &mut Vec<u16>, sections: usize, heights: &[f32], own: &[Option<usize>]) {
+    let total: f32 = heights.iter().sum::<f32>().max(f32::EPSILON);
+    let count = heights.len() as f32;
+    let need = sections.max(own.iter().flatten().copied().max().map_or(0, |m| m + 1));
+    if shares.len() < need {
+        shares.resize(need, 1000);
+    }
+    for (h, index) in heights.iter().zip(own) {
+        if let Some(index) = index {
+            shares[*index] = ((h / total) * 1000.0 * count).round().max(1.0) as u16;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,7 +725,11 @@ mod tests {
         let at_top = past.apply(&three, Palette, StackZone::Column { last: false });
         assert_eq!(at_top, cols(&[&[&[Palette]], &[&[Properties]], &[&[Preview]]]));
         let last_top = past.apply(&three, Properties, StackZone::Column { last: true });
-        assert_eq!(last_top, cols(&[&[&[Palette]], &[&[Preview]], &[&[Properties]]]), "its own room");
+        assert_eq!(
+            last_top,
+            cols(&[&[&[Palette]], &[&[Preview]], &[&[Properties]]]),
+            "its own room"
+        );
     }
 
     #[test]
@@ -660,6 +751,26 @@ mod tests {
         assert!(stack_heights(100.0, &[], &[]).is_empty());
         let rects = stack_rects(r(0.0, 10.0, 50.0, 611.0), &[300.0, 300.0]);
         assert_eq!(rects, vec![r(0.0, 10.0, 50.0, 310.0), r(0.0, 311.0, 50.0, 611.0)]);
+    }
+
+    #[test]
+    fn a_kept_layout_keeps_fronts_and_shares_by_place() {
+        let mut kept = KeptLayout::default();
+        assert!(kept.is_empty());
+        kept.set_front(2, "Help", false);
+        assert_eq!(kept.fronts, ["", "", "Help"]);
+        assert_eq!((kept.front(0), kept.front(2), kept.front(5)), (None, Some("Help"), None));
+        kept.set_front(0, "Functions", true);
+        assert_eq!(kept.folded.as_deref(), Some("Functions"));
+        // (Two sections dragged to 300 and 100, the first not the kind's
+        // own; the kind brings three.)
+        kept.keep_shares(3, &[300.0, 100.0], &[None, Some(1)]);
+        assert_eq!(kept.shares, [1000, 500, 1000]);
+        assert_eq!(kept.share(1), Some(500.0));
+        kept.keep_shares(3, &[200.0, 200.0], &[Some(0), Some(1)]);
+        assert_eq!(kept.shares, [1000, 1000, 1000]);
+        let json = serde_json::to_string(&KeptLayout { column: Some(340), ..Default::default() });
+        assert_eq!(json.unwrap(), r#"{"column":340}"#);
     }
 
     #[test]

@@ -5,7 +5,8 @@
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
 //! document tabs'](shell), the docks' [stacks](stack) (their panels'
 //! columns and sections, where a dragged panel lands, the sections'
-//! heights and the seams between them), the [Status Bar's](status), the key caps,
+//! heights and the seams between them, and what a dock keeps of its
+//! arrangement), the [Status Bar's](status), the key caps,
 //! badges and modified dot ([marks]), a [menu]'s parts beyond its
 //! rows (headings, notes, separators, check boxes, keys, forms), a
 //! [window]'s (a dialog's title row, the resize grip), and an editor's:

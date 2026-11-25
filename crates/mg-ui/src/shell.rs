@@ -2061,10 +2061,7 @@ fn keep_front(app: &mut Moonglow, kind: Option<&'static str>, brings: &Brings, p
     if narrow {
         layout.folded = Some(panel.name().to_string());
     }
-    if layout.fronts.len() <= index {
-        layout.fronts.resize(index + 1, String::new());
-    }
-    layout.fronts[index] = panel.name().to_string();
+    mg_uikit::stack::keep_front(&mut layout.fronts, index, panel.name());
 }
 
 /// A tab of the Right Dock chosen (its tab clicked, its strip button,
@@ -5681,21 +5678,10 @@ fn section_seams(
         return;
     }
     let Some(kind) = stack.kind else { return };
-    let total: f32 = now.iter().sum();
-    let count = now.len() as f32;
     let own: Vec<Option<usize>> =
         sections.iter().map(|s| section_share_index(stack.brings, s)).collect();
     let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
-    let need =
-        stack.brings.right.len().max(own.iter().flatten().copied().max().map_or(0, |m| m + 1));
-    if layout.shares.len() < need {
-        layout.shares.resize(need, 1000);
-    }
-    for (h, index) in now.iter().zip(own) {
-        if let Some(index) = index {
-            layout.shares[index] = ((h / total) * 1000.0 * count).round().max(1.0) as u16;
-        }
-    }
+    mg_uikit::stack::keep_shares(&mut layout.shares, stack.brings.right.len(), &now, &own);
 }
 
 /// The heights of stacked sections in `room` (the lines between them left

@@ -566,7 +566,10 @@ fn keep_aside(path: &Path) -> Option<PathBuf> {
 
 /// The docks' layout for one kind of editor ([`Settings::dock_layouts`]),
 /// by the panels' names (`shell::Panel::name`): a name this version does
-/// not know is passed by, the section's first panel in front.
+/// not know is passed by, the section's first panel in front. Its
+/// `fronts`, `shares`, `column` and `folded` are the kit's
+/// [`mg_uikit::stack::KeptLayout`], kept through its `keep_front` and
+/// `keep_shares`, beside the toolset's own fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockLayout {
