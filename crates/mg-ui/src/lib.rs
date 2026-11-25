@@ -167,7 +167,7 @@ pub use mg_render::dx12;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
 pub use options::{OptionsDraft, OptionsPage, UI_SCALES};
-pub use settings::{GraphicsBackend, OpenEditors, Settings};
+pub use settings::{AreasHeight, GraphicsBackend, OpenEditors, Settings};
 pub use tabs::Tab;
 pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
@@ -3588,6 +3588,8 @@ impl Moonglow {
         self.settings.bookmarks_panel_height = None;
         self.settings.columns_panel_height = None;
         self.settings.layers_panel_height = None;
+        // (The Areas group's well fitted again.)
+        self.settings.areas_height = settings::AreasHeight::Fit;
         self.settings.parts_panel_height = None;
         self.settings.types_panel_height = None;
         self.settings.factions_panel_height = None;

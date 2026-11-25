@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-24T23:49:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:11:05Z }
 ---
 
 # The main window
@@ -500,7 +500,30 @@ scrolls it (at its top or foot, the tree around it), and Home and End
 over it go to its top and foot; elsewhere over the tree, the Areas
 group closed too, to the tree's. An area or an object the tree goes to (a tab
 chosen, an object selected in an area's view, the keys) is scrolled to
-in the well, and the well into the tree's view. A row too long for the
+in the well, and the well into the tree's view.
+
+**The Areas group's height is yours to choose.** A line with a grip in
+its middle runs along the well's foot, over the next group's row: drag
+it down to make the well taller, in whole rows (the groups under it are
+pushed down, and the tree scrolls to them as any tree does), or up to
+make it shorter, down to five rows. Dragged down to all its areas or
+past them and let go, the well opens out: the areas are rows of the
+tree, as they were before Moonglow 5.1, and the tree alone scrolls (one
+scroll bar; the mouse wheel, Home and End, the keys, typing a name and
+the tree going to an area are the tree's). A double click on the line
+fits the well again. The Areas group's right-click menu has the same
+choices under **Areas Group Height**: **Fit** (the well as high as
+leaves every group in sight, the default), **As Dragged (N Rows)**
+(shown while the well has a height you dragged it to) and **Open Out**.
+Opened out, the line is under the last area, which is where to drag it
+back up. The choice is kept from run to run, for every module, and
+**View › Reset Layout** fits the well again. It is not drawn while the
+areas fit as they are or the group is closed (its row's arrow folds the
+whole group, and **Collapse All** every group). While the Filter has
+something typed, the well keeps its height, and dragging it past what
+the Filter finds does not open it out.
+
+A row too long for the
 pane is cut short with an ellipsis at its edge (its name, and what is
 dimmed after it), as the Outliner's rows are; rest the pointer on it
 for the whole. (An area's marks, who holds it and *(not in the area

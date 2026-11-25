@@ -31,7 +31,7 @@ fn chapter1(width: f32, height: f32) -> Option<Harness<'static, Moonglow>> {
 }
 
 /// The module's areas in the tree's order (by ResRef).
-fn areas(h: &Harness<'_, Moonglow>) -> Vec<ResRef> {
+pub(crate) fn areas(h: &Harness<'_, Moonglow>) -> Vec<ResRef> {
     areas_of(h.state())
 }
 
@@ -45,7 +45,7 @@ fn areas_of(app: &Moonglow) -> Vec<ResRef> {
 
 /// The row of the tree's group `name` ("Conversations"), whatever its
 /// count.
-fn group<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
+pub(crate) fn group<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
     let prefix = format!("{name} (");
     let tree = h.get_by_label("Module Tree Rows");
     let found =
@@ -54,7 +54,7 @@ fn group<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t>
 }
 
 /// The groups under Areas, by name.
-const BELOW: [&str; 13] = [
+pub(crate) const BELOW: [&str; 13] = [
     "Conversations",
     "Scripts",
     "NUI windows",
@@ -71,24 +71,24 @@ const BELOW: [&str; 13] = [
 ];
 
 /// Where each group's row is.
-fn groups_at(h: &Harness<'_, Moonglow>) -> Vec<egui::Rect> {
+pub(crate) fn groups_at(h: &Harness<'_, Moonglow>) -> Vec<egui::Rect> {
     BELOW.iter().map(|g| group(h, g).rect()).collect()
 }
 
 /// The well's bounds: under the Areas group's row, over the next group's.
-fn well(h: &Harness<'_, Moonglow>) -> std::ops::RangeInclusive<f32> {
+pub(crate) fn well(h: &Harness<'_, Moonglow>) -> std::ops::RangeInclusive<f32> {
     group(h, "Areas").rect().bottom()..=group(h, "Conversations").rect().top()
 }
 
 /// Whether the row `label` of the tree is laid out wholly inside the well.
-fn in_well(h: &Harness<'_, Moonglow>, label: &str) -> bool {
+pub(crate) fn in_well(h: &Harness<'_, Moonglow>, label: &str) -> bool {
     let Some(row) = h.get_by_label("Module Tree Rows").query_by_label(label) else { return false };
     let (r, w) = (row.rect(), well(h));
     w.contains(&(r.top() + 0.5)) && w.contains(&(r.bottom() - 0.5))
 }
 
 /// Wheels `dy` points over `at`, a frame or two each.
-fn wheel(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, times: usize) {
+pub(crate) fn wheel(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, times: usize) {
     h.hover_at(at);
     for _ in 0..times {
         h.event(egui::Event::MouseWheel {
@@ -566,7 +566,7 @@ fn an_object_selected_in_an_area_brings_its_row_into_the_well_s_view() {
 
 /// A module of `n` areas (empty AREs, `area_000`...) and 40 scripts, in
 /// a scratch folder named `name`.
-fn n_areas(name: &str, n: usize) -> std::path::PathBuf {
+pub(crate) fn n_areas(name: &str, n: usize) -> std::path::PathBuf {
     let dir = mg_testkit::scratch_dir(name);
     let mut m = Module::new();
     let mut info = Gff::new(*b"IFO ");
@@ -601,12 +601,12 @@ fn small(name: &str, n: usize, width: f32, height: f32) -> Harness<'static, Moon
 }
 
 /// The foot of the tree's view (the Status Bar's top).
-fn view_bottom(h: &Harness<'_, Moonglow>) -> f32 {
+pub(crate) fn view_bottom(h: &Harness<'_, Moonglow>) -> f32 {
     h.ctx.content_rect().bottom() - mg_uikit::metrics::STATUS_BAR
 }
 
 /// How many rows high the well is.
-fn well_rows(h: &Harness<'_, Moonglow>) -> f32 {
+pub(crate) fn well_rows(h: &Harness<'_, Moonglow>) -> f32 {
     let w = well(h);
     (w.end() - w.start()) / mg_uikit::metrics::ROW_HEIGHT
 }

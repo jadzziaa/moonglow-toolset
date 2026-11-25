@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T22:47:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:11:05Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -343,7 +343,7 @@ Key caps with a word each, ordered by importance; hints drop whole from the end 
 
 ### 8.3 Tree and well
 
-A long tree group can scroll within itself (the Areas list in the Module panel; ruling 10 of 2026-11-10). Picture grids in dialogs sit in a well with a scroll bar. Panels scroll with a drawn bar.
+A long tree group can scroll within itself (the Areas list in the Module panel; ruling 10 of 2026-11-10, amended 2026-11-24: the well is resized by its foot or opened out, builders' request). Picture grids in dialogs sit in a well with a scroll bar. Panels scroll with a drawn bar.
 
 ### 8.4 The gallery cell ("Quiet Tiles")
 
@@ -688,7 +688,7 @@ Everything marked NEW in the sources, as one list. Nothing else is added without
 7. Ubuntu Light stays; judge it in the running app.
 8. Rows and controls 22 px: fine.
 9. One shared crate for theme, icons, shell and common widgets: yes.
-10. The Areas list scrolls inside its own group: fine.
+10. The Areas list scrolls inside its own group: fine. (Amended 2026-11-24: the well is resized by its foot or opened out, builders' request. A handle along its foot drags it taller or shorter in whole rows, a double click fits it again, and the Areas group's menu's Areas Group Height chooses Fit, the height dragged to or Open Out, where the areas open out in the tree as before 5.1. Fit stays the default; the choice is kept per installation.)
 
 ### 15.2 2026-11-10, the second ten ("use your picks")
 

@@ -144,6 +144,52 @@ pub enum OpenEditors {
     Floating,
 }
 
+/// How high the Module panel's Areas group is ([`Settings::areas_height`]):
+/// its rows in a well that scrolls by itself, fitted so that the groups
+/// under it stay in sight or as high as its foot was dragged to, or opened
+/// out in the tree.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum AreasHeight {
+    /// As high as leaves every other group's row in sight under it.
+    #[default]
+    Fit,
+    /// This many rows high (at least the well's least, five).
+    Rows(u16),
+    /// No well: the areas laid out in the tree, which alone scrolls.
+    Open,
+}
+
+impl AreasHeight {
+    /// Whether it is the default, [`AreasHeight::Fit`] (not written).
+    pub fn is_fit(&self) -> bool {
+        *self == AreasHeight::Fit
+    }
+}
+
+/// Read as the [`Named`] settings are: a name this version doesn't know
+/// (without a value) is the default, [`AreasHeight::Fit`].
+impl<'de> Deserialize<'de> for AreasHeight {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<AreasHeight, D::Error> {
+        use serde::de::{EnumAccess, VariantAccess};
+        struct Of;
+        impl<'de> serde::de::Visitor<'de> for Of {
+            type Value = AreasHeight;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an AreasHeight")
+            }
+            fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<AreasHeight, A::Error> {
+                let (Name(name), variant) = data.variant()?;
+                match name.as_str() {
+                    "Rows" => Ok(AreasHeight::Rows(variant.newtype_variant()?)),
+                    "Open" => variant.unit_variant().map(|()| AreasHeight::Open),
+                    _ => variant.unit_variant().map(|()| AreasHeight::Fit),
+                }
+            }
+        }
+        d.deserialize_enum("AreasHeight", &[], Of)
+    }
+}
+
 /// What File › Export… does with an archive that is there already
 /// (Options › General): asks, appends to it or overwrites it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -959,6 +1005,14 @@ pub struct Settings {
     /// so files stay as they were.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layers_panel_height: Option<u32>,
+    /// How high the Module panel's Areas group is (`tree::areas_well`):
+    /// fitted, in a well of its own that leaves every other group's row in
+    /// sight (the default); a height in rows its foot was dragged to; or
+    /// opened out in the tree, as before 5.1, the tree alone scrolling
+    /// (builders' request of 2026-11-24). Per installation, not per
+    /// module. Written only once chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "AreasHeight::is_fit")]
+    pub areas_height: AreasHeight,
     /// The height of the Left Dock's panel over the Outliner beside a
     /// tileset, its parts (M4's U20: a seam of its own, as the Layers').
     /// `None`: not chosen, the Tileset board's (394). Written only once
@@ -2840,6 +2894,46 @@ mod tests {
             vec![vec![vec![AreaRightPanel::Palette, AreaRightPanel::Preview]]]
         );
         assert_eq!(AreaRightLayout::default().normalized(), AreaRightLayout::two_columns());
+    }
+
+    /// The Areas group's height: not written while fitted (files stay as
+    /// they were), each other value written and read back (RON and JSON),
+    /// a name a newer version wrote read as fitted with the rest kept, and
+    /// merged with another window's as the docks' sizes are.
+    #[test]
+    fn areas_height_omits_fit_reads_back_and_merges() {
+        let started = Settings::default();
+        assert!(!started.saved_text().contains("areas_height"), "{}", started.saved_text());
+        for height in [AreasHeight::Rows(23), AreasHeight::Open] {
+            let s = Settings { areas_height: height, ..Default::default() };
+            let text = s.saved_text();
+            assert!(text.contains("areas_height:"), "{text}");
+            assert_eq!(Settings::read_fields(&text).unwrap(), (s.clone(), Vec::new()));
+            let json = serde_json::to_string(&s).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), s);
+        }
+        let newer = Settings { light_theme: true, ..Default::default() }.saved_text().replacen(
+            '(',
+            "(areas_height:Halfway,",
+            1,
+        );
+        let (read, unread) = Settings::read_fields(&newer).unwrap();
+        assert!(read.light_theme && read.areas_height == AreasHeight::Fit, "{newer}");
+        assert!(unread.is_empty(), "{unread:?}");
+        // Another untouched window takes theirs; their Fit (not written)
+        // is kept over this window's unchanged height; this window's own
+        // wins.
+        let theirs = Settings { areas_height: AreasHeight::Rows(9), ..started.clone() };
+        let merged: Settings =
+            ron::from_str(&started.saved_over(&started, &theirs.saved_text())).unwrap();
+        assert_eq!(merged.areas_height, AreasHeight::Rows(9));
+        let merged: Settings =
+            ron::from_str(&theirs.saved_over(&theirs, &started.saved_text())).unwrap();
+        assert_eq!(merged.areas_height, AreasHeight::Fit);
+        let mine = Settings { areas_height: AreasHeight::Open, ..started.clone() };
+        let merged: Settings =
+            ron::from_str(&mine.saved_over(&started, &theirs.saved_text())).unwrap();
+        assert_eq!(merged.areas_height, AreasHeight::Open);
     }
 
     #[test]
