@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:44:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -296,8 +296,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     of many binds (X22); Design with a deep window (X23); a list cell of
     thousands of rows (X24);
   - the renderer: a model view drawn beside the area, `FRAME_DETAIL=1`
-    (R9); `FRAME_SHADOW_QUALITY=high FRAME_MEMORY=labels` after a view
-    lets go (R5, R10); an animated cloaked NPC out of the map's region
+    (R9); an animated cloaked NPC out of the map's region
     (R15); an interior with a flame on every tile (R16); a TDoD area of
     tinted placeables (R22); texture memory and area opening with DDS
     heads and many colored NPCs (R12, R13);
@@ -713,13 +712,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and creatures' and lights' shadows (the Shadows button's menu, done
   2026-10-28); since 2026-10-30 also as the game's own stencil volumes
   (Shadows quality High: [the notes](research/notes_shaders.md) §G.2),
-  beside the client in `high_shadows_beside_the_client`. Left:
-  - High's first frame in an area makes its casters' volume meshes in
-    the frame: area084's opening's longest frame 22 ms with Fast, 48 to
-    51 ms with High (`frame_perf`, 2026-10-30); its frames after are
-    within the budget (a frame's GPU time 0.1 to 1 ms more than Fast's,
-    3.3 ms more in area026 seen close, 6.7 ms of 6.9). Making them
-    apart, as textures are read, goes beyond what was asked (M);
+  beside the client in `high_shadows_beside_the_client`; their volumes
+  made apart from the frames and kept by the renderer, let go of with
+  their models, since 2026-11-25 ([the frames
+  note](research/notes_frames.md)). Left:
   - every creature in a lamp's reach casts at once (eight ogres in a
     row, each its shadow: `batch6_light_shadow_casters`), as Moonglow
     casts up to 16; and a player's own light casts the shadows of the
@@ -753,13 +749,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **Shadow volumes kept with a mesh:** the volume buffers are kept in
-  each `GpuMesh` for the model's life (the review's R5, its fourth
-  part; the other three are done). Freeing them needs the renderer to
-  own them, a restructure of the casters' path. The measurement it
-  waited on (the review's Z2) was made on 10 November and found the
-  encoding's time elsewhere (the dense area's entry); the restructure is
-  beyond what that pass was asked. (M) (the review of November 2026, R5)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in
