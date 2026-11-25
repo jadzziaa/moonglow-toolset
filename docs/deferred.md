@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T21:15:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -340,27 +340,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   that capture alone. Whether Moonglow's Properties window should sort
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
-
-## Bulk editing
-
-- **Advanced Search, what it doesn't do** (from builders' asks on
-  Discord, October 2026; done: changing what it found, ticked or all, in
-  one step: a variable set or removed, an event's script, a field;
-  Edit Together and Edit Areas Together from its results; conditions
-  together, a class by its levels, number ranges and floats; an item
-  blueprint followed through bags in bags, and a creature blueprint
-  into the encounters that spawn it, since 2026-10-29; a spell by the
-  class that knows it, a conversation's lines kept by several
-  conditions, and the haks' and the game's blueprints searched
-  read-only, since 2026-11-02; feats, classes, item properties and
-  items held added and removed on what it found, through Edit
-  Together's list rules, since 2026-11-02:
-  [the design](lists-together-proposal.md)). A field is set only where
-  the object has it (none is added). Edit Together takes blueprints of
-  one type and objects of one kind placed in one area; items held by
-  placed objects, and conversations, open one by one. (S–M; beyond what
-  was asked of the lists' work, which left these as they were: the
-  deferred sprint, 2026-11-02)
 
 ## Palettes
 
@@ -2331,3 +2310,20 @@ is not taken for a new gap.
   pictures (`skin::Assets`) and the UI's (`images::Loader`) keep their
   own orders on purpose, and both read a picture the module changes
   again at once (since 2026-11-25). (By design.)
+- **Advanced Search: conversations edited together** (the last of
+  "Advanced Search, what it doesn't do", from builders' asks on Discord,
+  October 2026; closed 2026-11-25). Its other parts are built: a field
+  set is added where it is missing with **Add where missing** checked
+  (off by default, since the engine reads a missing field as its
+  default; only where the object's kind has the field in the game's
+  files, `mg_schema`, of the type given there); objects of one kind
+  found in several areas open in one Edit Together, one undo step
+  across the areas; and the items placed objects hold or stores sell
+  open together as well. Conversations still open one at a time, by
+  design: a conversation is one tree in its own editor, with no form of
+  fields that several could share, and what a builder changes on many
+  (a line's script or a field found on it) Change the N checked
+  already sets on each line found, in one step. An item inside a bag
+  held is not among the held items edited together, also by design:
+  Properties open on the items a placed object holds itself, the bag
+  among them. (By design.)

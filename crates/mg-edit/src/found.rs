@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use mg_core::{Codepage, ResRef, ResType};
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{FieldType, Gff, Struct, Value};
 use mg_module::Module;
 use mg_module::search::{Hit, Object, VarType};
 use mg_resman::ResKey;
@@ -32,7 +32,11 @@ pub enum Change {
     /// an empty name clears it.
     SetScript { event: String, script: String },
     /// A field (by label) set to a value typed as its type reads it.
-    SetField { label: String, value: String },
+    /// `add`: also added, of the type the game's files give it, to each
+    /// object that lacks it where its kind of object has the field (the
+    /// engine reads a field missing as its default; added, it reads the
+    /// value given). Off, an object without the field is left, said.
+    SetField { label: String, value: String, add: bool },
     /// An entry added to each object found that lacks it (`name`: what
     /// the command is named by, "Alertness").
     AddEntry { entry: Entry, name: String },
@@ -253,18 +257,16 @@ pub fn edits(
         Change::SetScript { event, script } => {
             let script = ResRef::from_str(script.trim())
                 .map_err(|e| format!("{script:?} is not a script's name: {e}"))?;
-            let mut set =
-                |old: &Value| matches!(old, Value::ResRef(_)).then(|| Value::resref(script));
-            set_fields(&mut r, hits, event, &mut set, &mut out);
+            let mut set = |_: FieldType, old: Option<&Value>| {
+                matches!(old, Some(Value::ResRef(_))).then(|| Value::resref(script))
+            };
+            set_fields(&mut r, hits, event, false, &mut set, &mut out);
         }
-        Change::SetField { label, value } => {
+        Change::SetField { label, value, add } => {
             // (Checked on the first field, so a typing error says so.)
             let mut problem = None;
-            let mut set = |old: &Value| match Value::from_text(
-                old.field_type(),
-                value,
-                Some(old),
-                codepage,
+            let mut set = |ty: FieldType, old: Option<&Value>| match Value::from_text(
+                ty, value, old, codepage,
             ) {
                 Ok(v) => Some(v),
                 Err(e) => {
@@ -272,7 +274,7 @@ pub fn edits(
                     None
                 }
             };
-            set_fields(&mut r, hits, label, &mut set, &mut out);
+            set_fields(&mut r, hits, label, *add, &mut set, &mut out);
             if out.changed == 0
                 && let Some(e) = problem
             {
@@ -478,26 +480,28 @@ fn add_item(
 }
 
 /// Sets field `label` where each hit found it, else on each object's own
-/// struct, to what `value` makes of the old value (`None`: it can't hold
-/// it).
+/// struct, to what `value` makes of the field's type and old value
+/// (`None`: it can't hold it); `add`: added to an object that lacks it,
+/// where its kind of object has it ([`fields_of`]), with no old value.
 fn set_fields(
     r: &mut Reader<'_>,
     hits: &[&Hit],
     label: &str,
-    value: &mut dyn FnMut(&Value) -> Option<Value>,
+    add: bool,
+    value: &mut dyn FnMut(FieldType, Option<&Value>) -> Option<Value>,
     out: &mut Outcome,
 ) {
     let mut done: HashSet<(ResKey, GffPath)> = HashSet::new();
     let mut objects_done: HashSet<Object> = HashSet::new();
     for h in hits {
-        let (key, path) = match field_found(h) {
-            Some((path, l)) if l.eq_ignore_ascii_case(label) => (h.key, path),
+        let (key, path, object) = match field_found(h) {
+            Some((path, l)) if l.eq_ignore_ascii_case(label) => (h.key, path, None),
             _ => {
                 let Some(o) = h.object() else { continue };
                 if !objects_done.insert(o.clone()) {
                     continue;
                 }
-                (o.key, o.path)
+                (o.key, o.path.clone(), Some(o))
             }
         };
         if !done.insert((key, path.clone())) {
@@ -509,17 +513,61 @@ fn set_fields(
         let Some(f) =
             s.fields.iter().find(|f| f.label.to_string_lossy().eq_ignore_ascii_case(label))
         else {
-            out.skipped.push(format!("{place}: no {label}"));
+            // (Added where asked, by the label as the game's files spell
+            // it, of their type: an object of a kind without it is left.)
+            let known = object
+                .filter(|_| add)
+                .and_then(|o| fields_of(&o).iter().find(|f| f.label.eq_ignore_ascii_case(label)));
+            match known {
+                Some(f) => match value(f.field_type, None) {
+                    Some(v) => {
+                        let label = f.label.to_string();
+                        out.edits.push(Edit::SetField { key, path, label, value: Some(v) });
+                        out.changed += 1;
+                    }
+                    None => out.skipped.push(format!("{place}: {} can't hold it", f.label)),
+                },
+                None => out.skipped.push(format!("{place}: no {label}")),
+            }
             continue;
         };
         let real = f.label.to_string_lossy();
-        match value(&f.value) {
+        match value(f.value.field_type(), Some(&f.value)) {
             Some(v) => {
                 out.edits.push(Edit::SetField { key, path, label: real, value: Some(v) });
                 out.changed += 1;
             }
             None => out.skipped.push(format!("{place}: {real} can't hold it")),
         }
+    }
+}
+
+/// The fields an object of its kind has in the game's files (the schema
+/// observed in them, `mg_schema`): a blueprint's or an area's top-level
+/// fields; a placed object's, those of its GIT list's entries; an item a
+/// placed object holds (or a store sells), those of that list's items.
+/// None for the rest (an item in a bag held, a conversation).
+fn fields_of(o: &Object) -> &'static [mg_schema::FieldInfo] {
+    use mg_schema::git;
+    if o.key.restype != ResType::GIT {
+        return if o.path.is_root() { mg_schema::root_fields(o.kind) } else { &[] };
+    }
+    let lists: Vec<&str> = o.path.0.iter().filter_map(|s| s.item().map(|(l, _)| l)).collect();
+    match lists.as_slice() {
+        ["Creature List"] => git::creature_list::FIELDS,
+        ["Door List"] => git::door_list::FIELDS,
+        ["Encounter List"] => git::encounter_list::FIELDS,
+        ["List"] => git::list::FIELDS,
+        ["Placeable List"] => git::placeable_list::FIELDS,
+        ["SoundList"] => git::sound_list::FIELDS,
+        ["StoreList"] => git::store_list::FIELDS,
+        ["TriggerList"] => git::trigger_list::FIELDS,
+        ["WaypointList"] => git::waypoint_list::FIELDS,
+        ["Creature List", "ItemList"] => git::creature_list::item_list::FIELDS,
+        ["Creature List", "Equip_ItemList"] => git::creature_list::equip_item_list::FIELDS,
+        ["Placeable List", "ItemList"] => git::placeable_list::item_list::FIELDS,
+        ["StoreList", "StoreList", "ItemList"] => git::store_list::store_list::item_list::FIELDS,
+        _ => &[],
     }
 }
 
@@ -715,7 +763,7 @@ mod tests {
         // A field found is set where found: the class's level; the
         // object's own by label otherwise, kept of its type.
         let levels = find(&m, Search::Field { label: Some("ClassLevel".into()), value: None });
-        let set = Change::SetField { label: "ClassLevel".into(), value: "9".into() };
+        let set = Change::SetField { label: "ClassLevel".into(), value: "9".into(), add: false };
         let (after, out) = apply(&m, &levels, set);
         assert_eq!(out.changed, 2);
         let utc = gff(&after, "guard", ResType::UTC);
@@ -723,13 +771,57 @@ mod tests {
             utc.root.list("ClassList").unwrap()[0].get("ClassLevel"),
             Some(&Value::Short(9))
         );
-        let set = Change::SetField { label: "appearance_type".into(), value: "7".into() };
+        let set =
+            Change::SetField { label: "appearance_type".into(), value: "7".into(), add: false };
         let (after, _) = apply(&m, &fighters, set);
         let utc = gff(&after, "guard", ResType::UTC);
         assert_eq!(utc.root.get("Appearance_Type"), Some(&Value::Word(7)));
         // A value the field can't hold.
-        let bad = Change::SetField { label: "Appearance_Type".into(), value: "-1".into() };
+        let bad =
+            Change::SetField { label: "Appearance_Type".into(), value: "-1".into(), add: false };
         assert!(edits(&m, &hits, &bad, Codepage::WINDOWS_1252, None).is_err());
+    }
+
+    /// A field the objects found lack is added only where asked, and only
+    /// to the kinds of object that have it in the game's files, of the
+    /// type they give it, spelled as they spell it: the blueprint, the
+    /// placed creature and the item it holds, not the area. Undone, the
+    /// field is gone again.
+    #[test]
+    fn a_field_missing_is_added_only_where_asked_and_known() {
+        let m = module();
+        let tagged = find(&m, Search::Field { label: Some("Tag".into()), value: None });
+        assert_eq!(tagged.len(), 4, "{tagged:?}");
+        let plot = |add| Change::SetField { label: "plot".into(), value: "1".into(), add };
+        let (_, out) = apply(&m, &tagged, plot(false));
+        assert_eq!((out.changed, out.skipped.len()), (0, 4), "none added unasked");
+        let (after, out) = apply(&m, &tagged, plot(true));
+        assert_eq!(out.changed, 3, "{:?}", out.skipped);
+        assert_eq!(out.skipped, ["keep (area): no plot"], "an area has no Plot");
+        let utc = gff(&after, "guard", ResType::UTC);
+        assert_eq!(utc.root.get("Plot"), Some(&Value::Byte(1)));
+        let git = gff(&after, "keep", ResType::GIT);
+        let placed = &git.root.list("Creature List").unwrap()[0];
+        assert_eq!(placed.get("Plot"), Some(&Value::Byte(1)));
+        assert_eq!(placed.list("ItemList").unwrap()[0].get("Plot"), Some(&Value::Byte(1)));
+        assert_eq!(gff(&after, "keep", ResType::ARE).root.get("Plot"), None);
+        // A value the type can't hold is refused, nothing added.
+        let bad = Change::SetField { label: "Plot".into(), value: "x".into(), add: true };
+        let hits: Vec<&Hit> = tagged.iter().collect();
+        assert!(edits(&m, &hits, &bad, Codepage::WINDOWS_1252, None).is_err());
+        // A label no kind of object has: none added.
+        let odd = Change::SetField { label: "NoSuchField".into(), value: "1".into(), add: true };
+        let (_, out) = apply(&m, &tagged, odd);
+        assert_eq!(out.changed, 0);
+        // Undone: the fields added are gone.
+        let hits: Vec<&Hit> = tagged.iter().collect();
+        let out = edits(&m, &hits, &plot(true), Codepage::WINDOWS_1252, None).unwrap();
+        let mut ws = crate::Workspace::new(m.clone());
+        ws.apply(crate::Command::new("Set Plot", out.edits)).unwrap();
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        let utc = ws.module.gff(&ResKey::parse("guard", ResType::UTC).unwrap()).unwrap().unwrap();
+        assert_eq!(utc.root.get("Plot"), None);
     }
 
     /// Feats, classes and items held, added to and taken from the

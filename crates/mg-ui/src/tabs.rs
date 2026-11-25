@@ -70,8 +70,10 @@ pub enum Tab {
     AreaProperties(mg_core::ResRef),
     /// Several areas' Properties, edited together.
     AreasProperties(Vec<mg_core::ResRef>),
-    /// Several objects of one type placed in an area, edited together.
-    Instances { area: mg_core::ResRef, paths: Vec<mg_edit::GffPath> },
+    /// Several objects of one type placed in areas (one or several),
+    /// edited together: each its area and its path in the area's GIT (an
+    /// object in a GIT list, or an item one holds).
+    Instances { objects: Vec<(mg_core::ResRef, mg_edit::GffPath)> },
     /// An object placed in an area (its entry in the area's GIT), in its
     /// Properties editor.
     Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
@@ -117,6 +119,39 @@ pub(crate) const FORMS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
 pub(crate) const ROWS_TALLER: f32 = 1.08;
 
 impl Tab {
+    /// Several objects placed in `area` (at `paths` in its GIT), edited
+    /// together.
+    pub fn instances(
+        area: mg_core::ResRef,
+        paths: impl IntoIterator<Item = mg_edit::GffPath>,
+    ) -> Tab {
+        Tab::Instances { objects: paths.into_iter().map(|p| (area, p)).collect() }
+    }
+
+    /// The areas of objects edited together, each once, in their order.
+    pub fn areas_of(objects: &[(mg_core::ResRef, mg_edit::GffPath)]) -> Vec<mg_core::ResRef> {
+        // (Looked for in a set: thousands of objects found in hundreds of
+        // areas.)
+        let mut seen = std::collections::HashSet::new();
+        objects.iter().map(|(a, _)| *a).filter(|a| seen.insert(*a)).collect()
+    }
+
+    /// The one area all of `objects` are in (`None`: several, or none).
+    pub fn one_area(objects: &[(mg_core::ResRef, mg_edit::GffPath)]) -> Option<mg_core::ResRef> {
+        let (first, _) = objects.first()?;
+        objects.iter().all(|(a, _)| a == first).then_some(*first)
+    }
+
+    /// Whether it is a placed object's Properties (one or several), of an
+    /// object in `area`.
+    pub fn edits_in(&self, area: mg_core::ResRef) -> bool {
+        match self {
+            Tab::Instance { area: a, .. } => *a == area,
+            Tab::Instances { objects } => objects.iter().any(|(a, _)| *a == area),
+            _ => false,
+        }
+    }
+
     /// Whether it opens in the main dock whatever Options › General › Open
     /// editors says: areas (and the start page), which the rest open over
     /// in windows of their own (As Floating Windows), so a window never
@@ -353,9 +388,8 @@ impl Tab {
         let area = |r: &mg_core::ResRef| Some(ResKey::new(*r, ResType::ARE));
         match self {
             Tab::Area(r) | Tab::AreaProperties(r) => area(r),
-            Tab::Instance { area: r, .. }
-            | Tab::Instances { area: r, .. }
-            | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::Instance { area: r, .. } | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::Instances { objects } => area(&objects.first()?.0),
             Tab::Script(k)
             | Tab::Nui(k)
             | Tab::NuiSource(k)
@@ -370,12 +404,16 @@ impl Tab {
 
     /// The resources the tab shows that the module tree lists:
     /// [`Tab::tree_key`]'s, or each of a tab of several (Properties of
-    /// several blueprints or areas).
+    /// several blueprints or areas, or of objects placed in several
+    /// areas: each area).
     pub fn tree_keys(&self) -> Vec<ResKey> {
         match self {
             Tab::Blueprints(keys) => keys.clone(),
             Tab::AreasProperties(areas) => {
                 areas.iter().map(|a| ResKey::new(*a, ResType::ARE)).collect()
+            }
+            Tab::Instances { objects } => {
+                Tab::areas_of(objects).into_iter().map(|a| ResKey::new(a, ResType::ARE)).collect()
             }
             _ => self.tree_key().into_iter().collect(),
         }
@@ -404,9 +442,8 @@ impl Tab {
         };
         match self {
             Tab::Area(r) | Tab::AreaProperties(r) => area(r),
-            Tab::Instance { area: r, .. }
-            | Tab::Instances { area: r, .. }
-            | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::Instance { area: r, .. } | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::Instances { objects } => objects.iter_mut().for_each(|(r, _)| area(r)),
             Tab::AreasProperties(areas) => areas.iter_mut().for_each(area),
             Tab::Script(k)
             | Tab::Nui(k)
@@ -695,11 +732,11 @@ impl Viewer<'_> {
                 let (first, rest) = areas.split_first().expect("at least one");
                 crate::area_props::ui(self.app, ui, *first, rest);
             }
-            Tab::Instances { area, paths } => {
-                let git = ResKey::new(*area, ResType::GIT);
-                let (first, rest) = paths.split_first().expect("at least one");
-                let rest = rest.iter().map(|p| (git, p.clone())).collect();
-                crate::blueprint::edit_many(self.app, ui, git, first.clone(), rest);
+            Tab::Instances { objects } => {
+                let git = |area: &mg_core::ResRef| ResKey::new(*area, ResType::GIT);
+                let ((area, first), rest) = objects.split_first().expect("at least one");
+                let rest = rest.iter().map(|(a, p)| (git(a), p.clone())).collect();
+                crate::blueprint::edit_many(self.app, ui, git(area), first.clone(), rest);
             }
             Tab::Blueprints(keys) => {
                 let (first, rest) = keys.split_first().expect("at least one");
@@ -737,8 +774,9 @@ impl TabViewer for Viewer<'_> {
         match tab {
             Tab::Instance { area, path } => window(self.app, *area, path).with("instance"),
             Tab::InstanceModel { area, path } => window(self.app, *area, path).with("model"),
-            Tab::Instances { area, paths } if !paths.is_empty() => {
-                window(self.app, *area, &paths[0]).with(("instances", paths.len()))
+            Tab::Instances { objects } if !objects.is_empty() => {
+                let (area, first) = &objects[0];
+                window(self.app, *area, first).with(("instances", objects.len()))
             }
             _ => Id::new(("tab", &*tab)),
         }
@@ -1102,7 +1140,10 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         Tab::AreasProperties(areas) => {
             format!("{} areas (Area Properties)", areas.len())
         }
-        Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()),
+        Tab::Instances { objects } => match Tab::one_area(objects) {
+            Some(area) => format!("{} objects ({area})", objects.len()),
+            None => format!("{} objects ({} areas)", objects.len(), Tab::areas_of(objects).len()),
+        },
         Tab::Blueprints(keys) => {
             let ext = keys.first().and_then(|k| k.restype.extension()).unwrap_or_default();
             format!("{} blueprints (.{ext})", keys.len())
@@ -1235,7 +1276,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::Dialog(_) => I::Conversation,
         Tab::AreaProperties(_) | Tab::AreasProperties(_) => I::AreaProperties,
         Tab::Instance { path, .. } => placed(path),
-        Tab::Instances { paths, .. } => paths.first().map_or(I::Properties, placed),
+        Tab::Instances { objects } => objects.first().map_or(I::Properties, |(_, p)| placed(p)),
         Tab::InstanceModel { .. } => I::Model,
         Tab::Manual => I::Book,
         Tab::References => I::References,
@@ -1712,7 +1753,7 @@ mod tests {
             (Tab::Area(r), I::Area),
             (Tab::AreaProperties(r), I::AreaProperties),
             (Tab::AreasProperties(vec![r]), I::AreaProperties),
-            (Tab::Instances { area: r, paths: vec![path.clone()] }, I::Creature),
+            (Tab::instances(r, vec![path.clone()]), I::Creature),
             (Tab::Instance { area: r, path: path.clone() }, I::Creature),
             (Tab::Manual, I::Book),
             (Tab::References, I::References),
@@ -1811,5 +1852,34 @@ mod tests {
                 assert!(tree.iter().any(|n| n.tabs_count() > 0));
             }
         }
+    }
+
+    /// Objects of several areas edited together: the tab shows each
+    /// area (and closes when any of them goes), is named by how many, and
+    /// follows an area renamed.
+    #[test]
+    fn a_tab_of_objects_in_several_areas_shows_each_area() {
+        use mg_core::ResRef;
+        let (a, b) = (ResRef::from_str("start").unwrap(), ResRef::from_str("field").unwrap());
+        let p = mg_edit::GffPath::root().item("Creature List", 0);
+        let tab = Tab::Instances { objects: vec![(a, p.clone()), (b, p.clone()), (a, p.clone())] };
+        let are = |r: ResRef| ResKey::new(r, ResType::ARE);
+        assert_eq!(tab.tree_keys(), [are(a), are(b)]);
+        assert!(tab.shows_any(&[are(b)]), "the second area gone");
+        assert!(tab.edits_in(b) && !tab.edits_in(ResRef::from_str("cave").unwrap()));
+        assert_eq!(
+            Tab::one_area(match &tab {
+                Tab::Instances { objects } => objects,
+                _ => unreachable!(),
+            }),
+            None
+        );
+        let mut moved = tab.clone();
+        let cave = ResRef::from_str("cave").unwrap();
+        moved.retarget(&|k: ResKey| (k == are(b)).then(|| are(cave)));
+        assert_eq!(
+            moved,
+            Tab::Instances { objects: vec![(a, p.clone()), (cave, p.clone()), (a, p)] }
+        );
     }
 }

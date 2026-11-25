@@ -118,7 +118,7 @@ fn window_of(app: &Moonglow, area: ResRef) -> Option<Tab> {
         indices.iter().map(|i| GffPath::root().item(kind.list(), *i)).collect();
     Some(match paths.as_slice() {
         [one] => Tab::Instance { area, path: one.clone() },
-        _ => Tab::Instances { area, paths },
+        _ => Tab::instances(area, paths),
     })
 }
 
@@ -130,9 +130,7 @@ fn window_of(app: &Moonglow, area: ResRef) -> Option<Tab> {
 fn open_on(app: &Moonglow, area: ResRef, paths: &[GffPath]) -> Option<Tab> {
     let theirs = |t: &Tab| match t {
         Tab::Instance { area: a, path } => *a == area && paths.contains(path),
-        Tab::Instances { area: a, paths: theirs } => {
-            *a == area && theirs.iter().any(|p| paths.contains(p))
-        }
+        Tab::Instances { objects } => objects.iter().any(|(a, p)| *a == area && paths.contains(p)),
         _ => false,
     };
     let docked = app.dock.iter_all_tabs().map(|(_, t)| t);
@@ -179,7 +177,7 @@ pub(crate) fn open_in_tab(app: &mut Moonglow, editor: Option<&Tab>) {
     let git = ResKey::new(area, ResType::GIT);
     let first = match &tab {
         Tab::Instance { path, .. } => path.clone(),
-        Tab::Instances { paths, .. } => paths[0].clone(),
+        Tab::Instances { objects } => objects[0].1.clone(),
         _ => return,
     };
     if let Some(restype) = crate::blueprint::instance_type(&first)
@@ -195,8 +193,10 @@ pub(crate) fn open_in_tab(app: &mut Moonglow, editor: Option<&Tab>) {
 /// is open: Open in Tab, the right-click menus' Properties and a triple
 /// click on a Module Tree or Outliner row all do so.
 pub(crate) fn pop_out(app: &mut Moonglow, tab: Tab) {
-    if let Tab::Instance { area, .. } | Tab::Instances { area, .. } = &tab {
-        app.props_popped_out.insert(*area);
+    match &tab {
+        Tab::Instance { area, .. } => _ = app.props_popped_out.insert(*area),
+        Tab::Instances { objects } => app.props_popped_out.extend(Tab::areas_of(objects)),
+        _ => {}
     }
     app.actions.push(Action::OpenTab(tab));
 }

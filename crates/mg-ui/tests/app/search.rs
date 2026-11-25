@@ -581,7 +581,7 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
         mg_edit::GffPath::root().item("Creature List", 1),
     ];
     let area = ResRef::from_str("start").unwrap();
-    let both = Tab::Instances { area, paths };
+    let both = Tab::instances(area, paths);
     assert!(h.state().dock.find_tab(&both).is_some());
     // (Closed: in this small screen it lies over the search's.)
     h.state_mut().actions.push(mg_ui::Action::CloseTab(both));
@@ -591,6 +591,230 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     // (Edit Areas Together's section, in front in the Right Dock: one area
     // checked.)
     h.get_by_label("1 area checked");
+}
+
+/// Objects of one kind found in several areas open in one Edit Together
+/// (the deferred entry "Advanced Search, what it doesn't do"): a field set
+/// in it is set in each area, at each object's own place (another object
+/// stands at the same place in the first area, and is left), as one undo
+/// step, which Cancel takes back too. The items those objects hold open
+/// together the same way, apart from the objects.
+#[test]
+fn advanced_search_edits_objects_of_several_areas_and_the_items_they_hold_together() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-areas-together");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let text = |s: &str| Value::String(s.as_bytes().to_vec());
+    let gem = || {
+        let mut i = Struct::new(0);
+        i.set("Tag", text("GEM"));
+        i.set("BaseItem", Value::Int(77));
+        i.set("Plot", Value::Byte(0));
+        i
+    };
+    let placeable = |tag: &str, holds: bool| {
+        let mut p = Struct::new(9);
+        p.set("Tag", text(tag));
+        p.set("Plot", Value::Byte(0));
+        p.set("HasInventory", Value::Byte(u8::from(holds)));
+        p.set("ItemList", Value::List(if holds { vec![gem()] } else { Vec::new() }));
+        p
+    };
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let field = ResKey::parse("field", ResType::GIT).unwrap();
+    let mut edits = Vec::new();
+    // In start, OTHER stands where the chest of field stands (the first).
+    for (key, list) in [
+        (start, vec![placeable("OTHER", true), placeable("CHEST", true)]),
+        (field, vec![placeable("CHEST", true)]),
+    ] {
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Placeable List", Value::List(list));
+        edits.push(Edit::SetResource { key, data: Some(git.to_bytes().unwrap()) });
+    }
+    let are = Gff::new(*b"ARE ").to_bytes().unwrap();
+    let field_are = ResKey::parse("field", ResType::ARE).unwrap();
+    edits.push(Edit::SetResource { key: field_are, data: Some(are) });
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    let mut h = harness(app, 1280.0, 900.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    // Each placeable's Plot, and its gem's, in start then field.
+    let plots = |h: &mut Harness<'_, Moonglow>| -> Vec<(Option<i64>, Option<i64>)> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        [start, field]
+            .iter()
+            .flat_map(|k| {
+                let g = ws.module.gff(k).unwrap().unwrap();
+                g.root.list("Placeable List").unwrap().to_vec()
+            })
+            .map(|p| (p.integer("Plot"), p.list("ItemList").unwrap()[0].integer("Plot")))
+            .collect()
+    };
+    let none = vec![(Some(0), Some(0)); 3];
+    let find = |h: &mut Harness<'_, Moonglow>, tag: &str, n: usize| {
+        h.state_mut().advanced_search.first = Condition {
+            kind: Kind::Field,
+            name: "Tag".into(),
+            value: tag.into(),
+            ..Default::default()
+        };
+        h.run();
+        h.get_by_label("Find").click();
+        h.run();
+        h.get_by_label(&format!("{n} found:"));
+    };
+
+    // The two chests, in two areas: one button.
+    find(&mut h, "CHEST", 2);
+    h.get_by_label("Edit the 2 checked together").click();
+    h.run();
+    h.get_by_label("Edit 2 placeables in 2 areas Together").click();
+    h.run_steps(3);
+    // (The objects of the tab of several open, in any order.)
+    let together = |h: &Harness<'_, Moonglow>| -> Option<Vec<(ResRef, GffPath)>> {
+        h.state().dock.iter_all_tabs().find_map(|(_, t)| match t {
+            Tab::Instances { objects } => {
+                let mut o = objects.clone();
+                o.sort();
+                Some(o)
+            }
+            _ => None,
+        })
+    };
+    let mut chests = vec![
+        (start.resref, GffPath::root().item("Placeable List", 1)),
+        (field.resref, GffPath::root().item("Placeable List", 0)),
+    ];
+    chests.sort();
+    assert_eq!(together(&h), Some(chests));
+    h.get_by_label("Plot").click();
+    settle(&mut h);
+    let both = vec![(Some(0), Some(0)), (Some(1), Some(0)), (Some(1), Some(0))];
+    assert_eq!(plots(&mut h), both, "each chest, OTHER left");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(plots(&mut h), none, "undone as one");
+    // A list edited on each, the Variables page's: a variable added in
+    // both areas, OTHER left, in one step.
+    let vars = |h: &mut Harness<'_, Moonglow>| -> Vec<usize> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        [start, field]
+            .iter()
+            .flat_map(|k| {
+                let g = ws.module.gff(k).unwrap().unwrap();
+                g.root.list("Placeable List").unwrap().to_vec()
+            })
+            .map(|p| p.list("VarTable").map_or(0, <[_]>::len))
+            .collect()
+    };
+    page(&mut h, "Variables");
+    in_page(&h, "Variables").get_by_label("Add").click();
+    settle(&mut h);
+    type_into_hint(&mut h, "Name", "nMark");
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    assert_eq!(vars(&mut h), [0, 1, 1], "each chest's, OTHER left");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(vars(&mut h), [0, 0, 0], "undone as one");
+    page(&mut h, "Basic");
+    h.get_by_label("Plot").click();
+    settle(&mut h);
+    assert_eq!(plots(&mut h), both);
+    h.get_by_label("Placeable properties header").get_by_label("Cancel").click();
+    settle(&mut h);
+    assert_eq!(plots(&mut h), none, "Cancel takes both back");
+    assert_eq!(together(&h), None, "closed");
+
+    // The gems the three hold: three held items, in two areas.
+    find(&mut h, "GEM", 3);
+    h.get_by_label("Edit 3 held items in 2 areas Together").click();
+    h.run_steps(3);
+    let mut gems = vec![
+        (start.resref, GffPath::root().item("Placeable List", 0).item("ItemList", 0)),
+        (start.resref, GffPath::root().item("Placeable List", 1).item("ItemList", 0)),
+        (field.resref, GffPath::root().item("Placeable List", 0).item("ItemList", 0)),
+    ];
+    gems.sort();
+    assert_eq!(together(&h), Some(gems));
+    h.get_by_label("Plot item").click();
+    settle(&mut h);
+    let held = vec![(Some(0), Some(1)); 3];
+    assert_eq!(plots(&mut h), held, "each gem, its holder left");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(plots(&mut h), none, "undone as one");
+    // OTHER deleted: the window follows the gem of start's chest up its
+    // list and lets OTHER's go; the delete undone, back down.
+    let gem = |area: ResKey, i: usize| {
+        (area.resref, GffPath::root().item("Placeable List", i).item("ItemList", 0))
+    };
+    let remove = Edit::remove_item(start, GffPath::root(), "Placeable List", 0);
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Delete", vec![remove])));
+    settle(&mut h);
+    let mut now = vec![gem(start, 0), gem(field, 0)];
+    now.sort();
+    assert_eq!(together(&h), Some(now));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    let mut now = vec![gem(start, 1), gem(field, 0)];
+    now.sort();
+    assert_eq!(together(&h), Some(now));
+    h.get_by_label("Plot item").click();
+    settle(&mut h);
+    let after = vec![(Some(0), Some(0)), (Some(0), Some(1)), (Some(0), Some(1))];
+    assert_eq!(plots(&mut h), after, "the gems of the chests, not OTHER's");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+
+    // A field the chests lack is set only with Add where missing ticked:
+    // then each has it, of the type the game's files give it.
+    let useable = |h: &mut Harness<'_, Moonglow>| -> Vec<Option<Value>> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        [start, field]
+            .iter()
+            .flat_map(|k| {
+                let g = ws.module.gff(k).unwrap().unwrap();
+                g.root.list("Placeable List").unwrap().to_vec()
+            })
+            .map(|p| p.get("Useable").cloned())
+            .collect()
+    };
+    let open = h.state().dock.iter_all_tabs().find_map(|(_, t)| match t {
+        Tab::Instances { .. } => Some(t.clone()),
+        _ => None,
+    });
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(open.expect("the gems' tab")));
+    h.run_steps(2);
+    find(&mut h, "CHEST", 2);
+    h.state_mut().advanced_search.act.act = mg_ui::search::Act::SetField;
+    h.run();
+    h.get_by_label("Change the 2 checked").click();
+    h.run();
+    type_into_hint(&mut h, "its label, e.g. Appearance_Type", "useable");
+    type_into_hint(&mut h, "the value", "1");
+    h.get_by_label("Change 2 Found").click();
+    h.run();
+    assert_eq!(useable(&mut h), [None, None, None], "none added unasked");
+    h.get_by_label("Add where missing").click();
+    h.run();
+    h.get_by_label("Change 2 Found").click();
+    h.run();
+    let one = Some(Value::Byte(1));
+    assert_eq!(useable(&mut h), [None, one.clone(), one], "added to the chests, spelled so");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(useable(&mut h), [None, None, None], "undone as one");
 }
 
 /// What Advanced Search found is a list of places (`start.git /Creature

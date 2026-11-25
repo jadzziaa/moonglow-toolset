@@ -3,7 +3,7 @@ type: Proposal
 title: 'Lists across several blueprints: a design'
 description: How Edit Together edits the pages of lists (skills, feats, special abilities, an encounter's creatures, a store's restrictions, classes, spells, item properties, inventories) on several blueprints or placed objects at once - a list shown merged with an entry some have marked ≠ and how many, what adding, removing and changing an entry does to each, the guard that dropped a change reaching some of them and how it becomes explicit, one Undo step, the rules' limits (room for a class, levels and spells per class, item properties matched by type, subtype and value), and Advanced Search's changes to what it found through the same commands.
 tags: [proposal, bulk-editing, edit-together, blueprints, advanced-search]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T09:50:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T21:15:27Z }
 sources:
   - id: deferred
     resource: deferred.md
@@ -170,7 +170,8 @@ entries some have, one Undo) and `found.rs`'s unit tests; pictured by
 ## What is not in it
 
 Edit Together still takes blueprints of one type, and objects of one
-kind placed in one area. Moving items between the objects edited
+kind placed in areas (in several, from Advanced Search, since
+2026-11-25, with the items they hold). Moving items between the objects edited
 together, and opening one of their held items, are for one object at a
 time: which one's item would be meant.
 

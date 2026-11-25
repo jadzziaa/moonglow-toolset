@@ -1748,7 +1748,7 @@ fn several_objects_edited_together() {
         mg_edit::GffPath::root().item("WaypointList", 0),
         mg_edit::GffPath::root().item("WaypointList", 1),
     ];
-    assert!(h.state().dock.find_tab(&Tab::Instances { area, paths }).is_some());
+    assert!(h.state().dock.find_tab(&Tab::instances(area, paths)).is_some());
     h.get_by_label_contains("what you change is set on each");
     h.get_by_label("Advanced").click();
     h.run_steps(2);
@@ -3914,7 +3914,7 @@ fn placed_objects_edited_together_have_their_lists_edited_on_each() {
     let git_key = ResKey::new(area, ResType::GIT);
     let paths: Vec<_> =
         (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::instances(area, paths)));
     h.run_steps(4);
     assert!(h.query_by_label("Basic").is_some(), "the window is open");
     assert!(h.query_by_label_contains("at a time").is_none());
@@ -3989,8 +3989,9 @@ fn static_ticked_takes_the_visual_transform_off() {
         let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
         list.iter().map(|p| (p.integer("Static"), VisualTransform::read(p))).collect()
     };
-    let paths = (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    let paths =
+        (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect::<Vec<_>>();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::instances(area, paths)));
     h.run_steps(4);
     let before = chests(&mut h);
     assert_eq!(before, [(Some(0), Some(tilted)); 2]);

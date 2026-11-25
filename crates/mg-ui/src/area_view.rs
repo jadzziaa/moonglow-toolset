@@ -7071,10 +7071,7 @@ pub(crate) fn delete_objects(
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
     let area = view.area;
-    crate::tabs::close_tabs(
-        &mut app.dock,
-        |t| !matches!(t, crate::Tab::Instance { area: a, .. } | crate::Tab::Instances { area: a, .. } if *a == area),
-    );
+    crate::tabs::close_tabs(&mut app.dock, |t| !t.edits_in(area));
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new(label, edits)));
     }
@@ -7793,7 +7790,8 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
                     .iter()
                     .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
                     .collect();
-                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
+                let paths: Vec<_> = paths;
+                app.actions.push(Action::OpenTab(crate::Tab::instances(view.area, paths)));
             }
         }
         ui.close();

@@ -8478,6 +8478,51 @@ fn advanced_search() {
     h.state_mut().advanced_search = d;
     settle(&mut h);
     shoot(&mut h, &dir, "advanced-search-or-not");
+    // Every fighter placed, and what opens together: one button for the
+    // fighters of every area; then the items with an enhancement bonus,
+    // those the placed objects hold apart from the blueprints.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), ..Default::default() },
+        placed: Some(true),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    settle(&mut h);
+    h.query_by_label_contains("together").expect("Edit together").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "advanced-search-together");
+    // Opened: one window for the fighters of every area.
+    if let Some(b) = h.query_by_label_contains("areas Together") {
+        b.click();
+        settle(&mut h);
+        shoot(&mut h, &dir, "advanced-search-together-window");
+        let tab = h
+            .state()
+            .dock
+            .iter_all_tabs()
+            .find_map(|(_, t)| matches!(t, mg_ui::Tab::Instances { .. }).then(|| t.clone()));
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(tab.expect("the fighters' tab")));
+        settle(&mut h);
+    }
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::ItemProperty, row: Some(6), ..Default::default() },
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    settle(&mut h);
+    shoot(&mut h, &dir, "advanced-search-together-items");
+    // Set a field on them, with Add where missing.
+    h.query_by_label_contains("together").expect("Edit together").click();
+    {
+        let a = &mut h.state_mut().advanced_search.act;
+        a.act = mg_ui::search::Act::SetField;
+        (a.name, a.value, a.add) = ("Stolen".into(), "1".into(), true);
+    }
+    // (The change's section open since the fighters' search.)
+    h.run_steps(4);
+    shoot(&mut h, &dir, "advanced-search-add-missing");
 }
 
 /// Edit › Find and Replace Text… over Chapter 1, the Bottom Dock's tab

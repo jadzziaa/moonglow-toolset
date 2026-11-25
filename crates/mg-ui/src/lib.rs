@@ -3709,12 +3709,8 @@ impl Moonglow {
     /// Drops popped-out state for any area whose `Instance`/`Instances`
     /// window or tab is no longer open.
     pub(crate) fn sync_props_popped_out(&mut self) {
-        self.props_popped_out.retain(|area| {
-            self.dock.iter_all_tabs().any(|(_, t)| match t {
-                Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. } => a == area,
-                _ => false,
-            })
-        });
+        self.props_popped_out
+            .retain(|area| self.dock.iter_all_tabs().any(|(_, t)| t.edits_in(*area)));
     }
 
     /// Notes a tab closed, for Reopen Closed Tab: those that show a
@@ -5751,9 +5747,18 @@ impl Moonglow {
                     Tab::Instance { area, path } => {
                         (Some(*area), vec![path.clone()], Some(path.clone()))
                     }
-                    Tab::Instances { area, paths } => {
-                        (Some(*area), paths.clone(), paths.first().cloned())
-                    }
+                    // (Its first object's area, and those of its objects in
+                    // it: the area whose panel it came from.)
+                    Tab::Instances { objects } => match objects.first() {
+                        Some((area, first)) => (
+                            Some(*area),
+                            (objects.iter().filter(|(a, _)| a == area))
+                                .map(|(_, p)| p.clone())
+                                .collect(),
+                            Some(first.clone()),
+                        ),
+                        None => (None, Vec::new(), None),
+                    },
                     _ => (None, Vec::new(), None),
                 };
                 if let (Some(area), Some(first)) = (area, first_path) {

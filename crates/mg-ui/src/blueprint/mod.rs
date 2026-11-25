@@ -2727,6 +2727,13 @@ pub(crate) fn instance_type(path: &GffPath) -> Option<ResType> {
 /// The lists a placed object holds items in.
 pub(crate) const HELD_LISTS: [&str; 2] = ["ItemList", "Equip_ItemList"];
 
+/// Whether `path` (in an area's GIT) is an item a placed object holds or a
+/// store sells, which opens in Properties of its own: not an item in a bag
+/// held, nor anything further in.
+pub(crate) fn held_item(path: &GffPath) -> bool {
+    held_item_at(path).is_some_and(|n| n == path.0.len())
+}
+
 /// Where `path` goes into an item a placed object holds: how many of its
 /// steps lead to the item (the rest go on into the item).
 fn held_item_at(path: &GffPath) -> Option<usize> {
@@ -3163,10 +3170,11 @@ pub(crate) fn tab_of(key: ResKey, path: &GffPath, also: &[(ResKey, GffPath)]) ->
             Tab::Blueprints(std::iter::once(key).chain(also.iter().map(|(k, _)| *k)).collect())
         }
         (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
+        // (Each in its own area: objects of several areas are edited
+        // together, Advanced Search's.)
         (false, false) => Tab::Instances {
-            area: key.resref,
-            paths: std::iter::once(path.clone())
-                .chain(also.iter().map(|(_, p)| p.clone()))
+            objects: std::iter::once((key.resref, path.clone()))
+                .chain(also.iter().map(|(k, p)| (k.resref, p.clone())))
                 .collect(),
         },
     }

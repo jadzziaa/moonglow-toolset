@@ -3326,7 +3326,8 @@ pub(crate) fn act_on_object(
         }
         Asked::Properties if targets.len() > 1 => {
             let paths = targets.iter().copied().map(path).collect();
-            crate::properties_panel::pop_out(app, Tab::Instances { area, paths });
+            let paths: Vec<_> = paths;
+            crate::properties_panel::pop_out(app, Tab::instances(area, paths));
         }
         Asked::Properties => {
             let path = path((kind, index));
@@ -3453,10 +3454,7 @@ pub(crate) fn act_on_object(
                     app.tree_cursor = Some(TreeAt::Kind(a, k));
                 }
             }
-            crate::tabs::close_tabs(&mut app.dock, |t| {
-                !matches!(t, Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. }
-                    if *a == area)
-            });
+            crate::tabs::close_tabs(&mut app.dock, |t| !t.edits_in(area));
             if !edits.is_empty() {
                 app.actions.push(Action::Apply(mg_edit::Command::new("Delete", edits)));
             }

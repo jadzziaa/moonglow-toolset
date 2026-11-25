@@ -366,6 +366,11 @@ fn parse_path(text: &str) -> Option<GffPath> {
     steps.collect::<Option<Vec<_>>>().map(GffPath)
 }
 
+/// An object placed in an area, as `area:path`.
+fn object_text(area: ResRef, path: &GffPath) -> String {
+    format!("{area}:{}", path_text(path))
+}
+
 /// An `area:path` key of the objects kept, its path in the one form (a
 /// file 3.1.0 and before wrote has them as they wrote paths).
 fn object_key(text: &str) -> String {
@@ -455,7 +460,11 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::InstanceModel { area, path } => {
             format!("instance-model:{area}:{}", path_text(path))
         }
-        Tab::Instances { area, paths } => format!("instances:{area}:{}", list(paths, path_text)),
+        // (Of one area as before; of several, each object its area's.)
+        Tab::Instances { objects } => match Tab::one_area(objects) {
+            Some(area) => format!("instances:{area}:{}", list(objects, |(_, p)| path_text(p))),
+            None => format!("instances-of-areas:{}", list(objects, |(a, p)| object_text(*a, p))),
+        },
         Tab::Tile { tileset, tile } => format!("tile:{tileset}:{tile}"),
         Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
@@ -533,8 +542,14 @@ fn parse_tab(text: &str) -> Option<Want> {
         }
         "instances" => {
             let (area, paths) = area_and(rest)?;
-            Tab::Instances { area, paths: parse_list(&paths, parse_path)? }
+            Tab::instances(area, parse_list(&paths, parse_path)?)
         }
+        "instances-of-areas" => Tab::Instances {
+            objects: parse_list(rest, |o| {
+                let (area, path) = area_and(o)?;
+                Some((area, parse_path(&path)?))
+            })?,
+        },
         "tile" => {
             let (tileset, tile) = area_and(rest)?;
             Tab::Tile { tileset, tile: tile.parse().ok()? }
@@ -785,14 +800,13 @@ impl Moonglow {
                 p.manifest.id == *plugin && p.manifest.panels.iter().any(|d| d.id == *panel)
             }),
             // (Found again when the record is read: `read_open_tabs`.)
-            Tab::Instance { area: a, .. }
-            | Tab::InstanceModel { area: a, .. }
-            | Tab::Instances { area: a, .. } => area(a),
+            Tab::Instance { area: a, .. } | Tab::InstanceModel { area: a, .. } => area(a),
+            Tab::Instances { objects } => objects.iter().all(|(a, _)| area(a)),
             tab => tab.renamable().is_none_or(|k| module.contains(&k)),
         }
     }
 
-    /// A placed object's tab with its objects found again in their area
+    /// A placed object's tab with its objects found again in their areas
     /// (`None`: one of them is not there now), and what each was, by its
     /// path now, into `found`.
     fn instance_again(
@@ -801,27 +815,35 @@ impl Moonglow {
         objects: &BTreeMap<String, Placed>,
         found: &mut Vec<((ResRef, GffPath), Placed)>,
     ) -> Option<Tab> {
-        let (area, paths) = match &tab {
+        let places: Vec<(ResRef, GffPath)> = match &tab {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
-                (*area, std::slice::from_ref(path))
+                vec![(*area, path.clone())]
             }
-            Tab::Instances { area, paths } => (*area, paths.as_slice()),
+            Tab::Instances { objects } => objects.clone(),
             _ => return Some(tab),
         };
         let ws = self.ws.as_ref()?;
-        let git = ws.module.gff(&ResKey::new(area, ResType::GIT))?.ok()?;
-        let kept = |p: &GffPath| objects.get(&format!("{area}:{}", path_text(p)));
-        let again: Vec<GffPath> =
-            paths.iter().map(|p| found_again(&git, p, kept(p))).collect::<Option<_>>()?;
-        for (was, now) in paths.iter().zip(&again) {
-            if let Some(p) = kept(was) {
-                found.push(((area, now.clone()), p.clone()));
+        let mut gits = BTreeMap::new();
+        let mut again: Vec<(ResRef, GffPath)> = Vec::new();
+        let mut known = Vec::new();
+        for (area, p) in &places {
+            if !gits.contains_key(area) {
+                gits.insert(*area, ws.module.gff(&ResKey::new(*area, ResType::GIT))?.ok()?);
             }
+            let kept = objects.get(&object_text(*area, p));
+            let now = found_again(&gits[area], p, kept)?;
+            if let Some(o) = kept {
+                known.push(((*area, now.clone()), o.clone()));
+            }
+            again.push((*area, now));
         }
+        // (Only once every one of them is found again.)
+        found.extend(known);
+        let (area, first) = again[0].clone();
         Some(match tab {
-            Tab::Instance { .. } => Tab::Instance { area, path: again[0].clone() },
-            Tab::InstanceModel { .. } => Tab::InstanceModel { area, path: again[0].clone() },
-            _ => Tab::Instances { area, paths: again },
+            Tab::Instance { .. } => Tab::Instance { area, path: first },
+            Tab::InstanceModel { .. } => Tab::InstanceModel { area, path: first },
+            _ => Tab::Instances { objects: again },
         })
     }
 
@@ -998,7 +1020,10 @@ impl Moonglow {
             Tab::Blueprint(k) => page(*k, GffPath::root()),
             Tab::Blueprints(keys) => page(*keys.first()?, GffPath::root()),
             Tab::Instance { area, path } => page(git(area), path.clone()),
-            Tab::Instances { area, paths } => page(git(area), paths.first()?.clone()),
+            Tab::Instances { objects } => {
+                let (area, first) = objects.first()?;
+                page(git(area), first.clone())
+            }
             Tab::AreaProperties(r) => page(are(r), GffPath::root()),
             Tab::AreasProperties(rs) => page(are(rs.first()?), crate::area_props::several_page(rs)),
             Tab::TalkTable => {
@@ -1049,16 +1074,18 @@ impl Moonglow {
     /// The placed objects a tab shows, as they are found again (by
     /// `area:path`).
     fn objects_of(&self, tab: &Tab, into: &mut BTreeMap<String, Placed>) {
-        let (area, paths) = match tab {
+        let places: Vec<(ResRef, GffPath)> = match tab {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
-                (*area, std::slice::from_ref(path))
+                vec![(*area, path.clone())]
             }
-            Tab::Instances { area, paths } => (*area, paths.as_slice()),
+            Tab::Instances { objects } => objects.clone(),
             _ => return,
         };
-        // (The area as it is edited, if it was read; else as it was kept.)
-        let git = (self.ws.as_ref()).and_then(|ws| ws.loaded(&ResKey::new(area, ResType::GIT)));
-        for path in paths {
+        for (area, path) in &places {
+            let area = *area;
+            // (The area as it is edited, if it was read; else as it was
+            // kept.)
+            let git = (self.ws.as_ref()).and_then(|ws| ws.loaded(&ResKey::new(area, ResType::GIT)));
             let now = match (git, path.0.as_slice()) {
                 (Some(git), [Step::Item(list, index)]) => git
                     .root
@@ -1069,7 +1096,7 @@ impl Moonglow {
                 (None, _) => self.open_tabs.objects.get(&(area, path.clone())).cloned(),
             };
             if let Some(p) = now {
-                into.insert(format!("{area}:{}", path_text(path)), p);
+                into.insert(object_text(area, path), p);
             }
         }
     }
@@ -1607,7 +1634,14 @@ mod tests {
             Tab::AreasProperties(vec![area, ResRef::from_str("cave").unwrap()]),
             Tab::Instance { area, path: path.clone() },
             Tab::InstanceModel { area, path: path.clone() },
-            Tab::Instances { area, paths: vec![path, GffPath::root().item("Door List", 0)] },
+            Tab::instances(area, vec![path.clone(), GffPath::root().item("Door List", 0)]),
+            // (Of several areas, each object its area's: a held item too.)
+            Tab::Instances {
+                objects: vec![
+                    (area, path.clone()),
+                    (ResRef::from_str("cave").unwrap(), path.item("ItemList", 2)),
+                ],
+            },
             Tab::Tile { tileset: ResRef::from_str("ttr01").unwrap(), tile: 12 },
         ];
         for tab in tabs {
