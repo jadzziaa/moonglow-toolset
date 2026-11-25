@@ -4659,7 +4659,20 @@ fn walk_objects(
                 let tables = &d.tables;
                 let lookup = |name: &str| tables.get(name).and_then(Option::as_deref);
                 let parts = at.parts(s, &lookup, rm);
+                // (An item with no model at all is said once, by
+                // `item-model`, with what it means for the area.)
+                let no_model = object == Some(mg_rules::ObjectKind::Item)
+                    && !d.skip.check(Check::ItemModel)
+                    && lookup("baseitems").is_some_and(|b| {
+                        mg_rules::appearance::item_without_model(s, b, lookup("cloakmodel"), rm)
+                            .is_some()
+                    });
                 for p in &parts.problems {
+                    if no_model
+                        && matches!(p.problem, mg_rules::appearance::Problem::PartMissing(_))
+                    {
+                        continue;
+                    }
                     out.push((path.field(p.field()), p.to_string(), p.problem.is_part()));
                 }
                 let models = own.map(|m| (None, m));
@@ -7632,6 +7645,12 @@ endmodelgeom fx\ndonemodel fx\n";
             "guard wears the item odd: No model: baseitems.2da row 2 has no ItemClass"
         ));
         assert!(said[1].message.contains("the area won't load"), "{said:#?}");
+        // (Said once: `object-row` leaves the part it would say of the same item.)
+        assert!(
+            f.iter().all(|f| f.check != "object-row" || !f.at.starts_with("badhelm")),
+            "{f:#?}"
+        );
+        assert!(f.iter().all(|f| !f.at.starts_with("area › creature ORC › inventory ModelPart")));
         let skipped = examine_groups(
             &m,
             &rm,

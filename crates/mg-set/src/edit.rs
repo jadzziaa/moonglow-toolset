@@ -276,21 +276,32 @@ impl SetFile {
         }
     }
 
-    /// How many items of list `list` (its sections `item<n>`: `TILES`,
-    /// `TILE`) the file really has, as the reader reads them
-    /// ([`Tileset`](crate::Tileset)): up to the last section there is below
-    /// the list's `Count=` (and below the reader's bound, eight a section
-    /// the file has and 4,096), holes among them counted, and a section
-    /// past the count not. It is what an item added or removed at the end
-    /// is numbered by: a count that is no count (`1869573190`) numbers
-    /// nothing, and is written back as the new number says.
-    fn listed(&self, list: &str, item: &str) -> usize {
+    /// How many items of a list the file really has, by its sections
+    /// `item<n>` (`TILE`): one past the last there is (below the reader's
+    /// bound, eight a section the file has and 4,096, so a stray
+    /// `[TILE2147483646]` is none), holes among them counted. An item
+    /// added or removed at the end is numbered by it, not by the list's
+    /// `Count=`, which may be anything (`1869573190`, or less than the
+    /// sections there are, where numbering by it would make a section
+    /// twice); the count is written back as the new number says.
+    fn listed(&self, item: &str) -> usize {
+        self.last_section(item, usize::MAX)
+    }
+
+    /// [`SetFile::listed`] of the sections below the list's `Count=`, as
+    /// the reader reads them: a section past the count is not an item
+    /// (painting rules, whose own edits reuse one there).
+    fn listed_by_count(&self, list: &str, item: &str) -> usize {
+        self.last_section(item, self.number(list, "Count"))
+    }
+
+    fn last_section(&self, item: &str, below: usize) -> usize {
         let names: Vec<String> =
             self.lines.iter().filter_map(|l| header(l)).map(str::to_ascii_uppercase).collect();
-        let count = self.number(list, "Count").min(names.len() * 8 + 4096);
+        let most = names.len() * 8 + 4096;
         let last = (names.iter())
             .filter_map(|h| h.strip_prefix(item)?.parse::<usize>().ok())
-            .filter(|&i| i < count)
+            .filter(|&i| i < below.min(most))
             .max();
         last.map_or(0, |i| i + 1)
     }
@@ -319,7 +330,7 @@ fn pairs(entries: &[(&str, String)]) -> Vec<(String, String)> {
 pub fn add_type(f: &mut SetFile, crosser: bool, name: &str, strref: Option<u32>) -> usize {
     let (list, each) =
         if crosser { ("CROSSER TYPES", "CROSSER") } else { ("TERRAIN TYPES", "TERRAIN") };
-    let n = f.listed(list, each);
+    let n = f.listed(each);
     f.set(list, "Count", &(n + 1).to_string());
     let mut entries = vec![("Name", name.to_string())];
     if let Some(s) = strref {
@@ -394,7 +405,7 @@ pub fn rename_type(f: &mut SetFile, crosser: bool, index: usize, to: &str) -> Op
 /// one; returns its index. Tiles are numbered by place: areas store the
 /// numbers, so tiles are only added at the end.
 pub fn duplicate_tile(f: &mut SetFile, from: usize) -> Option<usize> {
-    let n = f.listed("TILES", "TILE");
+    let n = f.listed("TILE");
     let entries = f.entries(&format!("TILE{from}"));
     if entries.is_empty() {
         return None;
@@ -416,7 +427,7 @@ pub fn duplicate_tile(f: &mut SetFile, from: usize) -> Option<usize> {
 /// Adds a tile at the end with a model and the same terrain at each
 /// corner; returns its index.
 pub fn add_tile(f: &mut SetFile, model: &str, terrain: &str) -> usize {
-    let n = f.listed("TILES", "TILE");
+    let n = f.listed("TILE");
     f.set("TILES", "Count", &(n + 1).to_string());
     let mut entries = vec![
         ("Model".to_string(), model.to_string()),
@@ -480,7 +491,7 @@ pub fn skeleton(name: &str) -> SetFile {
 
 /// Takes away the last tile (and its door sections).
 pub fn remove_last_tile(f: &mut SetFile) -> bool {
-    let n = f.listed("TILES", "TILE");
+    let n = f.listed("TILE");
     let Some(last) = n.checked_sub(1) else { return false };
     for (_, name) in f.door_sections(last) {
         f.remove_section(&name);
@@ -499,7 +510,7 @@ pub fn add_group(
     columns: usize,
     tiles: &[Option<u32>],
 ) -> usize {
-    let n = f.listed("GROUPS", "GROUP");
+    let n = f.listed("GROUP");
     f.set("GROUPS", "Count", &(n + 1).to_string());
     let mut entries = vec![
         ("Name".to_string(), name.to_string()),
@@ -515,7 +526,7 @@ pub fn add_group(
 
 /// Takes away the last group.
 pub fn remove_last_group(f: &mut SetFile) -> bool {
-    let n = f.listed("GROUPS", "GROUP");
+    let n = f.listed("GROUP");
     let Some(last) = n.checked_sub(1) else { return false };
     f.remove_section(&format!("GROUP{last}"));
     f.set("GROUPS", "Count", &last.to_string());
@@ -542,7 +553,7 @@ pub fn add_rule(
     changed: &str,
 ) -> usize {
     let (list, each) = rule_sections(secondary);
-    let n = f.listed(list, each);
+    let n = f.listed_by_count(list, each);
     f.set(list, "Count", &(n + 1).to_string());
     let entries = pairs(&[
         ("Placed", placed.to_string()),
@@ -563,7 +574,7 @@ pub fn add_rule(
 /// Takes away the last painting rule (`secondary`: the last secondary).
 pub fn remove_last_rule(f: &mut SetFile, secondary: bool) -> bool {
     let (list, each) = rule_sections(secondary);
-    let n = f.listed(list, each);
+    let n = f.listed_by_count(list, each);
     let Some(last) = n.checked_sub(1) else { return false };
     f.remove_section(&format!("{each}{last}"));
     f.set(list, "Count", &last.to_string());
@@ -638,14 +649,12 @@ mod tests {
         assert!(f.text().starts_with("[GENERAL]\r\nName=ZZZ01\r\n"), "{}", f.text());
     }
 
-    /// A count with something after its number (`Count=2;`, `Doors=1x`)
-    /// is the number, as the reader and the game have it: a tile added is
-    /// the third, not a second `[TILE0]` under `Count=1`.
     /// A list's `Count=` that lies (junk, or short of its sections, or past
-    /// them) numbers nothing: an item added or removed at the end goes by
-    /// the sections the file has, as the reader reads them (the last one
-    /// there is, holes among them kept), and the count is written back as
-    /// that says. A file not touched is as it was.
+    /// them) numbers nothing: a tile, group or terrain added or removed at
+    /// the end goes by the sections the file has (the last one there is,
+    /// holes among them kept), never making a section twice, and the count
+    /// is written back as that says. A file not touched is as it was. (A
+    /// painting rule goes by the count: `rules_keep_their_counts_and_places`.)
     #[test]
     fn a_count_that_lies_numbers_nothing() {
         let read = |f: &SetFile| {
@@ -653,7 +662,7 @@ mod tests {
         };
         let junk = "[GENERAL]\nName=x\n[TERRAIN TYPES]\nCount=1869573190\n[TERRAIN0]\nName=G\n\
 [TILES]\nCount=1869573190\n[TILE0]\nModel=a\n[TILE1]\nModel=b\n\
-[GROUPS]\nCount=99999\n[GROUP0]\nName=g\nRows=1\nColumns=1\nTile0=0\n";
+[GROUPS]\nCount=0\n[GROUP0]\nName=g\nRows=1\nColumns=1\nTile0=0\n";
         let mut f = SetFile::parse(junk);
         assert_eq!(f.text(), junk, "untouched, it is as it was");
         assert_eq!(add_tile(&mut f, "c", "G"), 2);
@@ -670,11 +679,28 @@ mod tests {
         // Holes among the sections keep their numbers (areas store them):
         // the tile goes after the last section, and a stray section far past the
         // count is no list.
-        let holes = "[TILES]\nCount=9\n[TILE0]\nModel=a\n[TILE3]\nModel=d\n\
+        let holes = "[TILES]\nCount=1\n[TILE0]\nModel=a\n[TILE3]\nModel=d\n\
 [TILE2147483646]\nModel=far\n";
         let mut f = SetFile::parse(holes);
         assert_eq!(add_tile(&mut f, "e", "G"), 4);
         assert_eq!(f.get("TILES", "Count"), Some("5"));
+        // A count short of its sections: the tile follows the last of them,
+        // and no section is made twice.
+        let short = "[TILES]\nCount=1\n[TILE0]\nModel=a\n[TILE1]\nModel=b\n[TILE2]\nModel=c\n\
+[GROUPS]\nCount=0\n[GROUP0]\nName=g\n[TERRAIN TYPES]\nCount=0\n[TERRAIN0]\nName=G\n";
+        let mut f = SetFile::parse(short);
+        assert_eq!(add_tile(&mut f, "d", "G"), 3);
+        assert_eq!(add_group(&mut f, "h", 1, 1, &[None]), 1);
+        assert_eq!(add_type(&mut f, false, "W", None), 1);
+        assert_eq!(duplicate_tile(&mut f, 0), Some(4));
+        let text = f.text();
+        let headers: Vec<&str> = text.lines().filter(|l| l.starts_with('[')).collect();
+        let mut once = headers.clone();
+        once.sort();
+        once.dedup();
+        assert_eq!(headers.len(), once.len(), "a section twice: {text}");
+        assert_eq!(f.get("TILES", "Count"), Some("5"));
+        assert!(remove_last_tile(&mut f) && f.get("TILES", "Count") == Some("4"));
         // No sections, whatever the count says.
         let mut f = SetFile::parse("[TILES]\nCount=7\n");
         assert_eq!(add_tile(&mut f, "e", "G"), 0);
@@ -688,6 +714,9 @@ mod tests {
         }
     }
 
+    /// A count with something after its number (`Count=2;`, `Doors=1x`)
+    /// is the number, as the reader and the game have it: a tile added is
+    /// the third, not a second `[TILE0]` under `Count=1`.
     #[test]
     fn counts_are_read_as_the_reader_reads_them() {
         let text = "[GENERAL]\nName=x\n[TILES]\nCount=2;\n[TILE0]\nModel=a\nDoors=1x\n\
