@@ -491,7 +491,22 @@ takes more than two minutes is stopped, and says so.
 
 **Build › Compile All Scripts** (F7, or **Compile** at the Top Bar's
 right end) compiles every script in the module;
-the log lists the failures and how many changed. An include file (a
+the log lists the failures and says how many were compiled, how many
+failed, and how many changed (compiled scripts whose bytes differ from
+what was there; debug files, with Generate Debug Information, are
+counted apart, when there are any). **Details**, beside that line,
+opens a line for each script compiled, those changed first, then the
+rest by name: the script, why it was compiled, and what came of it
+(compiled again with the bytes differing or the same, a new compiled
+script, or the compiler's error). The reasons are: Moonglow had not
+compiled it before (nothing is remembered of it here, as after the
+first Compile All of a module, or when the haks or settings changed);
+it or something it includes changed; its compiled script was not
+Moonglow's (another tool made it, or it was changed); it had no
+compiled script; it had no debug file (with Generate Debug Information);
+it was asked for (compiling the scripts named). `mg compile --json`
+says the same for each script (`compiled_scripts`: `script`, `why`,
+`ok`, `changed`, `debug_changed`). An include file (a
 script with no `main` and no `StartingConditional`; one in a comment
 doesn't count) isn't compiled on its own: it is compiled into the
 scripts that include it, and may lean on what they bring. (Aurora's

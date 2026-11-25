@@ -3309,6 +3309,32 @@ at `ffffffff`.
   `script_analysis.rs`.
 - **Wiki:** missing.
 
+### Aurora's Build compiles as the built-in compiler, but for an include's `main`
+
+Aurora 8193.37-17's Build Module (Compile › Scripts) makes the bytes of
+Moonglow's built-in compiler (neverwinter.nim 0972fc1f) for 992 compiled
+scripts of the base game's (every fourth source, a third of them with
+LF line ends), for constant expressions, unary minus, strings, floats,
+`?:`, shifts, switch, structs, vectors and loops, and for a script both
+in the module and in a hak: the module's copy, for both (the game puts
+a hak above the module). A script's line ends change no compiled byte,
+and Aurora saves the sources as they were. One way of writing differs:
+a script that includes a file with a `void main()` of its own. Aurora
+takes the include's `main` as the entry point, so an `int
+StartingConditional()` script compiles to the include's `main` alone,
+as does a script that is only the `#include`; the built-in compiler
+(since d20453e3, 2026-08) takes the script's own and passes the other
+over as an include. In the game Aurora's condition runs the include's
+`main` and fails, always: a script that returns nothing is a failed
+condition. Moonglow compiles the batch on one compiler a thread: the
+order of a batch changes no byte.
+
+- **Checked:** `aurora_scripts` (captures `script-compile-scale/`, made
+  by `tools/aurora/capture_compile_scale.py` and
+  `tools/aurora/build_in_aurora.sh`), `engine_include_entry`.
+- **Moonglow:** `crates/mg-script/nwscript/` (README), `crates/mg-module/src/build.rs`.
+- **Wiki:** missing.
+
 ### Binary models from the game's own compiler
 
 `nwmain compilemodel` stores `materialname` in a mesh's texture3 slot

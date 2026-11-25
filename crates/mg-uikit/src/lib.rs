@@ -3,7 +3,10 @@
 //! (egui's style built from them, dark and light), [fonts], the drawn
 //! [icon set](icons), the [form helpers](form) both applications' forms
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
-//! document tabs'](shell), the [Status Bar's](status), the key caps,
+//! document tabs'](shell), the docks' [stacks](stack) (their panels'
+//! columns and sections, where a dragged panel lands, the sections'
+//! heights and the seams between them, and what a dock keeps of its
+//! arrangement), the [Status Bar's](status), the key caps,
 //! badges and modified dot ([marks]), a [menu]'s parts beyond its
 //! rows (headings, notes, separators, check boxes, keys, forms), a
 //! [window]'s (a dialog's title row, the resize grip), and an editor's:
@@ -13,8 +16,9 @@
 //! in its own tokens rather than faded; what stands over a 3D view
 //! (the compass and the view's corner buttons, [overlay]); a
 //! [dialog]'s parts (`empty`, `StepState`, `StepList`, `page_bar`, and
-//! `Footer`); and the [gallery] cell, its grid and the pictures' size
-//! slider.
+//! `Footer`); the [gallery] cell, its grid and the pictures' size
+//! slider; and what a gallery keeps of its [pictures] (asked for, made,
+//! let go).
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -43,10 +47,12 @@ pub mod menu;
 pub mod metrics;
 pub mod overlay;
 pub mod pages;
+pub mod pictures;
 pub mod popover;
 pub mod scrolling;
 pub mod shelf;
 pub mod shell;
+pub mod stack;
 pub mod status;
 pub mod theme;
 pub mod tokens;

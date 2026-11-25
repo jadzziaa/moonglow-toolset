@@ -242,7 +242,10 @@ fn dock_nodes(h: &Harness<'_, Moonglow>) -> DockNodes {
             ids.insert(key(&n));
         }
         let Some(r) = rect(&n) else { return };
-        if key(&n) == key(&panel) || holders.contains(&key(&n)) {
+        // (The kit's named groups and tab lists hold widgets, and are none.)
+        let container =
+            matches!(n.role(), egui::accesskit::Role::Group | egui::accesskit::Role::TabList);
+        if container || key(&n) == key(&panel) || holders.contains(&key(&n)) {
             return;
         }
         if inside {

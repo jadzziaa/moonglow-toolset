@@ -1019,12 +1019,28 @@ pub struct PanelHeader {
     detail: Option<String>,
     name: Option<String>,
     draggable: bool,
+    badges: Vec<Badge>,
 }
 
 impl PanelHeader {
     /// The header of the panel `title`.
     pub fn new(title: impl Into<String>) -> Self {
-        PanelHeader { title: title.into(), detail: None, name: None, draggable: false }
+        PanelHeader {
+            title: title.into(),
+            detail: None,
+            name: None,
+            draggable: false,
+            badges: Vec::new(),
+        }
+    }
+
+    /// A badge after the title, as a dock tab's ([`DockTab::badge`]): a
+    /// count of what the panel holds (the viewer's diagnostics' errors and
+    /// warnings). Several go in the order given, before the detail; each
+    /// is a label named by its words.
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badges.push(badge);
+        self
     }
 
     /// Lets the header be dragged and right-clicked without adding a Tab stop.
@@ -1071,6 +1087,14 @@ impl PanelHeader {
                 let x = bar.left() + DOCK_TAB_PADDING;
                 let mut end = x + title.size().x;
                 p.galley(pos2(x, y(title.size().y)), title, t.text);
+                for badge in &self.badges {
+                    let left = end + DOCK_TAB_BADGE_GAP;
+                    let at = pos2(left, (bar.center().y - 0.5 - marks::MARK_HEIGHT / 2.0).round());
+                    let r = Rect::from_min_size(at, vec2(badge.width(ui), marks::MARK_HEIGHT));
+                    ui.place(r, badge.clone());
+                    end = r.right();
+                }
+                let p = ui.painter();
                 let mut cut = None;
                 if let Some(detail) = &self.detail {
                     // (`.t3.row` after `.docktab.title`, in `.panel-tabs`,
@@ -1204,6 +1228,38 @@ pub fn paint_doc_tab_icon(
 ) {
     icon.paint(painter, rect, if active { t.text_2 } else { t.text_3 });
 }
+/// A document tab's close button at `rect` (from [`doc_tab_parts`]),
+/// on the tab's `layer` and clipped to the part of the tab in sight
+/// (`shown`): registered after its tab, so that it takes the clicks; named
+/// `name` for a screen reader ("Close map_m1q1a"), its tip "Close this tab".
+/// Its state is for the tab's marks (`mg_uikit::dock::DocTabMark::close`);
+/// a click or a middle click on it closes the tab, which is the caller's
+/// to do.
+pub fn doc_tab_close(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    (layer, shown): (egui::LayerId, egui::Rect),
+    rect: egui::Rect,
+    name: &str,
+) -> (egui::Response, crate::icons::ButtonState) {
+    use crate::icons::ButtonState;
+    let builder = egui::UiBuilder::new().layer_id(layer).max_rect(rect);
+    let r = ui
+        .scope_builder(builder, |ui| {
+            ui.set_clip_rect(shown);
+            ui.interact(rect, id, egui::Sense::click())
+        })
+        .inner;
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    let state = if r.is_pointer_button_down_on() {
+        ButtonState::Pressed
+    } else if r.hovered() || r.has_focus() {
+        ButtonState::Hovered
+    } else {
+        ButtonState::Rest
+    };
+    (r.on_hover_text("Close this tab"), state)
+}
 
 /// Paints a document tab's close button in its square (`.doctab .x`: a
 /// 12 px cross in `text-2`; hovered, `raised` behind it and the cross in
@@ -1222,6 +1278,28 @@ pub fn paint_doc_tab_close(painter: &egui::Painter, t: &Tokens, rect: Rect, stat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shell's named groups (the Top Bar, a dock's fold strip, a dock's
+    /// tab bar, a panel's header) have bounds in the accessibility tree:
+    /// where they are drawn, for a screen reader and a test's `rect()`.
+    #[test]
+    fn the_shell_s_named_groups_have_bounds() {
+        use egui_kittest::kittest::Queryable as _;
+        let h = egui_kittest::Harness::builder().with_size(vec2(800.0, 400.0)).build_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            top_bar(ui, 300.0, |ui| ui.label("File"), |_, _| (), |_| ());
+            FoldStrip::new("Left Dock", Side::Left)
+                .panel(Icon::Module, "Module", "Module")
+                .show(ui);
+            DockTabs::new("Right Dock").tab("Palette").show(ui, &mut 0, |_| ());
+            PanelHeader::new("Preview").name("Preview Panel").show(ui, |_| ());
+        });
+        for name in [TOP_BAR, "Left Dock", "Right Dock", "Preview Panel"] {
+            let node = h.get_by_label(name);
+            let r = node.rect();
+            assert!(r.is_positive() && r.is_finite(), "{name}: {r:?}");
+        }
+    }
 
     /// The thresholds of section 5.2, each side of each, and the wide
     /// layout's (decided U1).

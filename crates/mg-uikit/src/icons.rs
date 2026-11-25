@@ -950,11 +950,21 @@ pub fn icon_label(
 /// Names `ui` for a screen reader (and tests): a group, `name`, of the
 /// widgets it holds (a row of icons that name kinds the window shows
 /// elsewhere too, say). Its widgets are found within it by their own
-/// names.
+/// names. Its bounds are the room `ui` is given (egui gives a `Ui`'s
+/// node none: a screen reader could not place it, nor a test take its
+/// rect).
 pub fn name_group(ui: &Ui, name: &str) {
+    let r = ui.max_rect();
+    let r = if r.is_finite() { r } else { ui.min_rect() };
     ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
         node.set_role(egui::accesskit::Role::Group);
         node.set_label(name);
+        node.set_bounds(egui::accesskit::Rect {
+            x0: r.min.x.into(),
+            y0: r.min.y.into(),
+            x1: r.max.x.into(),
+            y1: r.max.y.into(),
+        });
     });
 }
 

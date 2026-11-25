@@ -1812,3 +1812,97 @@ fn a_floating_tileset_changed_outside_is_read_again_and_typed_text_kept() {
     assert_eq!(t.tiles[2].model, "zzt01_typed", "what was typed set and kept");
     assert_eq!(t.tiles[0].model, "tcn01_a01_01", "theirs not taken");
 }
+
+/// A tileset kept in the module and drawn by an open area: another `.set`
+/// imported over it is read again by the area's view and the game data,
+/// as one changed in a folder the game data reads is (the deferred entry
+/// "A tileset kept in the module, changed, not redrawn in open areas").
+/// The area's first tile is given another tile's model; `MG_SHOT` keeps
+/// the area before and after. Undo takes it back; Redo while a job
+/// holds the game data is drawn once the job is done.
+#[test]
+fn a_tileset_kept_in_the_module_changed_is_redrawn() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let key = ResKey::parse("ttr01", ResType::SET).unwrap();
+    let set = {
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let game = mg_resman::ResMan::for_game(&install).unwrap();
+        game.get(&key).unwrap().into_owned()
+    };
+    let kept = set.clone();
+    let prepare = move |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
+        m.set(key, kept.clone());
+    };
+    let Some((mut h, area)) = area_harness_with("ui-module-set", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    settle(&mut h);
+    let drawn = |app: &Moonglow| {
+        let view = app.area_views.get(&area)?;
+        let tile = view.model.as_ref()?.tiles.first()?;
+        Some((tile.id, tile.model.clone()))
+    };
+    outside_wait(&mut h, "the area drawn", |app| drawn(app).is_some());
+    let (id, _) = drawn(h.state()).unwrap();
+    let parsed = mg_set::Tileset::parse(&set, mg_core::Codepage::default()).unwrap();
+    let model = parsed.tiles[id as usize].model.clone();
+    let other = (parsed.tiles.iter().map(|t| &t.model))
+        .find(|m| m[..m.len() - 3] != model[..model.len() - 3])
+        .expect("a tile of another kind")
+        .clone();
+    let text = String::from_utf8_lossy(&set).into_owned();
+    let section = text.find(&format!("[TILE{id}]")).unwrap();
+    let at = section + text[section..].find(&format!("Model={model}")).unwrap();
+    let mut changed = text.clone();
+    changed.replace_range(at..at + 6 + model.len(), &format!("Model={other}"));
+    let shots = shot_dir("ui-module-set");
+    if let Some(dir) = &shots {
+        h.render().expect("render").save(dir.join("before.png")).unwrap();
+    }
+    let files = mg_testkit::scratch_dir("ui-module-set-files");
+    std::fs::write(files.join("ttr01.set"), changed).unwrap();
+    let tileset = mg_core::ResRef::from_str("ttr01").unwrap();
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs {
+        open_many: vec![vec![files.join("ttr01.set")]],
+        ..Default::default()
+    });
+    h.state_mut().actions.push(mg_ui::Action::ImportFilesDialog);
+    settle(&mut h);
+    h.get_by_label("Select All").click();
+    settle(&mut h);
+    h.get_by_label("Import").click();
+    settle(&mut h);
+    for _ in 0..10 {
+        h.step();
+    }
+    if let Some(dir) = &shots {
+        h.render().expect("render").save(dir.join("imported.png")).unwrap();
+    }
+    outside_wait(&mut h, "the game data's", |app| {
+        app.tileset(tileset).is_some_and(|t| t.tiles[id as usize].model == other)
+    });
+    outside_wait(&mut h, "the area's view", |app| {
+        drawn(app).is_some_and(|(_, m)| m.as_deref() == Some(other.as_str()))
+    });
+    if let Some(dir) = &shots {
+        h.render().expect("render").save(dir.join("after.png")).unwrap();
+    }
+    // Undone: the tile as it was.
+    let is = |m: &str| {
+        let m = m.to_string();
+        move |app: &Moonglow| drawn(app).is_some_and(|(_, d)| d.as_deref() == Some(m.as_str()))
+    };
+    h.state_mut().run(mg_ui::Action::Undo);
+    outside_wait(&mut h, "the import undone", is(&model));
+    // Redone while a job holds the game data: drawn once it is free.
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests("Held", move |_| {
+        let _ = held.recv();
+    });
+    h.state_mut().run(mg_ui::Action::Redo);
+    h.run_steps(3);
+    assert!(is(&model)(h.state()), "not while the game data is held");
+    go.send(()).unwrap();
+    outside_wait(&mut h, "the import redone, once free", is(&other));
+}

@@ -658,7 +658,15 @@ pub struct Log {
     /// Each line's height as the panel last drew it (0: not yet): the
     /// lines out of sight take their room alone.
     rows: Vec<f32>,
+    /// The lines under an entry's fold (Compile All's: which scripts were
+    /// compiled, and why), by the entry's place.
+    pub details: HashMap<usize, Vec<String>>,
+    /// The entries whose fold is open.
+    pub(crate) unfolded: std::collections::HashSet<usize>,
 }
+
+/// How many detail lines an entry keeps; the rest are counted.
+const DETAIL_LINES: usize = 500;
 
 /// A fix offered beside a line of the log (a finding of Verify Module's):
 /// made only when its button is clicked, as one undoable command.
@@ -688,6 +696,30 @@ impl Log {
         self.fixes.clear();
         self.fixes_revision += 1;
         self.rows.clear();
+        self.details.clear();
+        self.unfolded.clear();
+    }
+
+    /// A message with details under a fold, closed until asked: at most
+    /// [`DETAIL_LINES`] of them, "and N more" for the rest.
+    pub fn info_with(&mut self, s: impl Into<String>, mut details: Vec<String>) {
+        let line = self.entries.len();
+        self.info(s);
+        if details.len() > DETAIL_LINES {
+            let more = details.len() - DETAIL_LINES;
+            details.truncate(DETAIL_LINES);
+            details.push(format!("and {more} more"));
+        }
+        if !details.is_empty() {
+            self.details.insert(line, details);
+        }
+    }
+
+    /// Opens or closes the fold under line `line`.
+    pub fn toggle_fold(&mut self, line: usize) {
+        if self.details.contains_key(&line) && !self.unfolded.remove(&line) {
+            self.unfolded.insert(line);
+        }
     }
 
     /// The fix offered beside line `line`, if one is.
@@ -724,8 +756,18 @@ impl Log {
 
     /// The whole log as text, a line each as the log shows it (its time
     /// first), for Copy Log and Save Log….
+    /// An entry's details follow it, indented, whether its fold is open
+    /// or not: a copy is complete.
     pub fn text(&self) -> String {
-        (0..self.entries.len()).map(|i| self.shown(i) + "\n").collect()
+        let mut out = String::new();
+        for i in 0..self.entries.len() {
+            out += &self.shown(i);
+            out.push('\n');
+            for d in self.details.get(&i).into_iter().flatten() {
+                out += &format!("    {d}\n");
+            }
+        }
+        out
     }
 }
 
@@ -4604,6 +4646,7 @@ impl Moonglow {
                     ui.scroll_with_delta_animation(egui::vec2(0.0, scroll), now);
                 }
                 let mut clicked = None;
+                let mut folded = None;
                 let mut fix_all = None;
                 // (Fix All beside the first fix of a check with several
                 // to make.)
@@ -4657,7 +4700,34 @@ impl Moonglow {
                     // A finding's fix: a button beside it, made when
                     // clicked (Verify Module).
                     let Some(offer) = self.log.fix_at(i) else {
-                        ui.label(text);
+                        // Details under a fold: a button beside the line
+                        // opens it, and they follow, indented.
+                        match self.log.details.get(&i) {
+                            Some(lines) => {
+                                let open = self.log.unfolded.contains(&i);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(text);
+                                    let button =
+                                        ui.add(egui::Button::new("Details").small().selected(open));
+                                    let hint = match open {
+                                        true => "Hides the details of this message",
+                                        false => "Shows the details of this message",
+                                    };
+                                    if button.on_hover_text(hint).clicked() {
+                                        folded = Some(i);
+                                    }
+                                });
+                                if open {
+                                    ui.indent(("log-details", i), |ui| {
+                                        for l in lines {
+                                            let l = egui::RichText::new(l).monospace();
+                                            ui.label(l.color(level.color(ui)));
+                                        }
+                                    });
+                                }
+                            }
+                            None => _ = ui.label(text),
+                        }
                         heights[i] = ui.cursor().top() - before;
                         continue;
                     };
@@ -4698,6 +4768,9 @@ impl Moonglow {
                     ui.add_space(skipped);
                 }
                 self.log.rows = heights;
+                if let Some(line) = folded {
+                    self.log.toggle_fold(line);
+                }
                 if let Some(check) = fix_all {
                     self.actions.push(Action::ApplyFixesOf(check));
                 }
@@ -5331,7 +5404,8 @@ impl Moonglow {
         // and before every job, and the renderer reads all its textures
         // again once they are forgotten.)
         let layer = game.resman.layer_mut("module").and_then(|l| l.container.as_mem_mut());
-        let textures = layer.is_some_and(|was| drawn_with_changed(was, &ws.module));
+        let textures = layer.as_deref().is_some_and(|was| drawn_with_changed(was, &ws.module));
+        let sets = layer.as_deref().map(|was| sets_changed(was, &ws.module)).unwrap_or_default();
         game.resman.remove("module");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
@@ -5339,6 +5413,7 @@ impl Moonglow {
         if textures {
             self.forget_drawn_textures();
         }
+        self.module_tilesets_changed(&sets);
         self.load_order_changed();
     }
 
@@ -5380,7 +5455,42 @@ impl Moonglow {
         if keys.iter().any(|k| DRAWN_WITH.contains(&k.restype)) {
             self.forget_drawn_textures();
         }
+        let sets: Vec<_> =
+            (keys.iter()).filter(|k| k.restype == ResType::SET).map(|k| k.resref).collect();
+        self.module_tilesets_changed(&sets);
         self.load_order_changed();
+    }
+
+    /// The module's tilesets whose `.set` is not the one in the game
+    /// data's module layer (a step undone or redone, a plugin's write):
+    /// put in the layer, and the open areas drawn from them read them
+    /// again. Only the `.set` files are compared.
+    pub(crate) fn follow_module_sets(&mut self) {
+        let (Some(game), Some(ws)) = (self.game.as_deref(), self.ws.as_ref()) else { return };
+        let layer = game.resman.layers().iter().find(|l| l.label == "module");
+        let Some(was) = layer.and_then(|l| l.container.as_mem()) else { return };
+        let sets = sets_changed(was, &ws.module);
+        if !sets.is_empty() {
+            let keys: Vec<ResKey> = sets.iter().map(|s| ResKey::new(*s, ResType::SET)).collect();
+            self.update_module_layer(&keys);
+        }
+    }
+
+    /// Tilesets kept in the module changed (`sets`): the open areas drawn
+    /// from one read it again, and the tiles palette and the groups'
+    /// pictures made from it are made again, as a tileset changed in a
+    /// folder the game data reads is (M5's W5).
+    fn module_tilesets_changed(&mut self, sets: &[mg_core::ResRef]) {
+        if sets.is_empty() {
+            return;
+        }
+        for view in self.area_views.values_mut() {
+            if view.tileset_read().is_some_and(|t| sets.contains(&t)) {
+                view.reload();
+            }
+        }
+        self.palette.forget_tilesets(sets);
+        self.thumbnails.forget_tilesets(sets, self.viewport.as_ref());
     }
 
     fn run_actions(&mut self) {
@@ -5829,6 +5939,7 @@ impl Moonglow {
                         bake_view::follow(self, step, redo);
                         self.fixes_follow(step, redo);
                         self.sync_haks();
+                        self.follow_module_sets();
                         self.log.info(format!(
                             "{} {label}",
                             if action == Action::Undo { "Undid" } else { "Redid" }
@@ -6840,11 +6951,12 @@ impl Moonglow {
                         data: staged.get(k).map(<[u8]>::to_vec),
                     })
                     .collect();
-                let mg_module::build::Pass { results, now, scripts } = pass;
-                Some((results, edits, now, scripts))
+                let outcomes = mg_module::build::outcomes(&pass, &job.module, &staged);
+                let mg_module::build::Pass { results, now, scripts, .. } = pass;
+                Some((results, edits, now, scripts, outcomes))
             },
             move |app, made| {
-                let Some((results, edits, now, scripts)) = made else { return };
+                let Some((results, edits, now, scripts, outcomes)) = made else { return };
                 let failed: Vec<String> = results
                     .iter()
                     .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
@@ -6860,7 +6972,14 @@ impl Moonglow {
                     });
                 }
                 app.keep_compiled(now, file.as_deref());
-                let changed = edits.len();
+                // (Compiled scripts whose bytes changed; debug files said
+                // apart, only when there are any.)
+                let changed = outcomes.iter().filter(|o| o.compiled.is_changed()).count();
+                let debug = outcomes.iter().filter(|o| o.debug.is_changed()).count();
+                let debug = match debug {
+                    0 => String::new(),
+                    n => format!(", {n} debug files changed"),
+                };
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile scripts", edits))
                 {
@@ -6871,11 +6990,15 @@ impl Moonglow {
                     true => format!("; {left} as they were when last compiled, left alone"),
                     false => String::new(),
                 };
-                app.log.info(format!(
-                    "Compiled {} scripts: {} failed, {changed} changed{unchanged}",
-                    results.len(),
-                    failed.len()
-                ));
+                let details = outcomes.iter().map(mg_module::build::Outcome::line).collect();
+                app.log.info_with(
+                    format!(
+                        "Compiled {} scripts: {} failed, {changed} changed{debug}{unchanged}",
+                        results.len(),
+                        failed.len()
+                    ),
+                    details,
+                );
             },
         );
     }
@@ -8348,6 +8471,24 @@ const DRAWN_WITH: [ResType; 5] =
 /// Whether the module's textures (and their MTR and TXI files) are others
 /// than the module's layer of the game data was made with (`was`): one
 /// set again (the module holds another `Arc` for it), added or removed.
+/// The tilesets kept in the module whose `.set` is not the one the game
+/// data's module layer `was` made with: changed, added or removed.
+fn sets_changed(was: &mg_resman::MemContainer, module: &Module) -> Vec<mg_core::ResRef> {
+    use mg_resman::Container;
+    let before = was.keys().filter(|k| k.restype == ResType::SET);
+    let now = module.keys_of(ResType::SET).copied();
+    let mut sets: Vec<mg_core::ResRef> = (before.chain(now))
+        .filter(|k| match (was.shared(k), module.shared(k)) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            _ => true,
+        })
+        .map(|k| k.resref)
+        .collect();
+    sets.sort();
+    sets.dedup();
+    sets
+}
+
 fn drawn_with_changed(was: &mg_resman::MemContainer, module: &Module) -> bool {
     use mg_resman::Container;
     let now = || DRAWN_WITH.iter().flat_map(|t| module.keys_of(*t));

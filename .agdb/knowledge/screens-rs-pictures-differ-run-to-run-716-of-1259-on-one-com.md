@@ -20,5 +20,5 @@ Two runs of the screens suite on one commit (41a64934, 2026-11-25) differed in 7
 - The output folder's path, shown in the update window and the Log (MOONGLOW_TEST_OUTPUT, or a different worktree).
 - Painting's random tile variants: crosser-cursor (14% of its pixels).
 - 3D and gallery views: area-paint, gallery sliders, board gallery palette.
-- script-include-error: the compiler's message names inc_bad.nss in one run and inc_bad.nss(2) in the other. The test sleeps 700 ms rather than waiting for the check.
+- script-include-error: the compiler's message named inc_bad.nss in one run and inc_bad.nss(2) in the other. Not timing but a compiler fault: the include trace printed a stale or uninitialized line. Fixed by the vendored compiler's include-trace-line patch (crates/mg-script/nwscript/README.md); the test now waits with settle instead of a 700 ms sleep.
 This explains the M7 review's 779 of 930 (develop against the waves, run from different folders). To compare branches, hide or mask the Log (settings.hide_log), use the same output path, and compare per picture with a threshold: byte-equal files first, then the count of differing pixels (Pillow).

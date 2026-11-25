@@ -2470,6 +2470,21 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
     })
 }
 
+/// Each script compiled, as JSON: why, and whether its compiled script
+/// and debug file are new or differ.
+fn compiled_scripts(outcomes: &[mg_module::build::Outcome]) -> serde_json::Value {
+    let list: Vec<_> = (outcomes.iter())
+        .map(|o| {
+            serde_json::json!({
+                "script": o.script.resref.to_string(), "why": o.why.id(),
+                "ok": o.error.is_none(), "changed": o.compiled.is_changed(),
+                "debug_changed": o.debug.is_changed(),
+            })
+        })
+        .collect();
+    list.into()
+}
+
 /// What the window and `mg` remember of the scripts of `module` they
 /// compiled with what `made_with` says (`mg_module::build::Remembered`),
 /// kept in Moonglow's data folder: nothing, where none of it was made
@@ -3000,7 +3015,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     .collect()
             });
             let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
+            let outcomes = build::outcomes(&pass, &was, &m);
             out.json = compiled(&mut out, &pass.results);
+            out.json["compiled_scripts"] = compiled_scripts(&outcomes);
             if module_changed(&was, &m) {
                 save_asked(cli, &was, &mut m, &mut out)?;
             }
@@ -3784,9 +3801,12 @@ fn run(cli: &Cli) -> Result<Output> {
             // it keeps them among its sources.)
             let made_with = mg_module::build::made_with(Some(project), None, Some(&gi.root), &rm);
             let known = remembered(project, made_with);
+            let before = m.clone();
             let pass = mg_module::build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
             let results = &pass.results;
+            let outcomes = mg_module::build::outcomes(&pass, &before, &m);
             let mut compile = compiled(&mut out, results);
+            compile["compiled_scripts"] = compiled_scripts(&outcomes);
             compile["unchanged"] = json!(pass.scripts.saturating_sub(results.len()));
             remember(&mut out, project, &pass.now);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;

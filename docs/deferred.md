@@ -220,14 +220,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
-  - **An area's placed sounds read from its GIT each frame** while its
-    sounds play (`area_audio::update`: every `SoundList` entry made a
-    `PlacedSound` again), seen in the frame test's stacks on area084
-    (2026-11-02, the large entry 10's samples) as a few percent of a
-    frame, not measured apart. Kept per area by the workspace's revision
-    it would be read once; not done for a real unintended consequence
-    until checked: what an editor holds unflushed (a sound dragged, its
-    command not yet given) would be heard where it was. (S, measure first)
   - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
     saves about a tenth of an integrated GPU's picture and 107 MB of
     targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
@@ -296,8 +288,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     "placeables"` (S20);
   - the NUI Creator and the script editor: two Creator tabs side by
     side, and Split source while a picture's name is typed (N3); a
-    column of 1,000 rows (N12); the Design page with 300 controls and a
-    list bound to 1,000 rows (N13); a combo of 10,000 entries, closed
+    column of 1,000 rows (N12); a combo of 10,000 entries, closed
     (N14); 2,000 findings (N15); a docked panel's 2,000-option choice
     (X5); Search Results after Find In Files (X8); Open Script with All
     Resources (X10); the end of a huge script with completions open
@@ -324,18 +315,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its fix's commit: left as beyond what the reviewer's run was asked
   (at most eight new views, the largest costs). (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
-- **The area's Right Dock layout worked out anew each frame:**
-  `shell::active_area_right_base` clones the builder's layout through
-  `AreaRightLayout::normalized` (settings.rs); `area_visible_columns`
-  builds its nested lists two or three times a frame (`arrange_area`,
-  `area_wants_one_column`); and `Moonglow::docked_instance_tabs` is
-  collected again with the other tab lists each frame. Each is a few
-  small allocations, not measured as a share of a frame. Kept by the
-  layout, the wide flag and whether Properties shows (and by the dock's
-  change, for the tab list) they would be made once. Left as beyond
-  what 5.1.0's review asked (it listed them, and settings.rs was
-  another task's file then). (S, measure first) (5.1.0's review, F1)
-
 ## Blueprint editors and inventories
 
 - **Random item properties, what is left** (done: the Item Wizard's
@@ -1054,19 +1033,25 @@ contribution itself states as not done or not checked.
   - the list scrolls by pixels at the same rate, where the client moves
     one in whole rows: snapping to rows was left out.
   (S) (the review of November 2026, N9)
-- **The NUI Creator's lesser copies:** the Design page copies the window
-  and its settings once a frame (the review's N13); not done: `check`'s
-  own copy a frame, Interact's two whole comparisons of its session,
-  and a cache of a variant's context document, suspected in the review
-  and not measured. Charts and polylines are drawn by what their pixels
-  show (N16); Options' and Tabs' entries, named only in the entry's
-  confidence line, are unchanged, bounded by the file's size. A chart of
-  a million samples (`nui_perf`, `a_chart_of_a_million_samples`, 10
-  November) still takes 28.5 ms a frame: each frame copies the bound
-  array out of the document and walks each series for its least and
-  most value, beyond N16's points and shapes. (S, beyond what the
-  timing run was asked; the Design page of 300 controls has no view:
-  the timing entry) (the review of November 2026, N13, N16)
+- **The NUI Creator's per-frame walks, what is left** (measured
+  2026-11-25 in release, `nui_perf`; `check`'s copy, 0.3 µs on an idle
+  frame, and Interact's two comparisons, 47 µs at 304 controls, need
+  nothing):
+  - **A variant's context document** is built anew each frame while the
+    variant is edited: 277 µs at 304 controls (86 at 96). A cache would
+    compare the variant, the settings and the window (90 to 100 µs), and
+    the canvas takes the document owned, so a hit would also clone it
+    (168 µs): it saves nothing unless the canvas borrows the cached
+    document, and every frame that changes the window (typing) would
+    pay the cache's copies on top. Not done for that unintended
+    consequence; the saving is at most 180 µs a frame.
+  - **A long chart's walk:** a series of a million samples is walked each
+    frame, 1.3 ms for a line (the fingerprint that keeps its points) or
+    for columns (their least and most value). The window is edited in
+    place, so there is no cheaper sign that a value changed; a revision
+    kept by every writer of the window and its binds would be one. Not
+    done: beyond the frame budget's need (the idle frame is 2.0 ms).
+  (S) (the review of November 2026, N13, N16)
 - **A font of a sliver of a line, not reproduced:** a font whose line is
   a sliver of its em is refused and the skin's numbers are held to a
   range (the review's N17), but the gigabyte glyph itself was not
@@ -1200,22 +1185,6 @@ contribution itself states as not done or not checked.
   `[TILE1869573190]` (one section, no hang). What to do with a file
   whose count lies is asked. (S) (what the fixers of the review of
   November 2026 saw on the way)
-- **A tileset kept in the module, changed, not redrawn in open areas:**
-  the areas and the Tiles palette draw a tileset from the game data
-  (`GameData`, the install, haks, override and development folders),
-  which a tileset changed outside in one of those is read again into
-  (M5's W5) with every area view reloaded; a `.set` kept inside the
-  module (or put into it) changes only the game data's module layer,
-  in place (`update_module_layer`, which forgets the tables for a 2DA,
-  the Appearance marks for a model and the drawn textures, not the
-  tilesets read nor the areas drawn from them), so an open area keeps
-  drawing the tileset as it was until it is opened again. Redrawing
-  them means dropping the game data's tileset and every area and
-  palette made from it on a module change too, which reloads every
-  open area for any `.set` change of the module's: a change to how the
-  module layer and the views meet, beyond what the answer asked (the
-  editor's own file, at any path, is read again).
-  (M) (the review of M5's W5)
 
 ## The install, starting and crashes
 
@@ -1444,60 +1413,24 @@ Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
 
-- **xtul's mirror at full size in the game:** the client draws a
-  dynamic placeable with Scale 0.46 at 0.46 (`visual_transforms_look`),
-  upright and turned on its stand by X Rotation -50.8; at full size and
-  unturned only when it is static. Whether his mirror is static in the
-  module the game ran (a build step that makes placeables static, or
-  Static ticked after the transform), or the full size was by eye,
-  would settle it. (S) (xtul's report, October 2026)
+- **"41 changed" after Aurora's Build (an include with a `main`):** the
+  one way of writing found where Aurora 8193.37 and the built-in compiler
+  make other bytes (`aurora_scripts::codegen_compiles_as_aurora_builds_it`;
+  line ends, haks, constant folding, switch, structs, vectors, a batch's
+  order and 1,036 of the base game's scripts make Aurora's) is a script
+  that includes a file with a `void main()` of its own: Aurora compiles
+  an `int StartingConditional()` script, and one that is only the
+  `#include`, as the include's `main`; Moonglow (neverwinter.nim
+  d20453e3) takes the script's own entry point and passes the other
+  over. In the game Aurora's runs the include's `main` and always fails
+  (`engine_include_entry`): Moonglow's is what was written. Waits on the
+  builder (are the 41 such conditions, their include a library with a
+  `main` for Aurora's editor?) and on the owner's ruling: keep Moonglow's
+  code and warn of the include's `main` (what the rule of matching
+  Aurora weighs against: Aurora's is broken in the game), or match
+  Aurora with a fenced patch as for return types. (S) (a builder's
+  report, November 2026)
 
-- **The rectangle by two clicks on a builder's Linux:** 1.25.1 made the
-  right Alt place it, which was not his trouble; the next release has Alt
-  pressed and let go before the click, on the reading that his window
-  manager keeps a click with Alt held (the rectangle went when he
-  clicked and came back when Alt was pressed again). Not seen on his
-  system: his word that it places would settle it. (a builder's report,
-  October 2026)
-- **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page of every kind is walked whole, top to bottom on
-  the window's one scroll, at four window sizes at 100% interface size
-  (`blueprint_editor_pages_draw_nothing_over_anything_else`, since M4's
-  U9) and none draws over another. A screenshot, or the page and the
-  interface size, would find it. (S) (a senior builder's review, October
-  2026)
-- **A drag on a number field moving objects in the area behind:**
-  reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the
-  Properties panel beside the area since M4's U6,
-  `a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`). (needs the
-  steps) (a second builder's review, October 2026)
-- **"It kept randomly exiting"** on a persistent world's module (ten
-  times before it stayed open), reported without a log. One cause was
-  found and fixed: the compiler walks a script by recursion, and a very
-  long `else if` chain or expression overflowed the stack of the thread
-  it ran on, which ends the program at once and leaves no crash report
-  (a 60,000-link chain did it on Linux; Windows' main thread has an
-  eighth of that stack). Compiles run on a stack of their own now.
-  Whether that was the reporter's crash isn't known: asked for the debug
-  log (Options › General) and what was being done. (needs the log)
-  (from builders' reports after 1.14.1)
-- **A hak's 2DA not seen until a restart** (a builder: a creature
-  showed "appearance.2da has no row 8241", from a hak above CEP's whose
-  table has more rows; gone after restarting Moonglow): not reproduced.
-  Haks and folders that change on disk are read again every few seconds
-  and their tables forgotten, which a test holds for the override
-  folder. Suspected and not shown: `reload_resources` and `sync_haks`
-  give up without a word while anything else holds the game data (a
-  job), and try again later; on Windows a hak Moonglow has open cannot
-  be replaced by another program at all, so a hak tool may have failed
-  to write it. If it comes back: the log around it, and whether Tools ›
-  Reload Resources cures it. While
-  something else holds the game data, the look is put off and the
-  debug log says so ("the game data is held"), which would show this.
-  (S–M) (from builders' reports after 1.19.1)
-- **"Area transitions can't be selected visually":** not understood;
-  asked.
 
 ## Settled: as it is, by decision or by design
 

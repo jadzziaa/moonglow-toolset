@@ -3,7 +3,9 @@
 //! `cargo test --release -p mg-ui --test nui_perf -- --ignored --nocapture`.
 //! `FRAME_COUNT=<n>` sets the frames timed, `NUI_PHASE=idle|edit|elsewhere`
 //! times one of the large window's three (to sample its stacks);
-//! `a_window_of_text` is a window that is mostly text.
+//! `a_window_of_text` is a window that is mostly text;
+//! `three_hundred_controls_and_a_bound_list` the Design page of 304
+//! controls and a list bound to 1,000 rows.
 
 use std::time::{Duration, Instant};
 
@@ -65,12 +67,22 @@ fn open(
     name: &str,
     window: &Value,
 ) -> (Moonglow, ResKey, impl Fn(&mut Moonglow) -> Duration + use<>) {
+    open_with(root, name, window, &mg_nui::Settings::default())
+}
+
+/// [`open`] with the window's binds' values.
+fn open_with(
+    root: &std::path::Path,
+    name: &str,
+    window: &Value,
+    settings: &mg_nui::Settings,
+) -> (Moonglow, ResKey, impl Fn(&mut Moonglow) -> Duration + use<>) {
     let dir = mg_testkit::scratch_dir(&format!("nui-perf-{name}"));
     let mut m = Module::new();
     m.set_info(&Gff::new(*b"IFO ")).unwrap();
     let key = ResKey::parse(name, ResType::JUI).unwrap();
     m.set(key, serde_json::to_vec_pretty(window).unwrap());
-    m.set(ResKey::parse(name, ResType::TXT).unwrap(), mg_nui::Settings::default().bytes());
+    m.set(ResKey::parse(name, ResType::TXT).unwrap(), settings.bytes());
     let path = dir.join("perf.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
@@ -166,6 +178,33 @@ fn a_chart_of_a_million_samples() {
     docked(&app, ResKey::parse("chart", ResType::JUI).unwrap());
     report(
         "a chart of 1,000,000 samples, idle frame",
+        (0..count).map(|_| frame(&mut app)).collect(),
+    );
+}
+
+/// The Design page of 300 controls and a list bound to 1,000 rows (the
+/// review's N13: the window and its settings copied once a frame).
+#[test]
+#[ignore]
+fn three_hundred_controls_and_a_bound_list() {
+    let root = mg_testkit::corpus!();
+    let mut window = window(38, 120.0);
+    let children = window["root"]["children"].as_array_mut().unwrap();
+    let list = children.last_mut().unwrap();
+    list["row_count"] = json!({"bind": "names"});
+    list["row_template"][0][0]["value"] = json!({"bind": "names"});
+    let mut settings = mg_nui::Settings::default();
+    let names: Vec<String> = (0..1000).map(|i| format!("Row {i}")).collect();
+    settings
+        .bindings
+        .insert("names".into(), mg_nui::Binding { value: json!(names), ..Default::default() });
+    let (mut app, key, frame) = open_with(&root, "many", &window, &settings);
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("300 controls opening: {opening:?}");
+    docked(&app, key);
+    report(
+        "300 controls and a list bound to 1,000 rows, idle frame",
         (0..count).map(|_| frame(&mut app)).collect(),
     );
 }

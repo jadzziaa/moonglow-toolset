@@ -4815,9 +4815,7 @@ fn script_review_cases() {
     h.run();
     let open = |h: &mut Harness<'_, Moonglow>, n: &str| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(nss(n))));
-        h.run_steps(10);
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        h.run_steps(10);
+        settle(h);
     };
     open(&mut h, "m1q3_formosa_9");
     h.state_mut().log.info("m1q3_formosa_9.nss: compiled");
@@ -12694,6 +12692,36 @@ fn shell_bottom_dock_narrow() {
         h.state_mut().settings.hide_log = false;
         shoot(&mut h, &dir, &format!("shell_bottom_dock_{width}"));
     }
+}
+
+/// The Log with Compile All's line and its details under a fold, closed
+/// and open (`log_details_closed.png`, `log_details_open.png`).
+#[test]
+#[ignore]
+fn log_details_fold() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1000.0, 760.0));
+    h.state_mut().settings.hide_log = false;
+    h.state_mut().log.info("Opened map_m1q1a, 192 objects");
+    h.state_mut().log.error("cg_bad.nss(1): UNDEFINED IDENTIFIER (Nope)");
+    h.state_mut().log.info_with(
+        "Compiled 4 scripts: 1 failed, 1 changed; 1823 as they were when last compiled, left alone",
+        [
+            "cg_cond: its compiled script wasn't Moonglow's (another tool made it); compiled again, the bytes differ",
+            "cg_bad: it or something it includes changed; failed: cg_bad.nss(1): UNDEFINED IDENTIFIER (Nope)",
+            "cg_new: it had no compiled script; compiled, a new compiled script",
+            "cg_same: Moonglow hadn't compiled it before; compiled again, the same bytes",
+        ]
+        .map(String::from)
+        .to_vec(),
+    );
+    h.state_mut().log.info("Saved the module");
+    shoot(&mut h, &dir, "log_details_closed");
+    h.query_all_by_label("Details").last().expect("Details").click();
+    shoot(&mut h, &dir, "log_details_open");
 }
 
 /// A new installation's first window (no settings file:
