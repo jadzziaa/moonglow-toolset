@@ -5589,6 +5589,140 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// Grass and a see-through receiver (a tile's leaves, its decals) are
+/// darkened by the sun's shadows as the client darkens them: their solid
+/// part, drawn before the shadows are laid, and their soft part, drawn
+/// after them and darkened by their mask, alike by the opacity. Under the
+/// plate of [`shadows_darken_what_receives_them_by_the_opacity`] lie a
+/// black ground that receives, a strip of solid texels (alpha 250) and a
+/// strip of soft ones (alpha 128), each reaching from the shadow into the
+/// sun; for grass and for a receiver, Fast and High, Moonglow's shader
+/// and the game's programs (authored: they write the texture's alpha).
+/// Before, the strips were as bright in the shadow as in the sun.
+#[test]
+fn grass_and_see_through_receivers_are_darkened_in_the_shadow() {
+    let Some(gpu) = gpu() else { return };
+    let dir = mg_testkit::output_dir("render");
+    let mut assets = TestAssets::default();
+    let solid = |assets: &mut TestAssets, name: &str, rgba: [u8; 4], alpha: bool| {
+        let t = mg_image::Rgba { width: 4, height: 4, data: rgba.repeat(16) }.into_texture(alpha);
+        assets.textures.insert(name.into(), t);
+    };
+    solid(&mut assets, "black", [0, 0, 0, 255], false);
+    solid(&mut assets, "firm", [200, 200, 200, 250], true);
+    solid(&mut assets, "soft", [200, 200, 200, 128], true);
+    // (The stock pairs, writing the texture's alpha: the grass's and a
+    // mesh's.)
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+varying vec2 vUv;
+void main ()
+{
+    vUv = vTcIn;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+varying vec2 vUv;
+void main ()
+{
+    gl_FragColor = texture2D(texUnit0, vUv);
+}
+"#;
+    for (v, f) in [("vslit", "fslit"), ("vsgrass", "fsgrass")] {
+        assets.shaders.insert(v.into(), vs.into());
+        assets.shaders.insert(f.into(), fs.into());
+    }
+    let model = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let (ground, firm, soft) = (model("black"), model("firm"), model("soft"));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    // A strip 8 m by 1 m along x, 5 cm over the ground, its middle at `y`.
+    let strip = |y: f32| {
+        Mat4::from_translation(Vec3::new(0.0, y, 0.05)) * Mat4::from_scale(Vec3::new(4.0, 0.5, 1.0))
+    };
+    let scene = |grass: bool, shadows: Option<f32>| {
+        let receiver = |model: &Arc<GpuModel>, y: f32| Instance {
+            grass,
+            receives_shadows: !grass,
+            ..Instance::new(model.clone(), strip(y))
+        };
+        Scene {
+            instances: vec![
+                Instance {
+                    receives_shadows: true,
+                    ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+                },
+                receiver(&firm, 0.75),
+                receiver(&soft, -0.75),
+                Instance::new(
+                    plate.clone(),
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::new(1.5, 1.5, 1.0),
+                        glam::Quat::IDENTITY,
+                        Vec3::new(0.0, 0.0, 1.0),
+                    ),
+                ),
+            ],
+            area: AreaLight { ambient: Vec3::splat(1.0), diffuse: Vec3::ZERO, direction: Vec3::Z },
+            shadows: shadows.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+            ..Default::default()
+        }
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // (About 6.3 pixels a metre: the plate's shadow 19 pixels each way
+    // from the middle, the strips 4.7 above and below it.)
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let (firm_px, soft_px) = (27, 37);
+    let (shade_x, sun_x) = (32, 52);
+    for grass in [false, true] {
+        for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
+            for shaders in [false, true] {
+                let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+                (r.game_shaders, r.shadow_volumes) = (shaders, volumes);
+                let bare = r.render_image(&gpu, &assets, &scene(grass, None), &camera, 64, 64);
+                let half = r.render_image(&gpu, &assets, &scene(grass, Some(0.5)), &camera, 64, 64);
+                assert_eq!(r.game_shader_failures(), &[]);
+                assert_eq!(r.drawn.game > 0, shaders, "{:?}", r.drawn);
+                let context = format!(
+                    "grass {grass}, {samples} samples, volumes {volumes}, shaders {shaders}"
+                );
+                let name = format!("see_through_shadows_{grass}_{samples}_{volumes}_{shaders}.png");
+                save(&half, &dir.join(name));
+                for (what, y) in [("solid", firm_px), ("soft", soft_px)] {
+                    let lit = grey(bare.pixel(shade_x, y));
+                    let (shaded, sunny) =
+                        (grey(half.pixel(shade_x, y)), grey(half.pixel(sun_x, y)));
+                    assert!(lit > 40.0, "{context}: the {what} strip is drawn: {lit}");
+                    assert!((sunny - grey(bare.pixel(sun_x, y))).abs() <= 1.0, "{context}: {what}");
+                    assert!(
+                        (shaded - lit * 0.5).abs() <= 3.0,
+                        "{context}: the {what} strip in the shadow: {shaded} of {lit} ({sunny} in the sun)"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// A scene of many instances (its sun's shadows planned on a thread of
 /// their own, beside its draws): a ground of 8 by 8 tiles under the plate
 /// of [`shadows_darken_what_receives_them_by_the_opacity`] is darkened under
