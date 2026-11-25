@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use mg_core::{ResRef, ResType};
 use mg_gff::Gff;
 use mg_mdl::Model;
@@ -639,6 +639,55 @@ fn a_creature_holding_what_has_no_model_is_drawn_without_it() {
     let at =
         |node: &str| preview.parts.iter().filter(|p| p.attach.as_deref() == Some(node)).count();
     assert_eq!((at("rhand"), at("lhand")), (0, 1), "the other hand's torch is drawn");
+}
+
+/// The game's torch (`nw_it_torch001`: base item 15, Light bright and
+/// yellow) held in a commoner's left hand raises his arm (`torchl`, his
+/// skeleton's supermodels') and lights around him as the client does
+/// (`part_emitters_torch_light`): `fx_light_clr`'s `Yello_20m`, the color
+/// 1.75, 1.5, 1 to 13.3 m, ahead of and above his `headconjure`, casting
+/// shadows. Without it, neither.
+#[test]
+fn the_game_s_torch_raises_the_arm_and_lights() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let utc = blueprint(&game, "nw_commale", ResType::UTC).root;
+    let mut held = utc.clone();
+    let mut torch = mg_gff::Struct::new(0x20);
+    torch.set("EquippedRes", mg_gff::Value::resref("nw_it_torch001".parse().unwrap()));
+    held.set("Equip_ItemList", mg_gff::Value::List(vec![torch]));
+    let preview = creature(&game, &held, &items(&game)).unwrap();
+    assert_eq!(preview.overlay.as_deref(), Some(mg_preview::TORCH_OVERLAY));
+    let light = &preview.effect_lights[..];
+    assert_eq!(light.len(), 1, "{light:?}");
+    assert_eq!(
+        (light[0].model.as_str(), light[0].animation.as_str()),
+        ("fx_light_clr", "Yello_20m")
+    );
+    assert!(light[0].shadows);
+    let bare = creature(&game, &utc, &items(&game)).unwrap();
+    assert_eq!((bare.overlay, bare.effect_lights.len()), (None, 0));
+    let Some(gpu) = gpu() else { return };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
+    };
+    let c = Composed::new(&gpu, &preview, &load).unwrap();
+    assert!(c.animations().iter().any(|a| a == "torchl"), "{:?}", c.animations());
+    let lights = c.point_lights(Mat4::IDENTITY);
+    let lit = lights.iter().find(|l| (l.cutoff - 13.3 * 2.0 * 1.75).abs() < 1e-3);
+    let l = lit.unwrap_or_else(|| panic!("{lights:?}"));
+    assert!(l.color.abs_diff_eq((Vec3::new(1.0, 1.5 / 1.75, 1.0 / 1.75)).powf(2.2), 1e-4));
+    assert!(l.casts_shadows && l.position.z > 2.5 && l.position.y > 0.4, "{l:?}");
+    // His left hand up, above his head's base, as the client holds it.
+    let drawn = c.instances(c.idle.as_deref(), 0.0, Mat4::IDENTITY);
+    let plain = Composed::new(&gpu, &Preview { overlay: None, ..preview.clone() }, &load).unwrap();
+    let down = plain.instances(plain.idle.as_deref(), 0.0, Mat4::IDENTITY);
+    let lhand = c.base().model.nodes.iter().position(|n| n.name == "lhand").unwrap();
+    let z = |i: &[mg_render::Instance]| i[0].pose.as_ref().unwrap()[lhand].w_axis.z;
+    assert!(z(&drawn) > 1.6 && z(&down) < 1.0, "{} {}", z(&drawn), z(&down));
 }
 
 /// A cloak moves with the bones of the body wearing it: on an elf (whose

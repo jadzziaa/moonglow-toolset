@@ -137,6 +137,51 @@ pub struct ItemLook {
     /// The visual transforms of its parts' scopes ([`ITEM_SCOPES`]: the
     /// whole item, its middle, its top); a composite item's alone are drawn.
     pub scopes: [Option<VisualTransform>; 3],
+    /// Its Light property (the first, where it has more), which lights
+    /// what is around it while it is held ([`crate::item_light`]).
+    pub light: Option<LightProperty>,
+}
+
+/// An item's Light property (itempropdef.2da row 44,
+/// `ITEM_PROPERTY_LIGHT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LightProperty {
+    /// iprp_lightcost.2da row (`CostValue`): 1 dim (5 m) to 4 bright
+    /// (20 m).
+    pub brightness: u16,
+    /// iprp_color.2da row (`Param1Value`): 0 blue, 1 yellow, 2 purple,
+    /// 3 red, 4 green, 5 orange, 6 white.
+    pub color: u8,
+}
+
+impl LightProperty {
+    /// itempropdef.2da's row of the Light property.
+    pub const PROPERTY: u16 = 44;
+
+    /// The property as an item's `PropertiesList` entry has it, as Aurora
+    /// writes one (its cost table iprp_lightcost, 18; its parameter table
+    /// iprp_color, 9).
+    fn to_gff(self) -> Struct {
+        mg_rules::items::ItemProperty {
+            property: LightProperty::PROPERTY,
+            subtype: 0,
+            cost_table: 18,
+            cost_value: self.brightness,
+            param1: 9,
+            param1_value: self.color,
+            chance: 100,
+        }
+        .to_gff()
+    }
+}
+
+/// The first Light property of an item's `PropertiesList`.
+fn light_property(uti: &Struct) -> Option<LightProperty> {
+    let entries = uti.list("PropertiesList")?.iter();
+    let p = entries
+        .map(mg_rules::items::ItemProperty::from_gff)
+        .find(|p| p.property == LightProperty::PROPERTY)?;
+    Some(LightProperty { brightness: p.cost_value, color: p.param1_value })
 }
 
 impl ItemLook {
@@ -159,6 +204,7 @@ impl ItemLook {
             look.armor_parts[i] = part(uti, field);
         }
         look.scopes = ITEM_SCOPES.map(|s| VisualTransform::of(uti, s));
+        look.light = light_property(uti);
         look
     }
 
@@ -190,6 +236,9 @@ impl ItemLook {
         }
         let entries: Vec<_> = ITEM_SCOPES.into_iter().zip(self.scopes).collect();
         set_transforms(&mut uti, &entries);
+        if let Some(light) = self.light {
+            uti.set("PropertiesList", Value::List(vec![light.to_gff()]));
+        }
         uti
     }
 
@@ -229,6 +278,10 @@ pub mod slot {
     pub const RIGHT_HAND: u32 = 0x10;
     pub const LEFT_HAND: u32 = 0x20;
     pub const CLOAK: u32 = 0x40;
+    /// The left ring's slot (not drawn): where [`super::DressedLook::to_utc`]
+    /// writes a light of the undrawn slots, as a ring (baseitems.2da row 52).
+    pub const LEFT_RING: u32 = 0x80;
+    pub(crate) const RING_BASE_ITEM: i32 = 52;
     /// All of them, in the order [`super::DressedLook::to_utc`] writes them.
     pub const DRAWN: [u32; 5] = [HEAD, CHEST, RIGHT_HAND, LEFT_HAND, CLOAK];
 }
@@ -281,6 +334,10 @@ pub struct DressedLook {
     pub cloak: Option<ItemLook>,
     pub right_hand: Option<ItemLook>,
     pub left_hand: Option<ItemLook>,
+    /// The brightest Light property of what it wears in the slots a
+    /// preview does not draw (a ring, an amulet, boots...): it lights what
+    /// is around it as a drawn item's does ([`crate::item_light`]).
+    pub light: Option<LightProperty>,
 }
 
 impl DressedLook {
@@ -360,7 +417,20 @@ impl DressedLook {
             let it = worn(s).map(|it| ItemLook::from_uti(&it));
             *look.slot_mut(s).expect("a drawn slot") = it;
         }
+        let undrawn = utc.list("Equip_ItemList").unwrap_or(&[]).iter().map(|e| e.id);
+        look.light = undrawn
+            .filter(|s| !slot::DRAWN.contains(s))
+            .filter_map(|s| light_property(&worn(s)?))
+            .reduce(|a, b| if b.brightness > a.brightness { b } else { a });
         look
+    }
+
+    /// The Light property of all it wears that lights what is around it:
+    /// the brightest (the client gives a creature one such light; which
+    /// of two as bright is not read).
+    pub fn brightest_light(&self) -> Option<LightProperty> {
+        let drawn = slot::DRAWN.iter().filter_map(|&s| self.slot(s)?.light);
+        drawn.chain(self.light).reduce(|a, b| if b.brightness > a.brightness { b } else { a })
     }
 
     /// The creature's fields that [`DressedLook::from_utc`] reads back as
@@ -392,8 +462,15 @@ impl DressedLook {
                 (CLOAK_SCOPE, self.cloak_transform),
             ],
         );
-        let worn: Vec<Struct> =
+        let mut worn: Vec<Struct> =
             slot::DRAWN.into_iter().filter_map(|s| self.slot(s).map(|it| it.to_uti(s))).collect();
+        // (A light of an undrawn slot's: a ring in the left ring slot.)
+        if let Some(light) = self.light {
+            let mut ring = Struct::new(slot::LEFT_RING);
+            ring.set("BaseItem", Value::Int(slot::RING_BASE_ITEM));
+            ring.set("PropertiesList", Value::List(vec![light.to_gff()]));
+            worn.push(ring);
+        }
         if !worn.is_empty() {
             utc.set("Equip_ItemList", Value::List(worn));
         }
@@ -462,8 +539,9 @@ mod tests {
     /// A creature's fields as a builder's tools and the game write them:
     /// EE twins past 255 and in place of the BYTE, the older wings field,
     /// a head's visual transform with axes missing, and its items inline
-    /// (an armor with a part's own color, a sword) and by blueprint (a
-    /// cloak, loaded), and an item in a slot no preview draws.
+    /// (an armor with a part's own color, a sword with a Light property
+    /// after another property) and by blueprint (a cloak, loaded), and an
+    /// item in a slot no preview draws (boots, with a Light property).
     fn fields() -> Struct {
         let mut utc = Struct::new(0);
         utc.set("Appearance_Type", Value::Word(6));
@@ -501,10 +579,21 @@ mod tests {
         whole.set("Scope", Value::Int(255));
         whole.set("TranslateZ", axis(0.5));
         sword.set("VisTransformList", Value::List(vec![whole]));
+        let property = |property: u16, cost_value: u16, param1_value: u8| {
+            let p = mg_rules::items::ItemProperty {
+                property,
+                cost_value,
+                param1_value,
+                ..Default::default()
+            };
+            p.to_gff()
+        };
+        sword.set("PropertiesList", Value::List(vec![property(6, 1, 0), property(44, 3, 6)]));
         let mut cloak = Struct::new(slot::CLOAK);
         cloak.set("EquippedRes", Value::ResRef(b"my_cloak".to_vec()));
         let mut boots = Struct::new(0x8);
         boots.set("BaseItem", Value::Int(26));
+        boots.set("PropertiesList", Value::List(vec![property(44, 2, 0)]));
         utc.set("Equip_ItemList", Value::List(vec![armor, sword, cloak, boots]));
         utc
     }
@@ -529,6 +618,7 @@ mod tests {
                 None,
                 None,
             ],
+            light: Some(LightProperty { brightness: 3, color: 6 }),
             ..ItemLook::default()
         };
         let cloak = ItemLook { base_item: 80, model_parts: [4, 0, 0], ..ItemLook::default() };
@@ -549,6 +639,7 @@ mod tests {
             armor: Some(armor),
             right_hand: Some(sword),
             cloak: Some(cloak),
+            light: Some(LightProperty { brightness: 2, color: 0 }),
             ..DressedLook::default()
         }
     }
@@ -584,9 +675,28 @@ mod tests {
         assert_eq!(utc.get("xBodyPart_LShin"), None);
         // Items inline, in their slots.
         let ids: Vec<u32> = utc.list("Equip_ItemList").unwrap().iter().map(|s| s.id).collect();
-        assert_eq!(ids, [slot::CHEST, slot::RIGHT_HAND, slot::CLOAK]);
+        // (The boots' light on a ring: a light of the undrawn slots.)
+        assert_eq!(ids, [slot::CHEST, slot::RIGHT_HAND, slot::CLOAK, slot::LEFT_RING]);
         let none = DressedLook::default();
         assert_eq!(DressedLook::from_utc(&none.to_utc(), &|_| None), none);
+    }
+
+    /// A creature's light is the brightest Light property of all it
+    /// wears, drawn or not: one light, as the client gives it.
+    #[test]
+    fn a_creature_s_light_is_its_brightest_item_s() {
+        let look = values();
+        assert_eq!(look.brightest_light(), Some(LightProperty { brightness: 3, color: 6 }));
+        let ring = LightProperty { brightness: 4, color: 1 };
+        assert_eq!(DressedLook { light: Some(ring), ..look }.brightest_light(), Some(ring));
+        assert_eq!(DressedLook::default().brightest_light(), None);
+        // An item's Light property written as Aurora writes it reads back.
+        let lit = ItemLook { light: Some(ring), ..ItemLook::default() };
+        let uti = lit.to_uti(slot::LEFT_HAND);
+        let entry = &uti.list("PropertiesList").unwrap()[0];
+        assert_eq!(entry.integer("CostTable"), Some(18), "iprp_lightcost");
+        assert_eq!(entry.integer("Param1"), Some(9), "iprp_color");
+        assert_eq!(ItemLook::from_uti(&uti), lit);
     }
 
     #[test]

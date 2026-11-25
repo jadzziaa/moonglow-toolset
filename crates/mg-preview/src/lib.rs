@@ -31,9 +31,12 @@ pub mod replaceable;
 #[cfg(feature = "usage")]
 pub mod usage;
 
-pub use creature::{CreatureLook, creature, creature_look, dressed_look};
+pub use creature::{
+    CREATURE_LIGHT_NODE, CREATURE_LIGHT_OFFSET, CreatureLook, TORCH_OVERLAY, creature,
+    creature_look, dressed_look, item_light,
+};
 pub use item::{armor_part, ground_turn, item, item_on, item_placed};
-pub use look::{DressedLook, ITEM_SCOPES, ItemLook, VisualTransform, slot};
+pub use look::{DressedLook, ITEM_SCOPES, ItemLook, LightProperty, VisualTransform, slot};
 pub use object::{PLACEABLE_DEFAULT_ENV_MAP, door, placeable, sound, store, waypoint};
 
 /// Why a preview could not be made.
@@ -164,6 +167,27 @@ pub struct PreviewLight {
     pub on: bool,
 }
 
+/// The light an effect model gives an object, as the game's lighting
+/// effects give it (progfx.2da type 4: a model and the animation of it
+/// that keys its light's color and radius): a creature's items' Light
+/// property ([`item_light`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectLight {
+    /// The effect model (`fx_light_clr`), lower case.
+    pub model: String,
+    /// Its animation that keys the light (`Yello_20m`): the light stands
+    /// as the animation ends.
+    pub animation: String,
+    /// Whether it casts creatures' shadows (progfx.2da `Param3`, over the
+    /// model's own `shadow` flag).
+    pub shadows: bool,
+    /// The base's node it is at (lower case; `None`: the base's origin),
+    /// as the base stands in its idle animation.
+    pub attach: Option<String>,
+    /// From there, in the base's space (not turned by the node), metres.
+    pub offset: Vec3,
+}
+
 /// What to draw for a blueprint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preview {
@@ -174,13 +198,26 @@ pub struct Preview {
     /// The animation it stands in (`pause1`, `cpause1`, a placeable's
     /// state).
     pub idle: Option<String>,
+    /// An animation the base plays over whichever it plays, moving only
+    /// the nodes it keys: `torchl`, the left arm raised, for a creature
+    /// holding a torch ([`creature::TORCH_OVERLAY`]).
+    pub overlay: Option<String>,
     pub lights: Vec<PreviewLight>,
+    /// The lights of its effects: its items' Light property.
+    pub effect_lights: Vec<EffectLight>,
 }
 
 impl Preview {
     /// A model on its own.
     pub fn model(name: &str) -> Preview {
-        Preview { base: Part::new(name), parts: Vec::new(), idle: None, lights: Vec::new() }
+        Preview {
+            base: Part::new(name),
+            parts: Vec::new(),
+            idle: None,
+            overlay: None,
+            lights: Vec::new(),
+            effect_lights: Vec::new(),
+        }
     }
 }
 

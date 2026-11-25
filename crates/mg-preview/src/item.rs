@@ -29,7 +29,14 @@ pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, P
     }
     let mut parts = item_parts(game, &ItemLook::from_uti(uti), [0; 10], female)?.into_iter();
     let first = parts.next().ok_or_else(|| PreviewError::NoModel(format!("item {base}")))?;
-    Ok(Preview { base: first, parts: parts.collect(), idle: None, lights: Vec::new() })
+    Ok(Preview {
+        base: first,
+        parts: parts.collect(),
+        idle: None,
+        overlay: None,
+        lights: Vec::new(),
+        effect_lights: Vec::new(),
+    })
 }
 
 /// One of an armor's parts alone, as [`item_on`] has it worn (its model
@@ -90,7 +97,7 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
         // the ground showed the floor through it, solid and shiny in
         // Aurora).
         part.env_map = env.or_else(|| Some("chrome1".into()));
-        Preview { base: part, parts: Vec::new(), idle: None, lights: Vec::new() }
+        Preview { base: part, ..Preview::model("") }
     };
     let default = cell(&baseitems, row, "DefaultModel").map(str::to_ascii_lowercase);
     if armor {

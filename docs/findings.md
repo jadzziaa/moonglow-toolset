@@ -1113,6 +1113,74 @@ squares twice as big, as fast.
   whether a scaled object scales the models a chunk emitter throws.
 - **Wiki:** missing.
 
+### A torch-bearer's raised arm, and an item's light on its wearer
+
+A creature holding a torch (base item 15) in its left hand plays
+`torchl` over whatever it plays: the overlay of `a_ba_non_combat`, which
+keys only the left arm (`lshould_g`, `lbicep_g`, `lforearm_g`,
+`lforearm`, `lhand_g`, `lhand` and a shoulder pad's bone), raises the
+arm and holds the torch up. It plays over the base's animation, not at
+rest, and over the bones of animated parts (a robe's, a cloak's). No
+other base item has an overlay (the wiki's Item page names only the
+torch's).
+
+An item's Light property lights its wearer, not its own model. Property
+44's `CostValue` (iprp_lightcost: 1 dim 5 m to 4 bright 20 m) and
+`Param1Value` (iprp_color: 0 blue, 1 yellow, 2 purple, 3 red, 4 green,
+5 orange, 6 white) pick a fixed `visualeffects.2da` row: 153, 157, 161,
+165, 177, 169 or 173 by the color, plus the brightness less 1 (the
+`VFX_DUR_LIGHT_*` rows; green is 177, which `nwscript.nss` calls grey).
+That row's `ProgFX_Duration` names a `progfx.2da` row of type 4:
+`Param1` the animation (`Yello_20m`), `Param3` the shadows,
+`Param7` the model, `fx_light_clr`, whose `AuroraLight01` is read at
+the animation's end (the bright yellow: color 1.75, 1.5, 1, radius 13.3).
+
+The light is the creature's effect, the same for a torch, a cloak, a
+ring and `EffectVisualEffect(160)` on the creature: it stands at the
+creature model's `headconjure` node plus (0, 0.75, 0.6) in the model's
+frame (0.75 m ahead, 0.6 m up), turns with the creature, and follows
+the model (a human, a badger, an ogre). `appearance.2da`'s `HEIGHT`,
+`PERSPACE` and `CREPERSPACE` change nothing. Of two items' lights the
+brightest is taken.
+
+Light added to the floor (linear red, client / Moonglow) by the torch
+of a commoner facing south, boxes along his east-west row (m from him)
+and his north-south line:
+
+| −7 | −5.5 | −4.5 | −3.5 | −2.5 | −1.5 | +1 | +2 | +3 | +4 | +5 | +6 | +8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.071 / 0.073 | 0.127 / 0.131 | 0.197 / 0.201 | 0.320 / 0.323 | 0.524 / 0.522 | 0.806 / 0.794 | 0.952 / 0.924 | 0.655 / 0.649 | 0.407 / 0.411 | 0.249 / 0.254 | 0.158 / 0.161 | 0.103 / 0.107 | 0.050 / 0.052 |
+
+North 2 and 4 m: 0.481 / 0.500, 0.191 / 0.195; south 2, 4, 6, 8 m:
+0.887 / 0.872, 0.344 / 0.345, 0.134 / 0.137, 0.062 / 0.064. Green over
+red 0.71 on both sides. The root mean square of the log ratio is 0.024
+(the torch turned east 0.024, the cloak 0.022, the ring 0.022, the
+ogre's torch 0.018, a dim green torch 0.027, green over red about 4.5
+on both). Before, Moonglow drew no light; a light at the hand, tried
+first, gave about 0.65 of the client's far off.
+
+- **Checked:** `part_emitters_torch_light` (`client_render/part_emitters.rs`,
+  2026-11-25, EE 89.8193.37): fifteen runs, each beside Moonglow's view
+  of the same scene (`light_<run>_moonglow_on.png`); the arm in
+  `part_emitters_look`'s group h.
+- **Moonglow:** `mg_preview::creature` (`Preview::overlay` for the
+  torch, `Preview::effect_lights` from `item_light` over
+  `DressedLook::brightest_light`, the undrawn slots' lights in
+  `DressedLook::light`), drawn by `mg_preview::compose::Composed` for
+  the area view, the previews and the gallery (`anim::pose_layers_scaled`,
+  `anim::pose_worn_layers`). Tests: `a_torch_in_the_left_hand_raises_the_arm`,
+  `an_item_s_light_is_its_color_s_and_brightness_s_effect`,
+  `a_creature_s_light_is_its_brightest_item_s`,
+  `a_torch_bearer_raises_his_arm_and_lights_around_him`,
+  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch).
+- **Not read:** which of two equally bright lights is taken; the light
+  of an item lying on the ground or of an item's own preview; colors
+  other than yellow and green (they go by the tables); a light on a
+  model without `headconjure` (Moonglow puts it at the origin plus the
+  offset).
+- **Wiki:** the Item page names the torch's overlay; the light's place
+  is missing.
+
 ### A chunk emitter's models are drawn at their own size
 
 A chunk emitter (`chunkName`) throws its models at their own size,

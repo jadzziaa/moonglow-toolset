@@ -26,7 +26,8 @@
 //! f. wings `wwhip_fxfire`;
 //! g. f wearing a cloak (`nw_maarcl055`: cloakmodel.2da hides wings);
 //! h. a torch in the left hand (`nw_it_torch001`, `it_torch_000`: its
-//!    emitters' birthrate 0 at rest, keyed up in its `equip` animation).
+//!    emitters' birthrate 0 at rest, keyed up in its `equip` animation;
+//!    the arm raised by `torchl`, as the client holds it, since 2026-11-25).
 //!
 //! Group `probe` (lit): our own emitter of 12 cm white squares rising 1 m/s
 //! for a second ([`PROBE`], `mg_tailfx`), as
@@ -361,18 +362,43 @@ fn part_emitters_look() {
     }
 }
 
-/// The torch's light as the client draws it (`docs/deferred.md`, "A
-/// creature holding a torch"): in a dark room a commoner holding
+/// The torch's light as the client draws it (`docs/findings.md`, "A
+/// torch-bearer's raised arm, and an item's light on its wearer"): in a dark room a commoner holding
 /// `nw_it_torch001` (facing the camera) and boxes of 0.5 m around him
 /// ([`LIGHT_BOXES`]: flat tops of one color, which the light scales) from
 /// high above (`MG_LIGHT_CAMERA`, `facing,distance,pitch`: pitch 10 is
 /// nearly straight down). Three pictures, each `light_<run>.png` in
 /// `target/test-output/part_emitters/`: `locate` (the room lit well, no
 /// torch, the boxes magenta: where each is), `torch` and `bare` (the same
-/// dark room with the torch and without, the boxes white). The boxes'
-/// tops' brightness in `torch` against `bare` is the torch's light at
-/// their distance; `MG_RUNS=torch,bare` for some. The pictures are
-/// measured by hand.
+/// dark room with the torch and without, the boxes white), each with
+/// Moonglow's area view beside it (`light_<run>_moonglow.png` and
+/// `light_<run>_moonglow_on.png`, [`shoot_close`]). The boxes' tops'
+/// brightness in `torch` against `bare` is the torch's light at their
+/// distance; `MG_RUNS=torch,bare` for some. Two more runs tell where the
+/// light is put: `effect` (nothing held: `VFX_DUR_LIGHT_YELLOW_20`, the
+/// visual effect the torch's Light property applies, put on him by the
+/// entry script; Moonglow's side has no light for it), and
+/// `effect_turned`, `torch_turned` and `bare_turned` as `effect`,
+/// `torch` and `bare` with him turned a quarter (facing 90);
+/// `effect_tall` and `effect_wide` as `effect` with him made a copy of
+/// the human's appearance.2da row but for `HEIGHT` 4 (the human's 2),
+/// and but for `PERSPACE` 1 and `CREPERSPACE` 1.5 (0.3 and 0.5); and
+/// `effect_badger` and `effect_ogre` with him made a badger (appearance 8)
+/// and an ogre (127). And what else lights: `cloak` (no torch: his
+/// cloak `mg_litcloak`, `nw_maarcl055` given the torch's Light
+/// property), `ring` (a ring, `mg_litring`, `nw_it_mring001` given it,
+/// in his left ring slot, which is not drawn), `torch_ogre` (the torch
+/// held by him made an ogre) and `green` (`mg_greentorch`, the torch
+/// given a green and dim Light property in place of its own). The
+/// pictures are measured by hand.
+///
+/// Seen (2026-11-25, EE 89.8193.37): the light is the creature's
+/// effect, alike for the torch, the cloak, the ring and the effect, at
+/// its model's `headconjure` plus (0, 0.75, 0.6) in the model's frame;
+/// it turns with him and follows the badger's and ogre's heads, and the
+/// appearance's sizes change nothing. Moonglow's side matches the
+/// client's within 0.03 in the log of the light added (root mean square
+/// over the boxes), the green torch's color too.
 #[test]
 #[ignore]
 fn part_emitters_torch_light() {
@@ -388,9 +414,71 @@ fn part_emitters_torch_light() {
     let c: Vec<f32> = camera.split(',').map(|v| v.parse().unwrap()).collect();
     let dark = Lighting { ambient: 0x202020, diffuse: 0x303030, main_light: 0, only_tile: None };
     let lit = Lighting { ambient: 0x606060, diffuse: 0x909090, main_light: 0, only_tile: None };
-    for (run, light, torch) in
-        [("locate", lit, false), ("torch", dark, true), ("bare", dark, false)]
+    // (The human's row copied, a column or two changed: rows `tall` and
+    // `wide`.)
+    let table = base.resman.get_named("appearance", ResType::TWODA).unwrap();
+    let mut appearance = String::from_utf8_lossy(&table).into_owned();
+    let header: Vec<String> =
+        appearance.lines().nth(2).unwrap().split_whitespace().map(str::to_owned).collect();
+    let column = |name: &str| header.iter().position(|c| c == name).unwrap() + 1;
+    let human = appearance
+        .lines()
+        .skip(3)
+        .find(|l| l.split_whitespace().next() == Some("6"))
+        .unwrap()
+        .to_string();
+    let rows = appearance.lines().skip(3).filter(|l| !l.trim().is_empty()).count();
+    if !appearance.ends_with('\n') {
+        appearance.push('\n');
+    }
+    let (tall, wide) = (rows, rows + 1);
+    for (n, changes) in
+        [(tall, &[("HEIGHT", "4")][..]), (wide, &[("PERSPACE", "1"), ("CREPERSPACE", "1.5")][..])]
     {
+        let mut row: Vec<String> = human.split_whitespace().map(str::to_owned).collect();
+        row[0] = n.to_string();
+        for (c, v) in changes {
+            row[column(c)] = (*v).into();
+        }
+        appearance += &(row.join(" ") + "\n");
+    }
+    // Items given a Light property (`brightness`, `color`) in place of
+    // their own properties, under a new name.
+    let lit_item = |from: &str, name: &str, brightness: u16, color: u8| {
+        let data = base.resman.get_named(from, ResType::UTI).unwrap();
+        let mut uti = Gff::read(&data).unwrap();
+        let light = mg_preview::ItemLook {
+            light: Some(mg_preview::LightProperty { brightness, color }),
+            ..Default::default()
+        };
+        let properties = light.to_uti(0).list("PropertiesList").unwrap().to_vec();
+        uti.root.set("PropertiesList", Value::List(properties));
+        uti.root.set("TemplateResRef", Value::resref(ResRef::from_str(name).unwrap()));
+        (format!("{name}.uti"), uti.to_bytes().unwrap())
+    };
+    let items = [
+        lit_item("nw_maarcl055", "mg_litcloak", 4, 1),
+        lit_item("nw_it_mring001", "mg_litring", 4, 1),
+        lit_item("nw_it_torch001", "mg_greentorch", 1, 4),
+    ];
+    let runs = [
+        ("locate", lit, &[][..]),
+        ("torch", dark, &[(0x20, "nw_it_torch001")][..]),
+        ("bare", dark, &[][..]),
+        ("effect", dark, &[][..]),
+        ("effect_turned", dark, &[][..]),
+        ("torch_turned", dark, &[(0x20, "nw_it_torch001")][..]),
+        ("effect_tall", dark, &[][..]),
+        ("effect_wide", dark, &[][..]),
+        ("effect_badger", dark, &[][..]),
+        ("effect_ogre", dark, &[][..]),
+        ("bare_turned", dark, &[][..]),
+        ("cloak", dark, &[(0x40, "mg_litcloak")][..]),
+        ("ring", dark, &[(0x80, "mg_litring")][..]),
+        ("torch_ogre", dark, &[(0x20, "nw_it_torch001")][..]),
+        ("green", dark, &[(0x20, "mg_greentorch")][..]),
+    ];
+    for (run, light, equip) in runs {
         if only.as_deref().is_some_and(|o| !o.split(',').any(|g| g == run)) {
             continue;
         }
@@ -404,23 +492,45 @@ fn part_emitters_torch_light() {
             [-0.25, -0.25, 0.0],
             [0.25, 0.25, 0.3],
         );
-        let files: Vec<(&str, Vec<u8>)> = vec![
+        let mut files: Vec<(&str, Vec<u8>)> = vec![
             ("mg_lboxtex.tga", tga),
             ("mg_lbox.mdl", model_with("mg_lbox", &[slab], &[]).into_bytes()),
             ("placeables.2da", placeables.clone().into_bytes()),
+            ("appearance.2da", appearance.clone().into_bytes()),
         ];
+        files.extend(items.iter().map(|(n, d)| (n.as_str(), d.clone())));
         let mut r = Reading::new(&format!("part_emitters_light_{run}"), "tic01", light, &files);
-        let equip: &[(u32, &str)] = if torch { &[(0x20, "nw_it_torch001")] } else { &[] };
-        let fields = [("Appearance_Head", Value::Byte(1))];
-        put_creature(&mut r, "nw_commale", [LIGHT_AT[0], LIGHT_AT[1], 0.0], 180.0, &fields, equip);
+        let row = match run {
+            "effect_tall" => tall,
+            "effect_wide" => wide,
+            "effect_badger" => 8,
+            "effect_ogre" | "torch_ogre" => 127,
+            _ => 6,
+        };
+        let fields =
+            [("Appearance_Head", Value::Byte(1)), ("Appearance_Type", Value::Word(row as u16))];
+        let facing = if run.ends_with("_turned") { 90.0 } else { 180.0 };
+        put_creature(&mut r, "nw_commale", [LIGHT_AT[0], LIGHT_AT[1], 0.0], facing, &fields, equip);
         for (dx, dy) in LIGHT_BOXES {
             r.place(boxed, [LIGHT_AT[0] + dx, LIGHT_AT[1] + dy, 0.0], 0.0, &[]);
         }
-        let entry = super::readings::enter(INVISIBLE, (c[0], c[1], c[2]));
-        let dir = r.dir.clone();
-        let (_, shot) = r.shoot(&entry, SETTINGS);
+        // (160: `VFX_DUR_LIGHT_YELLOW_20`.)
+        let effect = "ApplyEffectToObject(DURATION_TYPE_PERMANENT, EffectVisualEffect(160), \
+                      GetObjectByTag(\"NW_COMMALE\"));";
+        let body = if run.starts_with("effect") {
+            format!("{INVISIBLE}\n    {effect}")
+        } else {
+            INVISIBLE.into()
+        };
+        let (dir, shot) = shoot_close(r, &body, SETTINGS, (c[0], c[1], c[2]), &|_| {});
         print_log(&dir);
         save_png(&shot, &kept.join(format!("light_{run}.png")));
+        for side in ["moonglow", "moonglow_on"] {
+            let _ = std::fs::copy(
+                dir.join(format!("{side}.png")),
+                kept.join(format!("light_{run}_{side}.png")),
+            );
+        }
     }
     eprintln!("pictures: {}", kept.display());
 }

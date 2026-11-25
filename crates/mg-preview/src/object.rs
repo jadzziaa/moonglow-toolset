@@ -73,7 +73,7 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
         5 => "off",
         _ => "default",
     };
-    Ok(Preview { base, parts: Vec::new(), idle: Some(idle.into()), lights })
+    Ok(Preview { base, idle: Some(idle.into()), lights, ..Preview::model("") })
 }
 
 /// A waypoint (UTW fields): the flag of its `Appearance`, waypoint.2da
@@ -126,10 +126,5 @@ pub fn door(game: &GameData, utd: &Struct) -> Result<Preview, PreviewError> {
         2 => "opened2",
         _ => "closed",
     };
-    Ok(Preview {
-        base: Part::new(model),
-        parts: Vec::new(),
-        idle: Some(idle.into()),
-        lights: Vec::new(),
-    })
+    Ok(Preview { idle: Some(idle.into()), ..Preview::model(&model) })
 }

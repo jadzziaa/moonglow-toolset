@@ -542,17 +542,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   scene's whole brightness, and wants a reading of its own: which term
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
-- **A creature holding a torch** stands in the client with its arm
-  raised, the torch held up, and the torch lights the area around it;
-  Moonglow draws the arm as in any other stance and no light (its flame
-  burns, as the client's: [findings](findings.md), "A creature's parts'
-  emitters"). Seen beside the part emitters' reading
-  (`part_emitters_look`, group h). Deferred as beyond what was asked
-  (a stance and an item's light, not its emitters), and it wants a
-  reading of its own: which animation the client plays for it, and the
-  light's color and reach (the item's Light property, or the base
-  item's). M. (a builder's report on 4.0, CEP's effect tails,
-  2026-11-10)
 
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
