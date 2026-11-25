@@ -438,32 +438,34 @@ mod gpu {
         settle(&mut h);
     }
 
-    /// Two copies of the area's module, beside it: A listing the hak whose
-    /// rural tileset's textures are all red, B the one whose are blue. The
-    /// user folder has both.
-    fn red_and_blue_modules(
-        user: &std::path::Path,
-        area_module: &std::path::Path,
-    ) -> (std::path::PathBuf, std::path::PathBuf) {
-        // (The textures ttr01's tiles are drawn with.)
-        const TEXTURES: [&str; 8] = [
-            "ttr01_bark01",
-            "ttr01_dirt01",
-            "ttr01_grass01",
-            "ttr01_grass02",
-            "ttr01_grassrim01",
-            "ttr01_leaf01",
-            "ttr01_rock00",
-            "ttr01_splotch01",
-        ];
+    /// The haks `mg_all_red` and `mg_all_blue` in `user`'s `hak` folder:
+    /// every texture of the rural tileset (`ttr01*`, each DDS or TGA the
+    /// game has) red in one, blue in the other.
+    fn red_and_blue_haks(root: &std::path::Path, user: &std::path::Path) {
+        let game = game_data(root);
+        let mut names: Vec<ResRef> = [ResType::DDS, ResType::TGA]
+            .into_iter()
+            .flat_map(|t| game.resman.list(t))
+            .filter(|r| r.to_string().to_lowercase().starts_with("ttr01"))
+            .collect();
+        names.sort();
+        names.dedup();
+        assert!(names.len() > 5, "the rural tileset's textures: {names:?}");
         for (name, rgba) in [("mg_all_red", RED), ("mg_all_blue", BLUE)] {
             let mut w = mg_erf::ErfWriter::new(*b"HAK ");
-            for t in TEXTURES {
-                w.add(ResRef::from_str(t).unwrap(), ResType::TGA, swatch(rgba)).unwrap();
+            for t in &names {
+                w.add(*t, ResType::TGA, swatch(rgba)).unwrap();
             }
             std::fs::create_dir_all(user.join("hak")).unwrap();
             std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
         }
+    }
+
+    /// Two copies of the area's module, beside it: A listing the red hak,
+    /// B the blue one.
+    fn red_and_blue_modules(
+        area_module: &std::path::Path,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
         let dir = area_module.parent().unwrap();
         let (a, b) = (dir.join("red.mod"), dir.join("blue.mod"));
         std::fs::copy(area_module, &a).unwrap();
@@ -471,6 +473,14 @@ mod gpu {
         list_haks(&a, &["mg_all_red"]);
         list_haks(&b, &["mg_all_blue"]);
         (a, b)
+    }
+
+    /// How much redder than blue a picture is (its mean red less its mean
+    /// blue): what is drawn with the rural tileset's textures counts, the
+    /// rest (the sky, an object) the same in both.
+    fn redder(img: &image::RgbaImage) -> f64 {
+        let (r, b) = red_and_blue(img);
+        r - b
     }
 
     /// `module` opened in place of the one open, its area's tab opened and
@@ -498,19 +508,20 @@ mod gpu {
     /// `holders-haks-follow/`: red.png, blue.png.)
     #[test]
     fn the_next_module_s_hak_textures_are_drawn() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
         let dir = mg_testkit::scratch_dir("ui-holders-haks-follow");
         let user = user_folder(&dir, &["hak"]);
-        let Some((mut h, area)) = drawing_area("holders-haks-follow", Some(user.clone())) else {
+        red_and_blue_haks(&root, &user);
+        let Some((mut h, area)) = drawing_area("holders-haks-follow", Some(user)) else {
             return;
         };
         let path = h.state().module_path().expect("the area's module");
-        let (a, b) = red_and_blue_modules(&user, &path);
-        let red = opened_and_pictured(&mut h, &a, area, "red");
-        let (r, bl) = red_and_blue(&red);
-        assert!(r > bl + 20.0, "A's area red: red {r:.0}, blue {bl:.0}");
-        let blue = opened_and_pictured(&mut h, &b, area, "blue");
-        let (r, bl) = red_and_blue(&blue);
-        assert!(bl > r + 20.0, "B's area blue, not A's red: red {r:.0}, blue {bl:.0}");
+        let (a, b) = red_and_blue_modules(&path);
+        let red = redder(&opened_and_pictured(&mut h, &a, area, "red"));
+        let blue = redder(&opened_and_pictured(&mut h, &b, area, "blue"));
+        eprintln!("red less blue: A {red:.0}, B {blue:.0}");
+        assert!(red > 0.0, "A's area red: {red:.0}");
+        assert!(red - blue > 40.0, "B's area blue, not A's red: A {red:.0}, B {blue:.0}");
     }
 
     /// Issue #50 as it was met: B opened while something still held the
@@ -520,16 +531,17 @@ mod gpu {
     /// `holders-haks-follow/`: held-red.png, held-blue.png.)
     #[test]
     fn the_next_module_s_hak_textures_are_drawn_once_the_game_data_is_free() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
         let dir = mg_testkit::scratch_dir("ui-holders-haks-held");
         let user = user_folder(&dir, &["hak"]);
-        let Some((mut h, area)) = drawing_area("holders-haks-held", Some(user.clone())) else {
+        red_and_blue_haks(&root, &user);
+        let Some((mut h, area)) = drawing_area("holders-haks-held", Some(user)) else {
             return;
         };
         let path = h.state().module_path().expect("the area's module");
-        let (a, b) = red_and_blue_modules(&user, &path);
-        let red = opened_and_pictured(&mut h, &a, area, "held-red");
-        let (r, bl) = red_and_blue(&red);
-        assert!(r > bl + 20.0, "A's area red: red {r:.0}, blue {bl:.0}");
+        let (a, b) = red_and_blue_modules(&path);
+        let red = redder(&opened_and_pictured(&mut h, &a, area, "held-red"));
+        assert!(red > 0.0, "A's area red: {red:.0}");
         let (go, held) = std::sync::mpsc::channel::<()>();
         h.state_mut().start_job_for_tests("Held", move |_| {
             let _ = held.recv();
@@ -546,12 +558,21 @@ mod gpu {
             std::thread::sleep(Duration::from_millis(5));
             h.step();
         }
+        // (A picture drawn after the haks changed: not one from before.)
+        let pictures = |app: &Moonglow| app.area_views.get(&area).map_or(0, |v| v.pictures);
+        let was = pictures(h.state());
+        while pictures(h.state()) == was {
+            assert!(started.elapsed() < Duration::from_secs(60), "never drawn again");
+            std::thread::sleep(Duration::from_millis(5));
+            h.step();
+        }
         drawn(&mut h, area);
         let blue = view_picture(&mut h, area);
         let out = mg_testkit::test_output().join("holders-haks-follow");
         std::fs::create_dir_all(&out).unwrap();
         blue.save(out.join("held-blue.png")).unwrap();
-        let (r, bl) = red_and_blue(&blue);
-        assert!(bl > r + 20.0, "B's area blue, not A's red: red {r:.0}, blue {bl:.0}");
+        let blue = redder(&blue);
+        eprintln!("red less blue: A {red:.0}, B {blue:.0}");
+        assert!(red - blue > 40.0, "B's area blue, not A's red: A {red:.0}, B {blue:.0}");
     }
 }

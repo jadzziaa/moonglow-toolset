@@ -8079,7 +8079,14 @@ impl Moonglow {
                 }
                 layered = ws.module.haks().unwrap_or_default();
             }
-            _ => {
+            // (No game install: the module's own layer alone, as
+            // `refresh_module_layer` makes it.)
+            (Some(ws), None) => {
+                let _ = ws.flush();
+                let c = ws.module.container();
+                game.resman.add(priority::MODULE, mg_resman::MODULE_LABEL, LayerClass::Erf, c);
+            }
+            (None, _) => {
                 mg_module::bake::layer_pending(&mut game.resman, Default::default(), None);
             }
         }
