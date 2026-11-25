@@ -26,6 +26,14 @@ pub struct ExportDraft {
     /// Move creatures in the module's own factions to the standard ones.
     pub reset_factions: bool,
     pub comments: String,
+    /// What the selection is, where a command made it (Export Changed
+    /// Resources: how many changed since the module was opened): its first
+    /// line said plainly, the others weak.
+    pub note: Vec<String>,
+    /// The resources open in editors with changes not yet in the module
+    /// all warned of, ticked or not (Export Changed Resources: a script
+    /// typed in and not saved is not among those changed).
+    pub warn_all_unsaved: bool,
     /// The module's keys in the window's order, at a workspace revision,
     /// and those the kind and filter then listed: made again only when
     /// one of them changes (a module's 25,000 sorted and each named for
@@ -225,6 +233,45 @@ fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
 
 /// What the log says of the compiled scripts and debug files
 /// [`remove_stale_compiled`] removed from the scratch folder.
+/// Whether a resource changed since the module was opened is ticked by
+/// Export Changed Resources: all but `module.ifo` (the module itself: its
+/// areas, haks and start, which an archive imported into another module
+/// would lay over that module's own; listed, and said, unticked).
+pub(crate) fn exported_changed(k: &ResKey) -> bool {
+    k.restype != ResType::IFO
+}
+
+/// Export Changed Resources' selection: the resources changed since the
+/// module was opened (`module.ifo` aside), each with what goes out with
+/// it (an area's other files, which Export adds in any case, and a
+/// script's compiled script, which the game runs), how many changed, and
+/// how many areas' files and compiled scripts came with them.
+pub(crate) fn changed_selection(
+    ws: &mg_edit::Workspace,
+) -> (BTreeSet<ResKey>, usize, (usize, usize)) {
+    let found = ws.changed_since_opened();
+    let changed: Vec<ResKey> =
+        found.changed.iter().filter(|k| exported_changed(k)).copied().collect();
+    let mut selected: BTreeSet<ResKey> = changed.iter().copied().collect();
+    for k in &changed {
+        let with: &[ResType] = match k.restype {
+            ResType::ARE | ResType::GIT | ResType::GIC => {
+                &[ResType::ARE, ResType::GIT, ResType::GIC]
+            }
+            ResType::NSS => &[ResType::NCS],
+            _ => &[],
+        };
+        let with = with.iter().map(|t| ResKey::new(k.resref, *t));
+        selected.extend(with.filter(|w| ws.module.contains(w)));
+    }
+    let came = |t: &[ResType]| {
+        selected.iter().filter(|k| t.contains(&k.restype)).count()
+            - changed.iter().filter(|k| t.contains(&k.restype)).count()
+    };
+    let came = (came(&[ResType::ARE, ResType::GIT, ResType::GIC]), came(&[ResType::NCS]));
+    (selected, changed.len(), came)
+}
+
 pub(crate) fn removed_said(removed: &[String]) -> String {
     let compiled = removed.iter().any(|n| !n.to_ascii_lowercase().ends_with(".ndb"));
     let why = match compiled {
@@ -426,6 +473,63 @@ impl Moonglow {
     /// imported. (A blueprint's, an area's or a conversation's changes
     /// are the module's already: the import replaces them as one step,
     /// which Undo takes back.)
+    /// The module's resources open in editors with changes not yet in the
+    /// module (a script's text, a 2DA's rows), in order.
+    pub(crate) fn unsaved_module_editors(&self) -> Vec<ResKey> {
+        let mut keys: Vec<ResKey> = (self.scripts.iter())
+            .filter(|(_, b)| b.is_dirty())
+            .map(|(k, _)| *k)
+            .chain(
+                (self.tables.iter())
+                    .filter(|t| t.home == crate::table_view::Home::Module && t.has_unsaved())
+                    .map(|t| t.key),
+            )
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    /// File › Export Changed Resources…: the Export window with the
+    /// resources changed since the module was opened ticked (and what goes
+    /// with them), alone (not what they use, which did not change), and a
+    /// line saying so.
+    pub(crate) fn open_export_changed(&mut self) {
+        let Some(ws) = &self.ws else { return };
+        let (selected, changed, came) = changed_selection(ws);
+        let found = ws.changed_since_opened();
+        let plural =
+            |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let mut note = vec![format!(
+            "{} since the module was opened",
+            plural(changed, "resource changed", "resources changed")
+        )];
+        let with = match came {
+            (0, 0) => None,
+            (_, 0) => Some("their areas' other files"),
+            (0, _) => Some("their compiled scripts"),
+            _ => Some("their areas' other files and compiled scripts"),
+        };
+        if let Some(with) = with {
+            note.push(format!("Ticked with {with} ({}).", came.0 + came.1));
+        }
+        if found.changed.iter().any(|k| !exported_changed(k)) {
+            note.push(
+                "module.ifo changed too, left unticked: imported into another module, it would \
+                 replace that module's own."
+                    .into(),
+            );
+        }
+        if !found.removed.is_empty() {
+            note.push(format!(
+                "{} since, not exported.",
+                plural(found.removed.len(), "resource was removed", "resources were removed")
+            ));
+        }
+        self.export =
+            Some(ExportDraft { selected, note, warn_all_unsaved: true, ..Default::default() });
+    }
+
     fn unsaved_editors(&self, keys: &[ResKey]) -> Vec<ResKey> {
         let table = |k: &ResKey| {
             self.tables.iter().any(|t| {
@@ -1176,7 +1280,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     drop_ui(app, &ctx);
     ask_ui(app, &ctx);
+    let unsaved = if app.export.is_some() { app.unsaved_module_editors() } else { Vec::new() };
     if let (Some(draft), Some(ws)) = (&mut app.export, &app.ws) {
+        let (changed, _, _) = changed_selection(ws);
         let mut close = false;
         // Kind by kind, those of the module's tree first and in its order.
         let rank = |t: ResType| {
@@ -1212,6 +1318,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             draft.kind = None;
         }
         let footed = crate::widgets::modal(&ctx, "Export Resources").show_foot(&ctx, |ui| {
+            if let Some((first, rest)) = draft.note.split_first() {
+                ui.label(first);
+                for line in rest {
+                    ui.weak(line);
+                }
+                ui.add_space(4.0);
+            }
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Kind");
                 let shown = match draft.kind {
@@ -1326,7 +1439,40 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         draft.selected.remove(k);
                     }
                 }
+                // (Those changed since the module was opened, with what
+                // goes with them, as Export Changed Resources ticks them.)
+                if !changed.is_empty() {
+                    let all = changed.is_subset(&draft.selected);
+                    // (Its count in the tip: the row is full with the
+                    // Listed button's.)
+                    let tip = match changed.len() {
+                        1 => "Tick the resource changed since the module was opened".to_string(),
+                        n => format!("Tick the {n} resources changed since the module was opened"),
+                    };
+                    if ui
+                        .add_enabled(!all, egui::Button::new("Select Changed"))
+                        .on_hover_text(tip)
+                        .on_disabled_hover_text("They are ticked")
+                        .clicked()
+                    {
+                        draft.selected.extend(changed.iter().copied());
+                    }
+                }
             });
+            let unsaved: Vec<String> = (unsaved.iter())
+                .filter(|k| draft.warn_all_unsaved || draft.selected.contains(k))
+                .map(|k| k.to_string())
+                .collect();
+            if !unsaved.is_empty() {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!(
+                        "Careful: open with unsaved changes, which the export leaves out (save \
+                         them first): {}",
+                        self::listed(&unsaved)
+                    ),
+                );
+            }
             ui.check_box(&mut draft.dependencies, "Include the resources they use");
             ui.check_box(&mut draft.reset_factions, "Put creatures in the standard factions");
             ui.horizontal(|ui| {

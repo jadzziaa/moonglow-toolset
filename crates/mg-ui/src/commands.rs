@@ -29,6 +29,9 @@ pub enum Id {
     /// File › Import Folder…: a folder's files' resources.
     ImportFolder,
     Export,
+    /// File › Export Changed Resources…: the Export window with the
+    /// resources changed since the module was opened ticked.
+    ExportChanged,
     ImportConversation,
     Close,
     Exit,
@@ -202,6 +205,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ImportFiles),
             Do(Id::ImportFolder),
             Item::WithPlugins(Id::Export, crate::plugin_kinds::Added::Exporter),
+            Do(Id::ExportChanged),
             Do(Id::ImportConversation),
             Separator,
             Do(Id::Close),
@@ -453,6 +457,11 @@ impl Id {
                 ("import-folder", "Import Folder…", "Every file in a folder and its subfolders")
             }
             Id::Export => ("export", "Export…", ""),
+            Id::ExportChanged => (
+                "export-changed",
+                "Export Changed Resources…",
+                "Export what changed since the module was opened, saved or not",
+            ),
             Id::ImportConversation => (
                 "import-conversation",
                 "Import Conversation…",
@@ -863,6 +872,9 @@ impl Id {
             // other modules too.)
             Id::BuilderCode => crate::builder_code::root(app).is_some(),
             Id::ClaimsTable => crate::claims::kept(app),
+            Id::ExportChanged => app.ws.as_ref().is_some_and(|ws| {
+                ws.changed_since_opened().changed.iter().any(crate::transfer::exported_changed)
+            }),
             Id::TakeInLeftOut => (app.ws.as_ref())
                 .and_then(|ws| ws.module.project.as_ref())
                 .is_some_and(|p| !p.left_out.is_empty()),
@@ -933,6 +945,10 @@ impl Id {
             Id::BuilderCode => "Open a module in a folder or a nasher project first",
             Id::ClaimsTable => "The project keeps no claims table",
             Id::TakeInLeftOut => "nasher.cfg leaves no files out",
+            Id::ExportChanged if open && !app.unsaved_module_editors().is_empty() => {
+                "Nothing changed in the module yet: save the editors with unsaved changes first"
+            }
+            Id::ExportChanged if open => "No resource has changed since the module was opened",
             Id::ViewTree | Id::ViewPalettes => "The dock holds no panel now",
             Id::ViewProperties if open => "Switch to an area first",
             Id::NextPane | Id::PreviousPane => "No pane is open",
@@ -960,6 +976,7 @@ impl Id {
             Id::ImportFiles => Action::ImportFilesDialog,
             Id::ImportFolder => Action::ImportFolderDialog,
             Id::Export => Action::ExportDialog(Vec::new()),
+            Id::ExportChanged => Action::ExportChangedDialog,
             Id::Close => Action::Close,
             Id::Exit => Action::Quit,
             // (With the keys in a script's editor, or a menu opened from
@@ -2071,6 +2088,11 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     let hint = hint.map_or(std::borrow::Cow::Borrowed(id.text().2), std::borrow::Cow::Owned);
     if !hint.is_empty() {
         r = r.on_hover_text(hint.as_ref());
+    }
+    // (Grayed, Export Changed Resources says why: nothing changed is not
+    // plain from the menu, as no module open or no area shown is.)
+    if !enabled && id == Id::ExportChanged {
+        r = r.on_disabled_hover_text(id.why_disabled(app));
     }
     if r.clicked() || chosen {
         id.run(app, ui.ctx());
