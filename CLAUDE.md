@@ -100,6 +100,12 @@ To hear what the client plays (which music and sound files it takes),
 `client_audio.rs` runs it with `MG_CLIENT_AUDIO_OUT` set, which has
 `run-client.sh` give it OpenAL Soft's `wave` backend: what it plays is
 written to a WAV file in the scratch folder, still with no audio device.
+Every run that puts a window on the off-screen display (the client, Aurora,
+a restart of the display) holds the machine's display lock first
+(`docs/locks.md`; `tools/locks.sh`, which the scripts source): by hand,
+`tools/locks.sh hold display -- CMD...` around anything you drive, and
+a holder exports `MOONGLOW_LOCKS_HELD=display` so what it starts does not
+wait for it. A wait is on stderr (`MOONGLOW_LOCK_WAIT=SECONDS`, 0 refuses).
 Reading the client's own code (`nm`, `objdump` on the unstripped
 `nwmain-linux`) is a last resort, by the owner's word: only once its
 pictures, patched includes, scripts, shims and runs made to tell the
@@ -156,7 +162,12 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   untouched file round-trips.
 - **Tests that open a GPU device call `mg_testkit::gpu::hold()` first**, so a
   test binary has a few devices open at a time (4; `MG_TEST_GPUS` sets how
-  many, 1 for one at a time): a test suite with dozens at once coincided
+  many, 1 for one at a time), and the machine too: each test also takes one
+  of that many slot files (`docs/locks.md`), so test runs at once keep to the
+  same few. A test that runs the client or uses the display takes the display
+  lock first (`mg_testkit::display::hold()`; the client tests'
+  `common::gpu_after_display()` is both in order): display, then GPU, never
+  the reverse (it panics otherwise). The cap is there because a test suite with dozens at once coincided
   with a kernel panic on the development machine. A test that changes what
   every render does (`mg_render::guard::fail_on`) takes the GPU alone
   (`gpu::alone()`), and process-wide state a window reads is the window's

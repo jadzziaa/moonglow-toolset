@@ -195,7 +195,7 @@ pub(super) fn moonglow_beside_as(
     view: &dyn Fn(&mut mg_area::View),
     name: &str,
 ) -> Option<(Rgba, Rgba)> {
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("Moonglow's side skipped: no GPU");
         return None;
@@ -257,7 +257,7 @@ pub(super) fn client_after(
 ) -> (Option<Rgba>, bool) {
     let _only = common::client_lock();
     let _ = std::fs::remove_file(dir.join("user/logs/nwclientLog1.txt"));
-    let Ok(mut child) = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
+    let Ok(mut child) = common::client_script()
         .arg(dir)
         .args(args)
         .stdout(Stdio::null())

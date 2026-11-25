@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Runs the NWN:EE game client for tests, sandboxed with bubblewrap so that it
 # cannot touch anything but a scratch directory:
 #
@@ -26,12 +26,19 @@
 #   leaves its header's sizes unset (0xFFFFFFFF). A path outside SCRATCH
 #   is refused. Unset, the client gets the null backend, as before.
 #
+# - The machine's display lock (tools/locks.sh, docs/locks.md) is taken
+#   first, unless an ancestor holds it (MOONGLOW_LOCKS_HELD), and its
+#   descriptor goes into the sandbox: the lock lives as long as the client
+#   (a kill -9 of the sandbox frees it).
+#
 # The game install comes from $NWN_ROOT (default: the Steam path).
 set -e
+. "$(dirname "$0")/../locks.sh"
 SCRATCH=$(realpath "$1")
 shift
 NWN=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
 DISP=${DISPLAY:-}
+mg_lock_display "run-client.sh $SCRATCH $*"
 # Only the running off-screen session's display (headless.sh check).
 "$(dirname "$0")/../aurora/headless.sh" check "$DISP"
 SOCKET=/tmp/.X11-unix/X${DISP#:}

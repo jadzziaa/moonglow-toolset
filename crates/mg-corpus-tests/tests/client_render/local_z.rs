@@ -148,7 +148,7 @@ fn local_z_particles_lie_as_the_client_lays_them() {
         panic!("the client did not reach the scene (see {})", dir.display());
     };
     save_png(&client, &dir.join("client.png"));
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped Moonglow's side: no GPU");
         return;

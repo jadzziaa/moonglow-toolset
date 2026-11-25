@@ -556,7 +556,7 @@ fn fit_camera(r: &mut Renderer, gpu: &Gpu, game: &GameData, scene: &Scene, clien
 fn reference_scenes_match_the_client() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -1190,7 +1190,7 @@ fn fog_uniforms_match_the_client() {
 fn grass_and_sky_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -1252,7 +1252,7 @@ fn grass_and_sky_look() {
 fn sky_under_the_game_s_farthest_camera_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -1448,7 +1448,7 @@ fn grass_override(
 fn grass_overrides_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -1889,7 +1889,7 @@ fn particles_look() {
     m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
     m.save_as(&ModuleLocation::Archive(user.join("modules/MgScene.mod"))).unwrap();
     if std::env::var_os("MG_PREDICT").is_some() {
-        mg_testkit::gpu::hold();
+        crate::common::gpu_after_display();
         let gpu = Gpu::headless().unwrap();
         let (_, are) = build_module(&game, &dir, light);
         let (scene, _) = moonglow_scene(&gpu, &game, &are, light);
@@ -1939,7 +1939,7 @@ fn placeables_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -2053,7 +2053,7 @@ fn visual_transforms_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -2159,7 +2159,7 @@ fn items_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -2237,7 +2237,7 @@ fn creatures_look() {
     use mg_rules::items::{ArmorChannel, set_armor_part_color};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -2547,7 +2547,7 @@ fn cutouts_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -2831,7 +2831,7 @@ fn tdod_custom_shaders_look() {
     }
 
     let tileset = mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok();
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -3004,7 +3004,7 @@ fn tdod_custom_shaders_look() {
 fn area_lighting_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -3309,7 +3309,7 @@ fn model_light_uniforms() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -3506,7 +3506,7 @@ fn area_env_map_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

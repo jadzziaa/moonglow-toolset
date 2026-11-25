@@ -244,7 +244,7 @@ fn heed_armourer_look() {
     use mg_rules::ObjectKind::{Encounter, Sound, Store, Trigger, Waypoint};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
