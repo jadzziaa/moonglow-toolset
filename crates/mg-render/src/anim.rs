@@ -367,6 +367,25 @@ pub fn pose_scaled(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<M
     Playing::unbound(model, &[anim], t, None, Some(scale)).pose(model)
 }
 
+/// [`pose_scaled`] of several animations played together (see
+/// [`pose_layers`]: a creature's idle and an overlay played over it, its
+/// arm raised for a torch), each at its own scale through the chain of
+/// supermodels.
+pub fn pose_layers_scaled(model: &Model, layers: &[(&Animation, f32)], t: f32) -> Vec<Mat4> {
+    let bound = Binding::all_scaled(model, layers.iter().copied());
+    let layers: Vec<(&Animation, &Binding)> = layers.iter().map(|(a, _)| *a).zip(&bound).collect();
+    Playing::new(model, &layers, t).pose(model)
+}
+
+/// [`pose_worn`] of several animations played together (see
+/// [`pose_layers`]), each at its own scale (the wearer's for it).
+pub fn pose_worn_layers(model: &Model, layers: &[(&Animation, f32)], t: f32) -> Vec<Mat4> {
+    let bound: Vec<Binding> =
+        layers.iter().map(|(a, s)| Nodes::of(model, Some(*s)).bind(model, a, None)).collect();
+    let layers: Vec<(&Animation, &Binding)> = layers.iter().map(|(a, _)| *a).zip(&bound).collect();
+    Playing::new(model, &layers, t).pose(model)
+}
+
 /// The rest pose's transforms relative to their parents.
 pub fn rest_locals(model: &Model) -> Vec<Local> {
     model.nodes.iter().map(|n| Local::new(n.position, n.orientation, n.scale)).collect()

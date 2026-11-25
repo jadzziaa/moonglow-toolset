@@ -64,6 +64,8 @@ mod batch5;
 mod batch6;
 #[path = "client_render/batch7.rs"]
 mod batch7;
+#[path = "client_render/batch8d.rs"]
+mod batch8d;
 #[path = "client_render/chrome_reflection.rs"]
 mod chrome_reflection;
 #[path = "client_render/custom_body.rs"]

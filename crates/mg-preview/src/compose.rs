@@ -70,6 +70,21 @@ impl Placed {
         anim::pose_scaled(&self.gpu.model, a, t, self.chain_scale(a))
     }
 
+    /// [`Placed::pose`] of `a` (none: its rest pose) with `over` played
+    /// over it (an overlay, [`crate::Preview::overlay`]), each one of
+    /// [`Placed::animation`]'s.
+    fn pose_over(&self, a: Option<&Animation>, over: Option<&Animation>, t: f32) -> Vec<Mat4> {
+        match (a, over) {
+            (Some(a), None) => self.pose(a, t),
+            (None, None) => self.gpu.rest.clone(),
+            _ => {
+                let layers: Vec<_> =
+                    a.into_iter().chain(over).map(|l| (l, self.chain_scale(l))).collect();
+                anim::pose_layers_scaled(&self.gpu.model, &layers, t)
+            }
+        }
+    }
+
     /// The scale a part worn on it plays `a` (one of its
     /// [`Placed::animation`]'s; none: one of the part's own) at: as it
     /// moves this model's bones, its own `setanimationscale` for its own
@@ -134,6 +149,9 @@ pub struct Composed {
     parts: Vec<Placed>,
     /// The animation the preview stands in.
     pub idle: Option<String>,
+    /// The animation the base plays over whichever it plays
+    /// ([`crate::Preview::overlay`]: a torch-bearer's raised arm).
+    overlay: Option<String>,
     /// The light of its appearance (placeables.2da `LightColor`).
     pub lights: Vec<PreviewLight>,
     /// The light nodes of its models (the base's and the parts'), in the
@@ -392,6 +410,7 @@ impl Composed {
             base,
             parts,
             idle: preview.idle.clone(),
+            overlay: preview.overlay.clone(),
             lights: preview.lights.clone(),
             lamps: Vec::new(),
             base_lamps: 0,
@@ -405,6 +424,9 @@ impl Composed {
         // (Once: where they are as it stands, not as each frame poses it.)
         let name = c.base.gpu.model.name.clone();
         c.lamps = mg_render::guard::guarded(&name, || c.lamps_standing()).unwrap_or_default();
+        let effects = &preview.effect_lights;
+        let effect_lamps = mg_render::guard::guarded(&name, || c.effect_lamps(effects, load));
+        let effect_lamps = effect_lamps.unwrap_or_default();
         let base_model = &*c.base.gpu.model;
         c.base_lamps = base_model
             .nodes
@@ -412,13 +434,15 @@ impl Composed {
             .filter(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_)))
             .count()
             .min(c.lamps.len());
+        c.lamps.extend(effect_lamps);
         let models = std::iter::once(&c.base).chain(&c.parts);
         c.emitting = (models.enumerate())
             .filter(|(_, p)| has_emitters(&p.gpu.model))
             .map(|(i, _)| i)
             .collect();
         let idle = c.idle.as_deref().and_then(|a| playing(a, |n| c.base.animation(n)));
-        c.idle_static = idle.is_none_or(animation_is_static);
+        c.idle_static =
+            idle.is_none_or(animation_is_static) && c.overlay().is_none_or(animation_is_static);
         c.idle_keys_meshes = idle.is_some_and(|a| {
             a.nodes.iter().any(|n| {
                 n.anim_mesh.is_some()
@@ -439,11 +463,7 @@ impl Composed {
         if !has_light(base_model) && !self.parts.iter().any(|p| has_light(&p.gpu.model)) {
             return Vec::new();
         }
-        let idle = self.idle.as_deref().and_then(|a| playing(a, |n| self.base.animation(n)));
-        let base_pose = match idle {
-            Some(a) => self.base.pose(a, 0.0),
-            None => self.base.gpu.rest.clone(),
-        };
+        let (idle, base_pose) = self.base_posed(self.idle.as_deref(), 0.0);
         let mut lamps = anim::lamps_layers(base_model, idle.as_slice(), 0.0, &base_pose);
         for p in &self.parts {
             if !has_light(&p.gpu.model) {
@@ -457,6 +477,50 @@ impl Composed {
             );
         }
         lamps
+    }
+
+    /// The lights of its effects (`effects`, [`crate::Preview::effect_lights`]:
+    /// a held item's Light property), in the base's space as it stands in
+    /// its idle animation: each effect model's light nodes as its
+    /// animation leaves them as it ends (`fx_light_clr`'s `Yello_20m`
+    /// keys the color 1.75, 1.5, 1 and the radius from 0 up to 13.3 m),
+    /// at the node it is at (a torch's, in the hand, raised: the client's
+    /// light is there, `part_emitters_torch_light`), casting shadows as
+    /// the effect says. An effect whose model or animation is missing gives
+    /// none.
+    fn effect_lamps(
+        &self,
+        effects: &[crate::EffectLight],
+        load: &dyn Fn(&str) -> Option<Arc<Model>>,
+    ) -> Vec<anim::Lamp> {
+        if effects.is_empty() {
+            return Vec::new();
+        }
+        let (_, base_pose) = self.base_posed(self.idle.as_deref(), 0.0);
+        let mut lamps = Vec::new();
+        for e in effects {
+            let Some(model) = load(&e.model) else { continue };
+            let Some(a) = model.animation(&e.animation) else { continue };
+            let node = e.attach.as_deref().and_then(|name| {
+                self.base.gpu.model.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(name))
+            });
+            let node_at = node.and_then(|i| base_pose.get(i)).map(|m| m.w_axis.truncate());
+            let at = Mat4::from_translation(node_at.unwrap_or(Vec3::ZERO) + e.offset);
+            let rest = anim::compose(&model, &anim::rest_locals(&model));
+            let own = anim::lamps_layers(&model, &[a], a.length, &rest);
+            lamps.extend(own.into_iter().map(|l| anim::Lamp {
+                at: at.transform_point3(l.at),
+                shadow: e.shadows,
+                ..l
+            }));
+        }
+        lamps
+    }
+
+    /// The animation the base plays over whichever it plays
+    /// ([`Composed::overlay`]), where it has one of the name.
+    fn overlay(&self) -> Option<&Animation> {
+        self.overlay.as_deref().and_then(|n| self.base.animation(n))
     }
 
     /// The base model.
@@ -578,21 +642,14 @@ impl Composed {
     /// has no animated keys.
     fn base_posed(&self, animation: Option<&str>, t: f32) -> (Option<&Animation>, Arc<Vec<Mat4>>) {
         let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
+        // (Its overlay over whatever it plays; at rest, none.)
+        let over = animation.and(self.overlay());
         if self.idle_static && animation == self.idle.as_deref() {
-            let pose = self.idle_pose.get_or_init(|| {
-                let raw = match base_anim {
-                    Some(a) => self.base.pose(a, 0.0),
-                    None => self.base.gpu.rest.clone(),
-                };
-                Arc::new(raw)
-            });
+            let pose =
+                self.idle_pose.get_or_init(|| Arc::new(self.base.pose_over(base_anim, over, 0.0)));
             return (base_anim, Arc::clone(pose));
         }
-        let pose = match base_anim {
-            Some(a) => self.base.pose(a, t),
-            None => self.base.gpu.rest.clone(),
-        };
-        (base_anim, Arc::new(pose))
+        (base_anim, Arc::new(self.base.pose_over(base_anim, over, t)))
     }
 
     /// A part's nodes as it stands where `animation` is asked at `t`, the
@@ -624,7 +681,17 @@ impl Composed {
         // the part as it moves the base: at the base's scale, through its
         // chain of supermodels. The part's very own keep theirs.)
         let worn = self.base.worn_scale(base_anim);
-        own.or(base_anim).map(|a| anim::pose_worn(&p.gpu.model, a, t, worn))
+        // (The base's overlay moves its bones too: a robe's sleeve follows
+        // a torch-bearer's raised arm.)
+        match (own.or(base_anim), animation.and(self.overlay())) {
+            (a, None) => a.map(|a| anim::pose_worn(&p.gpu.model, a, t, worn)),
+            (a, Some(over)) => {
+                let layers: Vec<_> = (a.map(|a| (a, worn)).into_iter())
+                    .chain([(over, self.base.worn_scale(Some(over)))])
+                    .collect();
+                Some(anim::pose_worn_layers(&p.gpu.model, &layers, t))
+            }
+        }
     }
 
     fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
@@ -1739,6 +1806,102 @@ mod ray_tests {
         assert_eq!(tail_keys(&both).0.as_deref(), Some("pause1"));
         assert_eq!(tail_keys(&keyed("default")), (Some("default".into()), 6.0));
         assert_eq!(tail_keys(&keyed("duration")), (None, 0.0));
+    }
+
+    /// A torch-bearer as the client draws him (`part_emitters_torch_light`):
+    /// his overlay (`torchl`) moves the nodes it keys over his idle, which
+    /// keys the others, and an animated part's (a robe's arm bone) with
+    /// them, but not at rest; his light is the effect model's light node
+    /// as its animation ends (the color 1.75, 1.5, 1 and radius 13.3 of
+    /// `fx_light_clr`'s `Yello_20m`), at his `headconjure` and the offset
+    /// from it, casting shadows as the effect says. An effect whose model
+    /// is missing gives no light.
+    #[test]
+    fn a_torch_bearer_raises_his_arm_and_lights_around_him() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let key = |anim: &str, node: &str, z: f32| {
+            format!(
+                "newanim {anim} base\n  length 2\n  transtime 0\n  animroot base\n\
+                 node dummy base\n  parent NULL\nendnode\n\
+                 node dummy {node}\n  parent base\n  positionkey 2\n    0 0 0 {z}\n    2 0 0 {z}\n\
+                 endnode\ndoneanim {anim} base\n"
+            )
+        };
+        let base = format!(
+            "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+             beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+             node dummy lhand\n  parent base\n  position 0 0 1\nendnode\n\
+             node dummy head_g\n  parent base\n  position 0 0 1.5\nendnode\n\
+             node dummy headconjure\n  parent base\n  position 0 0.1 2\nendnode\n\
+             endmodelgeom base\n{}{}donemodel base\n",
+            key("pause1", "head_g", 1.6),
+            key("torchl", "lhand", 1.8),
+        );
+        let robe = "newmodel robe\nsetsupermodel robe NULL\nclassification character\n\
+            beginmodelgeom robe\nnode dummy robe\n  parent NULL\nendnode\n\
+            node dummy lhand\n  parent robe\n  position 0 0 1\nendnode\n\
+            endmodelgeom robe\ndonemodel robe\n";
+        let fx = "newmodel fx\nsetsupermodel fx NULL\nclassification effect\n\
+            beginmodelgeom fx\nnode dummy fx\n  parent NULL\nendnode\n\
+            node light glow\n  parent fx\n  position 0 0 0\n  radius 50\n  color 0 0 0\n\
+              shadow 0\nendnode\nendmodelgeom fx\n\
+            newanim Yello_20m fx\n  length 0.3\n  transtime 0\n  animroot fx\n\
+            node dummy fx\n  parent NULL\nendnode\n\
+            node light glow\n  parent fx\n  colorkey 1\n    0.3 1.75 1.5 1\n\
+              radiuskey 2\n    0 0\n    0.3 13.3\nendnode\ndoneanim Yello_20m fx\n\
+            donemodel fx\n";
+        let read = |text: &str| Arc::new(Model::read(text.as_bytes()).unwrap());
+        let (base, robe, fx) = (read(&base), read(robe), read(fx));
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "robe" => Some(robe.clone()),
+            "fx" => Some(fx.clone()),
+            _ => None,
+        };
+        let light = crate::EffectLight {
+            model: "fx".into(),
+            animation: "yello_20m".into(),
+            shadows: true,
+            attach: Some("headconjure".into()),
+            offset: Vec3::new(0.0, 0.75, 0.6),
+        };
+        let preview = Preview {
+            parts: vec![crate::Part { animated: true, ..crate::Part::new("robe") }],
+            idle: Some("pause1".into()),
+            overlay: Some(crate::TORCH_OVERLAY.into()),
+            effect_lights: vec![light.clone()],
+            ..Preview::model("base")
+        };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        let z = |pose: &[Mat4], i: usize| pose[i].w_axis.z;
+        let drawn = c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY);
+        let base_pose = drawn[0].pose.as_ref().unwrap();
+        assert_eq!((z(base_pose, 1), z(base_pose, 2)), (1.8, 1.6), "the arm up, the idle kept");
+        assert_eq!(z(drawn[1].pose.as_ref().unwrap(), 1), 1.8, "the robe's arm with it");
+        let rest = c.instances(None, 0.0, Mat4::IDENTITY);
+        assert_eq!(z(rest[0].pose.as_ref().unwrap(), 1), 1.0, "at rest, none");
+        // Without the overlay, the arm down.
+        let plain = Preview { overlay: None, ..preview.clone() };
+        let p = Composed::new(&gpu, &plain, &load).unwrap();
+        let drawn = p.instances(p.idle.as_deref(), 0.5, Mat4::IDENTITY);
+        assert_eq!(z(drawn[0].pose.as_ref().unwrap(), 1), 1.0);
+        // The light, ahead of and above `headconjure`.
+        let at = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+        let lights = c.point_lights(at);
+        assert_eq!(lights.len(), 1, "{lights:?}");
+        let l = lights[0];
+        assert!(l.position.abs_diff_eq(Vec3::new(10.0, 0.85, 2.6), 1e-5), "{l:?}");
+        let linear = (Vec3::new(1.75, 1.5, 1.0) / 1.75).powf(2.2);
+        assert!(l.color.abs_diff_eq(linear, 1e-5) && (l.cutoff - 13.3 * 2.0 * 1.75).abs() < 1e-3);
+        assert!(l.casts_shadows);
+        assert_eq!(c.part_point_lights(at), lights, "a light of its own, not its base model's");
+        let missing = crate::EffectLight { model: "none".into(), ..light };
+        let none = Preview { effect_lights: vec![missing], ..preview };
+        assert!(Composed::new(&gpu, &none, &load).unwrap().point_lights(at).is_empty());
     }
 }
 

@@ -521,29 +521,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **A body part's name given in place of its mesh's is drawn with that
-  name's material:** the client draws the part's PLT on a mesh that names
-  something else even where an MTR of the part's own name names another
-  `texture0` (`part_textures_look`, row J: pink MTR, orange PLT drawn);
-  Moonglow draws the MTR, as the renderer reads every texture name
-  through its material. Deferred for its consequences: drawing a renamed
-  texture without its material would change every rename, the creature's
-  `ReplaceObjectTexture` ones too, whose material the client was not
-  read for; and nothing found hits it (the 24 TDoD necks given
-  `pmh0_neck028`, an MTR, name it in its own `texture0`, the same
-  picture). S. (a builder's report on 4.0, the part textures, 2026-11-10)
 - **A DDS of one luminance channel drawn alone:** the client draws it in
   colors of no rule (`part_textures_look`, rows R to U: 60 blue, 128
-  dark red, 0 and 255 black), Moonglow gray. Awaiting a verdict: copying
-  colors of no rule, or calling such a file one the game misreads
-  (Verify could say so). In doubt before either: the rows' files were
-  written with one mip level, and the client reads past a single-level
-  standard DDS (noise; the learning of 2026-10-21 says to write all
-  levels), so the colors may be the fixture's and not the format's. Row
-  Q (the PLT over such a DDS of its name) was read with the same kind of
-  file. To be read again with all levels written before anything is
-  built on it; left filed by the owner's word, 2026-11-10. (the part
-  textures, 2026-11-10)
+  dark red, 0 and 255 black), Moonglow gray. Read again on 2026-11-25
+  with all four levels written: the same colors, so they are the
+  format's, not the fixture's (a PLT of the name still wins, row Q).
+  Awaiting the owner's verdict: copying colors of no rule, or calling
+  such a file one the game misreads (Verify could say so). (the part
+  textures, 2026-11-10; read again in the eighth client batch)
 
 - **A scene with little light draws the client's boxes 4 to 8 times
   brighter than Moonglow's:** read with `chrome1_reflection_look`'s dark
@@ -557,17 +542,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   scene's whole brightness, and wants a reading of its own: which term
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
-- **A creature holding a torch** stands in the client with its arm
-  raised, the torch held up, and the torch lights the area around it;
-  Moonglow draws the arm as in any other stance and no light (its flame
-  burns, as the client's: [findings](findings.md), "A creature's parts'
-  emitters"). Seen beside the part emitters' reading
-  (`part_emitters_look`, group h). Deferred as beyond what was asked
-  (a stance and an item's light, not its emitters), and it wants a
-  reading of its own: which animation the client plays for it, and the
-  light's color and reach (the item's Light property, or the base
-  item's). M. (a builder's report on 4.0, CEP's effect tails,
-  2026-11-10)
 
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
@@ -680,8 +654,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the client's since 2026-11-02: a tile's or a static placeable's meshes
   naming the same textures take the first one's alpha and `NO_DISCARD`,
   [the findings](findings.md), "Static geometry is drawn in buckets";
-  a bucket of several models' meshes, two static placeables of one
-  texture, is not read, and Moonglow keeps each model's apart.)
+  two static placeables of one texture keep each model's apart in the
+  client too, as Moonglow does: `batch8d_bucket_models`, 2026-11-25.)
   - Moonglow's own shader in the builders' areas (TDoD's 690 DXT1
     textures with transparent texels black, its 21 materials naming maps
     without a render hint) waits on those areas' files (`tdod.mod` here
@@ -698,13 +672,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (`particleSoftness` 10 over the emitter's larger size, a `Linked`
     emitter's and a lightning bolt's too: read on 2026-10-30,
     `reading_soft_particles_of_lightning_and_linked`, and Moonglow's bolt
-    made soft); a Lighten particle's foot fades a little more than the
-    client's (6.2 of 255 away over its last rows). (S)
-  - **Particles' size:** a still emitter's square particles are drawn
-    upright, as in the client, 28 pixels a side against the client's 30
-    in `surfaces_in_the_client` (the fitted camera's error, or the size:
-    not told apart); a spinning one starts upright and turns by
-    `particleRot` radians a second, read and drawn on 2026-10-30. (S)
+    made soft). A particle's foot fades about half a row of pixels
+    earlier in Moonglow than in the client, the same in every blend
+    (the fade painted into the color by a patched `fsparticle`: 0.5 at
+    2.1 rows from the edge against 2.65, `batch8d_soft_foot`,
+    2026-11-25; Lighten fades no more than the others, as the old
+    reading's edge made it seem). Unsettled: the depth lookup, the
+    multisampled depth's resolve, or the camera. (S)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -760,8 +734,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   overlap; a ribbon behind one is hidden too); its texture's soft edges
   blended as they are, writing their depth as the client's do. Two
   models' such meshes are put in order by their instances' places
-  (where each stands from the eye), the meshes of one in its order:
-  how the client orders two models' was not read. Each see-through mesh
+  (where each stands from the eye), the meshes of one in its order, as
+  the client orders two dynamic placeables' and two static ones' of
+  textures of their own (`batch8d_see_through_order`, 2026-11-25). Not
+  explained: two static placeables whose textures dynamic placeables
+  share as well are not drawn farthest first in the client (the nearer
+  drawn first, the farther hidden), by no listing order, model, texture
+  or row name tried; nor is it read whether the order is the
+  instance's origin's or its mesh's. Each see-through mesh
   of alpha 1 costs two draws. On macOS the solid part's discarded
   fragments wrote their depth (the plant's edge hid the ground again)
   until the shader stopped at each discard: seen and mended on the CI's
@@ -842,16 +822,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   waited on (the review's Z2) was made on 10 November and found the
   encoding's time elsewhere (the dense area's entry); the restructure is
   beyond what that pass was asked. (M) (the review of November 2026, R5)
-- **Read in the client, not yet** (the review of November 2026's
-  fixes; the client run of 10 November read R18's chunks and R29's
-  tangents, not these):
-  - a body part of a two-digit phenotype, its own textures (M10: the
-    name is read as `skeleton` writes it);
-  - a creature holding an item that names no model, drawn without it
-    (M13), and the sandboxed client's CD key copy removed when its run
-    ends (F22, held by its guard's own test).
-  (S, waits on a client run) (the review of November 2026, M10, M13,
-  F22)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in

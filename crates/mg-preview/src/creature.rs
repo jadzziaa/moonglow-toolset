@@ -148,7 +148,9 @@ pub(crate) fn dressed_with(
         } else {
             "cpause1".into()
         }),
+        overlay: None,
         lights: Vec::new(),
+        effect_lights: Vec::new(),
     };
     preview.base.env_map = env.clone();
     preview.base.colors = Some(colors);
@@ -343,6 +345,7 @@ pub(crate) fn dressed_with(
     if !model_type.starts_with('S') {
         let weapon_scale = cell_f32(&appearance, r, "WEAPONSCALE").unwrap_or(1.0);
         let baseitems = game.table("baseitems")?;
+        preview.overlay = held_overlay(look).map(str::to_string);
         for (right, it) in [(true, &look.right_hand), (false, &look.left_hand)] {
             let Some(it) = it else { continue };
             let shield = cell_int(&baseitems, it.base_item as usize, "WeaponWield") == Some(7);
@@ -363,7 +366,70 @@ pub(crate) fn dressed_with(
             }
         }
     }
+    // The light of what it wears or holds, a simple creature's too.
+    preview.effect_lights.extend(look.brightest_light().and_then(|p| item_light(game, p)));
     Ok(preview)
+}
+
+/// Where a creature's light is (its items' Light property's, or a light
+/// effect put on it): its `headconjure` node, as it stands, and from there
+/// [`CREATURE_LIGHT_OFFSET`] in its model's space, whatever it holds, how
+/// its arm is raised or what its appearance.2da row's `HEIGHT` and
+/// `PERSPACE` say (`part_emitters_torch_light`: a human's, a badger's and
+/// an ogre's, turned or not, from a torch, a cloak, a ring or the effect
+/// itself, 2026-11-25).
+pub const CREATURE_LIGHT_NODE: &str = "headconjure";
+
+/// See [`CREATURE_LIGHT_NODE`]: metres ahead of the node and above it.
+pub const CREATURE_LIGHT_OFFSET: glam::Vec3 = glam::Vec3::new(0.0, 0.75, 0.6);
+
+/// The base item of a torch (baseitems.2da row 15).
+pub(crate) const TORCH: u32 = 15;
+
+/// The animation a creature holding a torch in its left hand plays over
+/// its own, its left arm raised with the torch held up (the client's,
+/// `part_emitters_look` group h; the game's animation list names it as
+/// the torch's, and no other base item's overlay).
+pub const TORCH_OVERLAY: &str = "torchl";
+
+/// The animation a creature plays over its own for what it holds: a torch
+/// in its left hand raises that arm ([`TORCH_OVERLAY`]); anything else,
+/// none.
+fn held_overlay(look: &DressedLook) -> Option<&'static str> {
+    look.left_hand.as_ref().is_some_and(|it| it.base_item == TORCH).then_some(TORCH_OVERLAY)
+}
+
+/// The rows of visualeffects.2da an item's Light property applies, by
+/// its color (iprp_color.2da row: blue, yellow, purple, red, green,
+/// orange, white), each the dim (5 m) one of four, then 10, 15 and 20 m
+/// (`VFX_DUR_LIGHT_*`: the effects' order is not the colors').
+const LIGHT_EFFECTS: [usize; 7] = [153, 157, 161, 165, 177, 169, 173];
+
+/// The light an item's Light property gives: its color's and brightness's
+/// visual effect (`VFX_DUR_LIGHT_<COLOR>_<M>`, [`LIGHT_EFFECTS`]), its
+/// visualeffects.2da `ProgFX_Duration`, a progfx.2da lighting row (type
+/// 4): its model (`Param7`, `fx_light_clr`), the animation of it that
+/// keys the light (`Param1`, `Yello_20m`) and whether it casts shadows
+/// (`Param3`). `None` where the property or a table names none (a random
+/// brightness, 0, or a color past white). Seen in the client for a torch,
+/// yellow and bright (`part_emitters_torch_light`); the other colors go
+/// by the tables alone.
+pub fn item_light(game: &GameData, light: crate::LightProperty) -> Option<crate::EffectLight> {
+    let step = usize::from(light.brightness).checked_sub(1).filter(|s| *s < 4)?;
+    let effect = LIGHT_EFFECTS.get(usize::from(light.color))? + step;
+    let effects = game.table("visualeffects").ok()?;
+    let progfx = usize::try_from(cell_int(&effects, effect, "ProgFX_Duration")?).ok()?;
+    let rows = game.table("progfx").ok()?;
+    if cell_int(&rows, progfx, "Type") != Some(4) {
+        return None;
+    }
+    Some(crate::EffectLight {
+        model: cell(&rows, progfx, "Param7")?.to_ascii_lowercase(),
+        animation: cell(&rows, progfx, "Param1")?.to_string(),
+        shadows: cell_int(&rows, progfx, "Param3").is_some_and(|v| v != 0),
+        attach: Some(CREATURE_LIGHT_NODE.into()),
+        offset: CREATURE_LIGHT_OFFSET,
+    })
 }
 
 /// The textures a part model is drawn with in place of those its meshes
@@ -441,19 +507,24 @@ pub(crate) fn cloak_textures(
 /// none, the empty name (`mg_render::Instance::textures`); but a mesh
 /// whose `bitmap` names a material (MTR) with a `texture0` keeps the
 /// material, as one whose `materialname` does (the renderer draws that
-/// over the bitmap).
+/// over the bitmap). Where `own` is itself a material's name with a
+/// `texture0`, it is drawn without it: its PLT, as the client draws it
+/// (`part_textures_look`, row J; a texture replacement's new name, by
+/// contrast, is drawn through its material, [`crate::replaced`]).
 fn every_mesh_in(
     lk: &Lookup<'_>,
     model: Option<&mg_mdl::Model>,
     own: &str,
 ) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
+    let drawn =
+        if lk.has_material_texture(own) { mg_image::plt::plain_name(own) } else { own.to_string() };
     let bitmaps = model.map_or_else(Vec::new, crate::bitmaps);
     for b in bitmaps.into_iter().filter(|b| b != own && !lk.has_material_texture(b)) {
-        out.insert(b, own.to_string());
+        out.insert(b, drawn.clone());
     }
     if model.is_some_and(crate::unnamed_mesh) {
-        out.insert(String::new(), own.to_string());
+        out.insert(String::new(), drawn);
     }
     out
 }
@@ -511,4 +582,107 @@ fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMa
         out.insert(String::new(), c);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_resman::{LayerClass, MemContainer, ResKey, ResMan, priority};
+
+    use super::*;
+    use crate::{ItemLook, LightProperty};
+
+    /// A 2DA of `rows` rows, `columns` each, where `cells` gives a row's
+    /// values (none: all `****`).
+    fn table(
+        columns: &[&str],
+        rows: usize,
+        cells: impl Fn(usize) -> Option<Vec<String>>,
+    ) -> String {
+        let mut t = format!("2DA V2.0\n\n {}\n", columns.join(" "));
+        for r in 0..rows {
+            let row = cells(r).unwrap_or_else(|| vec!["****".into(); columns.len()]);
+            t += &format!("{r} {}\n", row.join(" "));
+        }
+        t
+    }
+
+    /// The game's lighting effects as far as a light is found by them
+    /// (rows made here, after the game's): visualeffects.2da's yellow
+    /// 20 m (160) and green 5 m (177) name progfx.2da lighting rows, the
+    /// yellow 5 m (157) a row of another type.
+    fn game() -> GameData {
+        let effects = table(&["Label", "ProgFX_Duration"], 181, |r| {
+            let progfx = match r {
+                160 => 311,
+                177 => 324,
+                157 => 300,
+                _ => return None,
+            };
+            Some(vec![format!("VFX_{r}"), progfx.to_string()])
+        });
+        let columns = ["Label", "Type", "Param1", "Param2", "Param3", "Param7"];
+        let progfx = table(&columns, 325, |r| {
+            let row = match r {
+                311 => ["LightYellow20m", "4", "Yello_20m", "1.0", "1", "fx_light_clr"],
+                324 => ["LightGreen5m", "4", "Gren_5m", "1.0", "0", "FX_Light_CLR"],
+                300 => ["Skin", "1", "vdu_tex", "****", "****", "****"],
+                _ => return None,
+            };
+            Some(row.map(String::from).to_vec())
+        });
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let mut c = MemContainer::new();
+        c.insert(key("visualeffects.2da"), effects.into_bytes());
+        c.insert(key("progfx.2da"), progfx.into_bytes());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:x", LayerClass::Erf, c);
+        GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH))
+    }
+
+    /// An item's Light property is its color's and brightness's lighting
+    /// effect: the model and animation its progfx.2da row names, and its
+    /// shadows, at the creature's `headconjure`; a brightness or color
+    /// past the table's, or an effect of another type, none.
+    #[test]
+    fn an_item_s_light_is_its_color_s_and_brightness_s_effect() {
+        let game = game();
+        let light = |brightness, color| item_light(&game, LightProperty { brightness, color });
+        let yellow = light(4, 1).unwrap();
+        assert_eq!(
+            (yellow.model.as_str(), yellow.animation.as_str()),
+            ("fx_light_clr", "Yello_20m")
+        );
+        assert!(yellow.shadows);
+        assert_eq!(yellow.attach.as_deref(), Some(CREATURE_LIGHT_NODE));
+        assert_eq!(yellow.offset, CREATURE_LIGHT_OFFSET);
+        // Green is iprp_color.2da's 4 but the effects' last (177).
+        let green = light(1, 4).unwrap();
+        assert_eq!((green.model.as_str(), green.animation.as_str()), ("fx_light_clr", "Gren_5m"));
+        assert!(!green.shadows, "a 5 m light casts none");
+        assert_eq!(light(1, 1), None, "an effect of another type");
+        assert_eq!(light(0, 1), None, "a random brightness");
+        assert_eq!(light(5, 1), None);
+        assert_eq!(light(4, 7), None, "past white");
+        assert_eq!(light(3, 1), None, "an effect naming no progfx row");
+    }
+
+    /// A torch held in the left hand raises the arm; anything else held
+    /// there, or a torch in the right, none.
+    #[test]
+    fn a_torch_in_the_left_hand_raises_the_arm() {
+        let holding = |left: Option<u32>, right: Option<u32>| {
+            let item = |base_item| ItemLook { base_item, ..ItemLook::default() };
+            let look = DressedLook {
+                left_hand: left.map(item),
+                right_hand: right.map(item),
+                ..DressedLook::default()
+            };
+            held_overlay(&look)
+        };
+        assert_eq!(holding(Some(TORCH), None), Some(TORCH_OVERLAY));
+        assert_eq!(holding(Some(TORCH), Some(1)), Some(TORCH_OVERLAY));
+        assert_eq!(holding(Some(14), None), None, "a shield");
+        assert_eq!(holding(None, Some(TORCH)), None);
+        assert_eq!(holding(None, None), None);
+    }
 }

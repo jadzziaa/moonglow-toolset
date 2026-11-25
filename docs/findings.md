@@ -1113,6 +1113,74 @@ squares twice as big, as fast.
   whether a scaled object scales the models a chunk emitter throws.
 - **Wiki:** missing.
 
+### A torch-bearer's raised arm, and an item's light on its wearer
+
+A creature holding a torch (base item 15) in its left hand plays
+`torchl` over whatever it plays: the overlay of `a_ba_non_combat`, which
+keys only the left arm (`lshould_g`, `lbicep_g`, `lforearm_g`,
+`lforearm`, `lhand_g`, `lhand` and a shoulder pad's bone), raises the
+arm and holds the torch up. It plays over the base's animation, not at
+rest, and over the bones of animated parts (a robe's, a cloak's). No
+other base item has an overlay (the wiki's Item page names only the
+torch's).
+
+An item's Light property lights its wearer, not its own model. Property
+44's `CostValue` (iprp_lightcost: 1 dim 5 m to 4 bright 20 m) and
+`Param1Value` (iprp_color: 0 blue, 1 yellow, 2 purple, 3 red, 4 green,
+5 orange, 6 white) pick a fixed `visualeffects.2da` row: 153, 157, 161,
+165, 177, 169 or 173 by the color, plus the brightness less 1 (the
+`VFX_DUR_LIGHT_*` rows; green is 177, which `nwscript.nss` calls grey).
+That row's `ProgFX_Duration` names a `progfx.2da` row of type 4:
+`Param1` the animation (`Yello_20m`), `Param3` the shadows,
+`Param7` the model, `fx_light_clr`, whose `AuroraLight01` is read at
+the animation's end (the bright yellow: color 1.75, 1.5, 1, radius 13.3).
+
+The light is the creature's effect, the same for a torch, a cloak, a
+ring and `EffectVisualEffect(160)` on the creature: it stands at the
+creature model's `headconjure` node plus (0, 0.75, 0.6) in the model's
+frame (0.75 m ahead, 0.6 m up), turns with the creature, and follows
+the model (a human, a badger, an ogre). `appearance.2da`'s `HEIGHT`,
+`PERSPACE` and `CREPERSPACE` change nothing. Of two items' lights the
+brightest is taken.
+
+Light added to the floor (linear red, client / Moonglow) by the torch
+of a commoner facing south, boxes along his east-west row (m from him)
+and his north-south line:
+
+| −7 | −5.5 | −4.5 | −3.5 | −2.5 | −1.5 | +1 | +2 | +3 | +4 | +5 | +6 | +8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.071 / 0.073 | 0.127 / 0.131 | 0.197 / 0.201 | 0.320 / 0.323 | 0.524 / 0.522 | 0.806 / 0.794 | 0.952 / 0.924 | 0.655 / 0.649 | 0.407 / 0.411 | 0.249 / 0.254 | 0.158 / 0.161 | 0.103 / 0.107 | 0.050 / 0.052 |
+
+North 2 and 4 m: 0.481 / 0.500, 0.191 / 0.195; south 2, 4, 6, 8 m:
+0.887 / 0.872, 0.344 / 0.345, 0.134 / 0.137, 0.062 / 0.064. Green over
+red 0.71 on both sides. The root mean square of the log ratio is 0.024
+(the torch turned east 0.024, the cloak 0.022, the ring 0.022, the
+ogre's torch 0.018, a dim green torch 0.027, green over red about 4.5
+on both). Before, Moonglow drew no light; a light at the hand, tried
+first, gave about 0.65 of the client's far off.
+
+- **Checked:** `part_emitters_torch_light` (`client_render/part_emitters.rs`,
+  2026-11-25, EE 89.8193.37): fifteen runs, each beside Moonglow's view
+  of the same scene (`light_<run>_moonglow_on.png`); the arm in
+  `part_emitters_look`'s group h.
+- **Moonglow:** `mg_preview::creature` (`Preview::overlay` for the
+  torch, `Preview::effect_lights` from `item_light` over
+  `DressedLook::brightest_light`, the undrawn slots' lights in
+  `DressedLook::light`), drawn by `mg_preview::compose::Composed` for
+  the area view, the previews and the gallery (`anim::pose_layers_scaled`,
+  `anim::pose_worn_layers`). Tests: `a_torch_in_the_left_hand_raises_the_arm`,
+  `an_item_s_light_is_its_color_s_and_brightness_s_effect`,
+  `a_creature_s_light_is_its_brightest_item_s`,
+  `a_torch_bearer_raises_his_arm_and_lights_around_him`,
+  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch).
+- **Not read:** which of two equally bright lights is taken; the light
+  of an item lying on the ground or of an item's own preview; colors
+  other than yellow and green (they go by the tables); a light on a
+  model without `headconjure` (Moonglow puts it at the origin plus the
+  offset).
+- **Wiki:** the Item page names the torch's overlay; the light's place
+  is missing.
+
 ### A chunk emitter's models are drawn at their own size
 
 A chunk emitter (`chunkName`) throws its models at their own size,
@@ -1371,6 +1439,51 @@ is `default` too, the area's, not `chrome1`.
   (`PLACEABLE_DEFAULT_ENV_MAP`, `Part::env_map_default`); a texture's
   and a creature's `default` in `crates/mg-render/src/renderer.rs`
   (`Instance::env_map_default`).
+- **Wiki:** missing.
+
+### The eighth client batch's smaller readings
+
+- **An item that names no model stops the area from loading.** A
+  creature holding one (an empty `ItemClass` and `DefaultModel`, a
+  class of no model, or a part number past the class's models) leaves
+  the client on the loading screen: its log says "CreateItem: Model …
+  nor the default model could be loaded", then "Message type mismatch".
+  Moonglow draws the creature without the item.
+- **A two-digit phenotype's part** (phenotype 15, `pmh15`) takes its
+  textures as a phenotype 0 part does: its own PLT on every mesh, else
+  phenotype 0's by the fallback, else what its mesh names.
+- **Two static placeables of one texture** keep each model's
+  `NO_DISCARD` and opacity: the client's buckets do not reach across
+  models.
+- **A particle's size** is right: beside a card of its width at the
+  same depth it is as wide in both (1.00); the fitted camera of
+  `surfaces_in_the_client` draws the whole picture 3 to 5 percent
+  smaller.
+- **The sandboxed client's CD key copy goes with its run:** a joined DM
+  run with `MG_CLIENT_CDKEY` set joined its server (the character
+  list), and no `cdkey.ini` was left in its scratch folder afterwards
+  (`joined_dm_creator_palette`, 2026-11-25).
+- **Checked:** `batch8d.rs` in `client_render` (2026-11-25).
+- **Wiki:** missing (the item without a model).
+
+### A texture replacement's new name: its material, or the old texture kept
+
+`ReplaceObjectTexture` (and the `TextureReplace` field it saves) draws
+the new name through its material: an MTR of the name with a
+`texture0` is drawn with that texture over a TGA or PLT of the name.
+Where the new name has nothing to draw (an MTR with no `texture0`, even
+beside a TGA of the name, or no resource at all) the client keeps the
+old texture. A body part's own name, put on the part's meshes that name
+another texture, is drawn the other way: without its material, its PLT
+(`part_textures_look`, row J). Creatures and placeables are alike.
+
+- **Checked:** `part_textures_renamed_look` (2026-11-25; six chests
+  and six placeable boxes renamed by the script call, beside Moonglow's
+  field), and `part_textures_look`'s row J again (group `GHIJKL`).
+- **Moonglow:** `crates/mg-preview/src/lib.rs` (`replaced`,
+  `Lookup::renames_to_a_picture`); a part's own name marked
+  `mg_image::plt::plain_name` in `creature.rs` (`every_mesh_in`), which
+  the renderer's `image_of` draws without its MTR.
 - **Wiki:** missing.
 
 ### A creature's worn and held items reflect the area's map

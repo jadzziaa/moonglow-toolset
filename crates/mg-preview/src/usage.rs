@@ -1052,7 +1052,7 @@ impl<'a> Walk<'a> {
             return;
         }
         let Ok(p) = crate::item(self.game, s) else { return };
-        let p = crate::replaced(p, s);
+        let p = crate::replaced(self.game, p, s);
         // (One that lies as something else, a cloak folded, is drawn as
         // this once it is picked up and worn: its cloakmodel.2da texture.)
         let lies_as_another = || {
@@ -1132,7 +1132,8 @@ impl<'a> Walk<'a> {
         self.gather.add_model(model);
         let lk = crate::Lookup { game: self.game, remembered: Some(&self.remembered) };
         for texture in crate::creature::plt_fallbacks(&lk, model).values() {
-            self.gather.add_texture(mg_image::plt::split_colors(texture).0);
+            self.gather
+                .add_texture(mg_image::plt::split_plain(mg_image::plt::split_colors(texture).0).0);
         }
     }
 

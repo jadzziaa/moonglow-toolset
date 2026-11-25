@@ -133,8 +133,10 @@ then the shadows, the fog and how the scene is drawn.
   Properties, the tiles' main and source lights (Tile Properties), the
   light of each placeable whose appearance has one (placeables.2da's
   `LightColor`, unless its **Illuminated** is off) and the light nodes of
-  every object's models (a builder's lamps and braziers, a held torch),
-  as the game lights them: each with its color and reach, a light node's
+  every object's models (a builder's lamps and braziers), and a
+  creature's light from its items' Light property (a torch, which it
+  holds up, a cloak, a ring: the brightest, ahead of its head, as the
+  game puts it), as the game lights them: each with its color and reach, a light node's
   `multiplier` lengthening its reach, and each surface lit by the 32
   most important lights that reach it (by their priority, then their
   nearness), as the game's client is by default. Compared with Aurora an
