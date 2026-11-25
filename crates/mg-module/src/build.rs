@@ -689,6 +689,94 @@ pub fn compile_changed(
     Pass { results, now, scripts, why }
 }
 
+/// What a compile did to a stored file (a compiled script or a debug file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// There is none, before or after.
+    None,
+    /// There was none; now there is.
+    New,
+    /// Its bytes differ from what was there.
+    Changed,
+    /// The same bytes as before.
+    Same,
+}
+
+impl Change {
+    fn of(before: Option<&[u8]>, after: Option<&[u8]>) -> Change {
+        match (before, after) {
+            (None, None) => Change::None,
+            (None, Some(_)) => Change::New,
+            (Some(b), Some(a)) if b == a => Change::Same,
+            _ => Change::Changed,
+        }
+    }
+
+    /// Whether the file is new or its bytes differ.
+    pub fn is_changed(self) -> bool {
+        matches!(self, Change::New | Change::Changed)
+    }
+}
+
+/// What one compile of a script was for and did.
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    pub script: ResKey,
+    pub why: Why,
+    /// The compiler's message (its first line), if it failed.
+    pub error: Option<String>,
+    /// Its compiled script (`.ncs`) and debug file (`.ndb`).
+    pub compiled: Change,
+    pub debug: Change,
+}
+
+impl Outcome {
+    /// One line of the Log's details: the script, why, what came of it.
+    pub fn line(&self) -> String {
+        let name = self.script.resref;
+        let why = self.why.says();
+        if let Some(e) = &self.error {
+            return format!("{name}: {why}; failed: {e}");
+        }
+        let made = match self.compiled {
+            Change::None => "it makes no compiled script (an include, or no main)",
+            Change::New => "compiled, a new compiled script",
+            Change::Changed => "compiled again, the bytes differ",
+            Change::Same => "compiled again, the same bytes",
+        };
+        let debug = match self.debug {
+            Change::New | Change::Changed => "; its debug file changed",
+            _ => "",
+        };
+        format!("{name}: {why}; {made}{debug}")
+    }
+}
+
+/// What `pass` did to each script it compiled, those changed first, then
+/// by name; `before` and `after` are the module around it.
+pub fn outcomes(pass: &Pass, before: &Module, after: &Module) -> Vec<Outcome> {
+    fn get<'a>(m: &'a Module, k: &ResKey, t: ResType) -> Option<&'a [u8]> {
+        m.get(&ResKey::new(k.resref, t))
+    }
+    let mut out: Vec<Outcome> = (pass.results.iter())
+        .map(|r| Outcome {
+            script: r.script,
+            why: pass.why.get(&r.script).copied().unwrap_or(Why::Asked),
+            error: r.result.as_ref().err().map(|e| e.message.lines().next().unwrap_or("").into()),
+            compiled: Change::of(
+                get(before, &r.script, ResType::NCS),
+                get(after, &r.script, ResType::NCS),
+            ),
+            debug: Change::of(
+                get(before, &r.script, ResType::NDB),
+                get(after, &r.script, ResType::NDB),
+            ),
+        })
+        .collect();
+    out.sort_by_key(|o| (!o.compiled.is_changed(), o.script.resref.to_string().to_lowercase()));
+    out
+}
+
 /// The module's scripts that [`compile_changed`] compiles: those not as
 /// `known` remembers them (changed, they or what they include, or their
 /// compiled script not the one made of them), and with `debug` those
@@ -1422,14 +1510,34 @@ mod tests {
                 ("a_other".to_string(), Why::CompiledElsewhere),
             ]
         );
+        // What came of each: the edited one's bytes differ, the other tool's
+        // are replaced by the compiler's, the others' are the same.
+        let before = m.clone();
+        let (_, pass) = why(&mut m, &known, None, false);
+        let said: Vec<(String, Change, bool)> = outcomes(&pass, &before, &m)
+            .iter()
+            .map(|o| (o.script.resref.to_string(), o.compiled, o.line().contains(o.why.says())))
+            .collect();
+        assert_eq!(
+            said,
+            [
+                ("a_edit".into(), Change::Changed, true),
+                ("a_gone".into(), Change::New, true),
+                ("a_other".into(), Change::Changed, true),
+            ]
+        );
+        let line = outcomes(&pass, &before, &m)[0].line();
+        assert_eq!(
+            line,
+            "a_edit: it or something it includes changed; compiled again, the bytes differ"
+        );
         // Debug files wanted, and none made.
-        let (_, mut pass) = why(&mut m, &known, None, false);
-        let (got, _) = why(&mut m, &pass.now, None, true);
+        let (_, clean) = why(&mut m, &known, None, false);
+        let (got, _) = why(&mut m, &clean.now, None, true);
         assert_eq!(got.len(), 4);
         assert!(got.iter().all(|(_, w)| *w == Why::NoDebugFile), "{got:?}");
-        pass.now = known;
         // Named: asked, whatever is remembered.
-        let (got, _) = why(&mut m, &pass.now, Some(vec![key("a_new", ResType::NSS)]), false);
+        let (got, _) = why(&mut m, &known, Some(vec![key("a_new", ResType::NSS)]), false);
         assert_eq!(got, [("a_new".to_string(), Why::Asked)]);
     }
 
