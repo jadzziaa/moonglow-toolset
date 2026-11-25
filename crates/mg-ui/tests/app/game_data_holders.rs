@@ -299,3 +299,259 @@ fn a_module_opened_while_the_game_data_is_held_has_its_haks_once_it_is_free() {
     assert_eq!(module_layers(h.state()), layered);
     assert!(!h.state().game_changes_waiting());
 }
+
+/// The same on the GPU, with the 3D views drawing (issues #49 and #50).
+/// These take the GPU (`gpu()`, `area_harness`): the session that may
+/// use it runs them, `cargo test -p mg-ui --test app game_data_holders::gpu::`.
+mod gpu {
+    use super::*;
+
+    /// An area's window on the GPU, its area read and drawn apart from the
+    /// window as in the desktop app (`background_jobs`), with the game's
+    /// user folder `user`; not yet drawn.
+    fn drawing_area(
+        name: &str,
+        user: Option<std::path::PathBuf>,
+    ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+        let (mut app, rs, area) = area_app(name, "ttr01", None, 4, user, &|_, _, _| {})?;
+        app.background_jobs = true;
+        app.settings.no_last_area = true;
+        Some((area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, 800.0), area))
+    }
+
+    /// Frames until `area`'s view has drawn a picture with every texture
+    /// read (30 seconds at most).
+    fn drawn(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+        let started = Instant::now();
+        loop {
+            h.step();
+            let app = h.state();
+            let pictures = app.area_views.get(&area).map_or(0, |v| v.pictures);
+            let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+            if pictures > 0 && pending == 0 && app.under_way().is_none() {
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(30), "never drawn");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        h.run_steps(3);
+    }
+
+    /// The area view's part of the window's picture.
+    fn view_picture(h: &mut Harness<'_, Moonglow>, area: ResRef) -> image::RgbaImage {
+        h.run_steps(1);
+        let rect = h.state().area_views[&area].rect;
+        let img = h.render().expect("render");
+        let ppp = h.ctx.pixels_per_point();
+        let (x, y) = ((rect.min.x * ppp) as u32, (rect.min.y * ppp) as u32);
+        let (w, hh) = ((rect.width() * ppp) as u32, (rect.height() * ppp) as u32);
+        image::imageops::crop_imm(&img, x, y, w.min(img.width() - x), hh.min(img.height() - y))
+            .to_image()
+    }
+
+    /// The picture's mean red and blue, 0 to 255.
+    fn red_and_blue(img: &image::RgbaImage) -> (f64, f64) {
+        let n = f64::from(img.width() * img.height()).max(1.0);
+        let (r, b) = img
+            .pixels()
+            .fold((0.0, 0.0), |(r, b), p| (r + f64::from(p.0[0]), b + f64::from(p.0[2])));
+        (r / n, b / n)
+    }
+
+    /// Save, timed: how long its frame took, and that nothing waits.
+    fn timed_save(h: &mut Harness<'_, Moonglow>) -> Duration {
+        let started = Instant::now();
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.step();
+        let took = started.elapsed();
+        let entries = &h.state().log.entries;
+        assert!(
+            !entries.iter().any(|(_, m)| m.starts_with("The game data is still in use")),
+            "{entries:#?}"
+        );
+        assert!(!h.state().game_changes_waiting());
+        took
+    }
+
+    /// Issue #49: Save while the area's textures are still being read
+    /// apart from the window. The readers let go at once: Save takes well
+    /// under the ten seconds the window waits at most, and once the window
+    /// lets go of the game data it alone holds it.
+    #[test]
+    fn save_does_not_wait_for_an_area_s_textures_being_read() {
+        let Some((mut h, area)) = drawing_area("holders-save-textures", None) else { return };
+        let started = Instant::now();
+        let reading = |app: &Moonglow| {
+            app.area_views.get(&area).is_some_and(|v| v.pictures > 0)
+                && app.viewport.as_ref().unwrap().renderer.textures_read() > 0
+        };
+        while !reading(h.state()) {
+            assert!(started.elapsed() < Duration::from_secs(60), "never drawn");
+            std::thread::sleep(Duration::from_millis(5));
+            h.step();
+        }
+        let pending = h.state().viewport.as_ref().unwrap().renderer.drawn.textures_pending;
+        eprintln!("textures still to come as Save ran: {pending}");
+        let took = timed_save(&mut h);
+        eprintln!("Save took {took:.0?}");
+        assert!(took < Duration::from_secs(3), "Save took {took:.0?}");
+        let (others, waited) = others_after_release(&mut h);
+        assert_eq!(others, 0, "the game data held after Save");
+        assert!(waited < Duration::from_secs(3), "let go in {waited:.0?}");
+    }
+
+    /// Issue #49: Save while the area's first reading is still on its
+    /// thread (which holds the game data until it is done).
+    #[test]
+    fn save_does_not_wait_for_an_area_s_first_reading() {
+        let Some((mut h, area)) = drawing_area("holders-save-reading", None) else { return };
+        // (The tab opened, then the reading started.)
+        h.run_steps(2);
+        let reading = h.state().under_way() == Some("an area being read");
+        eprintln!("the area still read as Save ran: {reading}");
+        let took = timed_save(&mut h);
+        eprintln!("Save took {took:.0?}");
+        assert!(took < Duration::from_secs(3), "Save took {took:.0?}");
+        drawn(&mut h, area);
+        let (others, waited) = others_after_release(&mut h);
+        assert_eq!(others, 0, "the game data held after Save");
+        assert!(waited < Duration::from_secs(3), "let go in {waited:.0?}");
+    }
+
+    /// The Appearance Gallery making its pictures (their models read apart
+    /// on threads that hold the game data): the window lets go of it at
+    /// once, and it alone holds it then.
+    #[test]
+    fn a_gallery_making_pictures_lets_go_of_the_game_data() {
+        let Some((mut h, area)) = drawing_area("holders-gallery", None) else { return };
+        drawn(&mut h, area);
+        h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+        h.run_steps(4);
+        eprintln!("under way as it was let go of: {:?}", h.state().under_way());
+        let started = Instant::now();
+        h.state_mut().reload_resources(false);
+        let waited = started.elapsed();
+        let others = Arc::strong_count(h.state().game.as_ref().unwrap()) - 1;
+        assert_eq!(others, 0, "the game data held by the gallery");
+        assert!(waited < Duration::from_secs(3), "let go in {waited:.0?}");
+        // (And its pictures are made after all.)
+        settle(&mut h);
+    }
+
+    /// Two copies of the area's module, beside it: A listing the hak whose
+    /// rural tileset's textures are all red, B the one whose are blue. The
+    /// user folder has both.
+    fn red_and_blue_modules(
+        user: &std::path::Path,
+        area_module: &std::path::Path,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        // (The textures ttr01's tiles are drawn with.)
+        const TEXTURES: [&str; 8] = [
+            "ttr01_bark01",
+            "ttr01_dirt01",
+            "ttr01_grass01",
+            "ttr01_grass02",
+            "ttr01_grassrim01",
+            "ttr01_leaf01",
+            "ttr01_rock00",
+            "ttr01_splotch01",
+        ];
+        for (name, rgba) in [("mg_all_red", RED), ("mg_all_blue", BLUE)] {
+            let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+            for t in TEXTURES {
+                w.add(ResRef::from_str(t).unwrap(), ResType::TGA, swatch(rgba)).unwrap();
+            }
+            std::fs::create_dir_all(user.join("hak")).unwrap();
+            std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+        }
+        let dir = area_module.parent().unwrap();
+        let (a, b) = (dir.join("red.mod"), dir.join("blue.mod"));
+        std::fs::copy(area_module, &a).unwrap();
+        std::fs::copy(area_module, &b).unwrap();
+        list_haks(&a, &["mg_all_red"]);
+        list_haks(&b, &["mg_all_blue"]);
+        (a, b)
+    }
+
+    /// `module` opened in place of the one open, its area's tab opened and
+    /// drawn, and its picture saved as `name`.png in the test's folder.
+    fn opened_and_pictured(
+        h: &mut Harness<'_, Moonglow>,
+        module: &std::path::Path,
+        area: ResRef,
+        name: &str,
+    ) -> image::RgbaImage {
+        h.state_mut().close();
+        h.state_mut().open_module(module);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        drawn(h, area);
+        let picture = view_picture(h, area);
+        let dir = mg_testkit::test_output().join("holders-haks-follow");
+        std::fs::create_dir_all(&dir).unwrap();
+        picture.save(dir.join(format!("{name}.png"))).unwrap();
+        picture
+    }
+
+    /// Issue #50: module A, its hak's ground red, closed and module B, its
+    /// hak's ground blue under the same names, opened: B's area is drawn
+    /// blue, A's textures forgotten. (Pictures in
+    /// `holders-haks-follow/`: red.png, blue.png.)
+    #[test]
+    fn the_next_module_s_hak_textures_are_drawn() {
+        let dir = mg_testkit::scratch_dir("ui-holders-haks-follow");
+        let user = user_folder(&dir, &["hak"]);
+        let Some((mut h, area)) = drawing_area("holders-haks-follow", Some(user.clone())) else {
+            return;
+        };
+        let path = h.state().module_path().expect("the area's module");
+        let (a, b) = red_and_blue_modules(&user, &path);
+        let red = opened_and_pictured(&mut h, &a, area, "red");
+        let (r, bl) = red_and_blue(&red);
+        assert!(r > bl + 20.0, "A's area red: red {r:.0}, blue {bl:.0}");
+        let blue = opened_and_pictured(&mut h, &b, area, "blue");
+        let (r, bl) = red_and_blue(&blue);
+        assert!(bl > r + 20.0, "B's area blue, not A's red: red {r:.0}, blue {bl:.0}");
+    }
+
+    /// Issue #50 as it was met: B opened while something still held the
+    /// game data (a job here; a copy kept by mistake in 4.2.1). Once it is
+    /// free, B's haks are layered, and its area, drawn meanwhile with what
+    /// the game data had, is drawn again blue. (Pictures in
+    /// `holders-haks-follow/`: held-red.png, held-blue.png.)
+    #[test]
+    fn the_next_module_s_hak_textures_are_drawn_once_the_game_data_is_free() {
+        let dir = mg_testkit::scratch_dir("ui-holders-haks-held");
+        let user = user_folder(&dir, &["hak"]);
+        let Some((mut h, area)) = drawing_area("holders-haks-held", Some(user.clone())) else {
+            return;
+        };
+        let path = h.state().module_path().expect("the area's module");
+        let (a, b) = red_and_blue_modules(&user, &path);
+        let red = opened_and_pictured(&mut h, &a, area, "held-red");
+        let (r, bl) = red_and_blue(&red);
+        assert!(r > bl + 20.0, "A's area red: red {r:.0}, blue {bl:.0}");
+        let (go, held) = std::sync::mpsc::channel::<()>();
+        h.state_mut().start_job_for_tests("Held", move |_| {
+            let _ = held.recv();
+        });
+        h.state_mut().close();
+        h.state_mut().open_module(&b);
+        assert!(h.state().game_changes_waiting(), "B's haks wait for the game data");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        h.run_steps(4);
+        go.send(()).unwrap();
+        let started = Instant::now();
+        while h.state().busy() || h.state().game_changes_waiting() {
+            assert!(started.elapsed() < Duration::from_secs(30), "never made");
+            std::thread::sleep(Duration::from_millis(5));
+            h.step();
+        }
+        drawn(&mut h, area);
+        let blue = view_picture(&mut h, area);
+        let out = mg_testkit::test_output().join("holders-haks-follow");
+        std::fs::create_dir_all(&out).unwrap();
+        blue.save(out.join("held-blue.png")).unwrap();
+        let (r, bl) = red_and_blue(&blue);
+        assert!(bl > r + 20.0, "B's area blue, not A's red: red {r:.0}, blue {bl:.0}");
+    }
+}
