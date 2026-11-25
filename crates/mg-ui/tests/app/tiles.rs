@@ -733,8 +733,8 @@ fn tile_properties_choose_a_variant_by_picture() {
     // them; another chosen is put there at once, the window staying.
     let props = h.state().tile_props.clone().expect("the window is open");
     assert_eq!(props.tiles, [5]);
-    let (cell, variants) = props.variants.clone().expect("one tile: its variants");
-    assert_eq!(cell, (1, 1));
+    let (cells, variants) = props.variants.clone().expect("one tile: its variants");
+    assert_eq!(cells, [(1, 1)]);
     let now = props.variant.unwrap();
     assert!(variants.len() > 1 && variants.iter().any(|(p, _)| *p == now), "{variants:?}");
     if let Some(dir) = shot_dir("ui-tile-variants") {
@@ -767,6 +767,71 @@ fn tile_properties_choose_a_variant_by_picture() {
     } else {
         panic!("no variant pictures");
     }
+}
+
+/// Tile Properties of several tiles shows the tiles that fit every one of
+/// them as pictures; a click puts that one in each, turned as it fits
+/// there, in one step.
+#[test]
+fn tile_properties_choose_a_variant_for_several_tiles() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-variants-many") else { return };
+    let id_of = |h: &mut Harness<'_, Moonglow>, (x, y): (u32, u32)| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        let w = are.root.integer("Width").unwrap() as usize;
+        are.root.list("Tile_List").unwrap()[y as usize * w + x as usize].integer("Tile_ID").unwrap()
+    };
+    let (a, b) = ((1, 1), (2, 1));
+    area_click(&mut h, "Select Tiles");
+    h.run_steps(2);
+    let south = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    let north = screen(&h, area, Vec3::new(25.0, 15.0, 0.0));
+    click_pos(&h, south);
+    h.run_steps(2);
+    h.hover_at(north);
+    press(&h, north, true, egui::Modifiers::COMMAND);
+    press(&h, north, false, egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].tile_selection, [a, b]);
+    tile_properties_at(&mut h, north);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    let shots = shot_dir("ui-tile-variants-many");
+    if let Some(dir) = &shots {
+        h.render().unwrap().save(dir.join("a.png")).unwrap();
+    }
+    let (cells, variants) = props.variants.clone().expect("several tiles: their variants");
+    assert_eq!(cells, [a, b]);
+    assert!(variants.len() > 1, "{variants:?}");
+    h.get_by_label_contains(&format!("Variant ({} fit every tile chosen)", variants.len()));
+    let before_undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    let (now_south, now_north) = (id_of(&mut h, a), id_of(&mut h, b));
+    let other = variants
+        .iter()
+        .find(|(p, _)| i64::from(p.tile) != now_south || i64::from(p.tile) != now_north)
+        .expect("a tile other than one there now");
+    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(other.0.orientation % 4)];
+    let at = h
+        .query_all_by_label(&format!("{}{turn}", other.1))
+        .next()
+        .map(|n| n.rect().center())
+        .expect("its picture");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    // (Pictures of one model under two turns are not told apart here.)
+    let (south_id, north_id) = (id_of(&mut h, a), id_of(&mut h, b));
+    assert_eq!(south_id, north_id, "one tile put in each");
+    assert!(variants.iter().any(|(p, _)| i64::from(p.tile) == south_id), "tile {south_id}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile variant"));
+    if let Some(dir) = &shots {
+        h.render().unwrap().save(dir.join("b.png")).unwrap();
+    }
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(2);
+    assert_eq!((id_of(&mut h, a), id_of(&mut h, b)), (now_south, now_north), "one step");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), before_undo);
 }
 
 #[test]

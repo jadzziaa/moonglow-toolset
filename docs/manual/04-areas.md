@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T18:56:44Z }
 ---
 
 # Areas
@@ -1701,11 +1701,14 @@ There is no OK or Cancel: what you change is written at once (below).
 window after its view) and gives its first control the keyboard; Tab
 goes on through its controls.
 
-With one tile chosen, Tile Properties shows the **variants**: every tile
-that fits there, as pictures, the one there now framed (not for a
-group's or a feature's tile, which changes only with its group, unless
-the option above is on). Click another and it is put there at once (one
-step to undo), the panel showing the new tile. Widen the Right Dock and
+Tile Properties shows the **variants**: every tile that fits the tile
+chosen, as pictures, the one there now framed (not for a group's or a
+feature's tile, which changes only with its group, unless the option
+above is on). Click another and it is put there at once (one step to
+undo), the panel showing the new tile. With several tiles chosen, it
+shows the tiles that fit every one of them ("Variant (48 fit every tile
+chosen)"), framing the one there only where all have it, turned alike;
+a click puts that tile in each, at each one's own height, in one step. Widen the Right Dock and
 the pictures fill it. The **Size** slider
 beside the variants makes the pictures larger, to tell tiles much alike
 apart (64 to 224 points, 84 at first); it is
