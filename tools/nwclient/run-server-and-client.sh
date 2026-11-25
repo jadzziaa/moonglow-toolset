@@ -134,6 +134,7 @@ for a in "$@"; do
   prev=$a
 done
 
+[ "${MG_CLIENT:-player}" = none ] || mg_display_history "run-server-and-client.sh start: display $DISP, $MG_SCRATCH"
 exec bwrap \
   --ro-bind / / \
   --dev-bind /dev /dev \

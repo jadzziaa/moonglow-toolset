@@ -78,6 +78,35 @@ mg_lock_display() {
   export MOONGLOW_LOCKS_HELD="display${MOONGLOW_LOCKS_HELD:+,$MOONGLOW_LOCKS_HELD}"
 }
 
+# Appends one line to the display's history
+# (${MOONGLOW_ORACLE}/locks/display.history, docs/locks.md): the UTC time,
+# this PID, the event ($*), the display lock's state (taken by this run, or
+# by an ancestor and its holder line, or not held), what called this
+# script and the folder; keeps the last 1,000 lines. Never fails its caller.
+mg_display_history() {
+  local dir file lock caller line
+  dir="$(mg_oracle_dir)/locks"
+  file="$dir/display.history"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  if [[ -n "${MG_DISPLAY_LOCK_FD:-}" ]]; then
+    lock="held by this run"
+  elif mg_lock_held_by_ancestor display; then
+    lock="held by an ancestor ($(head -n 1 "$dir/display.lock" 2>/dev/null))"
+  else
+    lock="not held"
+  fi
+  caller=$(tr '\0' ' ' < "/proc/$PPID/cmdline" 2>/dev/null | cut -c1-200)
+  line="$(date -u +%FT%TZ) PID $$: $*; lock $lock; called by PID $PPID ${caller% }; in $PWD"
+  (
+    flock -x 9 || exit 0
+    printf '%s\n' "$line" >&9
+    if (($(wc -l < "$file") > 1200)); then
+      tail -n 1000 "$file" > "$file.tmp" && cat "$file.tmp" > "$file"
+      rm -f "$file.tmp"
+    fi
+  ) 9>> "$file" 2>/dev/null || true
+}
+
 # Closes every descriptor above 2 in this shell: for a subshell that starts
 # a long-lived program (the headless KWin session) which must not keep the
 # lock's descriptor, or the lock would be held for the session's life.

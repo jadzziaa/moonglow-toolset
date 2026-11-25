@@ -29,7 +29,11 @@
 # - The machine's display lock (tools/locks.sh, docs/locks.md) is taken
 #   first, unless an ancestor holds it (MOONGLOW_LOCKS_HELD), and its
 #   descriptor goes into the sandbox: the lock lives as long as the client
-#   (a kill -9 of the sandbox frees it).
+#   (a kill -9 of this script, or of the sandbox, frees it: the sandbox
+#   dies with this script).
+# - The display's history (docs/locks.md) gets a line at the client's start
+#   and one at its end with its exit status; a kill -9 of this script
+#   leaves no end line.
 #
 # The game install comes from $NWN_ROOT (default: the Steam path).
 set -e
@@ -55,7 +59,9 @@ if [ -n "${MG_CLIENT_AUDIO_OUT:-}" ]; then
     "$OUT" > "$SCRATCH/alsoft.conf"
   AUDIO=wave
 fi
-exec bwrap \
+mg_display_history "run-client.sh start: display $DISP, $SCRATCH $*"
+status=0
+bwrap \
   --ro-bind / / \
   --dev-bind /dev /dev \
   --tmpfs /dev/shm \
@@ -74,4 +80,6 @@ exec bwrap \
   ${MG_CLIENT_AUDIO_OUT:+--setenv ALSOFT_CONF "$SCRATCH/alsoft.conf"} \
   ${MG_CLIENT_PRELOAD:+--setenv LD_PRELOAD "$MG_CLIENT_PRELOAD"} \
   --chdir "$NWN/bin/linux-x86" \
-  ./nwmain-linux -userdirectory "$SCRATCH/user" "$@"
+  ./nwmain-linux -userdirectory "$SCRATCH/user" "$@" || status=$?
+mg_display_history "run-client.sh end: status $status, $SCRATCH"
+exit "$status"

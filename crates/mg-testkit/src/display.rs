@@ -443,6 +443,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(&oracle);
     }
 
+    /// The display's history: one line an event, saying whether the lock
+    /// was this run's or an ancestor's, the last 1,000 kept.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_display_history_says_who_held_the_lock() {
+        if !Command::new("flock").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: no flock(1)");
+            return;
+        }
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/locks.sh");
+        let oracle = scratch("history");
+        let history = oracle.join("locks/display.history");
+        let run = |body: &str, held: Option<&str>| {
+            let mut c = Command::new("bash");
+            c.arg("-c")
+                .arg(format!(". '{}'; {body}", script.display()))
+                .env("MOONGLOW_ORACLE", &oracle)
+                .env("MOONGLOW_LOCK_WAIT", "5")
+                .env_remove("MOONGLOW_LOCKS_HELD");
+            if let Some(held) = held {
+                c.env("MOONGLOW_LOCKS_HELD", held);
+            }
+            assert!(c.status().unwrap().success());
+        };
+        run("mg_lock_display 'a test'; mg_display_history 'headless.sh start: display :9'", None);
+        run("mg_display_history 'run-client.sh end: status 0'", Some("display"));
+        run("mg_display_history 'headless.sh stop: no session running'", None);
+        let text = std::fs::read_to_string(&history).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        // (2026-11-25T18:00:00Z PID 1234: ...)
+        assert!(lines[0].len() > 21 && lines[0].as_bytes()[19] == b'Z', "{}", lines[0]);
+        assert!(
+            lines[0]
+                .contains(": headless.sh start: display :9; lock held by this run; called by PID "),
+            "{}",
+            lines[0]
+        );
+        assert!(lines[1].contains("; lock held by an ancestor (PID "), "{}", lines[1]);
+        assert!(lines[1].contains(", a test, in /"), "{}", lines[1]);
+        assert!(lines[2].contains("; lock not held; "), "{}", lines[2]);
+        assert!(lines[2].contains("; in /"), "{}", lines[2]);
+        // Past 1,200 lines the last 1,000 are kept, the newest last.
+        let old: String = (0..1300).map(|n| format!("old {n}\n")).collect();
+        std::fs::write(&history, old).unwrap();
+        run("mg_display_history 'newest'", None);
+        let text = std::fs::read_to_string(&history).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 1000);
+        assert_eq!(lines[0], "old 301");
+        assert!(lines[999].contains(": newest; lock not held"), "{}", lines[999]);
+        let _ = std::fs::remove_dir_all(&oracle);
+    }
+
     /// What starts the headless session (headless.sh) closes the lock's
     /// descriptor first, or the lock would be held for the session's life.
     #[cfg(target_os = "linux")]
