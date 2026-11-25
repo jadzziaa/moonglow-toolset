@@ -408,8 +408,8 @@ impl Moonglow {
 
     /// Whether `tab` is a script whose editor's state stays for the session
     /// as its tab closes: nothing in it unsaved (a clean close, the
-    /// closing question's Save, the header's OK; the owner's ruling of
-    /// 2026-11-25). With unsaved text (Don't Save) it is let go.
+    /// closing question's Save, the header's OK or Cancel; the owner's
+    /// rulings of 2026-11-25). With unsaved text (Don't Save) it is let go.
     fn script_kept_on_close(&self, tab: &Tab) -> bool {
         matches!(tab, Tab::Script(key) if self.scripts.get(key).is_some_and(|b| !b.is_dirty()))
     }
@@ -444,8 +444,12 @@ impl Moonglow {
                 }
                 false
             }
+            // (A clean script keeps its editor's state, as its × does: the
+            // owner's ruling of 2026-11-25.)
             Some(_) => {
-                self.forget_side(tab);
+                if !self.script_kept_on_close(tab) {
+                    self.forget_side(tab);
+                }
                 true
             }
             None => true,

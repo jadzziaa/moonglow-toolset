@@ -212,3 +212,5 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   (`docs/framebuffer-proposal.md`; the shaders proposal's M5 had kept it
   Moonglow's). Every view and preview draws as the area view does, and
   both paths are validated against client screenshots.
+
+Sessions working by a charter follow `~/Projects/moonglow-toolset/.claude/pipelines/` (untracked, private).

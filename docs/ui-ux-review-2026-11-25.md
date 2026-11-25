@@ -82,6 +82,8 @@ The review of waves 1 and 2 (read-only at `6da9e560`: one blocker, seven to fix,
 
 Later the same day, on ruling 1: a script tab closed with unsaved text and answered **Save** (and the header's OK, the same action) keeps the editor's state (bookmarks, Undo history, codepage, External Editor link) for the session, as a clean close does; **Don't Save** still drops it.[^owner]
 
+Later again, on the header's Cancel: "header Cancel on a clean script: keep its bookmarks and history". A clean script closed by its header's Cancel keeps the editor's state as its × does; it had dropped it (`side_doc::may_cancel`, `scripts::a_clean_script_closed_with_the_header_s_cancel_keeps_its_bookmarks_and_history`).[^owner]
+
 ## Fixed on top of Wave 3
 
 | Where | What |

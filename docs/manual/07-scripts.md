@@ -34,7 +34,7 @@ saved into the module it asks first, as closing the tab does (its ×,
 Ctrl+W, the tab's menu, its window's Close): **Save** puts the text
 into the module, as Save does, and closes the tab, **Don't Save** closes
 it as last saved, and **Cancel** keeps it open. A script closed with
-nothing unsaved, or closed by that question's Save, and opened again in
+nothing unsaved (by its ×, its menu or its header's Cancel), or closed by that question's Save, and opened again in
 the same session has its bookmarks, Undo history, codepage and External
 Editor link as it left them; one closed by Don't Save opens anew. A script deleted from the module while closed loses what was kept. Where the
 editor is narrow, Save and Compile lose their words first, then the icons go into More from the end of the row, then
