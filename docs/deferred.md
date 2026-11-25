@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:53:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -97,33 +97,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
     git's stages. A conflict file (the edits each side wants, for `mg
     apply`) or a Moonglow window would. (M)
   (The Domains of Dread's builder proposal, C9)
-- **NWNT and a typed line break, the owner's call:** a nasher NWNT
-  project refuses to save a file whose text holds a typed `\n` or `\r`
-  (`C:\new`), naming the field, as it refuses a label with a dot (the
-  review's F5): NWNT would read it back as a line break. The review's
-  entry allowed saying so in the log instead; which the owner prefers
-  is asked. Labels with `[`, `]` or a trailing space are kept
-  (Moonglow's reader reads them back); how `nwn_nwnt` reads them is not
-  measured (it would not convert the probe file). (S) (the review of
-  November 2026, F5)
-- **A resource name past ASCII in a module folder, the owner's call:**
-  a name with a byte above 0x7F keeps its name through a folder as
-  text, each such byte written as the character of its number and read
-  back as that byte (the review's F7), so that file names are the same
-  on every system and valid in a repository, not raw bytes as haks keep
-  them on Linux. A loose file another tool named in UTF-8
-  (`pièce01.utc`) is read as byte 0xE8, not as the game on Linux reads
-  it from `override/`. Whether that is the rule wanted is asked. (S)
-  (the review of November 2026, F7)
-- **Bulk saves are not flushed file by file, the owner's call:** every
-  file mg-module keeps is written through `write_replacing` (the
-  review's P17), but a module folder's save, a project's save and
-  NWSync's data files go through `write_replacing_one_of_many`, which
-  removes its temporary file on a failure and does not flush: a flush
-  cost about 1 ms a file here (3,000 files 0.07 s without, 2.95 s
-  with), so a first save of 30,000 files would go from under a second
-  to half a minute. They were never flushed before. Whether to flush
-  them anyway is asked. (S) (the review of November 2026, P17)
 
 ## Test loop
 
@@ -164,13 +137,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Windows and macOS (the stock include normalizing a zero tangent; read
   on Linux, `reading_tangents`; Moonglow draws the same black on CI's
   Direct3D 12 and Metal). (S, waits on a builder's machine)
-- **Verify's hak cache and a hak rebuilt alike, the owner's call:**
-  what Verify keeps of a hak is named by its folder and its entries as
-  well as its name, time and size (the review's V14); a hak rebuilt
-  with the same time, size and layout, only its data changed, is still
-  taken for the old one. Hashing a hak's data would tell them apart, at
-  the cost of reading every hak on every run; asked of the owner. (S)
-  (the review of November 2026, V14)
 
 ## Frames (a steady 144 a second)
 
@@ -357,13 +323,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **A talk-table import far past the end, the owner's call:** an import
-  that reaches a row far past the table's end is one undo step (the
-  review's P4), with no bound on the gap: a team's range may begin
-  high, and `mg tlk-import` into a new table is a fair use. Whether an
-  import that grows the table by more than some number of empty lines
-  should be refused or asked about is asked. (S) (the review of
-  November 2026, P4)
 - **Verify and a table description's mistakes, the owner's call:** the
   2DA editor reads a `name.2da.toml` with a mistake in it by
   `Description::read`, keeping the rest and noting each mistake by line
@@ -480,13 +439,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
 
-- **The game's shaders, compiled (M0 of [the shaders
-  proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
-  Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
-  compiles each program at six settings since 2026-10-29, and keeps what
-  compiled, `doctor::settings`)
-  - The C++ build: glslang is in every program and test binary that
-    links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders
   proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
   leaves out (the Shaders switch, on by default since M3; Moonglow
@@ -754,12 +706,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **The model viewer's ground shadow, the owner's call:** it is drawn
-  as a shadow map always (`shadow_volumes = false` before its draw),
-  since stencil volumes cast no skins: the renderer's fixer's choice in
-  the review of November 2026; following Options' Shadows quality
-  would also do. To confirm. (S) (the review of November 2026, the
-  renderer's page)
 - **The renderer's textures by name, across sources:** the window's one
   renderer keeps its textures by name; they are forgotten when the game
   data changes, a module closes, or a texture, MTR or TXI of the
@@ -2311,3 +2257,43 @@ is not taken for a new gap.
   held is not among the held items edited together, also by design:
   Properties open on the items a placed object holds itself, the bag
   among them. (By design.)
+- **NWNT and a typed line break: refused** (the owner's word,
+  2026-11-25): a nasher NWNT project refuses to save a file whose text
+  holds a typed `\n` or `\r` (`C:\new`) and names the field, as it
+  refuses a label with a dot, since NWNT would read it back as a line
+  break. Saving it with a note in the log was the other choice; a file
+  that comes back changed was not wanted. Labels with `[`, `]` or a
+  trailing space are kept (Moonglow's reader reads them back). (the
+  review of November 2026, F5)
+- **A resource name past ASCII in a module folder: the rule kept**
+  (the owner's word, 2026-11-25): a byte above 0x7F goes through a
+  folder as the character of its number and is read back as that byte,
+  so file names are the same on every system and valid in a
+  repository. A loose file another tool named in UTF-8
+  (`pièce01.utc`) is read as byte 0xE8, not as the game on Linux reads
+  it from `override/`; such files are rare. (the review of November
+  2026, F7)
+- **Bulk saves are not flushed file by file** (the owner's word,
+  2026-11-25): a module folder's save, a project's save and NWSync's
+  data files are written to a temporary name and renamed
+  (`write_replacing_one_of_many`), without a flush. A flush costs about
+  1 ms a file (3,000 files 0.07 s without, 2.95 s with); the rename
+  already leaves the old file or the new one, and only a power cut
+  during the save is at risk. (the review of November 2026, P17)
+- **Verify's hak cache and a hak rebuilt alike: kept** (the owner's
+  word, 2026-11-25): what Verify keeps of a hak is named by its folder,
+  its entries, its name, time and size; a hak rebuilt with the same
+  time, size and layout, only its data changed, is taken for the old
+  one. A rebuild changes the time, and hashing every hak's data on every
+  run was not wanted. (the review of November 2026, V14)
+- **A talk-table import far past the end: no limit** (the owner's word,
+  2026-11-25): an import that reaches a row far past the table's end is
+  one undo step, with no bound on the gap; a team's range may begin
+  high, and one undo removes the empty rows. (the review of November
+  2026, P4)
+- **The model viewer's ground shadow: a shadow map always** (the
+  owner's word, 2026-11-25): drawn as a shadow map whatever Options'
+  Shadows quality says (`shadow_volumes = false` before its draw),
+  since stencil volumes cast no skins and a creature's body would cast
+  no shadow in the viewer. (the review of November 2026, the renderer's
+  page)
