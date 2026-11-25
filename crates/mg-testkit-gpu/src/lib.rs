@@ -9,8 +9,13 @@
 //! (its server runner, updater and signing) takes this crate; it must take
 //! it from the same release as mg-testkit, or Cargo builds two and the
 //! binary has two sets of places.
+//!
+//! Beyond the process, a test also takes one slot of the machine
+//! ([`slots`]), so that test binaries run at once keep the same few devices
+//! open between them.
 
 pub mod gpu;
 pub mod places;
+pub mod slots;
 
-pub use gpu::{alone, hold, open, release};
+pub use gpu::{alone, hold, holding, open, release};

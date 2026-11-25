@@ -919,7 +919,7 @@ fn program_choice_in_the_client() {
     for name in vs.iter().chain(&fs) {
         let _ = std::fs::remove_file(over.join(format!("{name}.shd")));
     }
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped Moonglow's side: no GPU");
         return;
@@ -1342,7 +1342,7 @@ const SURFACE_REGIONS: [(&str, [f32; 4]); 7] = [
 /// the programs the game path chose for the surfaces, held to the client's
 /// (as the marked runs read them).
 fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, dir: &Path) {
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped Moonglow's side: no GPU");
         return;

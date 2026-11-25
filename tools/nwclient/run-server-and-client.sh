@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # The game's headless server and the game client joined to it, in one
 # sandbox whose network is a loopback of its own (bubblewrap's
 # --unshare-net brings `lo` up and nothing else): for tests of what a
@@ -33,12 +33,19 @@
 # runs), never the desktop's :0. Killing this process (bwrap) ends everything in the
 # sandbox: the server and the client are in its own PID namespace.
 #
+# With a client, the machine's display lock (tools/locks.sh, docs/locks.md) is
+# taken first, unless an ancestor holds it (MOONGLOW_LOCKS_HELD), and kept
+# for the sandbox's life (a kill -9 of it frees it). MG_CLIENT=none takes
+# nothing.
+#
 # The game install comes from $NWN_ROOT (default: the Steam path).
 set -e
+. "$(dirname "$0")/../locks.sh"
 [ -n "$MG_SCRATCH" ] || { echo "MG_SCRATCH is not set" >&2; exit 1; }
 SCRATCH=$(realpath "$MG_SCRATCH")
 NWN=${NWN_ROOT:-"$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights"}
 DISP=${DISPLAY:-}
+[ "${MG_CLIENT:-player}" = none ] || mg_lock_display "run-server-and-client.sh $MG_SCRATCH"
 # Only the running off-screen session's display (headless.sh check).
 "$(dirname "$0")/../aurora/headless.sh" check "$DISP"
 [ "$DISP" = ":0" ] && { echo "refusing to run on the desktop display :0" >&2; exit 1; }

@@ -8,7 +8,8 @@
 //! script standing in for its program: the script reads the port and the
 //! password the client joins with from the server's own arguments. The
 //! sandbox's network is a loopback of its own; the client draws on the
-//! off-screen display (`DISPLAY`, never `:0`).
+//! off-screen display (`DISPLAY`, never `:0`), which [`start`] holds
+//! ([`crate::display`]) for the rest of the test binary's run.
 //!
 //! **A CD key.** The sandboxed client has no Steam, so no CD key: its
 //! Multiplayer asks for one ("Enter CD-KEY", seen 2026-10-29, 89.8193.37),
@@ -119,6 +120,10 @@ pub fn start(
     if display == ":0" {
         return Err(io::Error::other("refusing the desktop display :0"));
     }
+    // The display lock, before the server and the client start (and before
+    // anything of theirs is timed): kept to the end of the process, and the
+    // script is told it is held, or it would wait for its own parent.
+    crate::display::try_hold().map_err(io::Error::other)?;
     let user = client_dir(scratch);
     std::fs::create_dir_all(&user)?;
     let key = KeyCopy::make(&key, &user)?;
@@ -138,6 +143,7 @@ pub fn start(
         ("MG_CLIENT".into(), if join == Join::Dm { "dm" } else { "player" }.into()),
         ("NWN_ROOT".into(), root.into()),
         ("DISPLAY".into(), display.into()),
+        ("MOONGLOW_LOCKS_HELD".into(), "display".into()),
     ];
     // (`<scratch>/client-settings.tml`, if there is one: the client's
     // settings put back before each start.)

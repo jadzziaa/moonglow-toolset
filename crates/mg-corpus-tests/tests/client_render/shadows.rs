@@ -293,7 +293,7 @@ fn module(game: &GameData, dir: &Path, tileset: &str, s: Shadows) -> (Gff, Gff) 
 fn shadows_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -838,7 +838,7 @@ fn high_shadows_beside_the_client() {
                 "en",
             ))
             .unwrap();
-            mg_testkit::gpu::hold();
+            crate::common::gpu_after_display();
             let Some(gpu) = Gpu::headless() else {
                 eprintln!("Moonglow's side skipped: no GPU");
                 return;
