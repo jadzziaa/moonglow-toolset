@@ -226,12 +226,12 @@ fn an_object_s_preview_is_its_kind_s() {
     let old = placeable(&game, &utp).unwrap();
     let texture = mg_preview::replaceable::textures(&game, &old).into_iter().next().unwrap();
     entry.set("OldTexture", mg_gff::Value::resref(ResRef::from_str(&texture.name).unwrap()));
-    entry.set("NewTexture", mg_gff::Value::resref(ResRef::from_str("mg_new").unwrap()));
+    entry.set("NewTexture", mg_gff::Value::resref(ResRef::from_str("chrome1").unwrap()));
     let mut outer = mg_gff::Struct::new(0);
     outer.set("TextureReplaceLi", mg_gff::Value::List(vec![entry]));
     replacing.set("TextureReplace", mg_gff::Value::Struct(outer));
     let replaced_one = of(K::Placeable, &replacing, alone).unwrap();
-    assert_eq!(replaced_one, replaced(old, &replacing));
+    assert_eq!(replaced_one, replaced(&game, old, &replacing));
     assert_ne!(replaced_one, placeable(&game, &utp).unwrap(), "a texture replaced");
     // Encounters and triggers have no model.
     assert!(of_object(&game, K::Trigger, &utp, &items, alone).is_none());

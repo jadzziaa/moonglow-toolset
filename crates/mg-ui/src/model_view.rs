@@ -2799,7 +2799,7 @@ fn pictured_look(app: &Moonglow, (key, female): Kept) -> Option<(Source, Preview
             };
             // (Named as an item's, which tells a shield's from the others'.)
             let source = Source::Resource(ResKey::parse("item", ResType::UTI)?);
-            Some((source, mg_preview::replaced(preview, item)))
+            Some((source, mg_preview::replaced(game, preview, item)))
         }
         Pictured::Creature(id, row) => {
             let mut utc = app.thumbnails.creatures.get(&id)?.clone();

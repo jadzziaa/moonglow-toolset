@@ -193,9 +193,15 @@ impl Preview {
 /// wears or holds ([`Part::item`]: in the client neither the field nor
 /// the script call replaces its helmet's or cloak's,
 /// `batch6_replaced_textures` in `client_render.rs`, 2026-11-01).
+/// A new name with nothing to draw leaves the old texture, as the client
+/// keeps it: a name of no resource, or of an MTR naming no `texture0`
+/// (even beside a TGA of the name: the MTR decides), where an MTR naming
+/// one is drawn with its `texture0` over a TGA or PLT of the name
+/// (`part_textures_renamed_look` in `client_render`, 2026-11-25, on
+/// creatures and placeables alike).
 /// `mg-corpus-tests/tests/engine_ee_fields.rs` checks the engine reads
 /// them.
-pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
+pub fn replaced(game: &GameData, mut p: Preview, object: &Struct) -> Preview {
     let pairs = |outer: &str, list: &str, old: &str, new: &str| -> Vec<(String, String)> {
         let Some(items) = object.child(outer).and_then(|s| s.list(list)) else { return Vec::new() };
         items
@@ -207,7 +213,11 @@ pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
             })
             .collect()
     };
-    let textures = pairs("TextureReplace", "TextureReplaceLi", "OldTexture", "NewTexture");
+    let lookup = Lookup::of(game);
+    let textures: Vec<_> = pairs("TextureReplace", "TextureReplaceLi", "OldTexture", "NewTexture")
+        .into_iter()
+        .filter(|(_, new)| new.is_empty() || lookup.renames_to_a_picture(new))
+        .collect();
     for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut().filter(|p| !p.item)) {
         for (old, new) in &textures {
             // An empty new name restores the original.
@@ -354,7 +364,7 @@ pub(crate) fn of_object_with(
         K::Encounter | K::Trigger => return None,
     };
     Some(preview.map(|p| {
-        let p = replaced(p, object);
+        let p = replaced(game, p, object);
         // (A static placeable is baked into the tiles as made: nothing set
         // on it shows in the client, The Domains of Dread's trial of
         // 2026-11-06.)
@@ -491,6 +501,18 @@ impl<'a> Lookup<'a> {
             .resman
             .get(&mg_resman::ResKey::new(r, ResType::MTR))
             .is_ok_and(|d| mg_image::mtr::Mtr::parse(&d).textures[0].is_some())
+    }
+
+    /// Whether a texture replacement's new name has a picture to draw: its
+    /// MTR's `texture0` where it has an MTR, else a DDS, TGA or PLT of it
+    /// ([`replaced`]).
+    fn renames_to_a_picture(&self, name: &str) -> bool {
+        let Some(r) = ResRef::cut(name) else { return false };
+        let has = |t| self.game.resman.contains(&mg_resman::ResKey::new(r, t));
+        if has(ResType::MTR) {
+            return self.has_material_texture(name);
+        }
+        [ResType::DDS, ResType::TGA, ResType::PLT].into_iter().any(has)
     }
 
     /// Whether a texture name resolves to anything (DDS, TGA, PLT, or an
@@ -668,7 +690,7 @@ mod tests {
         p.idle = Some("pause1".into());
         // A PLT's fallback stays.
         p.base.textures.insert("restored".into(), "fallback".into());
-        let p = replaced(p, &o);
+        let p = replaced(&listed_game(&[("mg_new", ResType::TGA)]), p, &o);
         assert_eq!(p.base.textures.get("plc_chest1").map(String::as_str), Some("mg_new"));
         assert_eq!(p.base.textures.get("restored").map(String::as_str), Some("fallback"));
         assert_eq!(p.idle.as_deref(), Some("mg_idle"));
@@ -690,10 +712,48 @@ mod tests {
         let mut p = Preview::model("c_body");
         p.parts.push(Part::new("pmh0_head001"));
         p.parts.push(Part { item: true, ..Part::new("helm_001") });
-        let p = replaced(p, &o);
+        let p = replaced(&listed_game(&[("mgred", ResType::TGA)]), p, &o);
         let new = |part: &Part, old: &str| part.textures.get(old).cloned();
         assert_eq!(new(&p.parts[0], "pmh0_head001").as_deref(), Some("mgred"), "the head");
         assert_eq!(new(&p.parts[1], "helm_001"), None, "the helmet");
+    }
+
+    /// The client's renames (`part_textures_renamed_look`, 2026-11-25): to
+    /// an MTR naming a `texture0` (with a TGA or PLT of the name or not),
+    /// or to a TGA alone, made; to an MTR naming none (beside a TGA of the
+    /// name too), or to nothing, the old texture kept.
+    #[test]
+    fn a_rename_to_nothing_drawable_keeps_the_old_texture() {
+        let game = listed_game(&[
+            ("metal", ResType::MTR),
+            ("metal", ResType::TGA),
+            ("skin", ResType::PLT),
+            ("blue", ResType::TGA),
+            ("no_image", ResType::MTR),
+            ("no_image", ResType::TGA),
+        ]);
+        let news = ["metal", "skin", "blue", "no_image", "nothing"];
+        let mut o = Struct::new(0);
+        let mut t = Struct::new(9);
+        let list = news
+            .iter()
+            .map(|n| pair(&format!("old_{n}"), n, ("OldTexture", "NewTexture")))
+            .collect();
+        t.set("TextureReplaceLi", Value::List(list));
+        o.set("TextureReplace", Value::Struct(t));
+        let p = replaced(&game, Preview::model("plc_box"), &o);
+        let got: Vec<_> =
+            news.iter().map(|n| p.base.textures.get(&format!("old_{n}")).cloned()).collect();
+        let want = [Some("metal"), Some("skin"), Some("blue"), None, None];
+        assert_eq!(got, want.map(|w| w.map(String::from)));
+    }
+
+    /// A game whose one hak lists these resources ([`Listed`]).
+    fn listed_game(names: &[(&str, ResType)]) -> GameData {
+        let keys = names.iter().map(|(n, t)| mg_resman::ResKey::parse(n, *t).unwrap()).collect();
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::HAK_USER, "hak:x", mg_resman::LayerClass::Erf, Listed(keys));
+        GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH))
     }
 
     /// A container that lists its resources and gives none.

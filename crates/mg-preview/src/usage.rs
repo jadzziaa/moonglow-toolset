@@ -1052,7 +1052,7 @@ impl<'a> Walk<'a> {
             return;
         }
         let Ok(p) = crate::item(self.game, s) else { return };
-        let p = crate::replaced(p, s);
+        let p = crate::replaced(self.game, p, s);
         // (One that lies as something else, a cloak folded, is drawn as
         // this once it is picked up and worn: its cloakmodel.2da texture.)
         let lies_as_another = || {

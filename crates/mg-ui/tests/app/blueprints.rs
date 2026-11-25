@@ -1305,11 +1305,13 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     };
     assert_eq!(tex(&mut h), [("plc_chest1".to_string(), "mg_gold".to_string())]);
     assert_eq!(field(&mut h, &key).child("TextureReplace").unwrap().id, 9, "the game's struct id");
-    // The area view and model viewer draw it.
+    // The area view and model viewer draw it, where the new name has a
+    // picture: mg_gold has none in the install, so the old texture stays,
+    // as the client keeps it.
     let chest = field(&mut h, &key);
     let game = h.state().game.as_deref().unwrap();
-    let preview = mg_preview::replaced(mg_preview::placeable(game, &chest).unwrap(), &chest);
-    assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), Some("mg_gold"));
+    let preview = mg_preview::replaced(game, mg_preview::placeable(game, &chest).unwrap(), &chest);
+    assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), None);
     // Reset: the field goes.
     h.get_all_by_label("Reset").next().unwrap().click();
     h.run();
