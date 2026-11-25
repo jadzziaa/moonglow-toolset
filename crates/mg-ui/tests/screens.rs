@@ -12069,6 +12069,68 @@ fn shell_tree_groups() {
     shoot(&mut h, &dir, "shell_tree_groups");
 }
 
+/// The Module panel of Chapter1 (113 areas) at the narrow board's size,
+/// the Areas group's well at each height it can be given, in both
+/// themes: fitted (`shell_tree_well_fit`), with the pointer over the
+/// handle along its foot (`_hovered`), dragged taller and shorter
+/// (`_taller`, `_shorter`) and opened out (`_open`, the tree scrolled
+/// down to the last areas, the handle under them, the groups below).
+#[test]
+#[ignore]
+fn shell_tree_well_heights() {
+    use mg_ui::AreasHeight;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_window(&root, egui::vec2(1280.0, 800.0));
+    unfold_left_dock(&mut h);
+    frames_until(&mut h, "the Left Dock open", |h| h.query_by_label("Module Tree Rows").is_some());
+    h.run_steps(10);
+    let away = egui::pos2(700.0, 700.0);
+    let shots = [
+        ("fit", AreasHeight::Fit, false),
+        ("hovered", AreasHeight::Fit, true),
+        ("taller", AreasHeight::Rows(24), false),
+        ("shorter", AreasHeight::Rows(6), false),
+        ("open", AreasHeight::Open, false),
+    ];
+    for (name, height, hover) in shots {
+        h.state_mut().settings.areas_height = height;
+        h.hover_at(away);
+        h.run_steps(5);
+        if height == AreasHeight::Open {
+            // (The tree wheeled down to the last areas.)
+            // (Over the tree, half way down the Left Dock.)
+            h.hover_at(egui::pos2(130.0, 400.0));
+            for _ in 0..14 {
+                h.event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -200.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.run_steps(2);
+            }
+            h.hover_at(away);
+            h.run_steps(10);
+        }
+        if hover {
+            let at = h.get_by_label("Resize the Areas Group").rect().center();
+            h.hover_at(at);
+            // (Its tip shows after a while.)
+            for _ in 0..30 {
+                h.step();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+        for light in [false, true] {
+            let theme = if light { "light" } else { "dark" };
+            shoot_in(&mut h, &dir, &format!("shell_tree_well_{name}_{theme}"), light);
+        }
+    }
+}
+
 /// The module tree's rows at the narrow board's size (1280 by 800): the
 /// Scripts group open with one of its scripts chosen, an area in the
 /// Areas group's well under the pointer (each row's fill across the whole

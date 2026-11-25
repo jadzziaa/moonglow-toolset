@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T14:56:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:11:05Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -47,7 +47,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Compile, Verify | Top Bar, right end | ✓ M3 T2 |
 | Test Module (F9) | Top Bar, right end, with Choose Character under its arrow | ✓ M3 T2 |
 | The eight menus | Top Bar, unchanged | ✓ M3 T2 |
-| Module tree: Filter, groups, Expand All, Collapse All | Module panel | ✓ M3 T3 (Expand All and Collapse All on its tab bar; each group's icon and count; the Areas group scrolls in its own well) |
+| Module tree: Filter, groups, Expand All, Collapse All | Module panel | ✓ M3 T3 (Expand All and Collapse All on its tab bar; each group's icon and count; the Areas group scrolls in its own well; amended 2026-11-24: the well is resized by its foot or opened out, builders' request) |
 | Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar | ✓ M3 T2; T7: its last line beside the switch while the dock is closed, Copy Log, Save Log and Clear Log on its tab bar (they give way from the end in a narrow dock), closed for a new installation |
 | View › Module Tree | View › Left Dock: it folds the dock on whichever panel it shows (Module or Resources), its key (Ctrl+Alt+1) as before | ✓ M3 T4 (its review: the boards name no row; the dock holds both panels) |
 | View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock holds the Preview's tab too since T6, and is drawn beside an area's tab alone) |

@@ -13,6 +13,7 @@ mod area_header;
 mod area_tools;
 mod area_view;
 mod areas;
+mod areas_height;
 mod bake;
 mod blueprints;
 mod board_builds;

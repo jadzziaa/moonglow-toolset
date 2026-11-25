@@ -11,6 +11,7 @@ use mg_gff::Gff;
 use mg_resman::ResKey;
 use mg_rules::{GameData, ObjectKind};
 
+use crate::settings::AreasHeight;
 use crate::{Action, Moonglow, Tab};
 
 /// What Make Placeables Static does, for its menu items.
@@ -1229,12 +1230,20 @@ fn well_view() -> egui::Id {
 
 /// A row of the Areas group's well to scroll to, once its rows are laid
 /// out: where it is, and whether to the middle of the well.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 struct WellTarget {
     /// (`None`: a row in the well's view already, the well alone to
     /// bring into the tree's.)
     rows: Option<egui::Rangef>,
+    /// Where the row is (on the screen, as laid out this frame).
+    at: egui::Rangef,
     center: bool,
+}
+
+impl Default for WellTarget {
+    fn default() -> WellTarget {
+        WellTarget { rows: None, at: egui::Rangef::new(0.0, 0.0), center: false }
+    }
 }
 
 /// While the Areas group's well is being laid out, the row at `rect` to be
@@ -1253,7 +1262,8 @@ fn well_target(ui: &Ui, rect: egui::Rect, center: bool) -> bool {
     let seen = view.y_range().contains(rect.top()) && view.y_range().contains(rect.bottom());
     let center = center && !seen;
     let rows = (!seen).then(|| rect.y_range());
-    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-target"), WellTarget { rows, center }));
+    let target = WellTarget { rows, at: rect.y_range(), center };
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-target"), target));
     true
 }
 
@@ -1369,7 +1379,10 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // (Where the Areas group's well is, known for the frame it is drawn
     // in: `areas_well`.)
     let well_rect = egui::Id::new("tree-well-rect");
-    ui.data_mut(|d| d.remove::<egui::Rect>(well_rect));
+    ui.data_mut(|d| {
+        d.remove::<egui::Rect>(well_rect);
+        d.remove::<WellFoot>(well_foot());
+    });
     // Where the tree was scrolled to before something was typed in the
     // Filter, back once it is cleared (a word that finds little made the
     // tree short, and a scroll area keeps no more than it can show).
@@ -1419,18 +1432,179 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     if !well.is_some_and(|w| w.is_positive() && ui.rect_contains_pointer(w)) {
         crate::widgets::home_and_end(ui, &mut rows);
     }
+    // The handle along the Areas group's foot, after every row of the
+    // tree (the next group's row is laid out after the well's foot, and
+    // would be over it).
+    if let Some(foot) = ui.data(|d| d.get_temp::<WellFoot>(well_foot())) {
+        well_handle(app, ui, foot, rows.inner_rect);
+    }
     crate::palette_view::keys_outline(ui, rows.inner_rect, crate::palette_view::Keys::Tree);
 }
 
 /// `add` in the Areas group's well ([`areas_well`]) where `well`, else as
-/// it is.
+/// it is; opened out ([`AreasHeight::Open`]), the Areas group's rows are
+/// laid out in the tree as any group's, and their foot kept for the
+/// handle under them ([`WellFoot`]).
 fn in_well<R>(
     ui: &mut Ui,
     well: bool,
-    (view, others, filtered): (f32, usize, bool),
+    (view, others, filtered, height): (f32, usize, bool, AreasHeight),
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
-    if well { areas_well(ui, view, others, filtered, add) } else { add(ui) }
+    if !well {
+        return add(ui);
+    }
+    if height != AreasHeight::Open {
+        return areas_well(ui, view, others, filtered, height, add);
+    }
+    // (Laid out as the other groups' rows are, in the group's own ui: no
+    // well's view, so that the tree's scroll, Home and End and bringing
+    // a row into view are the tree's, as before 5.1.)
+    let top = ui.cursor().top();
+    let inner = add(ui);
+    let foot = ui.min_rect().bottom().max(top);
+    let row = mg_uikit::row_height(ui);
+    let auto = ((view / row).floor() - others as f32).max(WELL_LEAST_ROWS) * row;
+    let kept = WellFoot { top, foot, content: foot - top, auto, scrolls: false, filtered };
+    ui.data_mut(|d| d.insert_temp(well_foot(), kept));
+    inner
+}
+
+/// Where the Areas group's rows end, for the handle along their foot that
+/// gives the well its height ([`well_handle`]), kept as they are laid out
+/// ([`areas_well`], [`in_well`]): drawn after the whole tree, so that the
+/// next group's row, laid out after, is not over it.
+#[derive(Clone, Copy, Debug)]
+struct WellFoot {
+    /// The well's top (the first area's row's) and foot, on the screen.
+    top: f32,
+    foot: f32,
+    /// How high its rows are, all of them.
+    content: f32,
+    /// How high the fitted well is ([`AreasHeight::Fit`]).
+    auto: f32,
+    /// Whether the well holds more than it shows.
+    scrolls: bool,
+    /// Whether the Filter has something typed.
+    filtered: bool,
+}
+
+/// Where [`WellFoot`] is kept for the frame.
+fn well_foot() -> egui::Id {
+    egui::Id::new("tree-well-foot")
+}
+
+/// The Areas group's menu's Areas Group Height: fitted, as high as its
+/// foot was dragged to (shown while it is), or opened out in the tree.
+fn areas_height_menu(ui: &mut Ui, height: &mut AreasHeight) {
+    mg_uikit::menu_button(ui, AREAS_HEIGHT_MENU, |ui| {
+        let fit = mg_uikit::menu_radio(ui, *height == AreasHeight::Fit, "Fit")
+            .on_hover_text("Keep every other group in sight under the areas");
+        if fit.clicked() {
+            *height = AreasHeight::Fit;
+        }
+        if let AreasHeight::Rows(n) = *height {
+            mg_uikit::menu_radio(ui, true, format!("As Dragged ({n} Rows)"))
+                .on_hover_text("The height the line under the areas was dragged to");
+        }
+        let open = mg_uikit::menu_radio(ui, *height == AreasHeight::Open, "Open Out")
+            .on_hover_text("List every area in the tree, which scrolls as a whole");
+        if open.clicked() {
+            *height = AreasHeight::Open;
+        }
+    });
+}
+
+/// The Areas group's menu's submenu that gives its height.
+pub(crate) const AREAS_HEIGHT_MENU: &str = "Areas Group Height";
+
+/// The handle's name, for a screen reader (and the tests).
+pub(crate) const WELL_HANDLE: &str = "Resize the Areas Group";
+/// The handle's tip.
+const WELL_HANDLE_TIP: &str = "Drag to resize the list of areas. Double-click to fit it.";
+
+/// The handle along the Areas group's foot ([`WellFoot`]), over the tree's
+/// view `view`: a line across the pane with a grip in its middle, which
+/// the builder drags (3 points either side of it, the resize cursor, lit
+/// in the kit's accent, as the docks' seams are) to make the well taller
+/// or shorter in whole rows ([`AreasHeight::Rows`], at least
+/// [`WELL_LEAST_ROWS`]); dragged down to all its rows or past them and
+/// let go, the areas open out in the tree ([`AreasHeight::Open`]; not
+/// while the Filter has something typed, which shows only some of them).
+/// A double click fits it again ([`AreasHeight::Fit`]). Drawn only where
+/// there is something to give: not while the areas fit as they are, nor
+/// with the group closed (no foot is kept then).
+fn well_handle(app: &mut Moonglow, ui: &mut Ui, foot: WellFoot, view: egui::Rect) {
+    let row = mg_uikit::row_height(ui);
+    let height = app.settings.areas_height;
+    let least = WELL_LEAST_ROWS * row;
+    let given = height != AreasHeight::Fit && foot.content > foot.auto + 0.5;
+    if foot.content <= least + 0.5 || !(foot.scrolls || given) {
+        return;
+    }
+    let y = foot.foot;
+    if !view.y_range().contains(y) {
+        return;
+    }
+    let grip = egui::Rect::from_x_y_ranges(view.x_range(), y - 3.0..=y + 3.0).intersect(view);
+    let id = egui::Id::new("tree-well-handle");
+    // (A press and a drag alone, never the keyboard's Tab: the docks'
+    // seams'.)
+    let r = ui.interact(grip, id, egui::Sense::CLICK | egui::Sense::DRAG);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, WELL_HANDLE));
+    let lit = r.hovered() || r.dragged();
+    if lit {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
+    let t = mg_uikit::tokens(ui.ctx());
+    let painter = ui.painter().with_clip_rect(view);
+    // The line across the pane (as the docks' seams), and the grip in its
+    // middle that says it is taken hold of: lit in the accent under the
+    // pointer.
+    let (line, grip_color, across) = match lit {
+        true => (t.accent, t.accent, 2.0),
+        false => (t.line, t.text_3, 1.0),
+    };
+    let line_at = egui::Rect::from_x_y_ranges(view.x_range(), y - across / 2.0..=y + across / 2.0);
+    painter.rect_filled(line_at, 0.0, line);
+    let pill = egui::Rect::from_center_size(egui::pos2(view.center().x, y), egui::vec2(28.0, 4.0));
+    painter.rect_filled(pill, 2.0, grip_color);
+    let r = r.on_hover_text(WELL_HANDLE_TIP);
+    if r.double_clicked() {
+        app.settings.areas_height = AreasHeight::Fit;
+        ui.ctx().request_repaint();
+        return;
+    }
+    // (All its rows: the well as high as they are while it is held, so
+    // that the handle stays under the pointer, then opened out once let
+    // go there.)
+    let all = (foot.content / row).ceil().max(WELL_LEAST_ROWS);
+    if r.drag_stopped()
+        && !foot.filtered
+        && matches!(height, AreasHeight::Rows(n) if f32::from(n) >= all)
+    {
+        app.settings.areas_height = AreasHeight::Open;
+        ui.ctx().request_repaint();
+        return;
+    }
+    let Some(at) = r.interact_pointer_pos() else { return };
+    // (Where on the line it was pressed, not where the drag began a few
+    // points on: the foot follows that point.)
+    let taken = id.with("taken");
+    if r.drag_started() {
+        let from = ui.input(|i| i.pointer.press_origin()).map_or(at.y, |p| p.y);
+        ui.ctx().data_mut(|d| d.insert_temp(taken, from - y));
+    }
+    let offset = ui.ctx().data(|d| d.get_temp::<f32>(taken)).unwrap_or(0.0);
+    let rows = ((at.y - offset - foot.top) / row).round().clamp(WELL_LEAST_ROWS, all);
+    if r.dragged() {
+        let now = ((foot.foot - foot.top) / row).round();
+        if rows != now || matches!(height, AreasHeight::Rows(_)) {
+            let rows = rows.min(f32::from(u16::MAX)) as u16;
+            app.settings.areas_height = AreasHeight::Rows(rows);
+            ui.ctx().request_repaint();
+        }
+    }
 }
 
 /// A group's icon: its kind's (an area's, a conversation's, a blueprint
@@ -1470,10 +1644,16 @@ fn areas_well<R>(
     view: f32,
     others: usize,
     filtered: bool,
+    given: AreasHeight,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     let row = mg_uikit::row_height(ui);
-    let rows = ((view / row).floor() - others as f32).max(WELL_LEAST_ROWS);
+    let auto = ((view / row).floor() - others as f32).max(WELL_LEAST_ROWS);
+    // (Or as high as its foot was dragged to: [`well_handle`].)
+    let rows = match given {
+        AreasHeight::Rows(n) => f32::from(n).max(WELL_LEAST_ROWS),
+        AreasHeight::Fit | AreasHeight::Open => auto,
+    };
     let height = rows * row;
     let clip = ui.clip_rect();
     // (Pinned to the tree's view sideways: the group's rows are indented,
@@ -1504,7 +1684,8 @@ fn areas_well<R>(
     // scroll area scrolls), to its middle or only as far as it shows it;
     // and the well into the tree's view.
     let target = ui.data_mut(|d| d.remove_temp::<WellTarget>(target_id));
-    if let Some(WellTarget { rows, center }) = target {
+    let offset_was = out.state.offset.y;
+    if let Some(WellTarget { rows, center, .. }) = target {
         let (now, tall) = (out.state.offset.y, view.height());
         let most = (out.content_size.y - tall).max(0.0);
         let (from, to) = rows.map_or((now, now), |r| (r.min - top, r.max - top));
@@ -1530,9 +1711,33 @@ fn areas_well<R>(
     // (Its height taken in the tree, none of its width: `Line::allocate`
     // takes a row's so too.)
     ui.allocate_space(egui::vec2(1.0, rect.height()));
-    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-rect"), rect));
-    if target.is_some() {
-        ui.scroll_to_rect(rect, None);
+    ui.data_mut(|d| {
+        d.insert_temp(egui::Id::new("tree-well-rect"), rect);
+        let content = out.content_size.y;
+        let scrolls = content > view.height() + 0.5;
+        let kept = WellFoot {
+            top: rect.top(),
+            foot: rect.bottom(),
+            content,
+            auto: auto * row,
+            scrolls,
+            filtered,
+        };
+        d.insert_temp(well_foot(), kept);
+    });
+    if let Some(target) = target {
+        // The well into the tree's view; one dragged taller than the
+        // tree's view, the row in it (where the well's own scroll puts it).
+        let tree = ui.clip_rect();
+        if rect.height() <= tree.height() {
+            ui.scroll_to_rect(rect, None);
+        } else {
+            let moved = out.state.offset.y - offset_was;
+            let at = egui::Rangef::new(target.at.min - moved, target.at.max - moved);
+            let x = tree.center().x;
+            let to = egui::Rect::from_x_y_ranges(x..=x, at);
+            ui.scroll_to_rect(to, target.center.then_some(egui::Align::Center));
+        }
     }
     inner
 }
@@ -2158,6 +2363,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // The tree's rows outside the Areas group's well, for its height:
     // Module Properties, each group's row and the line under them.
     let others = 2 + lists.iter().filter(|(all, _)| !left_out(all)).count();
+    // (Or as high as the builder made it, or opened out: [`well_handle`].)
+    let areas_height = app.settings.areas_height;
     for (group, ((name, types), (all, names))) in GROUPS.iter().zip(lists.iter()).enumerate() {
         listed += all.len();
         if left_out(all) {
@@ -2194,7 +2401,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             .show(ui, |ui| {
               // (The Areas group's rows scroll by themselves.)
               let well = types == &[ResType::ARE];
-              in_well(ui, well, (view, others, !filter.is_empty()), |ui| {
+              in_well(ui, well, (view, others, !filter.is_empty(), areas_height), |ui| {
                 for &k in keys {
                     // Blueprints drag into an area, as from the palette.
                     let blueprint = mg_area::ObjectKind::from_restype(k.restype).is_some();
@@ -2661,6 +2868,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
               })
             });
         if *name == "Areas" {
+            // (No handle along the foot of a group opening or closing: its
+            // rows are cut where it is drawn to.)
+            if header.openness < 1.0 {
+                ui.data_mut(|d| d.remove::<WellFoot>(well_foot()));
+            }
             // The object selected was gone to if its area is opened out;
             // if not (or the areas are folded away), the tree stays as it
             // is. (One whose area is being read again is gone to then.)
@@ -2735,6 +2947,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 {
                     let areas = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
                     app.actions.push(Action::DynamicPlaceables(areas));
+                }
+                if types.contains(&ResType::ARE) {
+                    mg_uikit::menu_separator(ui);
+                    areas_height_menu(ui, &mut app.settings.areas_height);
                 }
             });
         }
