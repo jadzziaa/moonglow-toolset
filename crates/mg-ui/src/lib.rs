@@ -6528,7 +6528,7 @@ impl Moonglow {
             Ok(()) => {
                 let path = self.module_path().unwrap_or_default();
                 self.log.info(format!("Saved {}", path.display()));
-                self.settings.remember(&path);
+                self.settings.remember_saved(&path);
                 self.forget_recovery();
                 // (Saved elsewhere, or a new module's first save: the copy
                 // made under its old place holds work that is saved now,

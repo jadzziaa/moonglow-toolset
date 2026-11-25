@@ -1631,6 +1631,12 @@ fn welcome_recent_modules() {
         modules.join("castle.mod"),
         dir.join("projects/castle-project"),
     ];
+    // (Times from now, so the picture reads the same on every run; the
+    // last has none, as a module from older settings.)
+    let now = mg_core::time::unix_now();
+    for (path, ago) in app.settings.recent.clone().iter().zip([300, 7300]) {
+        app.settings.recent_opened.insert(path.clone(), now - ago);
+    }
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 600.0))
         .wgpu()

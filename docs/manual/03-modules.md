@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:01:51Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:30:00Z }
 ---
 
 # Modules
@@ -75,7 +75,7 @@ a directory), nasher projects (see below) and the game's campaign files
   finds it on Windows (`Mymodule/` beside `mymodule.mod` on Linux), and
   is saved as that `.mod`. The welcome page's Recent Modules end a
   folder's name in `/` and name the folder each is in (`mymodule/ in
-  modules`, `mymodule.mod in modules`); the whole path is on hover, as
+  modules`, `mymodule.mod in modules`) and when it was opened last; the whole path is on hover, as
   in the File menu. `mg` opens the `.mod` it is given, as the server
   does, and says that the folder beside it is left as it is.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an

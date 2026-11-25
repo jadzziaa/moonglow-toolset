@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:01:51Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:30:00Z }
 ---
 
 # Getting started
@@ -86,7 +86,10 @@ over Status), then one, and the page scrolls where it does not fit:
 - **Recent Modules**: the modules you opened last, newest first, each
   its name (a module folder or a nasher project with a `/` after it, a
   `.mod` or `.nwm` without) over the folder it is in (`~` for your
-  home folder; the whole path in its tooltip). A click, or Enter or
+  home folder; the whole path in its tooltip), and at the row's right
+  end when it was opened last ("2 hours ago"; a module from before
+  Moonglow kept the times shows none until it is opened again; saving
+  does not change the time). A click, or Enter or
   Space on the row, opens it; Tab goes from row to row, those below
   the window's edge too. Before your first module it says "No module
   opened yet." The same list is **File › Recent Modules**, and a
