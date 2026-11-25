@@ -3203,11 +3203,12 @@ impl Renderer {
                 rank << 61 | u64::from(!d.receives) << 60
             } else if d.receives {
                 // (A see-through receiver's solid part: after the solid
-                // receivers, before the shadows are laid, the farthest
-                // first.)
+                // receivers, before the shadows are laid, by hint, then the
+                // farthest first.)
                 let bits = d.depth.to_bits();
                 let ascending = if bits >> 31 == 1 { !bits } else { bits | 1 << 31 };
-                2 << 61 | 1 << 59 | u64::from(!ascending)
+                let hint = u64::from(d.hint.min((1 << 27) - 1));
+                2 << 61 | 1 << 59 | hint << 32 | u64::from(!ascending)
             } else {
                 // (The depth's bits in `total_cmp`'s order, the farthest
                 // first.)

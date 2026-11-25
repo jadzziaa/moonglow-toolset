@@ -5596,7 +5596,8 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
 /// plate of [`shadows_darken_what_receives_them_by_the_opacity`] lie a
 /// black ground that receives, a strip of solid texels (alpha 250) and a
 /// strip of soft ones (alpha 128), each reaching from the shadow into the
-/// sun; for grass and for a receiver, Fast and High, Moonglow's shader
+/// sun (the plate south of the middle, so that no mirror of the picture
+/// keeps them in the shadow); for grass and for a receiver, Fast and High, Moonglow's shader
 /// and the game's programs (authored: they write the texture's alpha).
 /// Before, the strips were as bright in the shadow as in the sun.
 #[test]
@@ -5665,14 +5666,14 @@ void main ()
                     receives_shadows: true,
                     ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
                 },
-                receiver(&firm, 0.75),
-                receiver(&soft, -0.75),
+                receiver(&firm, -1.9),
+                receiver(&soft, -0.6),
                 Instance::new(
                     plate.clone(),
                     Mat4::from_scale_rotation_translation(
-                        Vec3::new(1.5, 1.5, 1.0),
+                        Vec3::new(1.25, 1.25, 1.0),
                         glam::Quat::IDENTITY,
-                        Vec3::new(0.0, 0.0, 1.0),
+                        Vec3::new(0.0, -1.25, 1.0),
                     ),
                 ),
             ],
@@ -5688,10 +5689,12 @@ void main ()
         near: 0.1,
         far: 100.0,
     };
-    // (About 6.3 pixels a metre: the plate's shadow 19 pixels each way
-    // from the middle, the strips 4.7 above and below it.)
+    // (About 6.3 pixels a meter: the plate's shadow from the middle row
+    // down 16 rows, 8 columns each way; the strips 4 and 12 rows below the
+    // middle, both in it, the rows that mirror them in the sun: a mask
+    // read with its rows from the bottom would leave them lit.)
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
-    let (firm_px, soft_px) = (27, 37);
+    let (firm_px, soft_px) = (44, 36);
     let (shade_x, sun_x) = (32, 52);
     for grass in [false, true] {
         for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
@@ -6261,7 +6264,7 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         save(&cast, &mg_testkit::output_dir("render").join(name));
         // From 4 m up and 3 m west, the plate (a metre across, 1 m up)
         // throws its shadow from 0.33 m to 1.67 m east of its middle; at
-        // 6.3 pixels a metre, the pixel 3 east of the middle is in it, the
+        // 6.3 pixels a meter, the pixel 3 east of the middle is in it, the
         // one 3 west lit.
         let (east, west) = ((35, 32), (29, 32));
         let lit = grey(off.pixel(east.0, east.1));

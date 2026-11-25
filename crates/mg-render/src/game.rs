@@ -1285,7 +1285,7 @@ pub(crate) struct GamePipeline {
     /// A draw of it asks for the copies to be made: it reads them, and it
     /// is no particle (a particle asks by its softness).
     pub(crate) wants_fb: bool,
-    /// Its fragment program's colour is multiplied by the shadows' mask
+    /// Its fragment program's color is multiplied by the shadows' mask
     /// ([`MASK_BINDING`]; white in its own group 1, which a draw that
     /// receives no shadows binds): a see-through mesh's soft part that
     /// reads no copies.
