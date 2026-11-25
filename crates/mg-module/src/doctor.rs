@@ -66,6 +66,7 @@ pub enum Check {
     TwoDaDescribed,
     TwoDaSpells,
     ObjectRow,
+    ItemModel,
     PcFaction,
     StaticTransform,
     StaticTint,
@@ -99,7 +100,7 @@ pub enum Check {
 macro_rules! check_table {
     ($(($variant:ident, $id:expr, $group:ident, $about:expr),)+) => {
         impl Check {
-            pub const ALL: [Check; 56] = [$(Check::$variant),+];
+            pub const ALL: [Check; 57] = [$(Check::$variant),+];
 
             pub fn id(self) -> &'static str {
                 match self {
@@ -250,6 +251,14 @@ check_table! {
         "object-row",
         Objects,
         "objects use 2DA rows that exist and have what they need"
+    ),
+    (
+        ItemModel,
+        "item-model",
+        Objects,
+        "an item a blueprint or a placed creature holds or wears has a model, or its base \
+         item's DefaultModel is there (the game leaves the client on the loading screen \
+         of the area otherwise)"
     ),
     (
         PcFaction,
@@ -3298,7 +3307,7 @@ impl Once {
     fn checks(self) -> &'static [Check] {
         use Check::*;
         match self {
-            Once::Objects => &[ObjectRow],
+            Once::Objects => &[ObjectRow, ItemModel],
             Once::PcFaction => &[PcFaction],
             Once::StaticTransforms => &[StaticTransform],
             Once::StaticTints => &[StaticTint],
@@ -3545,6 +3554,7 @@ fn objects(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
         t => Some(t),
     };
     walk_objects(d, &gff.root, kind, &GffPath::root(), &mut found);
+    items_without_model(d, key, gff);
     // Placed, it breaks the area (Aurora's area view crashes on it); a
     // blueprint breaks only when placed, and a waypoint's flag nothing
     // the game shows. A part with no model (an item's piece, a body's
@@ -3559,6 +3569,90 @@ fn objects(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
         };
         let place = crate::rename::describe(key, Some(gff), &path);
         d.push(severity, Check::ObjectRow, "module", key, place, message);
+    }
+}
+
+/// Items the game can't make, which leave the client on the loading
+/// screen of any area a creature holding or wearing one is in (the game's
+/// log: "CreateItem: Model ... nor the default model could be loaded"):
+/// an item blueprint with no model, and a blueprint's or a placed
+/// creature's inventory and equipment, whose entries are the items
+/// themselves (a placed creature's) or name their blueprint
+/// (`InventoryRes`, `EquippedRes`). The rule is
+/// `mg_rules::appearance::item_without_model`.
+fn items_without_model(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
+    use mg_rules::appearance::item_without_model;
+    if d.skip.check(Check::ItemModel) {
+        return;
+    }
+    let (Some(baseitems), cloaks) = (d.table_shared("baseitems"), d.table_shared("cloakmodel"))
+    else {
+        return;
+    };
+    let rm = d.rm;
+    let judge = |item: &Struct| item_without_model(item, &baseitems, cloaks.as_deref(), rm);
+    let name = |s: &Struct| {
+        let tag = s.string("Tag").map(|v| String::from_utf8_lossy(v).into_owned());
+        let own = s.resref("TemplateResRef").filter(|r| !r.is_empty()).map(|r| r.to_string());
+        own.or(tag.filter(|t| !t.is_empty()))
+    };
+    let mut found: Vec<(GffPath, String)> = Vec::new();
+    if key.restype == ResType::UTI {
+        if gff.root.get("BaseItem").is_some()
+            && let Some(problem) = judge(&gff.root)
+        {
+            let message = format!(
+                "{problem}: the game can't make this item, so a creature holding or wearing it \
+                 leaves the client on the loading screen (the area won't load)"
+            );
+            found.push((GffPath::root().field("BaseItem"), message));
+        }
+    } else {
+        // The creatures: the blueprint's own, or the area's placed ones.
+        let mut creatures: Vec<(GffPath, &Struct)> = Vec::new();
+        match key.restype {
+            ResType::UTC => creatures.push((GffPath::root(), &gff.root)),
+            ResType::GIT => {
+                let list = "Creature List";
+                let each = gff.root.list(list).unwrap_or(&[]).iter().enumerate();
+                creatures.extend(each.map(|(i, c)| (GffPath::root().item(list, i), c)));
+            }
+            _ => {}
+        }
+        for (at, creature) in creatures {
+            let who = name(creature).unwrap_or_else(|| key.resref.to_string());
+            for (list, verb, reference) in
+                [("ItemList", "holds", "InventoryRes"), ("Equip_ItemList", "wears", "EquippedRes")]
+            {
+                for (i, entry) in creature.list(list).unwrap_or(&[]).iter().enumerate() {
+                    // (A placed creature's entry is the item; a blueprint's
+                    // names the item's blueprint, the load order's.)
+                    let by_name = entry.resref(reference).filter(|r| !r.is_empty());
+                    let (field, item, item_name) = match (entry.get("BaseItem"), by_name) {
+                        (Some(_), _) => ("BaseItem", None, name(entry)),
+                        (None, Some(r)) => {
+                            let read = rm.get(&ResKey::new(r, ResType::UTI)).ok();
+                            let item = read.and_then(|d| mg_gff::Gff::read(&d).ok());
+                            // (A blueprint that isn't there is another check's.)
+                            let Some(item) = item else { continue };
+                            (reference, Some(item.root), Some(r.to_string()))
+                        }
+                        _ => continue,
+                    };
+                    let Some(problem) = judge(item.as_ref().unwrap_or(entry)) else { continue };
+                    let item_name = item_name.unwrap_or_else(|| format!("#{}", i + 1));
+                    let message = format!(
+                        "{who} {verb} the item {item_name}: {problem}. The game can't make it, \
+                         so the area won't load (the client stays on the loading screen)"
+                    );
+                    found.push((at.clone().item(list, i).field(field), message));
+                }
+            }
+        }
+    }
+    for (path, message) in found {
+        let place = crate::rename::describe(key, Some(gff), &path);
+        d.push(Severity::Warning, Check::ItemModel, "module", key, place, message);
     }
 }
 
@@ -7394,6 +7488,111 @@ endmodelgeom fx\ndonemodel fx\n";
         let (_, skeleton) = said("gnome.utc › Appearance_Type").expect("the gnome");
         assert!(skeleton.starts_with("No model: the skeleton pmg0 (appearance.2da row 1"));
         assert_eq!(rows.len(), 6, "{rows:?}");
+    }
+
+    /// An item none of whose models is there, and whose base item has no
+    /// DefaultModel there, can't be made by the game: a creature holding
+    /// or wearing it leaves the client on the loading screen. Said
+    /// (`item-model`) of the blueprint, and of the creatures' inventories
+    /// and equipment (a blueprint's entries name the item's blueprint, a
+    /// placed creature's are the item), naming the creature; an item
+    /// drawn as its base item's DefaultModel, or whose model is there, or
+    /// an armor, is not.
+    #[test]
+    fn an_item_that_names_no_model_is_said() {
+        let baseitems = b"2DA V2.0\n\n   label ItemClass ModelType DefaultModel\n\
+            0 shortsword WSwSs 2 ****\n1 ring ring 0 it_ring\n2 odd **** 0 ****\n\
+            3 helmet helm 1 ****\n4 armor cloth 3 ****\n";
+        let rm = resman(&[
+            ("baseitems", ResType::TWODA, baseitems),
+            ("it_ring", ResType::MDL, &model_text("it_ring")),
+            ("helm_001", ResType::MDL, &model_text("helm_001")),
+            ("wswss_m_001", ResType::MDL, &model_text("wswss_m_001")),
+        ]);
+        let item = |base: i32, part: i32| {
+            let mut uti = Gff::new(*b"UTI ");
+            uti.root.set("BaseItem", Value::Int(base));
+            uti.root.set("ModelPart1", Value::Byte(part as u8));
+            uti.root.set("ModelPart2", Value::Byte(part as u8));
+            uti
+        };
+        let mut m = Module::new();
+        // (Said: no class and no default; a helmet past the class's models.
+        // Not: a helmet there is, a ring whose part isn't but whose default
+        // is, a sword with one piece there, an armor, no BaseItem.)
+        m.set_gff(key("odd", ResType::UTI), &item(2, 1)).unwrap();
+        m.set_gff(key("badhelm", ResType::UTI), &item(3, 9)).unwrap();
+        m.set_gff(key("goodhelm", ResType::UTI), &item(3, 1)).unwrap();
+        m.set_gff(key("ring7", ResType::UTI), &item(1, 7)).unwrap();
+        m.set_gff(key("sword", ResType::UTI), &item(0, 1)).unwrap();
+        m.set_gff(key("plate", ResType::UTI), &item(4, 1)).unwrap();
+        m.set_gff(key("bare", ResType::UTI), &Gff::new(*b"UTI ")).unwrap();
+        let entry = |field: &str, item: &str, id: u32| {
+            let mut s = Struct::new(id);
+            s.set(field, Value::resref(ResRef::from_str(item).unwrap()));
+            s
+        };
+        let mut guard = Gff::new(*b"UTC ");
+        guard.root.set(
+            "ItemList",
+            Value::List(vec![
+                entry("InventoryRes", "badhelm", 0),
+                entry("InventoryRes", "ring7", 1),
+                entry("InventoryRes", "nowhere", 2),
+            ]),
+        );
+        guard.root.set(
+            "Equip_ItemList",
+            Value::List(vec![entry("EquippedRes", "goodhelm", 1), entry("EquippedRes", "odd", 2)]),
+        );
+        m.set_gff(key("guard", ResType::UTC), &guard).unwrap();
+        let mut orc = Struct::new(4);
+        orc.set("Tag", Value::String(b"ORC".to_vec()));
+        let mut held = item(3, 9).root;
+        held.set("TemplateResRef", Value::resref(ResRef::from_str("orc_hat").unwrap()));
+        orc.set("ItemList", Value::List(vec![item(3, 1).root, held]));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Creature List", Value::List(vec![orc]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        // (Verify's resources have the module layered in.)
+        let mut rm = rm;
+        let mut own = MemContainer::new();
+        for k in m.keys().filter(|k| k.restype == ResType::UTI) {
+            own.insert(*k, m.get(k).unwrap().to_vec());
+        }
+        rm.add(priority::MODULE, "module", LayerClass::Erf, own);
+        let f = examine(&m, &rm, TalkTables::default());
+        let said: Vec<_> = f.iter().filter(|f| f.check == "item-model").collect();
+        let at: Vec<&str> = said.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(
+            at,
+            [
+                "area › creature ORC › inventory BaseItem",
+                "badhelm.uti › BaseItem",
+                "guard.utc › InventoryRes",
+                "guard.utc › EquippedRes",
+                "odd.uti › BaseItem"
+            ],
+            "{said:#?}"
+        );
+        assert!(said.iter().all(|f| f.severity == Severity::Warning));
+        let orc = said[0].message.as_str();
+        assert!(orc.starts_with("ORC holds the item orc_hat: No model: helm_009 (its ModelPart1)"));
+        assert!(orc.contains("DefaultModel") && orc.contains("the area won't load"), "{orc}");
+        assert!(said[2].message.starts_with("guard holds the item badhelm: "), "{said:#?}");
+        assert!(said[3].message.starts_with(
+            "guard wears the item odd: No model: baseitems.2da row 2 has no ItemClass"
+        ));
+        assert!(said[1].message.contains("the area won't load"), "{said:#?}");
+        let skipped = examine_groups(
+            &m,
+            &rm,
+            TalkTables::default(),
+            &Skip::parse(&["item-model"]).unwrap(),
+            &mut Timings::default(),
+            None,
+        );
+        assert!(skipped.iter().all(|f| f.check != "item-model"));
     }
 
     /// An object of the PC faction is warned of, blueprint or placed, and

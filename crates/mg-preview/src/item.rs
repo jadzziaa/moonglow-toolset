@@ -261,9 +261,7 @@ pub(crate) fn item_parts(
         return Ok(parts);
     }
     // No model for this part number: the base item's default one.
-    let default = cell(&baseitems, row, "DefaultModel")
-        .map(str::to_ascii_lowercase)
-        .filter(|m| lk.has_model(m))
+    let default = models::item_default_model(&baseitems, row, &game.resman)
         .ok_or_else(|| PreviewError::NoModel(format!("{class} {}", n(0))))?;
     Ok(vec![part(default)])
 }
