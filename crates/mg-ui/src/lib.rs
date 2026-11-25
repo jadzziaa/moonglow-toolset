@@ -5331,7 +5331,8 @@ impl Moonglow {
         // and before every job, and the renderer reads all its textures
         // again once they are forgotten.)
         let layer = game.resman.layer_mut("module").and_then(|l| l.container.as_mem_mut());
-        let textures = layer.is_some_and(|was| drawn_with_changed(was, &ws.module));
+        let textures = layer.as_deref().is_some_and(|was| drawn_with_changed(was, &ws.module));
+        let sets = layer.as_deref().map(|was| sets_changed(was, &ws.module)).unwrap_or_default();
         game.resman.remove("module");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
@@ -5339,6 +5340,7 @@ impl Moonglow {
         if textures {
             self.forget_drawn_textures();
         }
+        self.module_tilesets_changed(&sets);
         self.load_order_changed();
     }
 
@@ -5380,7 +5382,27 @@ impl Moonglow {
         if keys.iter().any(|k| DRAWN_WITH.contains(&k.restype)) {
             self.forget_drawn_textures();
         }
+        let sets: Vec<_> =
+            (keys.iter()).filter(|k| k.restype == ResType::SET).map(|k| k.resref).collect();
+        self.module_tilesets_changed(&sets);
         self.load_order_changed();
+    }
+
+    /// Tilesets kept in the module changed (`sets`): the open areas drawn
+    /// from one read it again, and the tiles palette and the groups'
+    /// pictures made from it are made again, as a tileset changed in a
+    /// folder the game data reads is (M5's W5).
+    fn module_tilesets_changed(&mut self, sets: &[mg_core::ResRef]) {
+        if sets.is_empty() {
+            return;
+        }
+        for view in self.area_views.values_mut() {
+            if view.tileset_read().is_some_and(|t| sets.contains(&t)) {
+                view.reload();
+            }
+        }
+        self.palette.forget_tilesets(sets);
+        self.thumbnails.forget_tilesets(sets, self.viewport.as_ref());
     }
 
     fn run_actions(&mut self) {
@@ -8348,6 +8370,24 @@ const DRAWN_WITH: [ResType; 5] =
 /// Whether the module's textures (and their MTR and TXI files) are others
 /// than the module's layer of the game data was made with (`was`): one
 /// set again (the module holds another `Arc` for it), added or removed.
+/// The tilesets kept in the module whose `.set` is not the one the game
+/// data's module layer `was` made with: changed, added or removed.
+fn sets_changed(was: &mg_resman::MemContainer, module: &Module) -> Vec<mg_core::ResRef> {
+    use mg_resman::Container;
+    let before = was.keys().filter(|k| k.restype == ResType::SET);
+    let now = module.keys_of(ResType::SET).copied();
+    let mut sets: Vec<mg_core::ResRef> = (before.chain(now))
+        .filter(|k| match (was.shared(k), module.shared(k)) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            _ => true,
+        })
+        .map(|k| k.resref)
+        .collect();
+    sets.sort();
+    sets.dedup();
+    sets
+}
+
 fn drawn_with_changed(was: &mg_resman::MemContainer, module: &Module) -> bool {
     use mg_resman::Container;
     let now = || DRAWN_WITH.iter().flat_map(|t| module.keys_of(*t));

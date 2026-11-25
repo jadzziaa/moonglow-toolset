@@ -1141,6 +1141,12 @@ impl AreaView {
 
     /// Reads the area's tiles and objects again from the game data (after
     /// Reload Resources), keeping the camera.
+    /// The tileset its tiles were read from, once read.
+    pub(crate) fn tileset_read(&self) -> Option<ResRef> {
+        let terrain = self.terrain.as_ref().map(|t| t.tileset);
+        self.tileset.as_ref().map(|(name, _)| *name).or(terrain)
+    }
+
     pub(crate) fn reload(&mut self) {
         self.revision = None;
         self.tileset = None;

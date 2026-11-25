@@ -2291,6 +2291,22 @@ impl Thumbnails {
         self.scratch = None;
     }
 
+    /// Lets go of the pictures of `sets`' groups (tilesets kept in the
+    /// module, changed).
+    pub(crate) fn forget_tilesets(&mut self, sets: &[ResRef], viewport: Option<&Viewport3d>) {
+        let of = |k: &Kept| matches!(k.0, Pictured::Group(t, _) if sets.contains(&t));
+        let keys: Vec<Kept> = self.pictures.iter().map(|(k, _)| *k).filter(of).collect();
+        let gone: Vec<Made> = keys.iter().filter_map(|k| self.pictures.remove(k)).collect();
+        self.ready.retain(|k, _| !of(k));
+        self.loading.retain(|k, _| !of(k));
+        if let Some(vp) = viewport {
+            let mut r = vp.render_state.renderer.write();
+            for (_, id) in gone.into_iter().filter_map(|made| made.picture) {
+                r.free_texture(&id);
+            }
+        }
+    }
+
     /// How many pictures are kept.
     pub fn kept(&self) -> usize {
         self.pictures.len()
