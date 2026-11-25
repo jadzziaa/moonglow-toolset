@@ -327,7 +327,7 @@ fn soft_particles_in_the_client() {
 /// client over the floor particles' feet (where they meet the floor) and
 /// over the whole picture.
 fn soft_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, dir: &Path) {
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped Moonglow's side: no GPU");
         return;

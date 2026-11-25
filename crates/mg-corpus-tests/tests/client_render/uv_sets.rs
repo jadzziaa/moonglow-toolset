@@ -379,7 +379,7 @@ fn custom_shader_uvs_look() {
     }
 
     let set = mg_area::tileset(&game, ResRef::from_str(&tileset).unwrap()).ok();
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

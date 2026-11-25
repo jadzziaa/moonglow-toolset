@@ -570,6 +570,7 @@ impl Running {
         let child = command
             .args(["-k", "5", &seconds.to_string()])
             .arg(repo().join("tools/nwclient/run-client.sh"))
+            .env("MOONGLOW_LOCKS_HELD", "display")
             .arg(dir)
             .args(["+TestNewModule", module])
             .stdout(Stdio::null())

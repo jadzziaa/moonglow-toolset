@@ -391,7 +391,7 @@ fn shoot(case: &Case, setup: Setup, paint: Paint) -> Shot {
         let start = end - 1.0 / debug_value(&client, 13, 1.0);
         return Shot { uniforms: Some((start, end)), means: Vec::new() };
     }
-    mg_testkit::gpu::hold();
+    crate::common::gpu_after_display();
     let Some(gpu) = Gpu::headless() else {
         return Shot { uniforms: None, means: Vec::new() };
     };
