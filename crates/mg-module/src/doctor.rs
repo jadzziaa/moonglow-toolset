@@ -3167,12 +3167,18 @@ fn described_tables(d: &mut Doctor, module: &Module) {
                 continue;
             }
         };
-        match Description::parse(&text, &script) {
+        // Read as the 2DA editor does: each mistake is said by its line, and
+        // the columns that read well are checked all the same.
+        match Description::read(&text, &script) {
             Err(e) => {
                 let message = format!("its description ({file}) can't be read: {e}");
                 d.push(Severity::Warning, Check::TwoDaDescribed, source, key, "", message);
             }
             Ok(description) => {
+                for mistake in &description.mistakes {
+                    let message = format!("its description ({file}) has a mistake, {mistake}");
+                    d.push(Severity::Warning, Check::TwoDaDescribed, source, key, "", message);
+                }
                 for f in description.faults(&table, &rows_of, d.tlk) {
                     let at = format!("row {}, {}", f.row, table.columns()[f.column]);
                     d.push(Severity::Warning, Check::TwoDaDescribed, source, key, at, f.message);
@@ -5537,6 +5543,25 @@ endmodelgeom fx\ndonemodel fx\n";
         let f = examine(&m, &resman(&[]), TalkTables::default());
         assert_eq!(checks(&f), [("2da-described", String::new())]);
         assert!(f[0].message.contains("loot.2da.toml") && f[0].message.contains("no kind"));
+        // Every mistake is said, each by its line, and the columns that read
+        // well are held to theirs all the same.
+        std::fs::write(
+            dir.join("loot.2da.toml"),
+            "[columns.Chance]\nkind = \"int\"\nmax = 100\n\n[columns.Kinds]\nkind = \"odd\"\n\n\
+             [columns.Label]\nkind = \"flag\"\n",
+        )
+        .unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        assert_eq!(
+            checks(&f),
+            [
+                ("2da-described", String::new()),
+                ("2da-described", String::new()),
+                ("2da-described", "row 1, Chance".into())
+            ]
+        );
+        assert!(f[0].message.contains("has a mistake, line 6: column Kinds"), "{f:?}");
+        assert!(f[1].message.contains("has a mistake, line 9: column Label"), "{f:?}");
     }
 
     /// A hak's tables are held to their descriptions too: one beside the
