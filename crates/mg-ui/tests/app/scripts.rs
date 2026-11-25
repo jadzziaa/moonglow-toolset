@@ -3286,6 +3286,36 @@ fn a_script_closed_with_save_keeps_its_bookmarks_and_history() {
     assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
 }
 
+/// A clean script closed by its header's Cancel keeps its editor's state
+/// for the session, as its × does (the owner's ruling of 2026-11-25):
+/// opened again, its bookmark and its history are there.
+#[test]
+fn a_clean_script_closed_with_the_header_s_cancel_keeps_its_bookmarks_and_history() {
+    let (mut h, _path, key) = hello_window("ui-script-cancel-clean");
+    let tab = Tab::Script(key);
+    type_at_top(&mut h, key, "// one\n");
+    // The script's own Save (Ctrl+S with its keys): nothing unsaved.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(3);
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    h.key_press(egui::Key::F5);
+    h.run_steps(3);
+    assert_eq!(h.state().script_bookmarks(key), [0], "bookmarked");
+    h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label("Cancel").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "nothing asked");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "Cancel: the tab closed");
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark kept while closed");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    assert!(h.state().script_text(key).unwrap().starts_with("// one\n"));
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark kept");
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    assert!(edit_undo_enabled(&h, false), "its history kept: Undo on");
+}
+
 /// A script's tab closed with nothing unsaved asks nothing, and its
 /// editor's state stays for the session, as before Wave 1 (develop kept
 /// the script's buffer on a close): opened again, its bookmarks and its
