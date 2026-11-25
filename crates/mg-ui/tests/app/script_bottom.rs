@@ -1651,7 +1651,8 @@ fn a_name_s_declaration_shows_in_a_tip() {
 
 /// A floating script's window keeps the side and bottom panes' sizes
 /// they were dragged to (5.2.0, Jasperre's report): kept in the settings
-/// for scripts, a script opened in a window of its own after it has them.
+/// for the window's kind (every kind's, by the owner's ruling of 2026-11-25),
+/// a script opened in a window of its own after it has them.
 #[test]
 fn a_script_window_s_pane_sizes_are_kept_for_the_next() {
     let (mut h, keys) = scripts_window(

@@ -296,7 +296,10 @@ pub(crate) fn input(
             view.tile_box = Some((from, now));
         }
         if held.cancelled() {
+            // (One Escape, one thing: the box goes, and the tiles selected
+            // and Select Tiles stay.)
             view.tile_box = None;
+            return true;
         } else if !held.by(egui::PointerButton::Primary) {
             view.tile_box = None;
             // (With Shift, held as it began or as it ends: added to those

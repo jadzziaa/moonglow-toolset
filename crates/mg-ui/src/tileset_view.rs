@@ -56,8 +56,18 @@ pub const PAGES: [Page; 5] = [Page::General, Page::Terrain, Page::Rules, Page::T
 /// A pending overwrite confirmation for Make Palette or Render Minimap Pictures.
 #[derive(Debug, Clone)]
 pub(crate) enum TilesetAsk {
-    Palette { id: u32 },
-    Minimaps { dir: PathBuf, tiles: Vec<(String, PathBuf)>, failed: Vec<String> },
+    Palette {
+        id: u32,
+    },
+    /// The tileset's `id`, and the picture names to give its unnamed
+    /// tiles once answered (not before: Cancel changes nothing).
+    Minimaps {
+        id: u32,
+        names: Vec<(usize, String)>,
+        dir: PathBuf,
+        tiles: Vec<(String, PathBuf)>,
+        failed: Vec<String>,
+    },
 }
 
 /// Incremental per-frame state for Render Minimap Pictures so rendering many
@@ -73,6 +83,9 @@ pub(crate) struct MinimapJob {
     pub(crate) failed: Vec<String>,
     pub(crate) mounted: bool,
     pub(crate) hold: bool,
+    /// Rendered and said, the folder still to unmount: something held
+    /// the game data at the end, so it is let go of on a later frame.
+    pub(crate) unmounting: bool,
 }
 
 /// A tileset open in a tab.
@@ -2262,7 +2275,7 @@ fn ask_make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     if path.exists() {
         match app.settings.files_there {
             crate::settings::FilesThere::Replace => make_palette(app, d),
-            crate::settings::FilesThere::Skip => {}
+            crate::settings::FilesThere::Skip => palette_skipped(app, &path),
             crate::settings::FilesThere::Ask => {
                 app.tileset_ask = Some(TilesetAsk::Palette { id: d.id });
             }
@@ -2270,6 +2283,14 @@ fn ask_make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     } else {
         make_palette(app, d);
     }
+}
+
+/// Make Palette with its file in the folder, set or answered to skip it:
+/// the log says so, as Render Minimap Pictures says what it skipped.
+fn palette_skipped(app: &mut Moonglow, path: &Path) {
+    let dir = path.parent().map_or_else(String::new, |p| p.display().to_string());
+    let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    app.log.info(format!("Wrote no palette into {dir} (1 existing skipped: {name})"));
 }
 
 /// Writes the palette beside the `.set`.
@@ -2301,6 +2322,8 @@ fn mount_tileset_dir(app: &mut Moonglow, dir: &Path) -> bool {
         app.log.error("Could not load the tileset folder while game data is in use; try again.");
         return false;
     };
+    // (A folder a job before could not let go of, replaced.)
+    game.resman.remove(MINIMAP_LAYER);
     game.resman.add(
         mg_resman::priority::TEMP,
         MINIMAP_LAYER,
@@ -2310,14 +2333,22 @@ fn mount_tileset_dir(app: &mut Moonglow, dir: &Path) -> bool {
     true
 }
 
-fn unmount_tileset_dir(app: &mut Moonglow) {
+/// Unmounts the tileset's folder; false while something else holds the
+/// game data (and the folder is still mounted).
+fn unmount_tileset_dir(app: &mut Moonglow) -> bool {
     app.release_game_data();
-    if let Some(game) = crate::exclusive(&mut app.game) {
-        game.resman.remove(MINIMAP_LAYER);
+    match crate::exclusive(&mut app.game) {
+        Some(game) => {
+            game.resman.remove(MINIMAP_LAYER);
+            true
+        }
+        None => app.game.is_none(),
     }
 }
 
 struct MinimapPlan {
+    /// Picture names (`mi_<model>`) for the tiles without one, by index.
+    names: Vec<(usize, String)>,
     dir: PathBuf,
     tiles: Vec<(String, PathBuf)>,
     failed: Vec<String>,
@@ -2335,12 +2366,26 @@ impl MinimapJob {
             failed: plan.failed,
             mounted: false,
             hold: false,
+            unmounting: false,
         }
     }
 }
 
-/// Collects non-hole tiles to render and assigns `mi_<model>` on unnamed tiles.
-fn prepare_minimap_plan(app: &mut Moonglow, d: &mut TilesetDoc) -> Option<MinimapPlan> {
+/// Gives `d`'s unnamed tiles their picture names, as one undoable change.
+fn name_tiles(d: &mut TilesetDoc, names: &[(usize, String)]) {
+    if names.is_empty() {
+        return;
+    }
+    d.change(|f| {
+        for (i, name) in names {
+            f.set(&format!("TILE{i}"), "ImageMap2D", name);
+        }
+    });
+}
+
+/// Collects non-hole tiles to render, with the `mi_<model>` names unnamed
+/// tiles are to get (not given here: [`name_tiles`] once it goes ahead).
+fn prepare_minimap_plan(app: &mut Moonglow, d: &TilesetDoc) -> Option<MinimapPlan> {
     if app.game.is_none() {
         app.log.error("Rendering minimaps needs the game data");
         return None;
@@ -2353,35 +2398,29 @@ fn prepare_minimap_plan(app: &mut Moonglow, d: &mut TilesetDoc) -> Option<Minima
     }
     let dir = d.path.parent().map(PathBuf::from).unwrap_or_default();
     let Ok(t) = d.set.clone() else { return None };
-    let unnamed: Vec<usize> = (0..t.tiles.len())
-        .filter(|&i| {
-            !t.tiles[i].is_hole()
-                && t.tiles[i]
-                    .image_map_2d
-                    .as_deref()
-                    .is_none_or(|n| n.is_empty() || n.eq_ignore_ascii_case("(null)"))
-        })
+    let unnamed = |i: usize| {
+        t.tiles[i]
+            .image_map_2d
+            .as_deref()
+            .is_none_or(|n| n.is_empty() || n.eq_ignore_ascii_case("(null)"))
+    };
+    let names: Vec<(usize, String)> = (0..t.tiles.len())
+        .filter(|&i| !t.tiles[i].is_hole() && unnamed(i))
+        .map(|i| (i, format!("mi_{}", t.tiles[i].model.to_lowercase())))
         .collect();
-    if !unnamed.is_empty() {
-        d.change(|f| {
-            for &i in &unnamed {
-                f.set(
-                    &format!("TILE{i}"),
-                    "ImageMap2D",
-                    &format!("mi_{}", t.tiles[i].model.to_lowercase()),
-                );
-            }
-        });
-    }
-    let Ok(t) = d.set.clone() else { return None };
     let mut tiles = Vec::new();
     let mut failed = Vec::new();
     let mut done = std::collections::HashSet::new();
-    for tile in &t.tiles {
+    for (i, tile) in t.tiles.iter().enumerate() {
         if tile.is_hole() {
             continue;
         }
-        let Some(name) = tile.image_map_2d.clone().filter(|n| !n.is_empty()) else { continue };
+        // (The name it is to be given, for one without.)
+        let given = names.iter().find(|(n, _)| *n == i).map(|(_, name)| name.clone());
+        let Some(name) = given.or_else(|| tile.image_map_2d.clone()).filter(|n| !n.is_empty())
+        else {
+            continue;
+        };
         if !done.insert(name.to_lowercase()) {
             continue;
         }
@@ -2393,13 +2432,13 @@ fn prepare_minimap_plan(app: &mut Moonglow, d: &mut TilesetDoc) -> Option<Minima
             Err(e) => failed.push(format!("{name}: {e}")),
         }
     }
-    Some(MinimapPlan { dir, tiles, failed })
+    Some(MinimapPlan { names, dir, tiles, failed })
 }
 
-fn finish_minimap_job(app: &mut Moonglow, job: MinimapJob, canceled: bool) {
-    if job.mounted {
-        unmount_tileset_dir(app);
-    }
+fn finish_minimap_job(app: &mut Moonglow, mut job: MinimapJob, canceled: bool) {
+    // (Held by something else, the folder is let go of on a later frame:
+    // `minimap_progress`.)
+    job.unmounting = job.mounted && !unmount_tileset_dir(app);
     let noun = if job.written == 1 { "picture" } else { "pictures" };
     if canceled {
         app.log.info(format!(
@@ -2423,6 +2462,9 @@ fn finish_minimap_job(app: &mut Moonglow, job: MinimapJob, canceled: bool) {
     if job.failed.len() > 20 {
         app.log.warn(format!("… and {} more", job.failed.len() - 20));
     }
+    if job.unmounting {
+        app.minimap_job = Some(job);
+    }
 }
 
 fn step_minimap_tile(app: &mut Moonglow, job: &mut MinimapJob) {
@@ -2442,6 +2484,8 @@ fn step_minimap_tile(app: &mut Moonglow, job: &mut MinimapJob) {
 }
 
 fn start_minimap_job(app: &mut Moonglow, mut job: MinimapJob) {
+    // (A job before still letting go of its folder: this one takes it.)
+    app.minimap_job = None;
     if !mount_tileset_dir(app, &job.dir) {
         return;
     }
@@ -2461,25 +2505,23 @@ fn start_minimap_job(app: &mut Moonglow, mut job: MinimapJob) {
 fn ask_render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Some(plan) = prepare_minimap_plan(app, d) else { return };
     let has_existing = plan.tiles.iter().any(|(_, p)| p.exists());
-    if has_existing {
-        match app.settings.files_there {
-            crate::settings::FilesThere::Replace => {
-                start_minimap_job(app, MinimapJob::from_plan(plan, true));
-            }
-            crate::settings::FilesThere::Skip => {
-                start_minimap_job(app, MinimapJob::from_plan(plan, false));
-            }
-            crate::settings::FilesThere::Ask => {
-                app.tileset_ask = Some(TilesetAsk::Minimaps {
-                    dir: plan.dir,
-                    tiles: plan.tiles,
-                    failed: plan.failed,
-                });
-            }
+    let overwrite = match app.settings.files_there {
+        _ if !has_existing => true,
+        crate::settings::FilesThere::Replace => true,
+        crate::settings::FilesThere::Skip => false,
+        crate::settings::FilesThere::Ask => {
+            app.tileset_ask = Some(TilesetAsk::Minimaps {
+                id: d.id,
+                names: plan.names,
+                dir: plan.dir,
+                tiles: plan.tiles,
+                failed: plan.failed,
+            });
+            return;
         }
-    } else {
-        start_minimap_job(app, MinimapJob::from_plan(plan, true));
-    }
+    };
+    name_tiles(d, &plan.names);
+    start_minimap_job(app, MinimapJob::from_plan(plan, overwrite));
 }
 
 /// Draws overwrite prompts and incremental minimap rendering progress.
@@ -2502,7 +2544,7 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
                     ["Overwrite the palette file", "Leave the palette file as it is"],
                 )
             }
-            TilesetAsk::Minimaps { dir, tiles, failed } => {
+            TilesetAsk::Minimaps { tiles, .. } => {
                 let existing: Vec<(String, Option<String>)> = tiles
                     .iter()
                     .filter(|(_, p)| p.exists())
@@ -2511,21 +2553,8 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
                     })
                     .collect();
                 if existing.is_empty() {
-                    app.tileset_ask = None;
-                    start_minimap_job(
-                        app,
-                        MinimapJob {
-                            dir: dir.clone(),
-                            tiles: tiles.clone(),
-                            overwrite: true,
-                            next: 0,
-                            written: 0,
-                            skipped: 0,
-                            failed: failed.clone(),
-                            mounted: false,
-                            hold: false,
-                        },
-                    );
+                    // (Gone from the folder since: nothing to ask.)
+                    answer_tileset_ask(app, crate::widgets::Already::Replace);
                     minimap_progress(app, ctx);
                     return;
                 }
@@ -2552,43 +2581,72 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
             &prompt.1,
             prompt.2,
         ) {
-            app.tileset_ask = None;
-            match ask {
-                TilesetAsk::Palette { id } => {
-                    if answer == crate::widgets::Already::Replace
-                        && let Some(idx) = app.tilesets.iter().position(|d| d.id == id)
-                    {
-                        let mut doc = app.tilesets.remove(idx);
-                        make_palette(app, &mut doc);
-                        app.tilesets.insert(idx, doc);
-                    }
-                }
-                TilesetAsk::Minimaps { dir, tiles, failed } => {
-                    if answer != crate::widgets::Already::Cancel {
-                        start_minimap_job(
-                            app,
-                            MinimapJob {
-                                dir,
-                                tiles,
-                                overwrite: answer == crate::widgets::Already::Replace,
-                                next: 0,
-                                written: 0,
-                                skipped: 0,
-                                failed,
-                                mounted: false,
-                                hold: false,
-                            },
-                        );
-                    }
-                }
-            }
+            answer_tileset_ask(app, answer);
         }
     }
     minimap_progress(app, ctx);
 }
 
+/// The overwrite question answered: Replace writes over the files there,
+/// Skip Those leaves them as they are, Cancel does nothing at all.
+fn answer_tileset_ask(app: &mut Moonglow, answer: crate::widgets::Already) {
+    let Some(ask) = app.tileset_ask.take() else { return };
+    match ask {
+        TilesetAsk::Palette { id } => {
+            if answer == crate::widgets::Already::Replace
+                && let Some(idx) = app.tilesets.iter().position(|d| d.id == id)
+            {
+                let mut doc = app.tilesets.remove(idx);
+                make_palette(app, &mut doc);
+                app.tilesets.insert(idx, doc);
+            } else if answer == crate::widgets::Already::Skip
+                && let Some(path) =
+                    app.tilesets.iter().find(|d| d.id == id).map(|d| d.palette_path())
+            {
+                palette_skipped(app, &path);
+            }
+        }
+        TilesetAsk::Minimaps { id, names, dir, tiles, failed } => {
+            if answer == crate::widgets::Already::Cancel {
+                return;
+            }
+            if let Some(d) = app.tilesets.iter_mut().find(|d| d.id == id) {
+                name_tiles(d, &names);
+            }
+            let plan = MinimapPlan { names, dir, tiles, failed };
+            let overwrite = answer == crate::widgets::Already::Replace;
+            start_minimap_job(app, MinimapJob::from_plan(plan, overwrite));
+        }
+    }
+}
+
+/// Cancel in the minimap progress window: the job stopped where it is.
+fn cancel_minimap_job(app: &mut Moonglow) {
+    if let Some(job) = app.minimap_job.take() {
+        finish_minimap_job(app, job, true);
+    }
+}
+
 fn minimap_progress(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut job) = app.minimap_job.take() else { return };
+    if job.unmounting {
+        // (Rendered and said: the folder let go of once nothing else
+        // holds the game data.)
+        // (Not `release_game_data`, which waits for the holders: a
+        // frame asks whether they have let go.)
+        let had_game = app.game.is_some();
+        match crate::exclusive(&mut app.game) {
+            Some(game) => {
+                game.resman.remove(MINIMAP_LAYER);
+            }
+            None if had_game => {
+                app.minimap_job = Some(job);
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            None => {}
+        }
+        return;
+    }
     if !job.hold {
         let started = std::time::Instant::now();
         let budget = std::time::Duration::from_millis(8);
@@ -2613,11 +2671,11 @@ fn minimap_progress(app: &mut Moonglow, ctx: &egui::Context) {
         );
         ((), crate::widgets::Foot::new().cancel())
     });
+    app.minimap_job = Some(job);
     if footed.is_some_and(|f| f.pressed.cancelled()) {
-        finish_minimap_job(app, job, true);
+        cancel_minimap_job(app);
         return;
     }
-    app.minimap_job = Some(job);
     if !app.minimap_job.as_ref().is_some_and(|j| j.hold) {
         ctx.request_repaint();
     }
@@ -2636,6 +2694,7 @@ pub fn hold_minimap_for_tests(app: &mut Moonglow) {
         failed: Vec::new(),
         mounted: false,
         hold: true,
+        unmounting: false,
     });
 }
 
@@ -2644,6 +2703,7 @@ pub fn hold_minimap_for_tests(app: &mut Moonglow) {
 /// without a picture's name get `mi_<model>` (one undoable change).
 pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Some(plan) = prepare_minimap_plan(app, d) else { return };
+    name_tiles(d, &plan.names);
     start_minimap_job(app, MinimapJob::from_plan(plan, true));
 }
 
@@ -2994,5 +3054,178 @@ mod tests {
         assert!(app.tileset_ask.is_none());
         assert_eq!(std::fs::read(&tga_path).unwrap(), b"EXISTING_TGA");
         assert!(app.log.entries.iter().any(|(_, m)| m.contains("1 existing skipped")));
+    }
+
+    /// An app with game data of its own (no other holder of it), its
+    /// questions on `files_there`.
+    fn app_with_game(files_there: crate::settings::FilesThere) -> Moonglow {
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(
+            mg_resman::priority::KEY,
+            "game",
+            mg_resman::LayerClass::Key,
+            mg_resman::MemContainer::new(),
+        );
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(
+            rm,
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        )));
+        app.settings.files_there = files_there;
+        app
+    }
+
+    fn mounted(app: &Moonglow) -> bool {
+        app.game
+            .as_ref()
+            .is_some_and(|g| g.resman.layers().iter().any(|l| l.label == MINIMAP_LAYER))
+    }
+
+    /// A tileset of `n` tiles, none with a minimap picture's name, in `dir`.
+    fn tiles_doc(dir: &Path, n: usize) -> TilesetDoc {
+        let mut text = format!("[GENERAL]\r\nName=TST01\r\n\r\n[TILES]\r\nCount={n}\r\n");
+        for i in 0..n {
+            text.push_str(&format!("\r\n[TILE{i}]\r\nModel=t{i}\r\n"));
+        }
+        TilesetDoc::new(1, dir.join("tst01.set"), SetFile::parse(&text), None)
+    }
+
+    /// Make Palette with the palette in the folder and the questions set
+    /// to Skip: the file is left as it is, and the log says so.
+    #[test]
+    fn make_palette_set_to_skip_says_what_it_skipped() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-palette-skip");
+        let pal_path = dir.join("tst01palstd.itp");
+        std::fs::write(&pal_path, b"EXISTING_PAL").unwrap();
+        let mut d = doc();
+        d.path = dir.join("tst01.set");
+        let mut app = app_with_game(crate::settings::FilesThere::Skip);
+        ask_make_palette(&mut app, &mut d);
+        assert_eq!(std::fs::read(&pal_path).unwrap(), b"EXISTING_PAL");
+        let said: Vec<_> = app.log.entries.iter().map(|(_, m)| m.clone()).collect();
+        assert!(
+            said.iter().any(|m| m.contains("tst01palstd.itp") && m.contains("existing skipped")),
+            "{said:?}"
+        );
+    }
+
+    /// Render Minimap Pictures asked about pictures in the folder, and
+    /// the question cancelled: the tileset is as it was, no picture names
+    /// given, nothing to undo, nothing mounted.
+    #[test]
+    fn cancelling_the_minimap_question_changes_nothing() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-cancel");
+        std::fs::write(dir.join("mi_t0.tga"), b"EXISTING_TGA").unwrap();
+        let mut d = tiles_doc(&dir, 2);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        ask_render_minimaps(&mut app, &mut d);
+        assert!(matches!(app.tileset_ask, Some(TilesetAsk::Minimaps { .. })));
+        assert!(!d.has_undo() && !d.is_dirty(), "asking changed the tileset");
+        app.tilesets.push(d);
+        answer_tileset_ask(&mut app, crate::widgets::Already::Cancel);
+        let d = &app.tilesets[0];
+        assert!(!d.has_undo() && !d.is_dirty(), "cancel changed the tileset");
+        assert!(d.get("TILE0", "ImageMap2D").is_none());
+        assert!(app.tileset_ask.is_none() && app.minimap_job.is_none() && !mounted(&app));
+        assert_eq!(std::fs::read(dir.join("mi_t0.tga")).unwrap(), b"EXISTING_TGA");
+    }
+
+    /// The same question answered Skip Those: the picture names are given
+    /// then (one undoable change), and the job runs.
+    #[test]
+    fn answering_the_minimap_question_names_the_pictures() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-answer");
+        std::fs::write(dir.join("mi_t0.tga"), b"EXISTING_TGA").unwrap();
+        let mut d = tiles_doc(&dir, 2);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        ask_render_minimaps(&mut app, &mut d);
+        app.tilesets.push(d);
+        answer_tileset_ask(&mut app, crate::widgets::Already::Skip);
+        let d = &mut app.tilesets[0];
+        assert_eq!(d.get("TILE0", "ImageMap2D").as_deref(), Some("mi_t0"));
+        assert_eq!(d.get("TILE1", "ImageMap2D").as_deref(), Some("mi_t1"));
+        d.undo();
+        assert!(!d.has_undo() && d.get("TILE0", "ImageMap2D").is_none());
+        assert!(!mounted(&app) && app.minimap_job.is_none());
+        assert_eq!(std::fs::read(dir.join("mi_t0.tga")).unwrap(), b"EXISTING_TGA");
+        assert!(app.log.entries.iter().any(|(_, m)| m.contains("1 existing skipped")));
+    }
+
+    /// Runs the window's frames until the minimap job is done (or `limit`
+    /// frames have gone by).
+    fn frames(app: &mut Moonglow, ctx: &egui::Context, limit: usize) {
+        for _ in 0..limit {
+            if app.minimap_job.is_none() {
+                return;
+            }
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| windows(app, ui.ctx()));
+            out.textures_delta.clear();
+        }
+    }
+
+    /// The stepped render (background jobs on) mounts the tileset's folder
+    /// while it runs, and lets go of it at its end: the folder unmounted,
+    /// no job left, the log's summary written.
+    #[test]
+    fn the_stepped_minimap_render_unmounts_the_folder_at_its_end() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-stepped");
+        let mut d = tiles_doc(&dir, 3);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        app.background_jobs = true;
+        ask_render_minimaps(&mut app, &mut d);
+        assert!(app.minimap_job.is_some() && mounted(&app), "stepped, the folder mounted");
+        let ctx = egui::Context::default();
+        frames(&mut app, &ctx, 100);
+        assert!(app.minimap_job.is_none(), "the job ends");
+        assert!(!mounted(&app), "the folder is let go of");
+        assert!(crate::exclusive(&mut app.game).is_some(), "nothing holds the game data");
+        let said: Vec<_> = app.log.entries.iter().map(|(_, m)| m.clone()).collect();
+        assert!(said.iter().any(|m| m.starts_with("Rendered 0 minimap pictures")), "{said:?}");
+    }
+
+    /// The stepped render ending while something else holds the game data
+    /// (a search's thread, a render): the folder can't be unmounted then,
+    /// so it is let go of on a later frame, once the game data is free,
+    /// and the log's summary is written once.
+    #[test]
+    fn the_minimap_folder_is_unmounted_once_the_game_data_is_free() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-held");
+        let mut d = tiles_doc(&dir, 2);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        app.background_jobs = true;
+        ask_render_minimaps(&mut app, &mut d);
+        assert!(mounted(&app));
+        let held = app.game.clone();
+        let ctx = egui::Context::default();
+        frames(&mut app, &ctx, 3);
+        assert!(mounted(&app), "held, the folder can't be let go of yet");
+        drop(held);
+        frames(&mut app, &ctx, 3);
+        assert!(!mounted(&app), "the folder is let go of once the game data is free");
+        assert!(app.minimap_job.is_none());
+        let summaries = app.log.entries.iter().filter(|(_, m)| m.starts_with("Rendered ")).count();
+        assert_eq!(summaries, 1);
+    }
+
+    /// The stepped render cancelled after its first tile: the folder
+    /// unmounted, no job left, the log says how far it got.
+    #[test]
+    fn the_stepped_minimap_render_cancelled_midway_unmounts_the_folder() {
+        let dir = mg_testkit::scratch_dir("ui-tileset-minimap-stepped-cancel");
+        let mut d = tiles_doc(&dir, 3);
+        let mut app = app_with_game(crate::settings::FilesThere::Ask);
+        app.background_jobs = true;
+        ask_render_minimaps(&mut app, &mut d);
+        let mut job = app.minimap_job.take().expect("a stepped job");
+        step_minimap_tile(&mut app, &mut job);
+        assert_eq!(job.next, 1);
+        assert!(mounted(&app));
+        app.minimap_job = Some(job);
+        cancel_minimap_job(&mut app);
+        assert!(app.minimap_job.is_none(), "no job left");
+        assert!(!mounted(&app), "the folder is let go of");
+        assert!(crate::exclusive(&mut app.game).is_some(), "nothing holds the game data");
+        let said: Vec<_> = app.log.entries.iter().map(|(_, m)| m.clone()).collect();
+        assert!(said.iter().any(|m| m.contains("canceled (0 of 3 written)")), "{said:?}");
     }
 }

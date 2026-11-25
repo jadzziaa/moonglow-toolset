@@ -355,7 +355,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 .collect();
             assigned.sort_by_key(|(name, _, _)| name.to_lowercase());
             if assigned.is_empty() {
-                ui.weak("None: tick a feat to give it to the creature.");
+                ui.weak("None: check a feat to give it to the creature.");
             }
             for (name, row, n) in assigned {
                 super::row(ui, |ui| {

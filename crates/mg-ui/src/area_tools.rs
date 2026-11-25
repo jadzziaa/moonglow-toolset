@@ -538,7 +538,7 @@ pub fn static_note(a: &AdjustLocation) -> Option<String> {
     };
     Some(format!(
         "{which}: the game draws static placeables without visual transforms, so none is \
-         offered. Untick Static (Properties) to scale, tilt or move a model.{kept}"
+         offered. Uncheck Static (Properties) to scale, tilt or move a model.{kept}"
     ))
 }
 

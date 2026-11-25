@@ -229,7 +229,7 @@ fn edit_areas_together_s_keys_wait_under_menus_popovers_dialogs_and_fields() {
     key(&mut h, Key::Escape);
     assert!(h.state().areas_together_ticked().is_some(), "Escape left the field alone");
     // A press in the section gives them back; one elsewhere takes them.
-    h.get_by_label_contains("Tick the areas to edit").click();
+    h.get_by_label_contains("Check the areas to edit").click();
     settle(&mut h);
     key(&mut h, Key::Space);
     assert_eq!(ticked(&h).len(), 1, "a press in it: its keys again");
@@ -620,7 +620,7 @@ fn u29_pictures_edit_areas_together() {
             settle(&mut h);
             open_together(&mut h);
             picture_of(&mut h, "together-empty", "its intro", |h| {
-                label_in(h, right_dock_rect(h), "Tick the areas to edit together.")
+                label_in(h, right_dock_rect(h), "Check the areas to edit together.")
             });
             for _ in 0..3 {
                 key(&mut h, Key::ArrowDown);
@@ -659,7 +659,7 @@ fn u29_pictures_edit_areas_together() {
                 // (Laid out at that width before the rail is looked for.)
                 settle(&mut h);
                 for (page, mark) in [
-                    ("Areas", "Tick the areas"),
+                    ("Areas", "Check the areas"),
                     ("Visual", "Fog Amount"),
                     ("Grass", "grass"),
                     ("Audio", "Ambient Sound"),

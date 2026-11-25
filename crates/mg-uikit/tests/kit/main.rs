@@ -22,5 +22,6 @@ mod shell;
 mod theme;
 mod tokens;
 mod tree;
+mod wave_looks;
 mod widgets;
 mod window;

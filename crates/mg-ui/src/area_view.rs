@@ -3336,11 +3336,14 @@ impl PressTo {
             };
         }
         match () {
-            _ if writable && app.paint => PressTo::Paint,
+            _ if writable && crate::paint_mode::active(app).is_some() => PressTo::Paint,
             _ if writable && view.tile_pasting => PressTo::TilePaste,
             _ if writable && view.tile_mode => PressTo::Tiles,
             _ if view.pasting => PressTo::Pasting,
             _ if view.redraw.is_some() => PressTo::Redraw,
+            // (Paint on with no placeable chosen: what a click would place
+            // is not, and the press is the objects' as with Paint off.)
+            _ if !clicks_place(app) => PressTo::Objects,
             _ if app.palette.placing_start => PressTo::PlacingStart,
             _ if writable && app.palette.placing_appearance.is_some() => PressTo::Appearance,
             _ if writable && app.palette.placing_light.is_some() => PressTo::Light,
@@ -4053,7 +4056,7 @@ fn viewport(
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
         // About to be placed (the palette's Start Location): under the
         // pointer, facing the way the view looks.
-        _ if app.palette.placing_start => {
+        _ if app.palette.placing_start && clicks_place(app) => {
             view.pointer_over(ui).and_then(|p| view.area_point(p)).map(|at| (at, view_facing(view)))
         }
         // As Adjust Location has it, changed.
@@ -5480,6 +5483,17 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if !read_only && crate::paint_mode::input(app, ui, view, response) {
         return;
     }
+    // Paint on with something chosen that it doesn't paint (a door, a
+    // waypoint, a gallery's appearance or light, the start location): the
+    // click that would place it places nothing, and is no other click
+    // either, as with Paint off it would be no selecting click. The rest
+    // (dragging, Delete, copy and paste, the camera) is as with Paint off.
+    if !clicks_place(app)
+        && to_place(app)
+        && (response.clicked() || response.double_clicked() || response.triple_clicked())
+    {
+        return;
+    }
     if !read_only && crate::tile_select::paste_input(app, ui, view, response) {
         return;
     }
@@ -5823,7 +5837,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         // A double click on the ground: over to the tiles, that one
         // selected (a click on an object there comes back to objects), so
-        // going between the two needs no trip to the header.
+        // going between the two needs no trip to the header. (Paint, on
+        // with no placeable chosen, goes off: one tool at a time.)
+        app.paint = false;
         view.tile_mode = true;
         view.selection.clear();
         view.start_selected = false;
@@ -6489,7 +6505,27 @@ const RECENT: usize = 12;
 
 /// The palette's chosen blueprint, if it is one to place.
 fn brush(app: &Moonglow) -> Option<ResKey> {
-    app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some())
+    let key = app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some());
+    key.filter(|_| clicks_place(app))
+}
+
+/// Whether a click on the view may place what is in hand to place (the
+/// palette's blueprint, a gallery's appearance or light, the start
+/// location): not with Paint on, which places only its own placeables
+/// (none at all where none is chosen, a door or a waypoint not among
+/// them). The ghost follows it: none where a click would place nothing.
+fn clicks_place(app: &Moonglow) -> bool {
+    !app.paint
+}
+
+/// Whether something is in hand for a click to place ([`clicks_place`]
+/// or not).
+fn to_place(app: &Moonglow) -> bool {
+    let p = &app.palette;
+    p.selected.is_some_and(|k| ObjectKind::from_restype(k.restype).is_some())
+        || p.placing_appearance.is_some()
+        || p.placing_light.is_some()
+        || p.placing_start
 }
 
 /// Places blueprint `key` at `at` (a trigger or encounter along `outline`,
@@ -6696,15 +6732,16 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     // would place (kept under a name of its own, no blueprint's).
     type Appearance = crate::appearance_gallery::DraggedAppearance;
     // (Or taken by a click to place, the gallery's.)
-    let appearance = egui::DragAndDrop::payload::<Appearance>(ui.ctx())
-        .or_else(|| app.palette.placing_appearance.clone().map(std::sync::Arc::new));
+    let appearance = egui::DragAndDrop::payload::<Appearance>(ui.ctx()).or_else(|| {
+        let taken = app.palette.placing_appearance.clone().filter(|_| clicks_place(app));
+        taken.map(std::sync::Arc::new)
+    });
     let unnamed = appearance
         .as_ref()
         .and_then(|a| ResKey::parse(&format!("plc_app_{}", a.row), ResType::UTP));
-    // (The palette's placeables are painted, with Paint on: the brush shows
-    // its own.)
-    let painting = crate::paint_mode::active(app).is_some();
-    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app).filter(|_| !painting));
+    // (With Paint on, the palette's choice is not placed by a click
+    // ([`brush`]): the brush shows its own placeables, and nothing else.)
+    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app));
     let Some(key) = key.filter(|_| !view.pasting && view.outline.is_empty()) else {
         view.ghost = None;
         return None;

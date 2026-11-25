@@ -7,6 +7,7 @@
 
 use egui::{Rect, RichText, Ui, vec2};
 use egui_kittest::Harness;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::Controls as _;
 use mg_uikit::icons::{ButtonState, paint_icon_button};
 use mg_uikit::shell::{self, DockTab, DockTabs, FoldStrip, PanelHeader, Side};
@@ -14,7 +15,7 @@ use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusLog, Stat
 use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme, TokensExt as _, metrics};
 
 /// The sheet's size.
-const SIZE: egui::Vec2 = egui::vec2(1600.0, 1720.0);
+const SIZE: egui::Vec2 = egui::vec2(1600.0, 2000.0);
 /// A cell's width.
 const CELL: f32 = 376.0;
 
@@ -839,6 +840,90 @@ fn header_parts(ui: &mut Ui, s: &mut State) {
     });
 }
 
+/// The looks the UI/UX waves changed, which the cells above draw with
+/// egui's own widgets or not at all: the kit's slider (rest, hovered,
+/// with its value), a popover's switch off and on, an icon toggle on and
+/// pressed as a focused one paints it, gallery tiles (rest, hovered,
+/// selected with and without the keys, the keys' cursor) on the panel,
+/// and the compass over a dark and a light 3D view.
+fn wave_states(ui: &mut Ui, s: &mut State) {
+    use mg_uikit::gallery::{CellState, GalleryCell, Picture};
+    use mg_uikit::popover::Popover;
+    let t = ui.tokens();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().slider_width = 110.0;
+        let _ =
+            mg_uikit::slider(ui, egui::Slider::new(&mut s.light, 0.0..=100.0).show_value(false));
+        let mut hovered = 70.0_f32;
+        as_hovered(ui, |ui| {
+            mg_uikit::slider(ui, egui::Slider::new(&mut hovered, 0.0..=100.0).show_value(false))
+        });
+    });
+    let _ = mg_uikit::slider(ui, egui::Slider::new(&mut s.scale, 0.0..=4.0).suffix(" m"));
+    ui.horizontal_top(|ui| {
+        let mut off = false;
+        Popover::new("Sheet switch off").switch(&mut off, "Off").show_in_place(ui);
+        let mut on = true;
+        Popover::new("Sheet switch on").switch(&mut on, "On").show_in_place(ui);
+    });
+    ui.horizontal(|ui| {
+        for (state, on) in [(ButtonState::Pressed, true), (ButtonState::Pressed, false)] {
+            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(22.0), egui::Sense::hover());
+            paint_icon_button(ui.painter(), &t, rect, Icon::Grid, state, on);
+        }
+        ui.add_space(16.0);
+        // Color swatch buttons, 2 apart as in a tight grid: rest, hovered,
+        // open, focused.
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let looks = [
+            mg_uikit::SwatchLook::default(),
+            mg_uikit::SwatchLook { hovered: true, ..Default::default() },
+            mg_uikit::SwatchLook { open: true, ..Default::default() },
+            mg_uikit::SwatchLook { focused: true, ..Default::default() },
+        ];
+        for (look, color) in looks.into_iter().zip([
+            egui::Color32::from_rgb(200, 147, 106),
+            egui::Color32::from_rgb(41, 46, 54),
+            egui::Color32::WHITE,
+            egui::Color32::from_rgb(50, 50, 100),
+        ]) {
+            let (rect, _) = ui.allocate_exact_size(vec2(36.0, 22.0), egui::Sense::hover());
+            mg_uikit::paint_swatch_button(ui.painter(), &t, rect, look, |p, r| {
+                p.rect_filled(r, 2.0, color);
+            });
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        let cells: [(&str, bool, CellState); 5] = [
+            ("Rest", false, CellState::default()),
+            ("Hovered", false, CellState { hovered: true, ..Default::default() }),
+            ("Selected", true, CellState { keys: true, ..Default::default() }),
+            ("No keys", true, CellState::default()),
+            ("Cursor", false, CellState { keys: true, cursor: true, ..Default::default() }),
+        ];
+        for (name, selected, state) in cells {
+            let size = vec2(56.0, 56.0 + mg_uikit::gallery::label_height(false, 1, false));
+            let (rect, r) = ui.allocate_exact_size(size, egui::Sense::hover());
+            GalleryCell::new(name, Picture::Making).kind(Icon::Placeable).selected(selected).paint(
+                ui,
+                rect,
+                egui::Vec2::splat(56.0),
+                state,
+                &r,
+            );
+        }
+    });
+    ui.horizontal(|ui| {
+        for ground in [egui::Color32::from_rgb(38, 44, 36), egui::Color32::from_rgb(150, 160, 140)]
+        {
+            let (rect, _) = ui.allocate_exact_size(vec2(72.0, 72.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, ground);
+            mg_uikit::overlay::paint_compass(ui.painter(), &t, rect.center(), 0.0);
+        }
+    });
+}
+
 /// The whole set, names beside.
 fn icon_grid(ui: &mut Ui) {
     let t = ui.tokens();
@@ -937,11 +1022,19 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
         |ui| header_parts(ui, s),
     );
     ui.add_space(8.0);
-    cell(
-        ui,
-        "icon widgets: icon, button (rest, hovered, pressed, on, on hovered, disabled), toggle; sizes 12 16 20 32; state colors",
-        icon_widgets,
-    );
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        cell(
+            ui,
+            "icon widgets: icon, button (rest, hovered, pressed, on, on hovered, disabled), toggle; sizes 12 16 20 32; state colors",
+            icon_widgets,
+        );
+        cell_wide(
+            ui,
+            "kit slider (rest, hovered, value); switch off, on; icon button pressed on (no ring: its focus ring is in the focus strip), off; color swatches (rest, hovered, open, focused); gallery tiles (rest, hovered, selected, selected without the keys, cursor); compass over a dark and a light view",
+            |ui| wave_states(ui, s),
+        );
+    });
     ui.add_space(8.0);
     ui.label(RichText::new(format!("icon set ({} icons, 16 px)", Icon::ALL.len())).small().weak());
     icon_grid(ui);
@@ -956,6 +1049,93 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
             });
         },
     );
+}
+
+/// The focus strip's controls, each in a cell of its own, by the name the
+/// keyboard's focus is given to: an icon button selected and one off, a
+/// primary (accent-filled) button, a toggle on, a plain button, a page
+/// list's row on, a page rail's page on, a tool on, a selected tree row's
+/// eye.
+const FOCUSED: [&str; 9] = [
+    "Gallery",
+    "Snap",
+    "OK",
+    "Fog",
+    "Cancel",
+    "List on",
+    "Rail on",
+    "Select Objects",
+    "Show Halion",
+];
+/// A focus strip cell's side.
+const FOCUS_CELL: egui::Vec2 = vec2(96.0, 72.0);
+/// How many pixels the focus strip has to a point (to see a ring's pixels).
+const FOCUS_SCALE: f32 = 3.0;
+
+fn focus_cell(i: usize) -> Rect {
+    Rect::from_min_size(egui::pos2(8.0 + i as f32 * FOCUS_CELL.x, 8.0), FOCUS_CELL - vec2(8.0, 0.0))
+}
+
+/// The focus strip under `theme`: [`FOCUSED`], one to a cell.
+fn focus_strip(ui: &mut Ui, theme: Theme) {
+    use mg_uikit::pages::{PageList, PageRail};
+    use mg_uikit::shelf::{Tool, ToolShelf};
+    use mg_uikit::tree::TreeRow;
+    use mg_uikit::{ButtonLook, KitButton};
+    mg_uikit::apply(ui.ctx(), theme);
+    let all = ui.ctx().content_rect();
+    let back = egui::LayerId::background();
+    ui.ctx().layer_painter(back).rect_filled(all, 0.0, ui.visuals().panel_fill);
+    for i in 0..FOCUSED.len() {
+        let rect = focus_cell(i);
+        let builder =
+            egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min));
+        let mut c = ui.new_child(builder);
+        c.set_clip_rect(rect);
+        let c = &mut c;
+        match i {
+            0 => {
+                c.add(IconButton::new(Icon::Grid, "Gallery").icon_only(true).selected(true));
+            }
+            1 => {
+                let mut off = false;
+                let _ = mg_uikit::icon_toggle(c, &mut off, Icon::Magnet, "Snap");
+            }
+            2 => {
+                c.add(KitButton::new(None, "OK").look(ButtonLook::Primary));
+            }
+            3 => {
+                c.add(KitButton::new(Some(Icon::Fog), "Fog").toggle(true));
+            }
+            4 => {
+                c.add(KitButton::new(None, "Cancel"));
+            }
+            5 => {
+                let _ = PageList::new("focus-list")
+                    .page(Icon::Info, "List on")
+                    .page(Icon::Lock, "List off")
+                    .width(84.0)
+                    .show(c, &mut 0);
+            }
+            6 => {
+                let _ = PageRail::new("focus-rail")
+                    .page(Icon::Info, "Rail on")
+                    .page(Icon::Lock, "Rail off")
+                    .show(c, &mut 0);
+            }
+            7 => {
+                ToolShelf::new()
+                    .tool(Tool::new(Icon::Select, "Select Objects").on(true))
+                    .tool(Tool::new(Icon::Paint, "Paint"))
+                    .show(c);
+            }
+            _ => {
+                mg_uikit::list_rows(c);
+                let _ =
+                    TreeRow::new("Halion").selected(true).eye(true, "Show Halion", "Shown").show(c);
+            }
+        }
+    }
 }
 
 fn harness(theme: Theme, gpu: bool) -> Harness<'static> {
@@ -989,6 +1169,35 @@ fn kit_sheet_pictures() {
         let image = h.render().expect("render");
         let name = format!("uikit-{}.png", theme.name().to_lowercase());
         image.save(dir.join(&name)).unwrap();
+        eprintln!("wrote {}", dir.join(name).display());
+        // The focus strip: each control drawn with the keyboard's focus
+        // (a context has one focus: a frame for each, its cell kept).
+        let size = vec2(16.0 + FOCUSED.len() as f32 * FOCUS_CELL.x, FOCUS_CELL.y + 16.0);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(FOCUS_SCALE)
+            .wgpu()
+            .build_ui(move |ui| focus_strip(ui, theme));
+        h.run_steps(2);
+        let mut strip = None;
+        for (i, name) in FOCUSED.iter().enumerate() {
+            h.get_by_label(name).focus();
+            h.run_steps(2);
+            assert!(h.get_by_label(name).accesskit_node().is_focused(), "{name} focused");
+            let image = h.render().expect("render");
+            let strip = strip.get_or_insert_with(|| image.clone());
+            let cell = focus_cell(i);
+            let (x0, y0) = ((cell.left() * FOCUS_SCALE) as u32, (cell.top() * FOCUS_SCALE) as u32);
+            let (x1, y1) =
+                ((cell.right() * FOCUS_SCALE) as u32, (cell.bottom() * FOCUS_SCALE) as u32);
+            for y in y0..y1.min(image.height()) {
+                for x in x0..x1.min(image.width()) {
+                    strip.put_pixel(x, y, *image.get_pixel(x, y));
+                }
+            }
+        }
+        let name = format!("uikit-focus-{}.png", theme.name().to_lowercase());
+        strip.expect("drawn").save(dir.join(&name)).unwrap();
         eprintln!("wrote {}", dir.join(name).display());
     }
 }

@@ -678,3 +678,54 @@ fn tidy_up(app: &mut Moonglow, unused: &bake::Unused) {
     }
     after_files(app);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The save's question with many baked rows no longer used (Wave 3's
+    /// scroll area): the window stays a screen's height or less, and the
+    /// last row is reached by scrolling the list.
+    #[test]
+    fn the_unused_rows_scroll_in_a_bounded_list() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let rows: Vec<bake::BakedRow> = (0..60)
+            .map(|i| bake::BakedRow {
+                row: 50000 + i,
+                copy_of: 7,
+                model: format!("mgbk_{i:04}"),
+                label: format!("Baked {i}"),
+            })
+            .collect();
+        let unused = bake::Unused { rows, models: vec!["mgbk_lone".into()] };
+        app.bake.ask = Some(TidyAsk { unused, then: Action::Save });
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(900.0, 700.0))
+            .build_ui_state(|ui, app: &mut Moonglow| save_window(app, ui.ctx()), app);
+        h.run();
+        let first = h.get_by_label_contains("row 50000 (mgbk_0000)").rect();
+        let tidy = h.get_by_label("Tidy Up").rect();
+        assert!(tidy.bottom() <= 700.0, "the buttons are on the screen: {tidy:?}");
+        assert!(tidy.top() - first.top() < 400.0, "the list is bounded: {first:?} {tidy:?}");
+        // (The rows past the list's height lie under the buttons until
+        // scrolled to.)
+        let last_of = |h: &Harness<'_, Moonglow>| h.get_by_label_contains("mgbk_lone in").rect();
+        assert!(last_of(&h).top() > tidy.top(), "the last row is below, scrolled out");
+        for _ in 0..40 {
+            h.hover_at(first.center());
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -200.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run();
+        }
+        let last = last_of(&h);
+        assert!(last.bottom() < tidy.top(), "the last row is reached: {last:?} {tidy:?}");
+        assert!(last.top() >= first.top() - 1.0, "and shown in the list: {last:?} {first:?}");
+        assert!(h.query_by_label_contains("row 50000 (mgbk_0000)").is_some());
+    }
+}

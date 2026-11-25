@@ -3310,11 +3310,7 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     }
     if !also.is_empty() {
         let what = if path.0.is_empty() { "blueprints" } else { "objects" };
-        let cue = if also.len() > MIXED_LIMIT {
-            "more than 64 selected: mixed markers omitted"
-        } else {
-            "≠: they differ there"
-        };
+        let cue = mixed_cue(also.len());
         ui.weak(format!(
             "{} {what}: shown as the first; what you change is set on each ({cue})",
             also.len() + 1
@@ -3511,9 +3507,21 @@ pub(crate) fn look_only(
 /// refused, in seconds.
 pub(crate) const VIEW_REFUSED_SHOWN: f64 = 4.0;
 
-/// The most objects edited together whose values are compared, field by
-/// field, to mark the fields that differ.
+/// The most objects edited together beside the first whose values are
+/// compared with its, field by field, to mark the fields that differ (one
+/// more selected in all).
 pub(crate) const MIXED_LIMIT: usize = 64;
+
+/// What the note over objects edited together says of the marks, with
+/// `others` edited beside the first: where they differ, or that past
+/// [`MIXED_LIMIT`] of them the marks are left out.
+pub(crate) fn mixed_cue(others: usize) -> String {
+    if others > MIXED_LIMIT {
+        format!("more than {} selected: mixed markers omitted", MIXED_LIMIT + 1)
+    } else {
+        format!("{MIXED}: they differ there")
+    }
+}
 
 /// The mark of a field whose value differs among the objects edited
 /// together.
@@ -3621,6 +3629,16 @@ pub(crate) fn read_only_if<R>(ui: &mut Ui, viewed: bool, add: impl FnOnce(&mut U
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The note over objects edited together says the marks are left out
+    /// from the number of them where they are (the others past
+    /// [`MIXED_LIMIT`]: one more selected), not at a number of its own.
+    #[test]
+    fn the_mixed_cue_names_the_number_where_the_marks_go() {
+        let omitted = format!("more than {} selected: mixed markers omitted", MIXED_LIMIT + 1);
+        assert_eq!(mixed_cue(MIXED_LIMIT), "≠: they differ there", "{} selected", MIXED_LIMIT + 1);
+        assert_eq!(mixed_cue(MIXED_LIMIT + 1), omitted, "{} selected", MIXED_LIMIT + 2);
+    }
 
     /// A long table's rows by name and narrowed by what is typed, kept
     /// (the review's B22: copied and sorted every frame), are what sorting

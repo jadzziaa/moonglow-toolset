@@ -106,6 +106,48 @@ pub fn swatch(ui: &Ui, rect: egui::Rect, tones: &[Color32; 4]) {
     }
 }
 
+/// How a color swatch button is lit ([`paint_swatch_button`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SwatchLook {
+    /// Under the pointer (or pressed).
+    pub hovered: bool,
+    /// Its picker open.
+    pub open: bool,
+    /// Holding the keyboard's focus.
+    pub focused: bool,
+}
+
+/// The room around a swatch button's color (the mock's `.swatch`:
+/// `padding: 3px`).
+pub const SWATCH_PADDING: f32 = 3.0;
+
+/// Paints a color swatch button in `rect` (the mock's `.swatch`): a
+/// button `raised`, `raised-hover` hovered or open, with its color
+/// [`SWATCH_PADDING`] in, painted by `color` into the rectangle it is
+/// given and lined with `swatch-line`. Open or focused, a 1 px `accent`
+/// border inside the button's own edge (a tight grid of swatches does not
+/// cover it, as one drawn outside was). The color's rectangle.
+pub fn paint_swatch_button(
+    painter: &egui::Painter,
+    t: &crate::Tokens,
+    rect: egui::Rect,
+    look: SwatchLook,
+    color: impl FnOnce(&egui::Painter, egui::Rect),
+) -> egui::Rect {
+    let fill = if look.hovered || look.open { t.raised_hover } else { t.raised };
+    let corner = egui::CornerRadius::same(metrics::RADIUS);
+    painter.rect_filled(rect, corner, fill);
+    let inner = rect.shrink(SWATCH_PADDING);
+    color(painter, inner);
+    let line = egui::Stroke::new(1.0, t.swatch_line);
+    painter.rect_stroke(inner, egui::CornerRadius::same(2), line, egui::StrokeKind::Outside);
+    if look.open || look.focused {
+        let ring = egui::Stroke::new(1.0, t.accent);
+        painter.rect_stroke(rect, corner, ring, egui::StrokeKind::Inside);
+    }
+    inner
+}
+
 /// How many colors a PLT palette has (`pal_*`: a row each).
 pub const PALETTE_COLORS: u8 = 176;
 

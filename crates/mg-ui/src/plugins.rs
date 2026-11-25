@@ -958,7 +958,7 @@ impl Moonglow {
         self.plugins_changed();
         if !allow {
             self.log.info(format!(
-                "The project's plugin {} {} stays off (Plugins › Manage Plugins… enables it)",
+                "The project's plugin {} {} stays off (Plugins › Manage Plugins enables it)",
                 m.name, m.version
             ));
             return;
@@ -2645,7 +2645,7 @@ fn swatch(ui: &egui::Ui, rect: egui::Rect, [r, g, b]: [u8; 3]) {
     ui.painter().rect_stroke(at, 2.0, (1.0, stroke.color), egui::StrokeKind::Inside);
 }
 
-/// Plugins › Manage Plugins…, a document tab (M4's U29, as U26 made the
+/// Plugins › Manage Plugins, a document tab (M4's U29, as U26 made the
 /// Appearance Gallery one; a window before): the plugins installed, each to
 /// enable; where they are kept; and the console, on one scroll. A tab or a
 /// window as Options' Open editors says, with no module open too; kept in
@@ -2702,8 +2702,8 @@ pub(crate) fn tab(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let mut seconds = app.plugin_event_budget().as_secs() as u32;
             crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
-                "Maximum time plugin handlers may run during a save, paste, or wizard Finish before \
-                 being stopped",
+                "Maximum time plugin handlers may run in a save, paste or wizard Finish. \
+                 Stopped, they don't stop the save",
             );
             let r = ui
                 .add(egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"));

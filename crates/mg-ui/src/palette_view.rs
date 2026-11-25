@@ -3658,6 +3658,9 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // The prefab Rename… was chosen for, and the name typed so far.
     let renamed_id = egui::Id::new("palette-prefab-rename");
     let mut renamed: Option<(String, String)> = ui.data(|d| d.get_temp(renamed_id));
+    // (Renamed this frame: the list read again, so the old name isn't
+    // listed, nor its missing file read for its hover.)
+    let mut renamed_now = false;
     if let Some((name, mut to)) = renamed.clone().filter(|(n, _)| names.contains(n)) {
         let mut done = false;
         ui.horizontal_wrapped(|ui| {
@@ -3674,6 +3677,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     Ok(()) => app.log.info(format!("Prefab '{name}' renamed to '{}'", to.trim())),
                     Err(e) => app.log.error(format!("Rename prefab: {e}")),
                 }
+                renamed_now = true;
                 done = true;
             } else if ui.button("Cancel").clicked()
                 || ui.input(|i| i.key_pressed(egui::Key::Escape))
@@ -3695,6 +3699,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     } else {
         renamed = None;
     }
+    let names = if renamed_now { crate::prefabs::list(dir.as_deref()) } else { names };
     egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
         ui,
         |ui| {

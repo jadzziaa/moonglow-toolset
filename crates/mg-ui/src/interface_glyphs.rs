@@ -49,7 +49,7 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/area_props.rs",
         '≠',
-        2,
+        1,
         Proportional,
         "the mark of values that differ, named in a message (the window's and Edit Areas \
          Together's)",
@@ -71,7 +71,7 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/blueprint/mod.rs",
         '≠',
-        3,
+        2,
         Proportional,
         "the mark of values that differ (MIXED), and messages naming it",
     ),

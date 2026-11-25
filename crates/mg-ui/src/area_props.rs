@@ -171,11 +171,7 @@ fn pages(
                 None => a.to_string(),
             })
             .collect();
-        let cue = if others.len() > crate::blueprint::MIXED_LIMIT {
-            "more than 64 selected: mixed markers omitted"
-        } else {
-            "≠: they differ there"
-        };
+        let cue = crate::blueprint::mixed_cue(others.len());
         ui.weak(format!(
             "{} areas: shown as the first ({}); what you change is set on each ({cue})",
             names.len(),
@@ -1974,7 +1970,7 @@ fn together_page(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, page: &st
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(
-                        "Tick two areas or more on the Areas page to edit them together here.",
+                        "Check two areas or more on the Areas page to edit them together here.",
                     )
                     .weak(),
                 )
@@ -2157,11 +2153,12 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
         // (One short line, the rest its tip: three lines took the list's
         // rows in the dock, M4's U29 review.)
         ui.add(
-            egui::Label::new(egui::RichText::new("Tick the areas to edit together.").weak()).wrap(),
+            egui::Label::new(egui::RichText::new("Check the areas to edit together.").weak())
+                .wrap(),
         )
         .on_hover_text(
             "The shared pages on the rail set what you change (lighting, fog, weather, music, \
-                 scripts, variables…) on each area ticked.",
+                 scripts, variables…) on each area checked.",
         );
         // (A choice's words cut to its width rather than widening the grid
         // past the room: the least Right Dock's, where the list below needs
@@ -2247,10 +2244,10 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
             let mut picked: Option<String> = None;
             let options: Vec<Option<String>> = sets.iter().cloned().map(Some).collect();
             crate::widgets::dropdown("area-chooser-sets")
-                .selected_text(if sets.is_empty() { "No sets kept" } else { "Tick a Set…" })
+                .selected_text(if sets.is_empty() { "No sets kept" } else { "Check a Set…" })
                 .width(140.0)
                 .show(ui, &mut picked, &options, |s| s.clone().unwrap_or_default())
-                .on_hover_text("Ticks the areas of a set kept for this module, as they are");
+                .on_hover_text("Checks the areas of a set kept for this module, as they are");
             if let Some(name) = picked {
                 match crate::area_sets::read(app.area_set_dir.as_deref(), &name) {
                     Ok(set) => {

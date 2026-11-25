@@ -7130,7 +7130,7 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
     assert!(!h.state().settings.no_light_shadows, "and kept in the settings");
     h.get_by_label("Light shadows").hover();
     settle(&mut h);
-    let why = "Tick Creature shadows first: creatures cast these";
+    let why = "Check Creature shadows first: creatures cast these";
     let started = std::time::Instant::now();
     while h.query_by_label(why).is_none() {
         assert!(started.elapsed() < std::time::Duration::from_secs(10), "the tooltip says why");

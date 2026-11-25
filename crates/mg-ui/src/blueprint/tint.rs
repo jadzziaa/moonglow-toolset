@@ -31,7 +31,7 @@ pub(super) fn section(f: &mut Form<'_>, ui: &mut Ui) {
          loads (its tdod_tint variables): the whole object's, and a material's own over it.",
     );
     if !tint::takes_tint(&f.root) {
-        let text = "Static: the game draws a static placeable as made, without its tint. Untick \
+        let text = "Static: the game draws a static placeable as made, without its tint. Uncheck \
                     Static on the Basic page for the tint to show.";
         ui.colored_label(ui.visuals().warn_fg_color, text);
     }

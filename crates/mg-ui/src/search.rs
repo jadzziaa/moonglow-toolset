@@ -913,8 +913,8 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             }
             if c.kind == Kind::Skill {
                 crate::widgets::field_label(ui, "At least");
-                let rank_suffix = if c.min_rank == 1 { " rank" } else { " ranks" };
-                ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(rank_suffix));
+                let suffix = rank_suffix(c.min_rank);
+                ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(suffix));
                 ui.end_row();
             }
             if c.kind == Kind::Class {
@@ -1308,7 +1308,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let game = app.game.clone();
     ui.weak(
         "The module's blueprints, placed objects (and the items they hold), areas and \
-         conversations, by what they hold; and, ticked below, the haks' and the game's \
+         conversations, by what they hold; and, checked below, the haks' and the game's \
          blueprints.",
     );
     if game.is_none() {
@@ -1413,21 +1413,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 Together::Blueprints(t, keys) => {
                                     let kind =
                                         ObjectKind::from_restype(*t).map_or("", ObjectKind::name);
-                                    let word =
-                                        if keys.len() == 1 { "blueprint" } else { "blueprints" };
-                                    format!("Edit {} {kind} {word} Together", keys.len())
+                                    blueprints_together(kind, keys.len())
                                 }
                                 Together::Placed { area, kind, paths } => {
                                     let aname = match area_names {
                                         true => crate::tabs::area_label(app, *area),
                                         false => area.to_lowercase().to_string(),
                                     };
-                                    let noun = if paths.len() == 1 {
-                                        kind.name().to_string()
-                                    } else {
-                                        kind.label().to_lowercase()
-                                    };
-                                    format!("Edit {} {noun} in {aname} Together", paths.len())
+                                    placed_together(*kind, paths.len(), &aname)
                                 }
                             };
                             if ui.button(text).clicked() {
@@ -1636,9 +1629,55 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     app.advanced_search = draft;
 }
 
+/// Skill's "At least" field's suffix: " rank" for one, " ranks" else.
+fn rank_suffix(n: u8) -> &'static str {
+    if n == 1 { " rank" } else { " ranks" }
+}
+
+/// Edit Together's button for `n` blueprints of `kind` (its name).
+fn blueprints_together(kind: &str, n: usize) -> String {
+    let word = if n == 1 { "blueprint" } else { "blueprints" };
+    format!("Edit {n} {kind} {word} Together")
+}
+
+/// Edit Together's button for `n` objects of `kind` placed in the area
+/// `area` (as the window names areas).
+fn placed_together(kind: ObjectKind, n: usize, area: &str) -> String {
+    let noun = if n == 1 { kind.name().to_string() } else { kind.label().to_lowercase() };
+    format!("Edit {n} {noun} in {area} Together")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Wave 3's counted words: one rank, one blueprint, one creature,
+    /// and the plurals past one.
+    #[test]
+    fn counted_labels_say_one_and_more() {
+        assert_eq!(rank_suffix(1), " rank");
+        assert_eq!(rank_suffix(2), " ranks");
+        assert_eq!(rank_suffix(127), " ranks");
+        let creature = ObjectKind::Creature.name();
+        assert_eq!(
+            blueprints_together(creature, 1),
+            format!("Edit 1 {creature} blueprint Together")
+        );
+        assert_eq!(
+            blueprints_together(creature, 3),
+            format!("Edit 3 {creature} blueprints Together")
+        );
+        assert_eq!(
+            placed_together(ObjectKind::Creature, 1, "start"),
+            "Edit 1 creature in start Together"
+        );
+        assert_eq!(
+            placed_together(ObjectKind::Creature, 2, "start"),
+            "Edit 2 creatures in start Together"
+        );
+        assert_eq!(placed_together(ObjectKind::Door, 1, "Inn"), "Edit 1 door in Inn Together");
+        assert_eq!(placed_together(ObjectKind::Door, 4, "Inn"), "Edit 4 doors in Inn Together");
+    }
 
     /// A search is kept to each placed object kind by its type and the
     /// name the toolset calls it by, then to areas, conversations and the

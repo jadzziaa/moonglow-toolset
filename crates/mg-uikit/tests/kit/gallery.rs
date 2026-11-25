@@ -323,7 +323,9 @@ fn each_state_draws_as_quiet_tiles() {
         });
         assert!(icon_drawn, "{theme:?}: the kind's icon while it is made");
         let h = draw(&plain, CellState { hovered: true, ..rest });
-        assert!(rims(&h).contains(&(1.0, t.raised_hover)), "{theme:?} hovered");
+        // (Light: `text-off`, which shows on the panel the rim stands on.)
+        let hover = if theme == Theme::Light { t.text_off } else { t.raised_hover };
+        assert!(rims(&h).contains(&(1.0, hover)), "{theme:?} hovered");
         assert!(texts(&h).contains(&("Corpse Wagon".into(), t.text)), "{theme:?} hovered");
         let selected = || plain().selected(true);
         let h = draw(&selected, CellState { keys: true, ..rest });

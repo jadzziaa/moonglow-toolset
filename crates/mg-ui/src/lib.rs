@@ -1563,6 +1563,11 @@ pub struct Moonglow {
     /// Each pane's tabs in their order, as this frame began (the dock is
     /// out of reach while its tabs are drawn).
     pub(crate) panes_tabs: Vec<Vec<Tab>>,
+    /// The tabs in a window of their own as this frame began, each with
+    /// whether its window is maximized (the dock is out of reach while
+    /// its tabs are drawn: their double click and their menu's Maximize
+    /// or Restore read this).
+    pub(crate) window_tabs_maximized: HashMap<Tab, bool>,
     /// Each tab's look this frame (its icon, name, modified dot and title
     /// laid out: `tabs::prepare`, before the dock is drawn).
     pub(crate) doc_tabs: HashMap<Tab, tabs::Look>,
@@ -2030,6 +2035,7 @@ impl Moonglow {
             area_hovered: false,
             tab_places: HashMap::new(),
             panes_tabs: Vec::new(),
+            window_tabs_maximized: HashMap::new(),
             doc_tabs: HashMap::new(),
             look_cache: tabs::LookCache::default(),
             fronts: Default::default(),
@@ -2531,6 +2537,13 @@ impl Moonglow {
                 .cloned()
                 .collect();
             self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
+            self.window_tabs_maximized = (self.dock.iter_leaves())
+                .filter(|(p, _)| !p.surface.is_main())
+                .flat_map(|(p, l)| {
+                    let maximized = self.surface_maximized(p.surface);
+                    l.tabs.iter().map(move |t| (t.clone(), maximized))
+                })
+                .collect();
             self.docked_instance_tabs = (self.dock.iter_all_tabs())
                 .filter(|(p, t)| {
                     p.surface.is_main() && matches!(t, Tab::Instance { .. } | Tab::Instances { .. })
@@ -4318,6 +4331,8 @@ impl Moonglow {
     }
 
     /// Whether floating `surface` is maximized (known by its first leaf tab).
+    /// Not while the dock's tabs are drawn, the dock being empty then:
+    /// [`Moonglow::window_tabs_maximized`].
     pub(crate) fn surface_maximized(&self, surface: egui_dock::SurfaceIndex) -> bool {
         !surface.is_main()
             && (self.dock.iter_leaves())

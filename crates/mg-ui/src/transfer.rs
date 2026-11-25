@@ -515,7 +515,7 @@ impl Moonglow {
         }
         if found.changed.iter().any(|k| !exported_changed(k)) {
             note.push(
-                "module.ifo changed too, left unticked: imported into another module, it would \
+                "module.ifo changed too, left unchecked: imported into another module, it would \
                  replace that module's own."
                     .into(),
             );
@@ -1446,8 +1446,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // (Its count in the tip: the row is full with the
                     // Listed button's.)
                     let tip = match changed.len() {
-                        1 => "Tick the resource changed since the module was opened".to_string(),
-                        n => format!("Tick the {n} resources changed since the module was opened"),
+                        1 => "Check the resource changed since the module was opened".to_string(),
+                        n => format!("Check the {n} resources changed since the module was opened"),
                     };
                     if ui
                         .add_enabled(!all, egui::Button::new("Select Changed"))
@@ -1595,7 +1595,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             if draft.overwrites.iter().any(|(k, on)| *on && is_unsaved(k)) {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!("Careful: one checked item is open with unsaved changes. {UNSAVED}."),
+                    format!(
+                        "Careful: one checked item is open with unsaved changes. {}.",
+                        crate::text::capitalized(UNSAVED)
+                    ),
                 );
             }
             if !draft.compile.is_empty() {

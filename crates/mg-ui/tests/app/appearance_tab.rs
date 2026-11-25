@@ -34,7 +34,7 @@ fn text_size(h: &mut Harness<'_, Moonglow>, zoom: f32) {
     settle(h);
 }
 
-/// The Appearance Gallery opened on its own (Tools › Appearance Gallery…).
+/// The Appearance Gallery opened on its own (Tools › Appearance Gallery).
 fn open_gallery(h: &mut Harness<'_, Moonglow>) {
     h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
     settle(h);

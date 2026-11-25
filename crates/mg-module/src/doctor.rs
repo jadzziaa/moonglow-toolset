@@ -3576,7 +3576,7 @@ fn static_transforms(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
         let static_at = GffPath::root().item("Placeable List", i).field("Static");
         let place = crate::rename::describe(key, Some(gff), &static_at);
         let message = "static, so the game draws it without its visual transform (its scale, \
-                           rotation and translation): untick Static (Properties) to have it drawn \
+                           rotation and translation): uncheck Static (Properties) to have it drawn \
                            transformed (ticking it again takes the transform off, as Aurora does)"
             .to_string();
         d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
@@ -3706,7 +3706,7 @@ pub fn hidden_transition(
 /// trial of 2026-11-06). Placed ones and blueprints.
 fn static_tints(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
     let message = "static, so the game draws it as made, without the tint its tdod_tint \
-                   variables give: untick Static (Properties) to have it tinted"
+                   variables give: uncheck Static (Properties) to have it tinted"
         .to_string();
     let tinted =
         |s: &Struct| !mg_rules::tint::takes_tint(s) && !mg_rules::tint::of_object(s).is_empty();
@@ -7354,7 +7354,7 @@ endmodelgeom fx\ndonemodel fx\n";
         let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
         assert_eq!(at, ["area › placeable MIRROR › Static"]);
         assert_eq!(found[0].severity, Severity::Warning);
-        assert!(found[0].message.contains("untick Static"), "{found:?}");
+        assert!(found[0].message.contains("uncheck Static"), "{found:?}");
         assert_eq!(Check::StaticTransform.group(), Group::Objects);
     }
 
@@ -7514,7 +7514,7 @@ endwalkmeshgeom tst_a01\n";
         let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
         assert_eq!(at.len(), 3, "{at:?}");
         assert!(at[0].contains("RUG") && at[1].contains("BED"), "{at:?}");
-        assert!(found[0].message.contains("untick Static"), "{found:?}");
+        assert!(found[0].message.contains("uncheck Static"), "{found:?}");
         assert_eq!(Check::StaticTint.group(), Group::Objects);
     }
 
@@ -7814,5 +7814,5 @@ Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
 
     /// What `findings_of_resources_read_once_…` found before the checks
     /// shared one read of each resource: how many findings, and their hash.
-    const GOLDEN: (usize, u64) = (716, 10_594_041_698_474_318_005);
+    const GOLDEN: (usize, u64) = (716, 14_147_445_041_444_083_384);
 }

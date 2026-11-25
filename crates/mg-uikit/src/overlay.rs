@@ -68,14 +68,17 @@ pub fn paint_compass(painter: &Painter, t: &Tokens, center: Pos2, north: f32) {
     // `y="22" dy="-4"`: its baseline 10 above the middle, its middle some
     // 13).
     let font = FontId::proportional(9.0 * scale);
-    let galley = painter.layout_no_wrap("N".to_string(), font, t.on_fill);
+    // (In `text`: it stands on the disc, `overlay`, the needle under
+    // its middle a point wide; `on-fill` was white on the light theme's
+    // near-white disc.)
+    let galley = painter.layout_no_wrap("N".to_string(), font, t.text);
     let at = turn(0.0, -13.5);
     let half = galley.size() / 2.0;
     let (s, c) = north.sin_cos();
     // (A text shape turns about its top left: placed so its middle is
     // `at`.)
     let offset = vec2(half.x * c - half.y * s, half.x * s + half.y * c);
-    let shape = egui::epaint::TextShape::new(at - offset, galley, t.on_fill).with_angle(north);
+    let shape = egui::epaint::TextShape::new(at - offset, galley, t.text).with_angle(north);
     painter.add(shape);
 }
 

@@ -771,6 +771,25 @@ struct TilesTips {
     delete: String,
 }
 
+/// Rotate Tile's keys in its tip: `turn` (a quarter counterclockwise)
+/// and `clockwise`, each where it is bound.
+fn rotate_keys(turn: String, clockwise: String) -> String {
+    match (turn, clockwise) {
+        (k, c) if c.is_empty() => k,
+        (k, c) if k.is_empty() => format!("{c} clockwise"),
+        (k, c) => format!("{k}, or {c} clockwise"),
+    }
+}
+
+/// Delete Tiles' keys in its tip: Delete, and the Eraser's `eraser` where
+/// it is bound.
+fn delete_keys(eraser: String) -> String {
+    match eraser.is_empty() {
+        true => "Delete".to_string(),
+        false => format!("Delete, or Eraser ({eraser})"),
+    }
+}
+
 /// The tips of Select Tiles' commands, each with its keys as Options ›
 /// Keyboard has them.
 fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
@@ -780,11 +799,7 @@ fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
         true => words.to_string(),
         false => format!("{words} ({keys})"),
     };
-    let rotate = match (key(Cmd::RotateTile), key(Cmd::RotateTileClockwise)) {
-        (k, c) if c.is_empty() => k,
-        (k, c) if k.is_empty() => format!("{c}: clockwise"),
-        (k, c) => format!("{k}, {c}: clockwise"),
-    };
+    let rotate = rotate_keys(key(Cmd::RotateTile), key(Cmd::RotateTileClockwise));
     // (egui's own Copy, Cut and Paste, which Options › Keyboard doesn't
     // bind.)
     let ctrl = if ctx.os() == egui::os::OperatingSystem::Mac { "Cmd" } else { "Ctrl" };
@@ -805,7 +820,7 @@ fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
             key(Cmd::NextTileAppearance),
         ),
         rotate: with(
-            "Rotate Tile: a quarter turn counter-clockwise, where the tile still fits its \
+            "Rotate Tile: a quarter turn counterclockwise, where the tile still fits its \
              neighbors",
             rotate,
         ),
@@ -814,7 +829,7 @@ fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
         paste: with("Paste tiles: click to place the copies", edit('V')),
         delete: with(
             "Delete: remove crossers, and a group or a feature whole",
-            format!("Delete, or Eraser ({})", key(Cmd::Eraser)),
+            delete_keys(key(Cmd::Eraser)),
         ),
     }
 }
@@ -926,9 +941,9 @@ const CREATURES_TIP: &str =
     "Creatures, doors and dynamic placeables cast shadows too, as at the game's best detail";
 const LIGHTS_TIP: &str =
     "Creatures cast shadows from the nearest light that casts them, without sun or moon";
-/// (Grayed out without Creature shadows, its tick kept: the lights'
+/// (Grayed out without Creature shadows, its check kept: the lights'
 /// shadows are the creatures', as in the game.)
-const LIGHTS_OFF_TIP: &str = "Tick Creature shadows first: creatures cast these";
+const LIGHTS_OFF_TIP: &str = "Check Creature shadows first: creatures cast these";
 const ANIMATIONS_TIP: &str =
     "Play placed objects' animations, in every area view. Off, they hold still.";
 const GRASS_TIP: &str = "Draw the tileset's and the area's own grass, in every area view";
@@ -1128,4 +1143,21 @@ fn walkmesh_toggle(ui: &mut Ui, walks: &Cell<(bool, bool)>, own_menu: &Cell<bool
         ui.check_box(&mut objects, "Object walkmeshes").on_hover_text(OBJECTS_TIP);
     });
     walks.set((ground, objects));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rotate Tile's tip says which key turns clockwise (not both), and
+    /// Delete's names the Eraser only where a key is bound to it.
+    #[test]
+    fn tile_tips_name_each_key_for_what_it_does() {
+        let s = |t: &str| t.to_string();
+        assert_eq!(rotate_keys(s("R"), s("Shift+R")), "R, or Shift+R clockwise");
+        assert_eq!(rotate_keys(s("R"), s("")), "R");
+        assert_eq!(rotate_keys(s(""), s("Shift+R")), "Shift+R clockwise");
+        assert_eq!(delete_keys(s("E")), "Delete, or Eraser (E)");
+        assert_eq!(delete_keys(s("")), "Delete", "no empty parentheses when Eraser is unbound");
+    }
 }

@@ -2594,7 +2594,7 @@ fn plugins_menu(h: &mut egui_kittest::Harness<'_, mg_ui::Moonglow>) {
     h.get_all_by_label("Plugins").find(|n| n.accesskit_node().role() != link).unwrap().click();
 }
 
-/// Plugins › Manage Plugins… opens the Plugins tab (M4's U29; a dialog
+/// Plugins › Manage Plugins opens the Plugins tab (M4's U29; a dialog
 /// before), with no module open too: a document tab named Plugins, brought
 /// to the front when open, closed by Ctrl+W and by its tab's menu, and
 /// a window of its own where editors open as floating windows; closed, it
@@ -2638,7 +2638,7 @@ fn plugins_is_a_document_tab() {
 
 /// What `plugins_is_a_document_tab`'s words claim, held (M4's U29 review),
 /// with the module's tabs reopened or not (Options' Open a module with the
-/// tabs it had): Manage Plugins… with the tab open brings it to the front
+/// tabs it had): Manage Plugins with the tab open brings it to the front
 /// (one tab, beside another in front of it, and in a split's other group);
 /// its tab's menu closes it.
 #[test]

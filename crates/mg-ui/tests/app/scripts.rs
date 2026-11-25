@@ -3158,3 +3158,119 @@ fn the_completion_detail_stays_inside_the_window() {
     let window = h.ctx.content_rect();
     assert!(window.expand(0.5).contains_rect(detail), "tall: {detail:?} in {window:?}");
 }
+
+/// The sample module's `hello` script open in its editor (a window of its
+/// own, the default switch), and a way to type at its top with its keys.
+fn hello_window(name: &str) -> (Harness<'static, Moonglow>, std::path::PathBuf, ResKey) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = window_harness(app);
+    settle(&mut h);
+    (h, path, key)
+}
+
+/// Text typed at the script's top, with the editor's keys. (Steps, not
+/// `run`: see [`the_save_key_in_a_script_editor_saves_the_script_not_the_module`].)
+fn type_at_top(h: &mut Harness<'_, Moonglow>, key: ResKey, text: &str) {
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(3);
+}
+
+/// Whether Edit › Undo (`redo`: Redo) can be chosen now.
+fn edit_undo_enabled(h: &Harness<'_, Moonglow>, redo: bool) -> bool {
+    let id = if redo { mg_ui::commands::Id::Redo } else { mg_ui::commands::Id::Undo };
+    id.why_disabled(h.state()).is_empty()
+}
+
+/// Edit › Undo and Redo, with the keys in a script's editor, follow that
+/// script's own history (Wave 1 read it, where before they were always
+/// on): Undo off with nothing typed, on once something is, and off again
+/// with it undone, Redo on then.
+#[test]
+fn edit_undo_follows_a_script_s_own_history() {
+    let (mut h, _path, key) = hello_window("ui-script-edit-undo");
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    assert!(!edit_undo_enabled(&h, false), "nothing typed: Undo off");
+    assert!(!edit_undo_enabled(&h, true), "nothing undone: Redo off");
+    type_at_top(&mut h, key, "// typed\n");
+    assert!(h.state().script_text(key).unwrap().starts_with("// typed\n"));
+    assert!(edit_undo_enabled(&h, false), "typed: Undo on at once");
+    assert!(!edit_undo_enabled(&h, true), "Redo still off");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(h.state().script_text(key).unwrap(), "void main() { }\n", "undone");
+    assert!(!edit_undo_enabled(&h, false), "all undone: Undo off");
+    assert!(edit_undo_enabled(&h, true), "Redo on");
+}
+
+/// A script's tab closed with unsaved text asks Save, Don't Save or
+/// Cancel (Wave 1, kept by the owner's ruling): Save puts the text into
+/// the module and closes, Cancel keeps the tab and its text. (Don't Save:
+/// `script_bottom`'s `closing_a_dirty_script_tab_asks_to_save_and_dont_save_drops_edits`.)
+#[test]
+fn closing_a_script_with_unsaved_text_saves_or_stays_as_answered() {
+    let (mut h, _path, key) = hello_window("ui-script-close-answers");
+    let tab = Tab::Script(key);
+    let in_module = |h: &Harness<'_, Moonglow>| {
+        let ws = h.state().ws.as_ref().unwrap();
+        String::from_utf8_lossy(ws.module.get(&key).unwrap()).into_owned()
+    };
+    type_at_top(&mut h, key, "// kept\n");
+    // Cancel: the tab stays, its text with it.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    settle(&mut h);
+    let ask = h.get_by_label("Unsaved Changes");
+    ask.get_by_label("Cancel").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "answered");
+    assert!(h.state().dock.find_tab(&tab).is_some(), "Cancel: the tab stays");
+    assert!(h.state().script_text(key).unwrap().starts_with("// kept\n"), "and its text");
+    assert_eq!(in_module(&h), "void main() { }\n", "nothing saved");
+    // Save: into the module, and closed.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    settle(&mut h);
+    let ask = h.get_by_label("Unsaved Changes");
+    ask.get_by_label("Save").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "answered");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "Save: the tab closed");
+    assert!(in_module(&h).starts_with("// kept\n"), "saved into the module: {}", in_module(&h));
+}
+
+/// A script's tab closed with nothing unsaved asks nothing, and its
+/// editor's state stays for the session, as before Wave 1 (develop kept
+/// the script's buffer on a close): opened again, its bookmarks and its
+/// history are there.
+#[test]
+fn a_clean_script_closed_and_opened_again_keeps_its_bookmarks_and_history() {
+    let (mut h, _path, key) = hello_window("ui-script-close-clean");
+    let tab = Tab::Script(key);
+    type_at_top(&mut h, key, "// one\n");
+    // The script's own Save (Ctrl+S with its keys): nothing unsaved.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(3);
+    // Its first line bookmarked (F5).
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    h.key_press(egui::Key::F5);
+    h.run_steps(3);
+    assert_eq!(h.state().script_bookmarks(key), [0], "bookmarked");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "nothing asked");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    assert!(h.state().script_text(key).unwrap().starts_with("// one\n"));
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark kept");
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    assert!(edit_undo_enabled(&h, false), "its history kept: Undo on");
+}

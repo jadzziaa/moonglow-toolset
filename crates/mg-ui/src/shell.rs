@@ -2613,8 +2613,10 @@ fn seed_window_pane(ui: &Ui, panel: egui::Id, kept: Option<f32>) {
 
 /// Keeps a window's pane's size `now` for its kind ([`window_kept`],
 /// the bottom pane's where `bottom`) while the builder drags one of its
-/// `edges` (their ids) to another: not where the window's own size moved
-/// it (the pane held to its range), which is no choice of the builder's.
+/// `edges` (their ids) to another, and the passes after its release (the
+/// pane follows the pointer a pass late: a drag let go as it moves would
+/// keep the size from before): not where the window's own size moved it
+/// (the pane held to its range), which is no choice of the builder's.
 fn keep_window_size(
     app: &mut Moonglow,
     ui: &Ui,
@@ -2624,7 +2626,13 @@ fn keep_window_size(
     now: f32,
 ) {
     let Some(kind) = kind else { return };
-    let dragged = edges.iter().any(|id| ui.ctx().is_being_dragged(*id));
+    let pass = ui.ctx().cumulative_pass_nr();
+    let slot = egui::Id::new(("window-size-dragged", kind, bottom));
+    if edges.iter().any(|id| ui.ctx().is_being_dragged(*id)) {
+        ui.ctx().data_mut(|d| d.insert_temp(slot, pass));
+    }
+    let last = ui.ctx().data(|d| d.get_temp::<u64>(slot));
+    let dragged = last.is_some_and(|last| pass.wrapping_sub(last) <= 3);
     let now = now.round();
     if !dragged || kept.is_some_and(|k| (k - now).abs() < 0.5) {
         return;

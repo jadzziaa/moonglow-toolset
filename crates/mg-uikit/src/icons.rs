@@ -238,7 +238,8 @@ impl ButtonState {
 /// Paints an icon button (the mock's `.btn-icon`; a toggle's `.toggle`
 /// when `on` is given) in `rect`: frameless at rest, the icon in `text-2`;
 /// hovered, `raised` and the icon in `text`; pressed or focused, an accent
-/// ring; on, `accent-fill` and the icon in `on-fill`.
+/// ring; on, `accent-fill` and the icon in `on-fill`, with no ring however
+/// pressed (a focused one's ring is the widget's own `on-fill` ring).
 pub fn paint_icon_button(
     painter: &egui::Painter,
     tokens: &Tokens,
@@ -271,23 +272,28 @@ fn paint_hued_icon_button(
         (false, ButtonState::Pressed) => (t.raised_hover, t.text),
     };
     let color = if on { color } else { hue.unwrap_or(color) };
-    let ring =
-        if state == ButtonState::Pressed { Stroke::new(1.0, t.accent) } else { Stroke::NONE };
+    // (On, its ring is the focus ring of `paint_on_fill_focus` alone: an
+    // accent ring there drew a second ring round a focused toggle that is
+    // on, and `accent` hardly shows on `accent-fill` in the light theme.)
+    let ring = if state == ButtonState::Pressed && !on {
+        Stroke::new(1.0, t.accent)
+    } else {
+        Stroke::NONE
+    };
     painter.rect(rect, radius, fill, ring, egui::StrokeKind::Inside);
     let square = Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
     icon.paint(painter, square, color);
 }
 
-fn paint_icon_focus(painter: &egui::Painter, t: &Tokens, rect: Rect, on: bool, focused: bool) {
-    if !focused {
-        return;
+/// The keyboard's focus on an icon button filled `accent-fill` (on, or a
+/// main action's fill): a 1.5 px `on-fill` ring 1.5 inside its edge, its
+/// one ring. (Off, the focus is the accent ring [`paint_icon_button`]
+/// draws for `ButtonState::Pressed`, which a focused button is.)
+fn paint_on_fill_focus(painter: &egui::Painter, t: &Tokens, rect: Rect, focused: bool) {
+    if focused {
+        let stroke = Stroke::new(1.5, t.on_fill);
+        painter.rect_stroke(rect.shrink(1.5), metrics::RADIUS, stroke, egui::StrokeKind::Inside);
     }
-    let (ring_rect, stroke) = if on {
-        (rect.shrink(1.5), Stroke::new(1.5, t.on_fill))
-    } else {
-        (rect, Stroke::new(1.0, t.accent))
-    };
-    painter.rect_stroke(ring_rect, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
 }
 
 fn icon_button_ui(ui: &mut Ui, icon: Icon, tooltip: &str, on: Option<bool>) -> Response {
@@ -303,7 +309,7 @@ fn icon_button_ui(ui: &mut Ui, icon: Icon, tooltip: &str, on: Option<bool>) -> R
         let state = ButtonState::of(&response);
         let active = on == Some(true);
         paint_icon_button(ui.painter(), &tokens, rect, icon, state, active);
-        paint_icon_focus(ui.painter(), &tokens, rect, active, enabled && response.has_focus());
+        paint_on_fill_focus(ui.painter(), &tokens, rect, active && enabled && response.has_focus());
     }
     response.on_hover_text(tooltip).on_disabled_hover_text(tooltip)
 }
@@ -790,11 +796,10 @@ impl egui::Widget for IconButton {
                         let square =
                             Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
                         self.icon.paint(painter, square, tokens.on_fill);
-                        paint_icon_focus(
+                        paint_on_fill_focus(
                             painter,
                             &tokens,
                             rect,
-                            true,
                             enabled && response.has_focus(),
                         );
                     } else {
@@ -802,7 +807,12 @@ impl egui::Widget for IconButton {
                         let hue = self.hued.then(|| crate::hues::hue(ui.ctx(), self.icon));
                         let (p, i) = (ui.painter(), self.icon);
                         paint_hued_icon_button(p, &tokens, rect, i, state, on, hue.flatten());
-                        paint_icon_focus(p, &tokens, rect, on, enabled && response.has_focus());
+                        paint_on_fill_focus(
+                            p,
+                            &tokens,
+                            rect,
+                            on && enabled && response.has_focus(),
+                        );
                     }
                 }
                 self.described(response)

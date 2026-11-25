@@ -4172,8 +4172,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 ui.separator();
                 let whole = taking.chosen.contains(&c.row);
                 ui.label(match whole {
-                    true => format!("Row {}: taken whole (untick it to choose its cells)", c.row),
-                    false => format!("Row {}'s cells: tick those to take from that copy", c.row),
+                    true => format!("Row {}: taken whole (uncheck it to choose its cells)", c.row),
+                    false => format!("Row {}'s cells: check those to take from that copy", c.row),
                 });
                 // (A line each, in a list of its own: a row may differ in
                 // many cells.)

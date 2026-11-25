@@ -274,33 +274,24 @@ pub fn edit_rgb(ui: &mut Ui, rgb: &mut [f32; 3]) -> Response {
     r
 }
 
-/// The swatch button, as egui draws it.
+/// The swatch button: the kit's (`mg_uikit::paint_swatch_button`, the mock's
+/// `.swatch`), lit hovered and open, ringed focused or open inside its own
+/// edge, its color painted as egui paints one (a checker under a color that
+/// is not opaque).
 fn show_color_button(ui: &mut Ui, color: Color32, open: bool) -> Response {
     let size = ui.spacing().interact_size;
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ColorButton));
     if ui.is_rect_visible(rect) {
         let t = mg_uikit::tokens(ui.ctx());
-        let visuals =
-            if open { ui.visuals().widgets.open } else { *ui.style().interact(&response) };
-        let rect = rect.expand(visuals.expansion);
-        let stroke_width = 1.0;
-        show_color_at(ui.painter(), color, rect.shrink(stroke_width));
-        let corner = visuals.corner_radius.at_most(2);
-        ui.painter().rect_stroke(
-            rect,
-            corner,
-            (stroke_width, t.swatch_line),
-            egui::StrokeKind::Inside,
-        );
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect.expand(2.0),
-                corner,
-                egui::Stroke::new(1.0, t.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
+        let look = mg_uikit::SwatchLook {
+            hovered: response.hovered() || response.is_pointer_button_down_on(),
+            open,
+            focused: response.has_focus(),
+        };
+        mg_uikit::paint_swatch_button(ui.painter(), &t, rect, look, |painter, inner| {
+            show_color_at(painter, color, inner);
+        });
     }
     response
 }

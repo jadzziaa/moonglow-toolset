@@ -571,14 +571,21 @@ impl<'a> GalleryCell<'a> {
                 }
             }
         }
-        // The rim, outside the picture against the panel (so Light theme
-        // accent stays legible instead of vanishing into dark `thumb_bg`):
-        // hovered, selected (with the keys or without), the keys' cursor.
+        // The rim, outside the tile against the ground it stands on (the
+        // owner's ruling: the light theme's `accent` would vanish on the
+        // dark `thumb-bg` inside it): hovered, selected (with the keys or
+        // without), the keys' cursor. Hovered in the light theme it is
+        // `text-off` (2.8:1 on `panel`, 3.2:1 on `inset`; `raised-hover`
+        // there, 1.5:1, hardly showed), weaker than selected's `text-3`.
+        let hover = match crate::theme::applied(ui.ctx()) {
+            Some(crate::Theme::Light) => t.text_off,
+            _ => t.raised_hover,
+        };
         let (width, color) = match (selected, state.keys, hovered, state.cursor && state.keys) {
             (true, true, _, _) => (2.0, t.accent),
             (true, false, _, _) => (2.0, t.text_3),
             (false, _, _, true) => (1.0, t.accent),
-            (false, _, true, _) => (1.0, t.raised_hover),
+            (false, _, true, _) => (1.0, hover),
             _ => (1.0, t.line),
         };
         painter.rect_stroke(tile, radius, Stroke::new(width, color), StrokeKind::Outside);

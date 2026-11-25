@@ -640,8 +640,9 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
             }
             return ui.add(slider);
         }
-        // (The thumb each state's fill, `slider-thumb` at rest too, ringed in
-        // its text stroke, which is the value's text too. egui fills the
+        // (The thumb each state's fill, `slider-thumb` at rest too, ringed
+        // in `slider-thumb-ring` (none in dark) once painted; the text
+        // stroke is the value's text, `text`. egui fills the
         // rail with the resting state's fill as well: the rail, the first
         // shape the slider paints, is filled again as the `inset` well
         // once painted. M4's U25 settled the thumb at rest, which had
@@ -665,7 +666,11 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
 
 /// The slider's rail, the first shape painted on `layer` from `first`, a
 /// rectangle filled `thumb` (egui fills the rail as the thumb at rest),
-/// filled `well` instead, and its circular thumb stroked with `ring`;
+/// filled `well` instead, and its thumb (the theme's `HandleShape::Rect`,
+/// a rectangle filled `thumb` after the rail; a circle under egui's own
+/// handle shape) stroked with `ring`, or with nothing where `ring` is
+/// transparent (egui strokes it in the value's text color, which made a
+/// near-white ring in the dark theme and a near-black one in the light);
 /// nothing where the slider painted nothing (out of sight).
 fn rail_as_well(
     ctx: &egui::Context,
@@ -688,13 +693,15 @@ fn rail_as_well(
                     rail.fill = well;
                 }
             });
-            for idx in first.0..end.0 {
-                list.mutate_shape(egui::layers::ShapeIdx(idx), |s| {
-                    if let egui::Shape::Circle(circle) = &mut s.shape
-                        && circle.fill == thumb
-                    {
-                        circle.stroke = thumb_stroke;
+            for idx in first.0 + 1..end.0 {
+                list.mutate_shape(egui::layers::ShapeIdx(idx), |s| match &mut s.shape {
+                    egui::Shape::Rect(handle) if handle.fill == thumb => {
+                        handle.stroke = thumb_stroke;
                     }
+                    egui::Shape::Circle(handle) if handle.fill == thumb => {
+                        handle.stroke = thumb_stroke;
+                    }
+                    _ => {}
                 });
             }
         }
@@ -1249,6 +1256,44 @@ mod tests {
             let thumb = thumb.expect("the thumb");
             assert_eq!(thumb.fill, t.slider_thumb, "{theme:?}: the thumb at rest");
             assert_ne!(thumb.fill, rail.fill, "{theme:?}");
+        }
+    }
+
+    /// The slider's thumb (a rectangle, the theme's handle shape) is ringed
+    /// as the proposal's section 4.2 has it: none in the dark theme, 1 px
+    /// `#8d949e` in the light (kept by the owner's ruling though it is
+    /// under 3:1 on the well); not in the value's text color, which made a
+    /// near-white ring in dark and a near-black one in light. The value's
+    /// text is `text`.
+    #[test]
+    fn a_slider_s_thumb_is_ringed_as_the_proposal_has_it() {
+        assert_eq!(crate::Tokens::LIGHT.slider_thumb_ring, Color32::from_rgb(0x8d, 0x94, 0x9e));
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let mut v = 40.0_f32;
+            let out = frame(Some(theme), |ui| {
+                slider(ui, egui::Slider::new(&mut v, 0.0..=100.0).suffix(" %"));
+            });
+            let mut thumbs = Vec::new();
+            let mut texts = Vec::new();
+            for c in &out.shapes {
+                match &c.shape {
+                    Shape::Rect(r) if r.fill == t.slider_thumb => thumbs.push(r.clone()),
+                    Shape::Text(s) if s.galley.text().contains('%') => texts.push(s.fallback_color),
+                    _ => {}
+                }
+            }
+            assert_eq!(thumbs.len(), 1, "{theme:?}: the thumb, a rectangle: {thumbs:?}");
+            let ring = thumbs[0].stroke;
+            match theme {
+                crate::Theme::Dark => {
+                    assert!(ring.width == 0.0 || ring.color.a() == 0, "dark: no ring, {ring:?}")
+                }
+                crate::Theme::Light => {
+                    assert_eq!(ring, Stroke::new(1.0, t.slider_thumb_ring), "light: the ring")
+                }
+            }
+            assert_eq!(texts, vec![t.text], "{theme:?}: the value");
         }
     }
 

@@ -10,6 +10,7 @@ mod common;
 
 mod appearance_tab;
 mod area_header;
+mod area_input_fixes;
 mod area_tools;
 mod area_view;
 mod areas;
@@ -92,6 +93,7 @@ mod tree;
 mod typed_text;
 mod updates;
 mod welcome;
+mod window_pane_sizes;
 mod windows;
 mod yields;
 

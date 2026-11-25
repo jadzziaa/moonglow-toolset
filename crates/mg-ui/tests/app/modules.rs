@@ -709,7 +709,7 @@ fn export_changed_resources_leaves_module_ifo_out_and_warns_of_unsaved_scripts()
     assert_eq!(draft.selected, wanted, "the area whole, module.ifo unticked");
     h.get_by_label("1 resource changed since the module was opened");
     h.get_by_label("Checked with their areas' other files (2).");
-    h.get_by_label_contains("module.ifo changed too, left unticked");
+    h.get_by_label_contains("module.ifo changed too, left unchecked");
     h.get_by_label("1 resource was removed since, not exported.");
     h.get_by_label_contains("Careful: open with unsaved changes, which the export leaves out");
     h.get_by_label("Export 3…").click();
@@ -1135,7 +1135,10 @@ fn import_files_says_which_editors_hold_unsaved_changes() {
     assert!(h.query_by_label_contains("Careful: one checked item is open").is_none());
     h.get_by_label("Select All").click();
     settle(&mut h);
-    h.get_by_label_contains("Careful: one checked item is open with unsaved changes");
+    h.get_by_label(
+        "Careful: one checked item is open with unsaved changes. The import replaces it in the \
+         module, but its editor keeps your changes, and saving them writes over what was imported.",
+    );
     h.get_by_label("Import").click();
     settle(&mut h);
     let log = &h.state().log.entries;

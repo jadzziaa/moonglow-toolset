@@ -7167,6 +7167,31 @@ pub(crate) fn header_with_ok_cancel<'a>(
 mod tests {
     use super::*;
 
+    /// A header's OK is its main action, filled `accent-fill` (the
+    /// proposal's dialog pattern: the accent fill on the main button);
+    /// Cancel is not, nor is a header's lone Close.
+    #[test]
+    fn a_header_s_ok_is_its_main_action() {
+        for theme in mg_uikit::Theme::ALL {
+            let t = theme.tokens();
+            for close in [None, Some("Close the window")] {
+                let ctx = egui::Context::default();
+                mg_uikit::apply(&ctx, theme);
+                ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    let header = mg_uikit::header::EditorHeader::new("ok-cancel");
+                    let _ = header_with_ok_cancel(ui, header, close, ["Keep it", "Drop it"]);
+                });
+                out.textures_delta.clear();
+                let filled = out
+                    .shapes
+                    .iter()
+                    .any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == t.accent_fill));
+                assert_eq!(filled, close.is_none(), "{theme:?} {close:?}");
+            }
+        }
+    }
+
     /// The order of names is kept by every row's name (the review's C-6):
     /// a row renamed among a hundred, between those a sample took, and
     /// another table of the same length, are told apart.

@@ -2631,6 +2631,129 @@ fn a_window_is_maximized_by_its_key_and_button_and_stays_so() {
     assert!(kept[0] as f32 <= first.width() - 80.0, "the dragged size kept: {kept:?}");
 }
 
+/// A double click on a floating window's tab maximizes the window and a
+/// second puts it back (Wave 2's review: it looked the tab up in the dock,
+/// which is empty while tabs are drawn, and never found it). A docked tab
+/// double-clicked maximizes nothing. (Its menu: [`a_maximized_window_s_tab_menu_says_restore`].)
+#[test]
+fn a_window_s_tab_double_clicked_is_maximized_and_put_back() {
+    let Some((mut h, area)) = area_ui_harness("window-maximize-tab") else { return };
+    let props = Tab::AreaProperties(area);
+    let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let s = h.state();
+        let path = s.dock.find_tab(tab).expect("open");
+        s.dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    h.run_steps(8);
+    assert!(!h.state().dock.find_tab(&props).unwrap().surface.is_main(), "in a window");
+    let first = pane(&h, &props);
+    // The tab itself (its node of role Tab in the window's bar), not the
+    // bar beside it, which has a double click of its own; its part in
+    // sight (a docked tab's, beside the window over it).
+    let tab_at = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let bar = pane(h, tab);
+        let bar = egui::Rect::from_min_size(bar.min, egui::vec2(bar.width(), 30.0));
+        let r = (h.get_all_by_role(egui::accesskit::Role::Tab))
+            .map(|n| n.rect())
+            .find(|r| r.left() >= bar.left() - 1.0 && bar.contains(r.center()))
+            .unwrap_or_else(|| panic!("{tab:?}'s tab in {bar:?}"));
+        let window = pane(h, &props);
+        let right = match tab.clone() == props || r.left() >= window.left() {
+            true => r.right(),
+            false => r.right().min(window.left()),
+        };
+        egui::pos2((r.left() + right) / 2.0, r.center().y)
+    };
+    let double_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for _ in 0..2 {
+            press(h, at, true, egui::Modifiers::NONE);
+            press(h, at, false, egui::Modifiers::NONE);
+        }
+        h.run_steps(8);
+        // (Later: not a third click of the same.)
+        h.hover_at(at + egui::vec2(0.0, 200.0));
+        h.run_steps(30);
+    };
+    let at = tab_at(&h, &props);
+    double_click(&mut h, at);
+    let big = pane(&h, &props);
+    assert!(big.area() > first.area() + 1000.0, "maximized: {big:?} from {first:?}");
+    // Double-clicked again: put back.
+    let at = tab_at(&h, &props);
+    double_click(&mut h, at);
+    let back = pane(&h, &props);
+    assert!((back.size() - first.size()).length() < 3.0, "put back: {back:?}, {first:?}");
+    // A docked tab (Module Properties, docked as the module opened): its
+    // double click maximizes nothing.
+    let module_props = Tab::ModuleProperties;
+    assert!(h.state().dock.find_tab(&module_props).unwrap().surface.is_main(), "docked");
+    // (Chosen first, alone: Module Properties in front lets the Right
+    // Dock go, which an area in front showed, and its pane widens.)
+    let at = tab_at(&h, &module_props);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(8);
+    h.hover_at(at + egui::vec2(0.0, 200.0));
+    h.run_steps(30);
+    let docked = pane(&h, &module_props);
+    let at = tab_at(&h, &module_props);
+    double_click(&mut h, at);
+    assert_eq!(pane(&h, &module_props), docked, "a docked tab stays as it was");
+    assert!(h.query_by_label("Restore").is_none(), "no window maximized");
+}
+
+/// A floating editor's tab menu says Maximize, and Restore while its
+/// window is maximized (Wave 2's review: it read whether the window was
+/// maximized from the dock, which is empty while tabs are drawn).
+#[test]
+fn a_maximized_window_s_tab_menu_says_restore() {
+    let dir = mg_testkit::scratch_dir("ui-window-tab-menu-restore");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let tab = Tab::Script(key);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    let mut h = window_harness(app);
+    settle(&mut h);
+    assert!(!h.state().dock.find_tab(&tab).unwrap().surface.is_main(), "in a window");
+    // The menu's entry, between Show in Module Tree and Close (the
+    // window's bar has a button of each name too).
+    let menu_says = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        doc_tab(h, "hello.nss").click_secondary();
+        until(h, "the tab's menu", |h| h.query_by_label("Close Others").is_some());
+        let (above, below) =
+            (popup_item(h, "Show in Module Tree").rect(), popup_item(h, "Close Others").rect());
+        let said = ["Maximize", "Restore"]
+            .into_iter()
+            .filter(|l| {
+                h.query_all_by_label(l).any(|n| {
+                    let r = n.rect();
+                    r.top() > above.top()
+                        && r.top() < below.top()
+                        && above.x_range().contains(r.center().x)
+                })
+            })
+            .map(str::to_string)
+            .collect();
+        h.key_press(egui::Key::Escape);
+        settle(h);
+        said
+    };
+    assert_eq!(menu_says(&mut h), ["Maximize"]);
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(tab.clone()));
+    settle(&mut h);
+    h.get_by_label("Restore");
+    assert_eq!(menu_says(&mut h), ["Restore"], "maximized");
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(tab.clone()));
+    settle(&mut h);
+    assert_eq!(menu_says(&mut h), ["Maximize"], "put back");
+}
+
 /// El Grillo's report: Module Properties, docked in the main pane as a
 /// module opens, "ejected" (its tab dragged out into a window of its own)
 /// was maximized neither by a double click on the window's bar nor by its

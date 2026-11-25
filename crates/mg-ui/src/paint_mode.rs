@@ -868,7 +868,8 @@ fn under_eraser(app: &Moonglow, view: &AreaView, keys: &[ResKey], center: Vec3) 
 }
 
 /// The brush's clicks and drags on the view: whether they were its (Paint
-/// is on with placeables chosen), and nothing else is to take them.
+/// is on with placeables chosen, or Escape or a right click put Paint
+/// away), and nothing else is to take them.
 pub(crate) fn input(
     app: &mut Moonglow,
     ui: &egui::Ui,
@@ -885,13 +886,15 @@ pub(crate) fn input(
         view.paint.row_from = None;
         view.paint.row_end = None;
         // Paint on with no placeable chosen: Escape or a right click
-        // puts it away, while clicks do not fall through to Brush.
+        // puts it away. The rest is the view's as with Paint off, but for
+        // a click that would place what is in hand, which places nothing
+        // (`area_view::input`).
         let stop = crate::area_view::cancelled(ui, response);
         if app.paint && stop {
             app.paint = false;
             return true;
         }
-        return app.paint;
+        return false;
     };
     view.read_walkable(app);
     let hovered = response.hovered();
@@ -1160,7 +1163,7 @@ pub(crate) fn hints(app: &Moonglow, k: &crate::shell::HintKeys) -> Option<Vec<Hi
     let what = match keys.len() {
         0 => {
             let note = if app.palette.selected.is_some() {
-                "Paint works with placeables. Choose placeables in the palette"
+                "Paint works with placeables: choose some in the palette"
             } else {
                 "Paint: choose placeables in the palette"
             };

@@ -65,7 +65,10 @@ pub use controls::{
     text_field, with_rows, with_table_rows,
 };
 pub use fonts::install_fonts;
-pub use form::{field_label, palette_swatches, section_heading, swatch, table_heading};
+pub use form::{
+    SWATCH_PADDING, SwatchLook, field_label, paint_swatch_button, palette_swatches,
+    section_heading, swatch, table_heading,
+};
 pub use icons::{
     Icon, IconButton, Join, Label, form_menu_button, front_lines_drawn, icon, icon_button,
     icon_label, icon_text_button, icon_text_toggle, icon_toggle, icons_drawn, joined_spacing,

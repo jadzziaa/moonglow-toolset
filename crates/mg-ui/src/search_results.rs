@@ -777,8 +777,8 @@ fn text(app: &mut Moonglow, ui: &mut Ui) {
             labeled(ui, "Find what", 200.0, |ui, w| {
                 let r = field(ui, &mut d.find, "", w, true, &mut focus, &mut asked);
                 r.on_hover_text(
-                    "Searches names, descriptions, conversation lines, and journal entries across \
-                     languages. Check fields below to include tags, ResRefs, and variables.",
+                    "Searches the module's names, descriptions, conversation lines and journal \
+                     in every language, not the game's talk table. Check fields below to search them too",
                 );
             });
             labeled(ui, "Replace with", 200.0, |ui, w| {

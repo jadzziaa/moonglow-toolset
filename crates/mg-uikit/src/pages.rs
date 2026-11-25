@@ -41,7 +41,7 @@
 
 use std::ops::Range;
 
-use egui::{Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2};
+use egui::{Color32, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2};
 
 use crate::icons::{ButtonState, Icon};
 use crate::metrics;
@@ -167,6 +167,7 @@ impl PageRail {
         paint_overflow_cues(
             &child,
             inner,
+            t.bar,
             out.state.offset.y > 1.0,
             out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
         );
@@ -180,9 +181,11 @@ impl PageRail {
     }
 }
 
-/// Paints subtle top/bottom chevron indicators when a vertical page selector
-/// (`PageRail` or `PageList`) overflows beyond the visible rect.
-fn paint_overflow_cues(ui: &Ui, rect: Rect, more_above: bool, more_below: bool) {
+/// Paints a band with a chevron (`text-3`) at the top and the bottom of a
+/// vertical page selector where its pages go on beyond `rect`, the band
+/// filled `surface`, the selector's own ground (a rail's `bar`, a
+/// list's `panel`), so that the pages pass under it.
+fn paint_overflow_cues(ui: &Ui, rect: Rect, surface: Color32, more_above: bool, more_below: bool) {
     if !more_above && !more_below {
         return;
     }
@@ -194,7 +197,7 @@ fn paint_overflow_cues(ui: &Ui, rect: Rect, more_above: bool, more_below: bool) 
             rect.min,
             pos2(rect.right(), (rect.top() + band_h).min(rect.bottom())),
         );
-        painter.rect_filled(band, 0.0, t.bar.gamma_multiply(0.92));
+        painter.rect_filled(band, 0.0, surface);
         Icon::ChevronUp.paint(
             &painter,
             Rect::from_center_size(band.center(), vec2(12.0, 12.0)),
@@ -206,7 +209,7 @@ fn paint_overflow_cues(ui: &Ui, rect: Rect, more_above: bool, more_below: bool) 
             pos2(rect.left(), (rect.bottom() - band_h).max(rect.top())),
             rect.max,
         );
-        painter.rect_filled(band, 0.0, t.bar.gamma_multiply(0.92));
+        painter.rect_filled(band, 0.0, surface);
         Icon::ChevronDown.paint(
             &painter,
             Rect::from_center_size(band.center(), vec2(12.0, 12.0)),
@@ -402,6 +405,7 @@ impl PageList {
         paint_overflow_cues(
             &child,
             inner,
+            t.panel,
             out.state.offset.y > 1.0,
             out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
         );
@@ -2349,13 +2353,42 @@ mod tests {
         assert!(three.height() < 300.0, "the list given less in a shorter view: {three:?}");
     }
 
+    /// A rail and a list whose pages go on below them show the cue at
+    /// their foot: a band of their own ground (the rail's `bar`, the
+    /// list's `panel`, opaque, so the pages pass under it) with a chevron
+    /// in `text-3`; nothing at their top.
     #[test]
     fn overflowing_rail_and_list_settle_cleanly() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let (rail_room, list_room, h) = overflowing(theme);
+            let bands: Vec<(Rect, Color32)> = (h.output().shapes.iter())
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Rect(r) if (r.rect.height() - 14.0).abs() < 0.5 => {
+                        Some((r.rect, r.fill))
+                    }
+                    _ => None,
+                })
+                .collect();
+            for (room, surface) in [(rail_room, t.bar), (list_room, t.panel)] {
+                // (A list is as wide as its own width, past a narrower room.)
+                let here: Vec<_> =
+                    bands.iter().filter(|(r, _)| room.x_range().contains(r.left())).collect();
+                assert_eq!(here.len(), 1, "{theme:?}: one band, at the foot: {bands:?}");
+                let (band, fill) = here[0];
+                assert_eq!(*fill, surface, "{theme:?}: the band on its own ground");
+                assert!((band.bottom() - room.bottom()).abs() < 0.5, "{theme:?}: {band:?}");
+            }
+        }
+    }
+
+    /// A rail and a list of four pages in rooms too short for them.
+    fn overflowing(theme: crate::Theme) -> (Rect, Rect, Harness<'static>) {
         let mut page = 0usize;
         let rail_room = egui::Rect::from_min_size(pos2(10.0, 10.0), vec2(44.0, 52.0));
         let list_room = egui::Rect::from_min_size(pos2(70.0, 10.0), vec2(120.0, 60.0));
-        let mut h = Harness::builder().with_size(vec2(220.0, 100.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
+        let mut h = Harness::builder().with_size(vec2(220.0, 100.0)).build_ui(move |ui| {
+            crate::apply(ui.ctx(), theme);
             let mut r_ui = ui.new_child(egui::UiBuilder::new().max_rect(rail_room));
             r_ui.set_clip_rect(rail_room);
             let _ = PageRail::new("cue-rail")
@@ -2375,5 +2408,7 @@ mod tests {
                 .show(&mut l_ui, &mut page);
         });
         h.run();
+        h.run();
+        (rail_room, list_room, h)
     }
 }

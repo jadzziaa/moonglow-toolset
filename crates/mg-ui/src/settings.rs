@@ -602,7 +602,8 @@ pub struct DockLayout {
     /// own, as the builder dragged its edge (none: 280), and the height of
     /// its bottom pane (none: 140): each new window of the kind opens with
     /// them (5.2.0, Jasperre's report of a floating script's Reference and
-    /// Help, their sizes not kept).
+    /// Help, their sizes not kept; kept for every kind of window by the
+    /// owner's ruling of 2026-11-25).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_width: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]

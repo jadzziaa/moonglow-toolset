@@ -35,8 +35,9 @@ pub enum OptionsPage {
 /// Options › General › Show duplicate tags warning, on hover.
 const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or copy gives a second object a tag you set";
 
-const CLOSE_CANCELS_TIP: &str = "Closing a properties, blueprint, conversation, journal, faction or \
-                                 NUI tab or window sets back its changes, as Cancel does";
+/// Options › General › Closing a window cancels its changes, on hover.
+const CLOSE_CANCELS_TIP: &str = "Closing an editor with OK and Cancel takes back its changes, as \
+                                 Cancel does";
 
 /// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
 /// writes (`GameInstall::user_folder`), said under the user folder where
@@ -2178,10 +2179,7 @@ fn general_section(
                     "Show the tags of blueprints and placed objects dimmed after their names",
                 );
             ui.check_box(&mut draft.tree_extensions, "Show file extensions in the module tree")
-                .on_hover_text(
-                    "Show extensions such as guard.utc on blueprints, NUI windows, journal, and \
-                     factions in the module tree",
-                );
+                .on_hover_text("Show guard.utc rather than guard for blueprints and other files");
             ui.check_box(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
                 .on_hover_text("Leave groups with nothing in them out of the module tree");
             ui.check_box(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")

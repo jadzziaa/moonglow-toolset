@@ -6744,6 +6744,55 @@ fn area_ghost() {
 
 #[test]
 #[ignore]
+fn area_box_select() {
+    // A box dragged over objects in Select Objects, the button still
+    // held: the accent's fill, faint, inside the accent's line.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        // (As `area_ghost`'s: open cobbles, the square behind.)
+        o.pitch = 45f32.to_radians();
+        o.yaw = 125f32.to_radians();
+        o.distance = 16.0;
+        o.target = glam::Vec3::new(50.3, 37.4, 4.0);
+    }
+    h.run_steps(3);
+    let rect = h.state().area_views[&area].rect;
+    let from = rect.center() + egui::vec2(-220.0, -160.0);
+    let to = rect.center() + egui::vec2(200.0, 140.0);
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+    h.run_steps(1);
+    for step in 1..=8 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (step as f32 / 8.0)));
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-box-select");
+}
+
+#[test]
+#[ignore]
 fn area_items() {
     // Items lying in an area, selected: a cloak (the game's folded one, in
     // the cloak's colors), a healer's kit, a gem and a potion, each with
@@ -16323,7 +16372,7 @@ fn board_appearance_gallery() {
 }
 
 /// The Appearance Gallery tab where a builder has it (M4's U26), each
-/// opened on its own (Tools › Appearance Gallery…, Placeables, a
+/// opened on its own (Tools › Appearance Gallery, Placeables, a
 /// picture clicked so its panels show it): split beside an area
 /// (`u26_gallery_split`, 1600 by 900), floating in windows of 1600 by
 /// 900 and 1280 by 720 (`u26_gallery_floating_1600`, `_1280`), docked at

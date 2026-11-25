@@ -350,11 +350,32 @@ fn find_and_replace_text_across_the_module() {
     };
     assert_eq!(name(&mut h, &keys[0]), "Goblin camp");
     assert_eq!(name(&mut h, &keys[1]), "Orc camp");
+    // (The log counts one time, not "1 times".)
+    let replaced = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = &h.state().log.entries;
+        log.iter().map(|(_, m)| m.clone()).filter(|m| m.starts_with("Replaced ")).collect()
+    };
+    assert!(
+        replaced(&h).last().is_some_and(|m| m.ends_with("\"orc\" 1 time")),
+        "{:?}",
+        replaced(&h)
+    );
     // Found again: what's left.
     h.get_by_label("1 string, 1 time");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(name(&mut h, &keys[0]), "Orc camp");
+    // Both replaced: two times.
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 strings, 2 times");
+    h.get_by_label("Replace in 2").click();
+    h.run();
+    assert!(
+        replaced(&h).last().is_some_and(|m| m.ends_with("\"orc\" 2 times")),
+        "{:?}",
+        replaced(&h)
+    );
 }
 
 /// Find and Replace in the tags, by a regular expression: ticked beside

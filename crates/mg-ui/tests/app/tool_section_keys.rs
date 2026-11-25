@@ -137,7 +137,7 @@ fn the_list_s_hints_only_where_its_keys_are() {
         .rect();
     typed_then(&mut h, filter, "nothing matches this", Key::Tab);
     // (The keys given back with a press in the section, off the Filter.)
-    h.get_by_label_contains("Tick the areas to edit").click();
+    h.get_by_label_contains("Check the areas to edit").click();
     settle(&mut h);
     assert!(!has(&h, "Up or Down: Move in the list"), "no rows: {:?}", said(&h));
     assert!(!has(&h, "Space: Check"), "no rows: {:?}", said(&h));
@@ -280,7 +280,7 @@ fn three_thousand_claimed_areas_are_asked_once() {
     key(&mut h, Key::Space);
     key(&mut h, Key::End);
     key(&mut h, Key::Space);
-    // (Every area ticked: Tick Shown.)
+    // (Every area checked: Check Shown.)
     click_in_sight(&mut h, "Check Shown");
     settle(&mut h);
     rail(&mut h, "Visual");
@@ -319,7 +319,7 @@ fn an_area_ticked_renamed_or_deleted_under_the_section() {
     h.state_mut().actions.push(mg_ui::Action::DeleteResource(are_key("area0002")));
     settle(&mut h);
     // (One area left of the three: the page says to tick two.)
-    h.get_by_label_contains("Tick two areas or more");
+    h.get_by_label_contains("Check two areas or more");
     assert_eq!(are(&mut h, "area0003").integer("IsNight"), Some(0), "the unticked one: untouched");
 }
 
@@ -396,7 +396,7 @@ fn edit_areas_together_shows_three_rows_beside_an_area() {
             [Role::Button, Role::CheckBox, Role::ComboBox, Role::TextInput, Role::SearchInput];
         let cut = cut_in(&h, above, &roles);
         assert!(cut.is_empty(), "{size:?}: cut in half: {cut:?}");
-        h.get_by_label("Tick the areas to edit together.");
+        h.get_by_label("Check the areas to edit together.");
     }
 }
 

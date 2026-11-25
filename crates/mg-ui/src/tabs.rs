@@ -85,7 +85,7 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
-    /// Plugins › Manage Plugins… (M4's U29; a window before): the plugins
+    /// Plugins › Manage Plugins (M4's U29; a window before): the plugins
     /// installed, each one's state, Allow, Remove, Settings and Run Tests,
     /// this project's plugins and the Console (`plugins::tab`).
     Plugins,
@@ -872,10 +872,11 @@ impl TabViewer for Viewer<'_> {
         {
             ui.close();
         }
-        // A window of its own fills the main pane, and goes back.
+        // A window of its own fills the main pane, and goes back. (Not
+        // `surface_maximized`: the dock is empty while its tabs are drawn.)
         if !path.surface.is_main() {
-            let label =
-                if self.app.surface_maximized(path.surface) { "Restore" } else { "Maximize" };
+            let maximized = self.app.window_tabs_maximized.get(tab).copied().unwrap_or(false);
+            let label = if maximized { "Restore" } else { "Maximize" };
             if ui.button(label).on_hover_text("Also: double-click the tab").clicked() {
                 self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
                 ui.close();
@@ -978,9 +979,9 @@ impl TabViewer for Viewer<'_> {
         if response.middle_clicked() && tab.closeable() {
             self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
         }
-        if response.double_clicked()
-            && self.app.dock.find_tab(tab).is_some_and(|p| !p.surface.is_main())
-        {
+        // (A docked tab's double click maximizes nothing: by the tabs in
+        // windows as the frame began, the dock being empty while they draw.)
+        if response.double_clicked() && self.app.window_tabs_maximized.contains_key(tab) {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
     }

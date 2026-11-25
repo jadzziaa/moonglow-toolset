@@ -607,7 +607,7 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
         (p.manifest.name.clone(), p.manifest.panels.iter().find(|d| d.id == panel).cloned())
     });
     let Some((name, Some(decl))) = found else {
-        ui.weak("Its plugin is not enabled (Plugins › Manage Plugins…).");
+        ui.weak("Its plugin is not enabled (Plugins › Manage Plugins).");
         return;
     };
     ui.horizontal(|ui| {

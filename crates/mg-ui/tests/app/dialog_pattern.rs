@@ -1399,7 +1399,7 @@ fn tab_brings_a_scrolled_body_s_control_into_sight() {
 
 /// What the window says names a menu, a tab or a section as they are drawn:
 /// a menu path with "›" as the menus show it, the Plugins tab (Plugins ›
-/// Manage Plugins… opens it), the NUI Creator's Row Data section. (The
+/// Manage Plugins opens it), the NUI Creator's Row Data section. (The
 /// user manual's chapters were read against the program in M5's V2; these
 /// were the strings it found naming them otherwise.)
 #[test]

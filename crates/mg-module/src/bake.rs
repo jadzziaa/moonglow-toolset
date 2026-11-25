@@ -522,7 +522,7 @@ pub fn moved(faces: &[([[f32; 3]; 3], u32)], to: [[f32; 4]; 4]) -> Vec<[[f32; 3]
 /// transform has nothing to bake to.
 pub fn transform_of(s: &mg_gff::Struct) -> Result<Transform, String> {
     if s.integer("Static").unwrap_or(0) != 0 {
-        return Err("it is static, so the game draws it without its visual transform (untick \
+        return Err("it is static, so the game draws it without its visual transform (uncheck \
                     Static first)"
             .into());
     }

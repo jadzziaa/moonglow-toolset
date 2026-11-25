@@ -1686,6 +1686,12 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     field.type_text(" Site");
     h.run_steps(2);
     h.get_by_label("Rename").click();
+    // The frame of the rename lists the new name, not the one renamed
+    // (whose file is gone: its hover would read a file not there).
+    h.step();
+    assert!(prefabs.join("Camp Site.prefab.json").is_file(), "{:?}", h.state().log.entries);
+    assert!(h.query_by_label("Camp").is_none(), "the old name listed after the rename");
+    assert!(h.query_by_label("Camp Site").is_some());
     h.run_steps(3);
     assert!(prefabs.join("Camp Site.prefab.json").is_file(), "{:?}", h.state().log.entries);
     assert!(!prefabs.join("Camp.prefab.json").exists());

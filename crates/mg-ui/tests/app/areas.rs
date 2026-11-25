@@ -1003,7 +1003,7 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     h.get_by_label("Uncheck All").click();
     h.run();
     h.get_by_label("No areas checked");
-    h.get_by_value("Tick a Set…").click();
+    h.get_by_value("Check a Set…").click();
     h.run();
     h.get_all_by_label("Caves").last().unwrap().click();
     h.run();
