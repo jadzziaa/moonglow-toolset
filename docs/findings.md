@@ -1391,6 +1391,10 @@ is `default` too, the area's, not `chrome1`.
   same depth it is as wide in both (1.00); the fitted camera of
   `surfaces_in_the_client` draws the whole picture 3 to 5 percent
   smaller.
+- **The sandboxed client's CD key copy goes with its run:** a joined DM
+  run with `MG_CLIENT_CDKEY` set joined its server (the character
+  list), and no `cdkey.ini` was left in its scratch folder afterwards
+  (`joined_dm_creator_palette`, 2026-11-25).
 - **Checked:** `batch8d.rs` in `client_render` (2026-11-25).
 - **Wiki:** missing (the item without a model).
 

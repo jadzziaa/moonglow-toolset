@@ -833,18 +833,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   waited on (the review's Z2) was made on 10 November and found the
   encoding's time elsewhere (the dense area's entry); the restructure is
   beyond what that pass was asked. (M) (the review of November 2026, R5)
-- **Read in the client, not yet** (the review of November 2026's
-  fixes; the client run of 10 November read R18's chunks and R29's
-  tangents, not these):
-  - the sandboxed client's CD key copy removed when its run ends (F22,
-    held by its guard's own test, `joined::the_cd_key_s_copy_goes_with_the_run`):
-    a joined run with `MG_CLIENT_CDKEY` set, then `cdkey.ini` looked for
-    in its scratch user folder. A subagent's shell refuses the variable
-    pointing into the NWN user folder, so it waits on a run by hand.
-  (M10 and M13 read on 2026-11-25, `batch8d`: a phenotype 15 part as
-  the client draws it; an item naming no model is drawn without it,
-  where the client never finishes loading the area, [findings](findings.md).)
-  (S, waits on a client run) (the review of November 2026, F22)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in
