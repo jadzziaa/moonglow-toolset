@@ -293,3 +293,78 @@ pub fn retile(
     let groups = crate::reshape::groups_in(old.index, &before).len();
     Some(Retiled { edits, corners_missed, crossers_missed, groups, doors_gone, doors_new })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tileset of one terrain and one tile, whose tile has a typed door
+    /// hook 5 m east of its middle when `hook`.
+    fn tileset(name: &str, hook: bool) -> Tileset {
+        let doors = if hook {
+            "Doors=1\n[TILE0DOOR0]\nType=1\nX=5\nY=0\nZ=0\nOrientation=90\n"
+        } else {
+            ""
+        };
+        let text = format!(
+            "[GENERAL]\nName={name}\nInterior=0\nTransition=5\nDisplayName=-1\n\
+Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
+[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0\n\
+[TILES]\nCount=1\n[TILE0]\nModel=t0\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+{doors}[GROUPS]\nCount=0\n"
+        );
+        Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap()
+    }
+
+    /// Change Tileset takes away the doors on the old tiles' typed hooks
+    /// and leaves a door placed freely, off its tile's hooks, where it
+    /// stands.
+    #[test]
+    fn change_tileset_takes_the_hooks_doors_and_leaves_free_ones() {
+        let (old_set, new_set) = (tileset("OLD01", true), tileset("NEW01", false));
+        let (old_index, new_index) = (TileIndex::new(&old_set), TileIndex::new(&new_set));
+        let resref = |s: &str| ResRef::from_str(s).unwrap();
+        let old = Set { resref: resref("old01"), set: &old_set, index: &old_index };
+        let new = Set { resref: resref("new01"), set: &new_set, index: &new_index };
+        let mut are = Struct::new(0);
+        are.set("Width", Value::Int(2));
+        are.set("Height", Value::Int(2));
+        let tiles = (0..4).map(|_| {
+            let mut t = Struct::new(1);
+            for label in ["Tile_ID", "Tile_Orientation", "Tile_Height"] {
+                t.set(label, Value::Int(0));
+            }
+            t
+        });
+        are.set("Tile_List", Value::List(tiles.collect()));
+        // Cell (0, 0)'s hook is at (10, 5); the free door stands in the
+        // same tile, at (3, 3).
+        let door = |x: f32, y: f32| {
+            let mut d = Struct::new(8);
+            d.set("X", Value::Float(x));
+            d.set("Y", Value::Float(y));
+            d
+        };
+        let mut git = Struct::new(0);
+        git.set("Door List", Value::List(vec![door(10.0, 5.0), door(3.0, 3.0)]));
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let key = |t| ResKey::parse("a", t).unwrap();
+        let mapping = Mapping::of(&old, &new, &are).unwrap();
+        let mut rng = fastrand::Rng::with_seed(1);
+        let (are_key, git_key) = (key(mg_core::ResType::ARE), key(mg_core::ResType::GIT));
+        let r =
+            retile(&game, are_key, git_key, &are, &git, &old, &new, &mapping, &|_| None, &mut rng)
+                .unwrap();
+        assert_eq!((r.doors_gone, r.doors_new), (1, 0));
+        let Some(Edit::SetField { value: Some(Value::List(doors)), .. }) = r
+            .edits
+            .iter()
+            .find(|e| matches!(e, Edit::SetField { label, .. } if label == "Door List"))
+        else {
+            panic!("no door list: {:?}", r.edits)
+        };
+        let left: Vec<_> = doors.iter().map(|d| (d.float("X"), d.float("Y"))).collect();
+        assert_eq!(left, [(Some(3.0), Some(3.0))], "the free door stays where it stood");
+    }
+}
