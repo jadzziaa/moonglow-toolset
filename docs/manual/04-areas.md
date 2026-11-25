@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
 ---
 
 # Areas
@@ -464,7 +464,7 @@ Options › Keyboard):
 | --- | --- |
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
-| Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora); with Paint on, in Select Tiles and with a tile brush in hand, Alt + drag always moves it, and paints or selects nothing |
+| Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora); with Paint on and placeables chosen, in Select Tiles and with a tile brush in hand, Alt + drag always moves it, and paints or selects nothing (Paint with none chosen is as Select Objects: Alt + drag raises the selection) |
 | Middle drag, Alt + middle drag, with Tools › Options › Area › **Middle drag moves the view** | move the camera, turn it: the two middle drags swapped ([Options](10-options.md#view)) |
 | Alt + middle click | look at the ground clicked: the camera's focus goes there at once, at the ground's height (on its walkmesh, else on the tile's floor), its distance, turn and tilt kept, as Alt + middle click in Blender; a click on the sky or off the area does nothing |
 | Wheel, or a pinch on a touchpad | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
@@ -1306,8 +1306,10 @@ goes to Select Tiles, turning Paint off. What is in hand to place (a
 door or waypoint from the palette, an appearance or a light from the
 gallery, the start location) is not placed: a click places nothing
 (and selects nothing), and no see-through copy follows the pointer;
-boxes, drags and keys work as before. Escape or a right click turns
-Paint off.
+boxes, drags and keys work as before, and so do a paste's click, an
+outline drawn anew and Select Tiles' clicks. Escape or a right click
+turns Paint off, except that while a paste or an outline drawn anew is
+in hand it drops that first and Paint stays on.
 
 Its settings take the header's left group while it is on (the Show
 toggles, Snap, Turn, Together and Onto Objects come back with Select
@@ -2337,7 +2339,10 @@ The header also has:
   folder already, it asks first, as Make Palette does: **Replace N**
   draws them all, **Skip Those** draws the others, and Cancel changes
   nothing (the tiles get their `mi_<model>` names only when drawing goes
-  ahead, as one step of Undo). The pictures are drawn a tile at a time
+  ahead, as one step of Undo). While other work holds
+  the game data, nothing is rendered and the tiles keep their names; the
+  log says "No minimap pictures rendered: the tileset folder can't be
+  loaded while the game data is in use. Try again once it is done." The pictures are drawn a tile at a time
   in a progress window whose **Cancel** stops where it is ("Render
   Minimap Pictures canceled (3 of 40 written)"); the log says how many
   were written and how many skipped.

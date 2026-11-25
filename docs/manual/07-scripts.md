@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:45Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
 ---
 
 # Scripts
@@ -35,7 +35,7 @@ into the module, as Save does, and closes the tab, **Don't Save** closes
 it as last saved, and **Cancel** keeps it open. A script closed with
 nothing unsaved and opened again in the same session has its bookmarks,
 Undo history, codepage and External Editor link as it left them; one
-closed by that question's Save or Don't Save opens anew. Where the
+closed by that question's Save or Don't Save opens anew. A script deleted from the module while closed loses what was kept. Where the
 editor is narrow, Save and Compile lose their words first, then the icons go into More from the end of the row, then
 the codepage, Save and Compile last of all, so every command stays one
 click away; OK and Cancel stay at the end whatever the width. An unsaved
@@ -266,12 +266,12 @@ Case**, **Match Whole Word Only** and **Search Backward**. Enter (**Find
 Next**) finds the next match, again and again; without Match Case,
 accents are set aside as case is (`arbol` finds `Árbol` in a comment
 or a string). Checked, **Find In Currently Open Scripts** lists every
-match in the scripts open now under Search Results, and **Find In Files
+match in the scripts open now (those with a tab; one closed earlier in the session is not searched) under Search Results, and **Find In Files
 (all scripts in the module)** every match in the module's scripts; the
 main button is then **Find All**. Search Results keeps the first 10,000
 lines found (the log says how many there were). **Replace…** opens the
 same window as **Replace Text**, with **Replace With**, **Replace** and
-**Replace All**, which work in the script it was opened from.
+**Replace All**, which work in the script it was opened from, never in a script whose tab is closed.
 
 **Used By** (on the header) opens the **References** tab on the script:
 where the module runs or includes it, objects' and areas' events,

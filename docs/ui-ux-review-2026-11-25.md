@@ -4,7 +4,7 @@ title: 'UI/UX waves 1 to 3 and their review: findings, rulings and fixes'
 description: 'Compact reference (2026-11-25, branch ui-ux-fixes) to the three UI/UX waves (0e3c6195, 6da9e560, 62e1c507): what each answers, what the review of them found, the owner''s five rulings, and what was fixed on top in the working tree.'
 tags: [review, ui, ux, accessibility, contrast, focus, copy, style-guide]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:32Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
 sources:
   - id: wave1
     resource: git show 0e3c6195
@@ -91,6 +91,20 @@ The review of waves 1 and 2 (read-only at `6da9e560`: one blocker, seven to fix,
 | Kit | Slider thumb: no ring in dark, 1 px `#8d949e` in light; value text `--text`. Swatch button raised with its color inset 3 px, lit hovered and open, a 1 px `--accent` border inside on open or focus. One ring per control. Scroll cue band in the selector's own ground, chevron `--text-3`. Gallery hover rim `--text-off` in light (2.81:1, 3.19:1), outside the tile (ruling 3). Compass N `--text`. [The redesign](ui-redesign-proposal.md) amended. |
 | Tileset | Skip logs "Wrote no palette into … (1 existing skipped: …palstd.itp)"; the minimap question's Cancel changes nothing (names given only when rendering goes ahead, one Undo step); the folder is unmounted once the game data is free. |
 | Copy | Import warning, Export Changed, creature feats, 2DA merge, Advanced Search, NUI, plugins, Search, light maker; the prefab list follows a rename at once. |
+
+## The second round
+
+An independent review of the fixes above found these, fixed in the working tree:
+
+| Where | What |
+|---|---|
+| Pane sizes | The "dragged" slot was shared by every window of a kind, so a window drawn after another overwrote its mark and kept its own untouched size. It is now the window's own, keyed by its edges. |
+| Paint | The swallowed click came before the paste and outline dispatch and ate their clicks. It now sits after them, only for a click that would go to placing and on a writable view. |
+| Alt + drag | With Paint on and no placeable chosen it moved the camera; Paint counts only with placeables chosen (`paint_mode::active`), otherwise it is Select Objects. |
+| Escape | During a paste, an outline drawn anew or a tile paste with Paint on, Escape turned Paint off; it now drops the inner thing and Paint stays on. |
+| Minimap job | A failed start lost the folder mounted before (kept now until the new one is mounted); the unmount retry can finish where only the 3D views and haks hold the game data; tiles are named only once the job has started, and the log says why nothing was rendered. |
+| Scripts | A closed script's kept editor state no longer counts as open: Find and Replace In Open Scripts, Edit › Undo and the script in front go by tabs (`script_open`). It is dropped when the script is deleted from the module. |
+| Copy | Plugins, search and doctor tips reworded ("checking it again takes the transform off"). |
 
 [^wave1]: `git show 0e3c6195`
 [^wave2]: `git show 6da9e560`

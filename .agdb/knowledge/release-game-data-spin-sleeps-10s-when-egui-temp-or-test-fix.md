@@ -20,3 +20,5 @@ author: augustaugur
 - Never pass `&Arc<GameData>` to `blueprint::kept_for`, because it clones the `Arc` into egui temp memory; use `blueprint::kept_for_key` keyed on `app.load_order` and workspace `(identity, revision)` instead.
 - Tests that trigger `release_game_data` (such as `talk_panels::talk_window_with`) must own a fresh `Arc<GameData>` (`strong_count == 1`), not a shared static `Arc`.
 - Never call it per frame: a job that waits for the game data across frames checks `crate::exclusive(&mut app.game)` each frame and acts once it returns `Some`. The tileset editor's minimap job does this to unmount its folder layer (`unmounting`): before 2026-11-25 the mount leaked when something still held the game data as the job ended.
+- The retry where only the 3D views and haks hold the data (`!busy() && !game_data_held()`) calls `release_game_data`, which lets those go and then does not wait. Tests needing a holder without the 10 s wait use a job (`start_job_for_tests` blocked on a channel), not a bare `Arc` clone (which makes it spin the full 10 s).
+- The doctor `GOLDEN` hash covers message text: rewording a finding moves it.
