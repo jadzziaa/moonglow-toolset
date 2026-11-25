@@ -5624,23 +5624,7 @@ impl Moonglow {
                 }
             }
             Action::PopInProperties(tab) => {
-                if let Some(held) = self.held_text.take() {
-                    if let Some(command) = held.command {
-                        match held.typed {
-                            true => talk_typed::apply(self, command),
-                            false => {
-                                if let Err(e) = self.apply(command)
-                                    && !std::mem::take(&mut self.claims.held)
-                                {
-                                    self.log.error(e.to_string());
-                                }
-                            }
-                        }
-                    } else if let Some(action) = held.action {
-                        self.actions.push(action);
-                    }
-                    self.buffers.remove(&held.id);
-                }
+                self.set_held_text();
                 self.properties_changed.retain(|_, c| c.tab != tab);
                 self.closing_cancels.retain(|(_, c)| c.tab != tab);
                 let (area, objects, first_path) = match &tab {

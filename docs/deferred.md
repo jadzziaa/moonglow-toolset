@@ -971,28 +971,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   events). Waits: Alt alone on Windows, where the system may take Alt
   for its own menu (a Windows build). (S) (from builders' reports
   after 1.19.1)
-- **The module tree and the palettes by the keyboard** (GitHub issue
-  12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
-  Left and fold the tree): after a click in a list (the module tree, a
-  palette, Module Properties' haks) the arrow keys, Page Up and Down,
-  Home and End are that list's wherever the pointer is, until it is in
-  an area's view, and a thin outline shows the pane; Right and Left
-  open and close a row and go in and out, into an area opened out too;
-  Enter opens, Escape hands the keys back; F2 and Delete are for the
-  row under the pointer, else the cursor's; both panes' filter fields
-  have Ctrl+F, Escape (clear, then leave) and Down. F6 and Shift+F6 give
-  the keys to the next pane, each pane's being what its tab in front
-  has (the middle's a talk table's lines, a 2DA's cells at its first
-  cell, the resource browser's list, else an area's; a palette's cursor
-  at its first row), the log last, which they scroll (done 2026-10-30);
-  in the Gallery Up and Down go a row of pictures at a time (done
-  2026-10-29). Not done:
-  - Down from the hak editor's, the tileset editor's and the Appearance
-    Gallery's Find fields goes nowhere: their lists have no keys of
-    their own, nor have the tileset's palette and the Prefabs list.
-    Keys for four lists (a cursor, its outline, Enter's action, the
-    rows' order for Up and Down in each), about a day: more than the
-    wave's S. (M)
 - **A long dropdown that grew to the window's edge, not seen growing
   here:** the open list of a dropdown with a Filter field (Area
   Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds

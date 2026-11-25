@@ -1893,6 +1893,10 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     ui.separator();
     let mut chosen = app.palette.tile_brush.clone();
     let mut choice = app.palette.tile_choice;
+    // (The arrow keys' cursor in the rows: moved on the rows as they were
+    // drawn last, then the rows drawn again.)
+    let mut list = std::mem::take(&mut app.palette.tile_list);
+    list.keys(ui);
     let side = crate::appearance_gallery::tile_side(app);
     let ready = &app.thumbnails;
     let Some(view) = app.area_views.get(&area) else { return };
@@ -1923,12 +1927,14 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         exact: app.settings.exact_tiles,
         shown: Vec::new(),
         open: None,
+        list: &mut list,
     };
     // (A scroll place of its own: not the blueprint palettes' list's.)
     let filter_cache = tools.palette_cache.borrow();
-    egui::ScrollArea::vertical().id_salt("palette-tiles-list").auto_shrink([false, false]).show(
-        ui,
-        |ui| {
+    let scrolled = egui::ScrollArea::vertical()
+        .id_salt("palette-tiles-list")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
             // (Rows 22 apart; a gallery's pictures keep their gaps.)
             if at.gallery.is_none() {
                 mg_uikit::list_rows(ui);
@@ -1937,10 +1943,12 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             for item in &palette.branches {
                 show_item(ui, item, &mut at, cache, 0);
             }
-        },
-    );
+        });
     drop(filter_cache);
     let (shown, open, stepped) = (std::mem::take(&mut at.shown), at.open, at.stepped);
+    list.end(scrolled.inner_rect.height());
+    app.palette.tile_list = list;
+    crate::palette_view::keys_outline(ui, scrolled.inner_rect, crate::palette_view::Keys::Palette);
     app.thumbnails.show(shown);
     // A tile tool clicked with tiles selected: the tool on them (Select
     // Tiles and the selection staying).
@@ -1981,11 +1989,16 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 
 /// The tiles palette's Select Tiles: the area view's tile mode (its
 /// tool shelf's Select Tiles, F10), on or off, beside the tools.
-fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
+fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place, depth: usize) {
+    let slot = at.list.slot(TileRow::Select, depth);
     let button = mg_uikit::IconButton::new(crate::icons::SELECT_TILES, SELECT_TILES);
     let tip = format!("{}. Right-click a tile for its menu.", at.select_tiles);
     let r = ui.add(button.selectable(*at.tile_mode)).on_hover_text(tip);
+    at.list.seen(ui, slot, r.rect, None, false);
     if r.clicked() {
+        at.list.click(ui.ctx(), slot);
+    }
+    if r.clicked() || at.list.asked(slot).0 {
         *at.tile_mode = !*at.tile_mode;
         if *at.tile_mode {
             *at.chosen = None;
@@ -2163,6 +2176,18 @@ struct Place<'a> {
     exact: bool,
     shown: Vec<crate::model_view::Pictured>,
     open: Option<u32>,
+    /// The rows drawn, and the arrow keys' cursor in them.
+    list: &'a mut crate::palette_view::FlatList<TileRow>,
+}
+
+/// A row of the tiles palette, for the arrow keys' cursor to be at: Select
+/// Tiles, a folder (its depth and name) or a brush (its name and what it
+/// does).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TileRow {
+    Select,
+    Folder(usize, String),
+    Brush(String, Brush),
 }
 
 fn item_visible(item: &PaletteItem, at: &Place, cache: Option<&PaletteFilterCache>) -> bool {
@@ -2211,6 +2236,8 @@ fn show_item(
                 ..Default::default()
             };
             title.append(label, mg_uikit::metrics::ICON + FOLDER_GAP, format);
+            let slot = at.list.slot(TileRow::Folder(depth, label.clone()), depth);
+            let fold = at.list.asked(slot).1.or(at.fold);
             let shown = egui::CollapsingHeader::new(title)
                 .icon(mg_uikit::collapsing_icon)
                 .id_salt((tileset, depth, label.as_str(), searching))
@@ -2221,7 +2248,7 @@ fn show_item(
                                 matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })
                             }),
                 )
-                .open(at.fold)
+                .open(fold)
                 .show(ui, |ui| {
                     // The tools first (where tilesets list them varies),
                     // with Moonglow's Refine Tile beside the Eraser, then
@@ -2235,7 +2262,7 @@ fn show_item(
                     if has_tools {
                         // Select Tiles first: not a brush, the view's mode.
                         if !searching || at.filter.finds(SELECT_TILES) {
-                            select_tiles_row(ui, at);
+                            select_tiles_row(ui, at, depth + 1);
                         }
                         items.extend(tools.iter());
                     }
@@ -2270,6 +2297,13 @@ fn show_item(
                     group_pictures(ui, &groups, at);
                 });
             let row = shown.header_response.rect;
+            let is_open =
+                egui::collapsing_header::CollapsingState::load(ui.ctx(), shown.header_response.id)
+                    .is_some_and(|s| s.is_open());
+            at.list.seen(ui, slot, row, Some(is_open), true);
+            if shown.header_response.clicked() {
+                at.list.click(ui.ctx(), slot);
+            }
             let icon = match shown.openness > 0.5 {
                 true => mg_uikit::Icon::FolderOpen,
                 false => mg_uikit::Icon::Folder,
@@ -2296,8 +2330,9 @@ fn show_item(
                     &fallback
                 }
             };
+            let slot = at.list.slot(TileRow::Brush(label.clone(), *brush), depth);
             if tiles.is_empty() {
-                brush_row(ui, label, *brush, at);
+                brush_row(ui, label, *brush, at, (slot, None));
                 return;
             }
             // In the Gallery, a terrain or crosser is a heading its tiles
@@ -2313,6 +2348,10 @@ fn show_item(
             if let Some(open) = at.fold {
                 state.set_open(open);
             }
+            if let Some(open) = at.list.asked(slot).1 {
+                state.set_open(open);
+            }
+            let open = Some(state.is_open());
             // (`show_header` as egui has it, with the kit's chevron in place
             // of egui's triangle, as the folders above have: U30's #8.)
             let header = ui.horizontal(|ui| {
@@ -2320,7 +2359,7 @@ fn show_item(
                 ui.spacing_mut().item_spacing.x = 0.0;
                 state.show_toggle_button(ui, mg_uikit::collapsing_icon);
                 ui.spacing_mut().item_spacing = spacing;
-                brush_row(ui, label, *brush, at);
+                brush_row(ui, label, *brush, at, (slot, open));
             });
             state.show_body_indented(&header.response, ui, |ui| tile_pictures(ui, tiles, at));
             row_count(ui, header.response.rect, tiles.len());
@@ -2350,7 +2389,13 @@ fn row_count(ui: &egui::Ui, row: egui::Rect, count: usize) {
 
 /// A brush's row: its name, chosen by a click (Refine Tile naming the
 /// tile it makes, one chosen in the Gallery).
-fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
+fn brush_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    brush: Brush,
+    at: &mut Place,
+    (slot, open): (usize, Option<bool>),
+) {
     let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
     let target = match brush {
         Brush::Refine => *at.choice,
@@ -2432,14 +2477,20 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
     if let Some(tip) = tip {
         r = r.on_hover_text(tip);
     }
+    // (Enter on the row the keys' cursor is at is a click.)
+    at.list.seen(ui, slot, r.rect, open, false);
+    let clicked = r.clicked() || at.list.asked(slot).0;
+    if r.clicked() {
+        at.list.click(ui.ctx(), slot);
+    }
     // With tiles selected, a tile tool is a button on them: it works on
     // them at once, nothing chosen (Select Tiles and the selection stay).
-    if r.clicked()
+    if clicked
         && selecting
         && let Some(what) = on_selection(brush, target, ui.input(|i| i.modifiers.shift))
     {
         at.stepped = Some(what);
-    } else if r.clicked() {
+    } else if clicked {
         *at.chosen = if on {
             None
         } else {
@@ -2484,6 +2535,9 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
         });
     };
     let keys = !crate::shell::keys_blocked(ui.ctx());
+    if ui.memory(|m| m.has_focus(ui.id().with("group-pictures"))) {
+        at.list.busy();
+    }
     let grid =
         mg_uikit::gallery::GalleryGrid::new(ui.id().with("group-pictures"), groups.len(), side)
             .cursor(current)
@@ -2557,6 +2611,9 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
         });
     };
     let keys = !crate::shell::keys_blocked(ui.ctx());
+    if ui.memory(|m| m.has_focus(ui.id().with("tile-pictures"))) {
+        at.list.busy();
+    }
     let label = mg_uikit::gallery::label_height(false, 1, false);
     let grid =
         mg_uikit::gallery::GalleryGrid::new(ui.id().with("tile-pictures"), tiles.len(), side)

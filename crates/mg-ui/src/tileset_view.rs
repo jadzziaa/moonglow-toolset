@@ -1729,6 +1729,15 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     // tiles' end. A field typed in sets its text before the press acts
     // whatever the order: `widgets::text_begin`, tested.)
     let asked = tile_bar(&mut left, d, &t);
+    // (Down out of Find: the list has the keys, at its first row.)
+    if asked.down {
+        take_keys(ui.ctx(), d.id);
+        if let Some(&first) = d.rows().first() {
+            d.tile = Some(first);
+            // (Brought into sight, though it was chosen already.)
+            d.scrolled_to = None;
+        }
+    }
     tile_table(app, &mut left, d, &t);
     let mut right = ui.new_child(egui::UiBuilder::new().max_rect(form).id_salt("tile-form"));
     right.set_clip_rect(form.intersect(ui.clip_rect()));
@@ -1761,6 +1770,8 @@ struct BarAsked {
     duplicate: bool,
     add: bool,
     remove: bool,
+    /// Down in Find: on to the tile list, at its first row.
+    down: bool,
 }
 
 impl BarAsked {
@@ -1827,14 +1838,17 @@ fn tile_bar(ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) -> BarAsked {
     let buttons = words(icon_only);
     let find = (inner.width() - width(&buttons)).max(60.0);
     let field = egui::Id::new(("tileset-filter-field", d.id));
-    crate::widgets::SearchField::new(field, &mut d.filter)
+    let left = crate::widgets::SearchField::new(field, &mut d.filter)
         .name(FIND)
         .hint("Model or terrain")
         .width(find - 24.0)
         .find_when(d.hovered)
-        .show(&mut ui);
+        .down()
+        .show(&mut ui)
+        .left;
     let [duplicate, add, remove] = buttons;
     BarAsked {
+        down: left == Some(crate::widgets::FilterLeft::Down),
         duplicate: ui.add_enabled(sel.is_some(), duplicate).clicked(),
         add: ui.add(add).clicked(),
         remove: ui.add_enabled(!t.tiles.is_empty(), remove).clicked(),
@@ -1870,7 +1884,9 @@ pub(crate) fn list_has_keys(app: &Moonglow, ctx: &egui::Context, id: u32) -> boo
 /// a hole's words in `warn`; the chosen tile filled (ringed while the list
 /// has the keys). A click chooses a tile and gives the list the keys: Up,
 /// Down, Page Up, Page Down, Home and End, while the tileset is the active
-/// editor (Undo and Redo its own then).
+/// editor (Undo and Redo its own then), the list outlined meanwhile; Down in
+/// Find goes to its first tile. (Enter does nothing: choosing a tile shows
+/// it in the form.)
 fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) {
     use crate::table_view::look;
     let ctx = ui.ctx().clone();
@@ -2042,6 +2058,7 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
         lines.paint(ui.painter(), &tokens);
         clicked
     });
+    crate::palette_view::keys_outline_when(ui, shown.inner_rect, has);
     if let Some(i) = shown.inner {
         d.tile = Some(i);
         d.scrolled_to = Some(i);

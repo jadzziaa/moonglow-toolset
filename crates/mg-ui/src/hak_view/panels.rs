@@ -453,6 +453,7 @@ pub(crate) fn outline_types(app: &mut Moonglow, id: u32) -> Option<Arc<Facts>> {
 }
 
 /// What the Status Bar shows beside a hak (the Hak board's): with the
+/// table with the keys, Up Down Move in the list and Enter View; with the
 /// pointer over its editor, Click Select, Ctrl + Click Add to selection (Cmd
 /// on macOS),
 /// Shift + Click Select range, Double Click View, Right Click More; none
@@ -482,7 +483,12 @@ pub(crate) fn shown(
     if crate::shell::keys_blocked(ctx) || mg_uikit::popover::Popover::any_open(ctx) || typing {
         return Shown { hints, counts, note: None };
     }
-    if d.hovered && !d.hak.items().is_empty() {
+    // (The table with the keys: the arrows and Enter, then the pointer's.)
+    if d.has_rows_shown() && super::table_has_keys(app, ctx, id) {
+        hints.push(Hint::either(["Up", "Down"], "Move in the list"));
+        hints.push(Hint::keys(["Enter"], "View"));
+    }
+    if d.hovered && d.has_rows_shown() {
         hints.push(Hint::keys(["Click"], "Select"));
         hints.push(Hint::keys([k.ctrl(), "Click"], "Add to selection"));
         hints.push(Hint::keys(["Shift", "Click"], "Select range"));

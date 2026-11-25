@@ -560,6 +560,42 @@ fn the_tile_table_s_keys_are_the_active_editor_s() {
     assert_eq!(first(&h), Some(0), "the first list's keys do nothing");
 }
 
+/// Down in Find goes on to the tile table, at its first tile (the table
+/// has the keys, outlined); Down and End go on from there in the table's
+/// order, Enter does nothing (choosing a tile already shows it in the
+/// form).
+#[test]
+fn down_in_find_goes_to_the_tile_table_s_first_tile() {
+    let (mut h, _, _) = tileset_window(Mode::Tabs, "ui-u20-find-down", 1600.0, None, false);
+    // (Find the models with "a02": tiles 1 and 2, the first of them not
+    // tile 0.)
+    h.state_mut().tilesets[0].tile = Some(2);
+    settle(&mut h);
+    let find =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Model or terrain");
+    h.get(egui_kittest::kittest::by().predicate(find)).click();
+    h.get(egui_kittest::kittest::by().predicate(find)).type_text("a02");
+    settle(&mut h);
+    assert_eq!(accent_outlines(&h, 100.0), 0, "no keys yet");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(doc(&h).tile, Some(1), "the first tile found");
+    assert_eq!(accent_outlines(&h, 100.0), 1, "the table outlined");
+    says(&mut h, &["Up or Down: Move in the list"], &[]);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(doc(&h).tile, Some(2), "Down goes on in the table");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert_eq!(doc(&h).tile, Some(2), "Enter changes nothing");
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    assert_eq!(doc(&h).tile, Some(1), "Home");
+    h.key_press(egui::Key::End);
+    settle(&mut h);
+    assert_eq!(doc(&h).tile, Some(2), "End");
+}
+
 /// Typed text keeps to its tile, typed after the move (the reviews'
 /// rule): the last tile's Model typed in, then Remove Last Tile pressed:
 /// the text is set on that tile as the press leaves the field, the tile
