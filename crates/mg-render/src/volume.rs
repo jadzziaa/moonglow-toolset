@@ -30,7 +30,9 @@
 //! stencil target of the view's samples ([`ShadowVolumes`]), so that the
 //! scene's own depth buffer, and every other pass, stay as they are.
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex, Weak};
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
@@ -223,61 +225,387 @@ pub(crate) struct GpuVolume {
     closed: bool,
 }
 
-/// The shadow volume of `mesh` (of `model`), cast from its faces' fronts
-/// alone or (`both_sides`) from both sides where it isn't closed: made
-/// once each (a closed mesh's once), `None` for a mesh that has no faces
-/// to cast with.
-fn gpu_volume<'m>(
-    gpu: &crate::Gpu,
-    model: &crate::GpuModel,
-    mesh: &'m crate::model::GpuMesh,
-    both_sides: bool,
-) -> Option<&'m GpuVolume> {
-    use wgpu::util::DeviceExt;
-    if both_sides {
-        let front = gpu_volume(gpu, model, mesh, false)?;
-        if front.closed {
-            return Some(front);
-        }
-    }
-    mesh.volume[usize::from(both_sides)]
-        .get_or_init(|| {
-            let mg_mdl::NodeKind::Mesh(m) = &model.model.nodes.get(mesh.node)?.kind else {
-                return None;
-            };
-            let v = volume_mesh(&m.vertices, m.triangles(), both_sides);
-            if v.indices.is_empty() {
-                return None;
-            }
-            let buffer = |label, contents, usage| {
-                gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(label),
-                    contents,
-                    usage,
-                })
-            };
-            Some(GpuVolume {
-                vertices: buffer(
-                    "shadow volume",
-                    bytemuck::cast_slice(&v.vertices),
-                    wgpu::BufferUsages::VERTEX,
-                ),
-                indices: buffer(
-                    "shadow volume",
-                    bytemuck::cast_slice(&v.indices),
-                    wgpu::BufferUsages::INDEX,
-                ),
-                count: v.indices.len() as u32,
-                closed: v.closed,
-            })
-        })
-        .as_ref()
+/// Which mesh a volume is of: its model's [`crate::GpuModel::id`], its
+/// node, and whether it is cast from both sides of its faces, in one
+/// number ([`key_of`]).
+type Key = u64;
+
+/// The [`Key`] of node `node` of model `model`: the model's id above
+/// 24 bits, the node's number (below 2²³) and `both_sides`.
+fn key_of(model: u64, node: usize, both_sides: bool) -> Key {
+    (model << 24) | ((node as u64 & 0x7f_ffff) << 1) | u64::from(both_sides)
 }
 
-/// A mesh's [`GpuVolume`]s, kept with it (none until it casts one): from
-/// its faces' fronts (the sun's), and from both sides (a light's, where
-/// the mesh isn't closed).
-pub(crate) type VolumeSlot = [OnceLock<Option<GpuVolume>>; 2];
+/// The model's id of a [`Key`].
+fn model_of(key: Key) -> u64 {
+    key >> 24
+}
+
+/// A mesh's volume as the renderer keeps it ([`VolumeMeshes`]).
+#[derive(Debug, Clone)]
+enum Kept {
+    /// Being made apart.
+    Asked,
+    /// Made: `None` for a mesh with no faces to cast with.
+    Made(Option<Arc<GpuVolume>>),
+    /// Cast from both sides, its volume from its faces' fronts: the mesh
+    /// is closed.
+    Front,
+}
+
+/// How long a model's volumes are kept while none of them is cast,
+/// seconds of the renderer's frames (as long as a texture not drawn): the
+/// area view drawn with Fast, or not drawn.
+const STALE_AFTER: u32 = 30;
+
+/// How many threads make volumes apart.
+const MAKERS: usize = 2;
+
+/// The shadow volume of node `node` of `model`, cast from its faces'
+/// fronts alone or (`both_sides`) from both sides where it isn't closed
+/// (where it is, [`Kept::Front`]): on `device`.
+fn make(device: &wgpu::Device, model: &mg_mdl::Model, node: usize, both_sides: bool) -> Kept {
+    use wgpu::util::DeviceExt;
+    let Some(mg_mdl::NodeKind::Mesh(m)) = model.nodes.get(node).map(|n| &n.kind) else {
+        return Kept::Made(None);
+    };
+    let v = volume_mesh(&m.vertices, m.triangles(), both_sides);
+    if both_sides && v.closed {
+        return Kept::Front;
+    }
+    if v.indices.is_empty() {
+        return Kept::Made(None);
+    }
+    let buffer = |contents, usage| {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("shadow volume"),
+            contents,
+            usage,
+        })
+    };
+    Kept::Made(Some(Arc::new(GpuVolume {
+        vertices: buffer(bytemuck::cast_slice(&v.vertices), wgpu::BufferUsages::VERTEX),
+        indices: buffer(bytemuck::cast_slice(&v.indices), wgpu::BufferUsages::INDEX),
+        count: v.indices.len() as u32,
+        closed: v.closed,
+    })))
+}
+
+/// A volume to make apart: its key, its model's faces, its node and
+/// whether it is cast from both sides.
+struct Job {
+    key: Key,
+    model: Arc<mg_mdl::Model>,
+    node: usize,
+    both_sides: bool,
+}
+
+/// The threads that make volumes apart from the frames (as textures are
+/// read apart): they take jobs and give back what they made, uploaded.
+/// Joined when it is dropped, as the shader worker is (a thread holding
+/// the GPU as the process ends crashed in Vulkan's validation layer).
+struct Maker {
+    ask: Option<Sender<Job>>,
+    made: Receiver<(Key, Kept)>,
+    stop: Arc<AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Maker {
+    fn new(
+        gpu: &crate::Gpu,
+        waker: &Arc<Mutex<Option<crate::game::Waker>>>,
+        held: &Arc<AtomicBool>,
+    ) -> Option<Maker> {
+        let (ask, jobs) = std::sync::mpsc::channel::<Job>();
+        let (give, made) = std::sync::mpsc::channel();
+        let jobs = Arc::new(Mutex::new(jobs));
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut threads = Vec::new();
+        for n in 0..MAKERS {
+            let (gpu, jobs, give) = (gpu.clone(), jobs.clone(), give.clone());
+            let (waker, held, stop) = (waker.clone(), held.clone(), stop.clone());
+            let spawned = std::thread::Builder::new()
+                .name(format!("moonglow shadow volumes {n}"))
+                .spawn(move || {
+                    loop {
+                        let job = match jobs.lock() {
+                            Ok(rx) => rx.recv(),
+                            Err(_) => return,
+                        };
+                        let Ok(Job { key, model, node, both_sides }) = job else { return };
+                        // (Held, in a test: nothing made until it is let go.)
+                        while held.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                            std::thread::sleep(std::time::Duration::from_millis(2));
+                        }
+                        if stop.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        let kept = crate::guard::guarded(&model.name, || {
+                            make(&gpu.device, &model, node, both_sides)
+                        })
+                        .unwrap_or(Kept::Made(None));
+                        if give.send((key, kept)).is_err() {
+                            return;
+                        }
+                        let wake = waker.lock().ok().and_then(|w| w.clone());
+                        if let Some(w) = wake {
+                            (w.0)();
+                        }
+                    }
+                });
+            match spawned {
+                Ok(t) => threads.push(t),
+                Err(_) => break,
+            }
+        }
+        // (No thread to make them on: made in the frame.)
+        (!threads.is_empty()).then_some(Maker { ask: Some(ask), made, stop, threads })
+    }
+}
+
+impl Drop for Maker {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.ask = None;
+        for t in self.threads.drain(..) {
+            let _ = t.join();
+        }
+    }
+}
+
+impl std::fmt::Debug for Maker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Maker")
+    }
+}
+
+/// The kept volumes, each in a place of its own: found by its key, or at
+/// once at the place its mesh remembers ([`crate::model::GpuMesh::volume_at`],
+/// checked against the key: a place another renderer's, or let go of
+/// and taken again, is looked up by the key). A key looked up in a map
+/// for each caster of each frame cost 0.1 ms more than the meshes' own
+/// slots had in area084's 4,800 casters.
+#[derive(Debug, Default)]
+struct Slab {
+    /// Each place's key (0: a free place, which no key is: a model's id
+    /// is 1 or more) and its volume.
+    places: Vec<(Key, Kept)>,
+    by_key: crate::game::Fast<Key, u32>,
+    free: Vec<u32>,
+}
+
+impl Slab {
+    fn find(&self, key: Key, hint: &AtomicU32) -> Option<u32> {
+        let at = hint.load(Ordering::Relaxed);
+        if self.places.get(at as usize).is_some_and(|p| p.0 == key) {
+            return Some(at);
+        }
+        let at = *self.by_key.get(&key)?;
+        hint.store(at, Ordering::Relaxed);
+        Some(at)
+    }
+
+    #[cfg(test)]
+    fn get(&self, key: Key, hint: &AtomicU32) -> Option<&Kept> {
+        self.find(key, hint).map(|at| &self.places[at as usize].1)
+    }
+
+    fn get_mut(&mut self, key: Key) -> Option<&mut Kept> {
+        let at = *self.by_key.get(&key)?;
+        Some(&mut self.places[at as usize].1)
+    }
+
+    /// Keeps `kept` as `key`'s, its place remembered in `hint`: says
+    /// where.
+    fn insert(&mut self, key: Key, kept: Kept, hint: &AtomicU32) -> u32 {
+        let at = match self.by_key.get(&key) {
+            Some(&at) => at,
+            None => {
+                let at = self.free.pop().unwrap_or_else(|| {
+                    self.places.push((0, Kept::Made(None)));
+                    self.places.len() as u32 - 1
+                });
+                self.by_key.insert(key, at);
+                at
+            }
+        };
+        self.places[at as usize] = (key, kept);
+        hint.store(at, Ordering::Relaxed);
+        at
+    }
+
+    /// The volume made at place `at`, if one is.
+    fn volume(&self, at: u32) -> Option<&GpuVolume> {
+        match self.places.get(at as usize) {
+            Some((_, Kept::Made(Some(v)))) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Lets go of the volumes whose key `keep` says no to.
+    fn retain(&mut self, keep: impl Fn(Key) -> bool) {
+        for (i, place) in self.places.iter_mut().enumerate() {
+            if place.0 != 0 && !keep(place.0) {
+                self.by_key.remove(&place.0);
+                *place = (0, Kept::Made(None));
+                self.free.push(i as u32);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.by_key.len()
+    }
+
+    #[cfg(test)]
+    fn keys(&self) -> impl Iterator<Item = Key> + '_ {
+        self.by_key.keys().copied()
+    }
+
+    fn values(&self) -> impl Iterator<Item = &Kept> {
+        self.places.iter().filter(|p| p.0 != 0).map(|p| &p.1)
+    }
+}
+
+/// The meshes' shadow volumes, kept by the renderer (not by the meshes:
+/// so that they can be let go of): each made the first time its mesh
+/// casts with High, in the frame or apart from it ([`VolumeMeshes::apart`]),
+/// let go of with its model, or when none of its model's has been cast
+/// for [`STALE_AFTER`].
+#[derive(Debug)]
+pub(crate) struct VolumeMeshes {
+    kept: Slab,
+    /// The models whose meshes have volumes kept: whether each is still
+    /// there ([`crate::GpuModel::life`]), and when one of them was last
+    /// cast.
+    models: crate::game::Fast<u64, (Weak<()>, u32)>,
+    /// The model last stamped in this frame.
+    stamped: Option<u64>,
+    /// This frame's time ([`crate::Renderer`]'s kept clock, seconds).
+    now: u32,
+    /// Volumes not made yet are made apart, a caster casting nothing
+    /// until its volume is: the frame never waits for one. Off, the frame
+    /// makes them (a picture drawn once).
+    pub(crate) apart: bool,
+    maker: Option<Maker>,
+    /// Called as each volume made apart is ready.
+    waker: Arc<Mutex<Option<crate::game::Waker>>>,
+    /// Nothing is made apart while it is on (a test's).
+    held: Arc<AtomicBool>,
+    /// How many volumes made apart have been taken.
+    pub(crate) taken: u64,
+}
+
+impl VolumeMeshes {
+    fn new(waker: Arc<Mutex<Option<crate::game::Waker>>>, held: Arc<AtomicBool>) -> VolumeMeshes {
+        VolumeMeshes {
+            kept: Default::default(),
+            models: Default::default(),
+            stamped: None,
+            now: 0,
+            apart: false,
+            maker: None,
+            waker,
+            held,
+            taken: 0,
+        }
+    }
+
+    /// At a frame's beginning (at `now`): takes the volumes made apart,
+    /// and lets go of those of models that are gone or were not cast
+    /// lately.
+    pub(crate) fn begin(&mut self, now: u32) {
+        self.now = now;
+        self.stamped = None;
+        if let Some(maker) = &self.maker {
+            while let Ok((key, kept)) = maker.made.try_recv() {
+                self.taken += 1;
+                // (Not one let go of meanwhile, or made in a frame.)
+                if let Some(slot @ Kept::Asked) = self.kept.get_mut(key) {
+                    *slot = kept;
+                }
+            }
+        }
+        let before = self.models.len();
+        self.models.retain(|_, (life, used)| {
+            life.strong_count() > 0 && now.saturating_sub(*used) < STALE_AFTER
+        });
+        if self.models.len() != before {
+            let models = &self.models;
+            self.kept.retain(|k| models.contains_key(&model_of(k)));
+        }
+    }
+
+    /// How many volumes are kept (made, with faces).
+    pub(crate) fn count(&self) -> usize {
+        self.kept.values().filter(|k| matches!(k, Kept::Made(Some(_)))).count()
+    }
+
+    /// The volume of `mesh` (of `model`), from its faces' fronts or
+    /// (`both_sides`) from both sides: its place among those kept;
+    /// `Ok(None)` for a mesh with no faces to cast with; `Err` while it is
+    /// made apart (asked for).
+    fn volume(
+        &mut self,
+        gpu: &crate::Gpu,
+        model: &crate::GpuModel,
+        mesh: &crate::model::GpuMesh,
+        both_sides: bool,
+    ) -> Result<Option<u32>, Waiting> {
+        let (node, hint) = (mesh.node, &mesh.volume_at[usize::from(both_sides)]);
+        if both_sides {
+            match self.volume(gpu, model, mesh, false) {
+                Ok(Some(at)) if self.kept.volume(at).is_some_and(|v| v.closed) => {
+                    return Ok(Some(at));
+                }
+                Ok(None) => return Ok(None),
+                // (Its front made, or being made: both sides asked for beside it.)
+                _ => {}
+            }
+        }
+        let key = key_of(model.id, node, both_sides);
+        if let Some(at) = self.kept.find(key, hint) {
+            match &self.kept.places[at as usize].1 {
+                Kept::Made(v) => return Ok(v.as_ref().map(|_| at)),
+                // (The front's, being made: the mesh is closed.)
+                Kept::Front => return Err(Waiting),
+                Kept::Asked if self.apart => return Err(Waiting),
+                Kept::Asked => {}
+            }
+        }
+        let now = self.now;
+        (self.models.entry(model.id)).or_insert_with(|| (Arc::downgrade(&model.life), now));
+        if self.apart {
+            if self.maker.is_none() {
+                self.maker = Maker::new(gpu, &self.waker, &self.held);
+            }
+            let ask = self.maker.as_ref().and_then(|m| m.ask.as_ref());
+            if let Some(ask) = ask
+                && ask.send(Job { key, model: model.model.clone(), node, both_sides }).is_ok()
+            {
+                self.kept.insert(key, Kept::Asked, hint);
+                return Err(Waiting);
+            }
+        }
+        let made = crate::guard::guarded(&model.model.name, || {
+            make(&gpu.device, &model.model, node, both_sides)
+        })
+        .unwrap_or(Kept::Made(None));
+        let (front, some) = (matches!(made, Kept::Front), matches!(made, Kept::Made(Some(_))));
+        let at = self.kept.insert(key, made, hint);
+        if front {
+            // (Its front, made above: closed.)
+            return self.volume(gpu, model, mesh, false);
+        }
+        Ok(some.then_some(at))
+    }
+}
+
+/// A volume is being made apart ([`VolumeMeshes::apart`]).
+#[derive(Debug, Clone, Copy)]
+struct Waiting;
 
 /// A caster as the volume shader reads it: from its node to the world,
 /// its light in its node's space (for which way its faces face) and in
@@ -446,18 +774,24 @@ pub(crate) struct ShadowVolumes {
     pipelines: std::collections::HashMap<(wgpu::TextureFormat, u32), Pipelines>,
     sun: Set,
     lights: Set,
+    /// The meshes' volumes.
+    pub(crate) meshes: VolumeMeshes,
 }
 
 /// What [`ShadowVolumes::lay`] counts: a set's casters, each mesh's in a
 /// row.
-struct Counted<'a> {
-    meshes: Vec<(&'a GpuVolume, std::ops::Range<u32>)>,
+/// (A caster whose volume is still being made is left out:
+/// `pending` counts them.)
+struct Counted {
+    /// Each mesh's volume's place among those kept, and its casters.
+    meshes: Vec<(u32, std::ops::Range<u32>)>,
     casters: Vec<VolumeCaster>,
+    pending: usize,
 }
 
-impl Counted<'_> {
+impl Counted {
     fn new() -> Self {
-        Counted { meshes: Vec::new(), casters: Vec::new() }
+        Counted { meshes: Vec::new(), casters: Vec::new(), pending: 0 }
     }
 }
 
@@ -465,45 +799,78 @@ impl Counted<'_> {
 /// lights'.
 type Look = (crate::scene::SunShadows, bool);
 
-impl ShadowVolumes {
-    pub(crate) fn new(device: &wgpu::Device) -> ShadowVolumes {
-        ShadowVolumes {
-            format: stencil_format(device),
-            pipelines: Default::default(),
-            sun: Set::new(device),
-            lights: Set::new(device),
-        }
-    }
-
+impl VolumeMeshes {
     /// The sun's casters of `plan` as the volume shader takes them: the
     /// rigid ones (the game's skins cast none), each mesh's in a row.
-    fn sun_casters<'a>(gpu: &crate::Gpu, plan: &Plan<'a>) -> Counted<'a> {
+    fn sun_casters(&mut self, gpu: &crate::Gpu, plan: &Plan) -> Counted {
         let to_light = plan.direction.normalize_or(Vec3::Z);
         let light_world = (-to_light).extend(-1.0);
         let mut counted = Counted::new();
         for c in plan.casters.iter().filter(|c| c.bones.is_none()) {
-            let Some(volume) = gpu_volume(gpu, c.model, c.mesh, false) else { continue };
-            let clip = c.bottom.unwrap_or(plan.floor) - BELOW;
-            let local = c.world.inverse() * to_light.extend(0.0);
-            push(&mut counted, volume, c.world, local, light_world, clip);
+            self.stamp(c.model.id);
+            match self.volume(gpu, c.model, c.mesh, false) {
+                Ok(Some(at)) => {
+                    let clip = c.bottom.unwrap_or(plan.floor) - BELOW;
+                    let local = c.world.inverse() * to_light.extend(0.0);
+                    push(&mut counted, at, c.world, local, light_world, clip);
+                }
+                Ok(None) => {}
+                Err(Waiting) => counted.pending += 1,
+            }
         }
         counted
     }
 
+    /// `model`'s volumes cast in this frame: kept.
+    fn stamp(&mut self, model: u64) {
+        if self.stamped != Some(model) {
+            self.stamped = Some(model);
+            if let Some(m) = self.models.get_mut(&model) {
+                m.1 = self.now;
+            }
+        }
+    }
+
     /// The lights' casters of `plan`: each creature's rigid meshes, from
     /// its light.
-    fn light_casters<'a>(gpu: &crate::Gpu, plan: &LightPlan<'a>) -> Counted<'a> {
+    fn light_casters(&mut self, gpu: &crate::Gpu, plan: &LightPlan) -> Counted {
         let mut counted = Counted::new();
         for (range, &(at, radius)) in plan.ranges.iter().zip(&plan.sources) {
             let light_world = at.extend(radius.max(MIN_OFFSET));
             let casters = &plan.casters[range.start as usize..range.end as usize];
             for c in casters.iter().filter(|c| c.bones.is_none()) {
-                let Some(volume) = gpu_volume(gpu, c.model, c.mesh, true) else { continue };
+                self.stamp(c.model.id);
+                let volume = match self.volume(gpu, c.model, c.mesh, true) {
+                    Ok(Some(v)) => v,
+                    Ok(None) => continue,
+                    Err(Waiting) => {
+                        counted.pending += 1;
+                        continue;
+                    }
+                };
                 let local = c.world.inverse() * at.extend(1.0);
                 push(&mut counted, volume, c.world, local, light_world, 0.0);
             }
         }
         counted
+    }
+}
+
+impl ShadowVolumes {
+    /// `waker`: called as each volume made apart is ready; `held`:
+    /// nothing is made apart while it is on.
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        waker: Arc<Mutex<Option<crate::game::Waker>>>,
+        held: Arc<AtomicBool>,
+    ) -> ShadowVolumes {
+        ShadowVolumes {
+            format: stencil_format(device),
+            pipelines: Default::default(),
+            sun: Set::new(device),
+            lights: Set::new(device),
+            meshes: VolumeMeshes::new(waker, held),
+        }
     }
 
     /// Lays the shadows of `sun` and of `lights` over what is drawn in
@@ -512,13 +879,15 @@ impl ShadowVolumes {
     /// view's stencil target (`made`: made where the view has none of the
     /// picture's size and samples), then black laid over what they mark
     /// as the game's shadow plane lays it, for `camera` seeing a picture
-    /// of `size`; `fog`: the scene's.
+    /// of `size`; `fog`: the scene's. Says how many casters cast nothing
+    /// for their volumes still being made apart.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn lay(
         &mut self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         (target_view, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        mask: &crate::shadow::Mask,
         format: (wgpu::TextureFormat, u32),
         (sun, lights): (Option<&Plan>, Option<&LightPlan>),
         camera: &Camera,
@@ -527,7 +896,7 @@ impl ShadowVolumes {
         made: &mut Option<StencilTarget>,
         mut copy_cache: Option<&mut Option<wgpu::BindGroup>>,
         mut darken_cache: Option<&mut [Option<wgpu::BindGroup>; 2]>,
-    ) {
+    ) -> usize {
         let samples = format.1;
         if made.as_ref().is_none_or(|(_, s, n)| *s != size || *n != samples) {
             let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -542,22 +911,25 @@ impl ShadowVolumes {
             });
             *made = Some((texture.create_view(&Default::default()), size, samples));
         }
-        let Self { format: stencil_format, pipelines, sun: sun_set, lights: light_set } = self;
+        let Self { format: stencil_format, pipelines, sun: sun_set, lights: light_set, meshes } =
+            self;
         let pipelines = pipelines
             .entry(format)
             .or_insert_with(|| Pipelines::new(&gpu.device, format.0, samples, *stencil_format));
-        let Some((stencil, ..)) = made.as_ref() else { return };
+        let Some((stencil, ..)) = made.as_ref() else { return 0 };
         let mut copied = false;
         let sets: [(Option<Counted>, &mut Set, Option<Look>); 2] = [
-            (sun.map(|p| Self::sun_casters(gpu, p)), sun_set, sun.map(|p| (p.shadows, false))),
+            (sun.map(|p| meshes.sun_casters(gpu, p)), sun_set, sun.map(|p| (p.shadows, false))),
             (
-                lights.map(|p| Self::light_casters(gpu, p)),
+                lights.map(|p| meshes.light_casters(gpu, p)),
                 light_set,
                 lights.map(|p| (p.shadows, true)),
             ),
         ];
+        let mut pending = 0;
         for (counted, set, look) in sets {
             let (Some(counted), Some((shadows, lit))) = (counted, look) else { continue };
+            pending += counted.pending;
             if counted.casters.is_empty() {
                 continue;
             }
@@ -569,7 +941,7 @@ impl ShadowVolumes {
                 gpu,
                 encoder,
                 (stencil, depth),
-                (set, &counted),
+                (set, &counted, &meshes.kept),
                 !copied,
                 copy_cache.as_deref_mut(),
             );
@@ -577,20 +949,21 @@ impl ShadowVolumes {
             pipelines.darken(
                 gpu,
                 encoder,
-                (target_view, stencil, depth),
-                set,
-                lit,
+                (target_view, mask),
+                (stencil, depth),
+                (set, lit),
                 darken_cache.as_deref_mut().map(|slots| &mut slots[usize::from(lit)]),
             );
         }
+        pending
     }
 }
 
 /// Adds a caster of `volume` to `counted` (beside its mesh's others where
 /// it follows them).
-fn push<'a>(
-    counted: &mut Counted<'a>,
-    volume: &'a GpuVolume,
+fn push(
+    counted: &mut Counted,
+    volume: u32,
     world: Mat4,
     light_local: Vec4,
     light_world: Vec4,
@@ -604,7 +977,7 @@ fn push<'a>(
         clip: [clip, 0.0, 0.0, 0.0],
     });
     match counted.meshes.last_mut() {
-        Some((v, range)) if std::ptr::eq(*v, volume) && range.end == i => range.end += 1,
+        Some((v, range)) if *v == volume && range.end == i => range.end += 1,
         _ => counted.meshes.push((volume, i..i + 1)),
     }
 }
@@ -795,11 +1168,14 @@ impl Pipelines {
                     module: &module,
                     entry_point: Some("fs"),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: color,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: color,
+                            blend: Some(blend),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(crate::shadow::MASK_TARGET),
+                    ],
                 }),
                 primitive: Default::default(),
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -829,7 +1205,7 @@ impl Pipelines {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         (stencil, depth): (&wgpu::TextureView, &wgpu::TextureView),
-        (set, counted): (&mut Set, &Counted),
+        (set, counted, kept): (&mut Set, &Counted, &Slab),
         copy: bool,
         copy_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
@@ -885,7 +1261,8 @@ impl Pipelines {
         }
         pass.set_pipeline(&self.volumes);
         pass.set_bind_group(0, &*group, &[]);
-        for (volume, instances) in &counted.meshes {
+        for (at, instances) in &counted.meshes {
+            let Some(volume) = kept.volume(*at) else { continue };
             pass.set_vertex_buffer(0, volume.vertices.slice(..));
             pass.set_index_buffer(volume.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..volume.count, 0, instances.clone());
@@ -898,9 +1275,9 @@ impl Pipelines {
         &self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
-        (target, stencil, depth): (&wgpu::TextureView, &wgpu::TextureView, &wgpu::TextureView),
-        set: &Set,
-        lights: bool,
+        (target, mask): (&wgpu::TextureView, &crate::shadow::Mask),
+        (stencil, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        (set, lights): (&Set, bool),
         darken_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
         let mut scratch = None;
@@ -923,12 +1300,15 @@ impl Pipelines {
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow volume darkening"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                depth_slice: None,
-            })],
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    depth_slice: None,
+                }),
+                Some(mask.attachment(false)),
+            ],
             // (Read only: the counts tested, nothing written.)
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: stencil,
@@ -1162,6 +1542,45 @@ mod tests {
         assert!(inside(&t, from + away * 9.0), "within the radius");
         assert!(!inside(&t, from + away * 11.0), "past it");
         assert!(!inside(&t, from + away * 1.0), "between the light and the cube");
+    }
+
+    /// What the renderer keeps of a model's meshes' volumes is let go of
+    /// at a frame's beginning when the model is gone, or when none of its
+    /// meshes has cast for [`STALE_AFTER`] (High turned to Fast); a model
+    /// cast lately keeps its own, and a volume made apart for one let go
+    /// of meanwhile is dropped as it comes.
+    #[test]
+    fn volumes_are_let_go_of_with_their_model_or_when_not_cast() {
+        let mut v = VolumeMeshes::new(Default::default(), Default::default());
+        let (gone, cast, idle) = (Arc::new(()), Arc::new(()), Arc::new(()));
+        for (id, life) in [(1, &gone), (2, &cast), (3, &idle)] {
+            v.models.insert(id, (Arc::downgrade(life), 0));
+            let hint = AtomicU32::default();
+            v.kept.insert(key_of(id, 0, false), Kept::Made(None), &hint);
+            v.kept.insert(key_of(id, 1, true), Kept::Asked, &hint);
+        }
+        drop(gone);
+        v.begin(10);
+        assert!(!v.models.contains_key(&1) && !v.kept.keys().any(|k| model_of(k) == 1));
+        assert_eq!(v.kept.len(), 4);
+        v.models.get_mut(&2).unwrap().1 = 20;
+        v.begin(STALE_AFTER + 5);
+        assert_eq!(v.models.keys().copied().collect::<Vec<_>>(), [2], "the idle one let go of");
+        assert!(v.kept.keys().all(|k| model_of(k) == 2) && v.kept.len() == 2);
+        drop(idle);
+        drop(cast);
+        v.begin(STALE_AFTER + 6);
+        assert!(v.models.is_empty() && v.kept.len() == 0);
+        // (The places let go of are taken again; a mesh that remembers one
+        // taken by another finds its own by its key.)
+        let (hint, other) = (AtomicU32::default(), AtomicU32::default());
+        v.kept.insert(key_of(7, 0, false), Kept::Asked, &hint);
+        v.kept.insert(key_of(8, 0, false), Kept::Made(None), &other);
+        assert_eq!(v.kept.places.len(), 6, "free places taken");
+        other.store(hint.load(Ordering::Relaxed), Ordering::Relaxed);
+        assert!(matches!(v.kept.get(key_of(8, 0, false), &other), Some(Kept::Made(None))));
+        assert!(matches!(v.kept.get(key_of(7, 0, false), &hint), Some(Kept::Asked)));
+        assert!(v.kept.get(key_of(9, 0, false), &hint).is_none());
     }
 
     /// Faces naming vertices the mesh hasn't, or of no area, are left out

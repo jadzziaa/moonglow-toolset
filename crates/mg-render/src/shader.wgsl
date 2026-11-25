@@ -48,6 +48,8 @@ struct Draw {
     // A rippling texture (the game's procedural water): x = how far its
     // picture is pushed about (a part of its width), y = how fast; 0: still.
     // z = 1 for water (`bumpmaptexture shinywater`): waves cross it.
+    // w = 1: multiplied by the shadows' mask (a see-through mesh's soft
+    // part that receives the shadows, drawn after they are laid).
     water: vec4<f32>,
     // A known custom shader's doings (the `vertexalpha` pair): x = which
     // (1 vertex colors, 2 an alpha mask on the second coordinates, 4 a
@@ -77,6 +79,9 @@ const SOLID_ALPHA: f32 = 0.95;
 // instance's values are those `order` names for its number.
 @group(0) @binding(3) var<storage, read> draws: array<Draw>;
 @group(0) @binding(4) var<storage, read> order: array<u32>;
+// The shadows laid so far: what the picture was multiplied by (white
+// where none are).
+@group(0) @binding(5) var shadow_mask: texture_2d<f32>;
 var<private> this_draw: u32;
 @group(1) @binding(0) var tex0: texture_2d<f32>;
 @group(1) @binding(1) var tex_env: texture_2d<f32>;
@@ -339,6 +344,17 @@ fn displace(
 
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    var c = shade(in, front);
+    // (A soft part drawn after the shadows, darkened where they are.)
+    if (draws[this_draw].water.w > 0.5) {
+        // (Within it: white is a texel alone, where none is laid.)
+        let at = min(vec2<u32>(in.clip.xy), textureDimensions(shadow_mask) - vec2<u32>(1u));
+        c = vec4<f32>(c.rgb * textureLoad(shadow_mask, at, 0).r, c.a);
+    }
+    return c;
+}
+
+fn shade(in: VertexOut, front: bool) -> vec4<f32> {
     this_draw = in.draw;
     // Derivatives first, while every fragment of the quad is running.
     let dp1 = dpdx(in.pos_view);

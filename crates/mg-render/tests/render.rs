@@ -5589,6 +5589,143 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
     }
 }
 
+/// Grass and a see-through receiver (a tile's leaves, its decals) are
+/// darkened by the sun's shadows as the client darkens them: their solid
+/// part, drawn before the shadows are laid, and their soft part, drawn
+/// after them and darkened by their mask, alike by the opacity. Under the
+/// plate of [`shadows_darken_what_receives_them_by_the_opacity`] lie a
+/// black ground that receives, a strip of solid texels (alpha 250) and a
+/// strip of soft ones (alpha 128), each reaching from the shadow into the
+/// sun (the plate south of the middle, so that no mirror of the picture
+/// keeps them in the shadow); for grass and for a receiver, Fast and High, Moonglow's shader
+/// and the game's programs (authored: they write the texture's alpha).
+/// Before, the strips were as bright in the shadow as in the sun.
+#[test]
+fn grass_and_see_through_receivers_are_darkened_in_the_shadow() {
+    let Some(gpu) = gpu() else { return };
+    let dir = mg_testkit::output_dir("render");
+    let mut assets = TestAssets::default();
+    let solid = |assets: &mut TestAssets, name: &str, rgba: [u8; 4], alpha: bool| {
+        let t = mg_image::Rgba { width: 4, height: 4, data: rgba.repeat(16) }.into_texture(alpha);
+        assets.textures.insert(name.into(), t);
+    };
+    solid(&mut assets, "black", [0, 0, 0, 255], false);
+    solid(&mut assets, "firm", [200, 200, 200, 250], true);
+    solid(&mut assets, "soft", [200, 200, 200, 128], true);
+    // (The stock pairs, writing the texture's alpha: the grass's and a
+    // mesh's.)
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+varying vec2 vUv;
+void main ()
+{
+    vUv = vTcIn;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+varying vec2 vUv;
+void main ()
+{
+    gl_FragColor = texture2D(texUnit0, vUv);
+}
+"#;
+    for (v, f) in [("vslit", "fslit"), ("vsgrass", "fsgrass")] {
+        assets.shaders.insert(v.into(), vs.into());
+        assets.shaders.insert(f.into(), fs.into());
+    }
+    let model = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let (ground, firm, soft) = (model("black"), model("firm"), model("soft"));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    // A strip 8 m by 1 m along x, 5 cm over the ground, its middle at `y`.
+    let strip = |y: f32| {
+        Mat4::from_translation(Vec3::new(0.0, y, 0.05)) * Mat4::from_scale(Vec3::new(4.0, 0.5, 1.0))
+    };
+    let scene = |grass: bool, shadows: Option<f32>| {
+        let receiver = |model: &Arc<GpuModel>, y: f32| Instance {
+            grass,
+            receives_shadows: !grass,
+            ..Instance::new(model.clone(), strip(y))
+        };
+        Scene {
+            instances: vec![
+                Instance {
+                    receives_shadows: true,
+                    ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+                },
+                receiver(&firm, -1.9),
+                receiver(&soft, -0.6),
+                Instance::new(
+                    plate.clone(),
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::new(1.25, 1.25, 1.0),
+                        glam::Quat::IDENTITY,
+                        Vec3::new(0.0, -1.25, 1.0),
+                    ),
+                ),
+            ],
+            area: AreaLight { ambient: Vec3::splat(1.0), diffuse: Vec3::ZERO, direction: Vec3::Z },
+            shadows: shadows.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+            ..Default::default()
+        }
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // (About 6.3 pixels a meter: the plate's shadow from the middle row
+    // down 16 rows, 8 columns each way; the strips 4 and 12 rows below the
+    // middle, both in it, the rows that mirror them in the sun: a mask
+    // read with its rows from the bottom would leave them lit.)
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let (firm_px, soft_px) = (44, 36);
+    let (shade_x, sun_x) = (32, 52);
+    for grass in [false, true] {
+        for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
+            for shaders in [false, true] {
+                let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+                (r.game_shaders, r.shadow_volumes) = (shaders, volumes);
+                let bare = r.render_image(&gpu, &assets, &scene(grass, None), &camera, 64, 64);
+                let half = r.render_image(&gpu, &assets, &scene(grass, Some(0.5)), &camera, 64, 64);
+                assert_eq!(r.game_shader_failures(), &[]);
+                assert_eq!(r.drawn.game > 0, shaders, "{:?}", r.drawn);
+                let context = format!(
+                    "grass {grass}, {samples} samples, volumes {volumes}, shaders {shaders}"
+                );
+                let name = format!("see_through_shadows_{grass}_{samples}_{volumes}_{shaders}.png");
+                save(&half, &dir.join(name));
+                for (what, y) in [("solid", firm_px), ("soft", soft_px)] {
+                    let lit = grey(bare.pixel(shade_x, y));
+                    let (shaded, sunny) =
+                        (grey(half.pixel(shade_x, y)), grey(half.pixel(sun_x, y)));
+                    assert!(lit > 40.0, "{context}: the {what} strip is drawn: {lit}");
+                    assert!((sunny - grey(bare.pixel(sun_x, y))).abs() <= 1.0, "{context}: {what}");
+                    assert!(
+                        (shaded - lit * 0.5).abs() <= 3.0,
+                        "{context}: the {what} strip in the shadow: {shaded} of {lit} ({sunny} in the sun)"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// A scene of many instances (its sun's shadows planned on a thread of
 /// their own, beside its draws): a ground of 8 by 8 tiles under the plate
 /// of [`shadows_darken_what_receives_them_by_the_opacity`] is darkened under
@@ -6127,7 +6264,7 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         save(&cast, &mg_testkit::output_dir("render").join(name));
         // From 4 m up and 3 m west, the plate (a metre across, 1 m up)
         // throws its shadow from 0.33 m to 1.67 m east of its middle; at
-        // 6.3 pixels a metre, the pixel 3 east of the middle is in it, the
+        // 6.3 pixels a meter, the pixel 3 east of the middle is in it, the
         // one 3 west lit.
         let (east, west) = ((35, 32), (29, 32));
         let lit = grey(off.pixel(east.0, east.1));
@@ -6675,6 +6812,117 @@ fn high_shadows_darken_exactly_the_volume_s_footprint() {
             wrong.len(),
             &wrong[..wrong.len().min(12)]
         );
+    }
+}
+
+/// High's stencil volumes made apart (`Renderer::volumes_apart`, as the
+/// area view has them): a frame never makes a mesh's volume itself. While
+/// the making is held, every frame draws the cube without its shadow, its
+/// caster counted as waiting, and no volume is kept; let go, the frames
+/// after show the shadow as a frame that makes them draws it, to the bit.
+/// The renderer keeps the volumes (not the meshes): they are let go of
+/// with their model, whichever way they were made.
+#[test]
+fn high_shadows_volumes_are_made_apart_and_let_go_with_their_model() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let cube = Arc::new(GpuModel::new(&gpu, Arc::new(cube())));
+    let scene = move |opacity: Option<f32>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(8.0)))
+            },
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(cube.clone(), Mat4::from_translation(Vec3::new(-0.5, -0.5, 1.0)))
+            },
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::new(0.8, 0.6, 1.0).normalize(),
+        },
+        shadows: opacity.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (96u32, 96u32);
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let samples = gpu.samples(4);
+    let bare = Renderer::new(&gpu, format, samples).render_image(
+        &gpu,
+        &NoAssets,
+        &scene(None),
+        &camera,
+        w,
+        h,
+    );
+    let shadowed = scene(Some(0.5));
+    // In the frame (a picture drawn once): the volumes made by it.
+    let mut once = Renderer::new(&gpu, format, samples);
+    once.shadow_volumes = true;
+    let made_in_frame = once.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert_eq!(once.drawn.volumes_pending, 0);
+    let kept = once.shadow_volumes_kept();
+    assert!(kept >= 1, "the cube's volume kept: {kept}");
+    assert_ne!(made_in_frame.data, bare.data, "the cube's shadow drawn");
+    // Apart, held: no frame makes one.
+    let mut r = Renderer::new(&gpu, format, samples);
+    r.shadow_volumes = true;
+    r.volumes_apart = true;
+    r.hold_volumes(true);
+    for frame in 0..3 {
+        let picture = r.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        assert!(r.drawn.volumes_pending >= 1, "frame {frame}: {:?}", r.drawn);
+        assert_eq!(r.shadow_volumes_kept(), 0, "frame {frame}: none made by the frame");
+        assert_eq!(picture.data, bare.data, "frame {frame}: drawn without the shadow");
+    }
+    // Asked apart and still held, then needed by a frame drawn once (apart
+    // off): that frame makes them itself, and the late ones are dropped.
+    let mut late = Renderer::new(&gpu, format, samples);
+    late.shadow_volumes = true;
+    late.volumes_apart = true;
+    late.hold_volumes(true);
+    late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert!(late.drawn.volumes_pending >= 1);
+    late.volumes_apart = false;
+    let picture = late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+    assert_eq!(late.drawn.volumes_pending, 0);
+    assert_eq!(picture.data, made_in_frame.data, "made in the frame though asked apart");
+    late.hold_volumes(false);
+    late.volumes_apart = true;
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    for _ in 0..3 {
+        let picture = late.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        assert_eq!((late.drawn.volumes_pending, late.shadow_volumes_kept()), (0, kept));
+        assert_eq!(picture.data, made_in_frame.data, "the late ones dropped");
+    }
+    drop(late);
+    // Let go: shown in a frame after they are made.
+    r.hold_volumes(false);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let picture = loop {
+        let picture = r.render_image(&gpu, &NoAssets, &shadowed, &camera, w, h);
+        if r.drawn.volumes_pending == 0 {
+            break picture;
+        }
+        assert!(std::time::Instant::now() < deadline, "the volumes never came");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(r.shadow_volumes_kept(), kept);
+    assert_eq!(picture.data, made_in_frame.data, "as a frame that makes them draws it");
+    // The models gone: their volumes let go of at the next frame.
+    drop((shadowed, scene));
+    for renderer in [&mut r, &mut once] {
+        renderer.render_image(&gpu, &NoAssets, &Scene::default(), &camera, w, h);
+        assert_eq!(renderer.shadow_volumes_kept(), 0, "let go with their model");
     }
 }
 

@@ -452,8 +452,11 @@ fn said_memory(h: &App<'_>, what: &str) {
         );
     }
     if how == "labels" {
-        for (label, mib, n) in by.iter().take(14) {
-            println!("      {mib:8.1} MiB  {label} ({n})");
+        // (The 14 largest, and the stencil volumes' whatever their size.)
+        for (i, (label, mib, n)) in by.iter().enumerate() {
+            if i < 14 || label.starts_with("shadow volume") {
+                println!("      {mib:8.1} MiB  {label} ({n})");
+            }
         }
     }
 }
@@ -1113,6 +1116,9 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     let mut opening = Vec::new();
     let begun = Instant::now();
     let (mut shown, mut whole) = (None, None);
+    // (The frames drawn while casters waited for their stencil volumes,
+    // made apart with High: from the first such frame to the last.)
+    let (mut volumes_from, mut volumes_until, mut volume_frames) = (None, None, 0);
     while begun.elapsed() < Duration::from_secs(120) {
         let t = Instant::now();
         h.run_steps(1);
@@ -1123,7 +1129,13 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         if shown.is_none() && view.is_some_and(|v| v.model.is_some()) {
             shown = Some(begun.elapsed());
         }
-        let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+        let drawn = app.viewport.as_ref().map(|v| v.renderer.drawn).unwrap_or_default();
+        let pending = drawn.textures_pending + drawn.volumes_pending;
+        if drawn.volumes_pending > 0 {
+            volumes_from.get_or_insert(begun.elapsed());
+            volumes_until = Some(begun.elapsed());
+            volume_frames += 1;
+        }
         if shown.is_some() && view.is_some_and(|v| v.pictures > 0) && pending == 0 {
             whole = Some(begun.elapsed());
             break;
@@ -1153,6 +1165,13 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             shown.map_or(f64::NAN, ms),
             whole.map_or(f64::NAN, ms),
         );
+        if let (Some(from), Some(until)) = (volumes_from, volumes_until) {
+            println!(
+                "      casters waited for their stencil volumes in {volume_frames} frames, \
+                 {:.0} ms from the first to the last",
+                ms(until - from)
+            );
+        }
         if r.detail {
             let each: Vec<String> = opening.iter().map(|d| format!("{:.1}", ms(*d))).collect();
             println!("      frames: {}", each.join(" "));
@@ -3200,6 +3219,23 @@ fn sound_ranges_frames_at_144() {
         h.state_mut().settings.sound_ranges = on;
         let label = if on { " (Sound Ranges on)" } else { " (Sound Ranges off)" };
         area_views(&mut h, &mut r, area, tiles, label);
+    }
+    // What the GPU holds once the area is closed (`FRAME_MEMORY`): with
+    // `FRAME_SHADOW_QUALITY=high`, the stencil volumes' target and the
+    // meshes' volumes let go of (the review's R5), and the framebuffer's
+    // copies (R10).
+    if std::env::var_os("FRAME_MEMORY").is_some() {
+        let tab = Tab::Area(area);
+        said_memory(&h, &format!("area {area}, open"));
+        close(&mut h, &tab);
+        // (Past the time a view not drawn lets go of its targets, and a
+        // closed one of its scene: three seconds of the harness's clock.)
+        h.run_steps(3 * FPS as usize);
+        let held = h.state().area_views.get(&area).is_some_and(|v| v.holds_scene());
+        said_memory(&h, &format!("area {area}, closed{}", if held { "" } else { ", let go of" }));
+        if let Some(vp) = h.state().viewport.as_ref() {
+            println!("      shadow volumes kept: {}", vp.renderer.shadow_volumes_kept());
+        }
     }
     r.end();
 }

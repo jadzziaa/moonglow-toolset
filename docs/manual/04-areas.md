@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
 ---
 
 # Areas
@@ -156,7 +156,11 @@ then the shadows, the fog and how the scene is drawn.
     falling away from the sun (to the south-west, as the game's sun stands
     for every area), cast by the tiles and the **static** placeables (a
     model's meshes flagged `shadow`, including shadow-only meshes that
-    aren't drawn).
+    aren't drawn). They fall on the tiles and the static placeables, the
+    grass and their see-through leaves and road decals included, as in
+    the game. Water takes none of its own, as in the game, where a
+    shallow pool's floor shows them through the water: in Moonglow the
+    water hides its floor.
   - **Creature shadows**: creatures, dynamic placeables and doors cast the
     sun's and moon's shadows too, posed as they stand, as the game's
     Creature Shadow Detail at Best has them (its default; at Fast or Off,

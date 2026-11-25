@@ -970,6 +970,39 @@ fn fb_layout_entries() -> [wgpu::BindGroupLayoutEntry; 4] {
     ]
 }
 
+/// Group 1's binding of the shadows' mask ([`crate::shadow::Mask`]), after
+/// the framebuffer's copies: read by a see-through mesh's soft part
+/// ([`GamePass::Fringe`]) drawn after the shadows are laid.
+const MASK_BINDING: u32 = FB_BINDING + 4;
+
+/// The shadows' mask's entry of group 1's layout.
+fn mask_layout_entry() -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding: MASK_BINDING,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+/// The shadows' mask this frame's soft parts read
+/// ([`GameShaders::set_mask`]): its number, its view, and the view's
+/// copies it is kept for (`None`: the draws without copies).
+#[derive(Debug, Clone)]
+pub(crate) struct MaskView {
+    pub(crate) id: u64,
+    pub(crate) view: wgpu::TextureView,
+    pub(crate) of: Option<u64>,
+}
+
+/// What a pipeline's group 1 made for the frame binds: the copies' number
+/// and the mask's (0: white), and the view the mask is kept for.
+type FrameKey = (u64, u64, Option<u64>);
+
 /// The framebuffer's copies a frame's draws read
 /// ([`GameShaders::set_framebuffer`]): the colour, the depth, and a number
 /// that tells one pair from another.
@@ -1252,6 +1285,11 @@ pub(crate) struct GamePipeline {
     /// A draw of it asks for the copies to be made: it reads them, and it
     /// is no particle (a particle asks by its softness).
     pub(crate) wants_fb: bool,
+    /// Its fragment program's color is multiplied by the shadows' mask
+    /// ([`MASK_BINDING`]; white in its own group 1, which a draw that
+    /// receives no shadows binds): a see-through mesh's soft part that
+    /// reads no copies.
+    pub(crate) shaded: bool,
 }
 
 /// A map of small keys, hashed quickly (a frame looks its draws' values up
@@ -1355,6 +1393,9 @@ pub(crate) struct GameDraw<'a> {
     /// The sun's shadows fall on it ([`crate::Instance::receives_shadows`]):
     /// among the solid draws, first, before the shadows are laid.
     pub(crate) receives: bool,
+    /// Drawn after the shadows and darkened by their mask, where its
+    /// pipeline is [`GamePipeline::shaded`] (a receiver's soft part).
+    pub(crate) shaded: bool,
 }
 
 impl GameDraw<'_> {
@@ -1392,7 +1433,10 @@ impl GameDraw<'_> {
     /// and material (and the renderer's mesh); `None` for a skinned draw,
     /// whose bones are its own.
     pub(crate) fn batch_key(&self) -> Option<(u32, u32)> {
-        (self.bones == [None, None]).then_some((self.pipeline.id, self.material))
+        // (A shaded draw binds another group 1: apart from the others, by
+        // the material's top bit, which no material's number reaches.)
+        let material = self.material | u32::from(self.shaded && self.pipeline.shaded) << 31;
+        (self.bones == [None, None]).then_some((self.pipeline.id, material))
     }
 
     /// Whether `next` can be drawn as the next instance of this draw.
@@ -1401,6 +1445,7 @@ impl GameDraw<'_> {
             && self.material == next.material
             && matches!((self.geometry, next.geometry), (Geometry::Mesh(a), Geometry::Mesh(b)) if std::ptr::eq(a, b))
             && self.dynamic == next.dynamic
+            && self.shaded == next.shaded
             && self.bones == [None, None]
             && next.bones == [None, None]
     }
@@ -1422,6 +1467,9 @@ pub(crate) struct Bound3 {
     pub(crate) materials: usize,
     /// The group of the draws' values is bound.
     storage: bool,
+    /// The bound pipeline's group 1 is the frame's with the shadows' mask
+    /// (a shaded draw's), not its own.
+    shaded: bool,
 }
 
 impl Bound3 {
@@ -1605,10 +1653,13 @@ pub(crate) struct GameShaders {
     draw_groups: Fast<u32, (u64, u64, [wgpu::BindGroup; 2])>,
     /// The group of the draws' values, the same for every pipeline.
     storage_group: Option<wgpu::BindGroup>,
-    /// A pipeline's group 1 with the framebuffer's copies, and which.
-    fb_groups: Fast<u32, (u64, wgpu::BindGroup)>,
+    /// A pipeline's group 1 with the framebuffer's copies or the shadows'
+    /// mask, and which.
+    fb_groups: Fast<u32, (FrameKey, wgpu::BindGroup)>,
     /// The copies this frame's draws read, if any.
     fb: Option<FbViews>,
+    /// The shadows' mask this frame's soft parts read, if any.
+    mask: Option<MaskView>,
     /// Nearest, clamped: the depth copy's sampler.
     nearest: wgpu::Sampler,
     align: u32,
@@ -1754,6 +1805,7 @@ struct Built {
     offsets: Vec<String>,
     reads_fb: bool,
     wants_fb: bool,
+    shaded: bool,
 }
 
 /// What the worker made of a job.
@@ -1947,6 +1999,12 @@ impl Worker {
             }
             fs.reflection.textures.retain(|t| !FB_NAMES.contains(&t.name.as_str()));
         }
+        // (A see-through mesh's soft part, drawn after the shadows, takes
+        // them from their mask: one that reads the copies doesn't.)
+        let shaded = key.pass == GamePass::Fringe && !reads_fb;
+        if shaded {
+            fs.darken_by_mask(BONES_GROUP, MASK_BINDING).map_err(|e| at(&key.fs, e.to_string()))?;
+        }
         for (p, binding, name) in [(&mut vs, 0, &key.vs), (&mut fs, 1, &key.fs)] {
             if p.reflection.uniforms.iter().any(|b| b.part == Part::Bones) {
                 p.place_block(Part::Bones, BONES_GROUP, binding)
@@ -2013,6 +2071,9 @@ impl Worker {
         // for every pipeline.)
         if reads_fb {
             bones.extend(fb_layout_entries());
+        }
+        if shaded {
+            bones.push(mask_layout_entry());
         }
         let group_layout = |label, entries: &[wgpu::BindGroupLayoutEntry]| {
             w.gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2183,6 +2244,7 @@ impl Worker {
             offsets,
             reads_fb,
             wants_fb,
+            shaded,
         })
     }
 }
@@ -2269,6 +2331,7 @@ impl GameShaders {
             storage_group: None,
             fb_groups: Fast::default(),
             fb: None,
+            mask: None,
             nearest: gpu.device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("framebuffer depth"),
                 ..Default::default()
@@ -2539,6 +2602,7 @@ impl GameShaders {
                     offsets: b.offsets,
                     reads_fb: b.reads_fb,
                     wants_fb: b.wants_fb,
+                    shaded: b.shaded,
                 }))
             }
             Err(why) => {
@@ -2643,6 +2707,7 @@ impl GameShaders {
             instance: 0,
             late: false,
             receives: false,
+            shaded: false,
         }
     }
 
@@ -2761,8 +2826,9 @@ impl GameShaders {
             && self.groups.contains_key(&(draw.pipeline.id, draw.material))
             && (!draw.pipeline.stages[0].textures.is_empty()
                 || self.stage0_groups.contains_key(&draw.pipeline.id))
-            && (!draw.pipeline.reads_fb
-                || self.fb_group(draw.pipeline.id).is_some() == self.fb.is_some())
+            && self.frame_key(&draw.pipeline).is_none_or(|k| {
+                self.fb_groups.get(&draw.pipeline.id).is_some_and(|(of, _)| *of == k)
+            })
     }
 
     /// The framebuffer's copies this frame's draws read (`None`: white).
@@ -2770,36 +2836,68 @@ impl GameShaders {
         self.fb = fb;
     }
 
+    /// The shadows' mask this frame's soft parts read (`None`: white).
+    pub(crate) fn set_mask(&mut self, mask: Option<MaskView>) {
+        self.mask = mask;
+    }
+
+    /// Lets go of the mask numbered `id` (made again at another size):
+    /// the pipelines' groups made with it.
+    pub(crate) fn forget_mask(&mut self, id: u64) {
+        if self.mask.as_ref().is_some_and(|m| m.id == id) {
+            self.mask = None;
+        }
+        self.fb_groups.retain(|_, ((_, mask, _), _)| *mask != id);
+    }
+
     /// Lets go of the copies numbered `id` (their target is let go of):
-    /// this frame's, and the pipelines' groups made with them, which held
-    /// them on the GPU.
+    /// this frame's, and the pipelines' groups made with them or with the
+    /// shadows' mask of their view, which held them on the GPU.
     pub(crate) fn forget_framebuffer(&mut self, id: u64) {
         if self.fb.as_ref().is_some_and(|fb| fb.id == id) {
             self.fb = None;
         }
-        self.fb_groups.retain(|_, (of, _)| *of != id);
+        if self.mask.as_ref().is_some_and(|m| m.of == Some(id)) {
+            self.mask = None;
+        }
+        self.fb_groups.retain(|_, ((fb, _, of), _)| *fb != id && *of != Some(id));
     }
 
-    /// Whether anything holds the copies numbered `id`.
+    /// Whether anything holds the copies numbered `id`, or their view's
+    /// mask.
     pub(crate) fn holds_framebuffer(&self, id: u64) -> bool {
         self.fb.as_ref().is_some_and(|fb| fb.id == id)
-            || self.fb_groups.values().any(|(of, _)| *of == id)
+            || self.mask.as_ref().is_some_and(|m| m.of == Some(id))
+            || self.fb_groups.values().any(|((fb, _, of), _)| *fb == id || *of == Some(id))
     }
 
-    /// A pipeline's group 1 with this frame's copies, where it is made.
-    fn fb_group(&self, id: u32) -> Option<&wgpu::BindGroup> {
-        let fb = self.fb.as_ref()?;
-        self.fb_groups.get(&id).filter(|(of, _)| *of == fb.id).map(|(_, g)| g)
+    /// What a pipeline's group 1 made for this frame binds, where it
+    /// binds anything of the frame's: the copies it reads, the mask it is
+    /// darkened by (`None`: its own group 1, white for both, serves).
+    fn frame_key(&self, p: &GamePipeline) -> Option<FrameKey> {
+        let fb = self.fb.as_ref().filter(|_| p.reads_fb).map(|fb| fb.id);
+        let mask = self.mask.as_ref().filter(|_| p.shaded);
+        (fb.is_some() || mask.is_some())
+            .then(|| (fb.unwrap_or(0), mask.map_or(0, |m| m.id), mask.and_then(|m| m.of)))
+    }
+
+    /// A pipeline's group 1 with this frame's copies and mask, where it is
+    /// made.
+    fn fb_group(&self, p: &GamePipeline) -> Option<&wgpu::BindGroup> {
+        let key = self.frame_key(p)?;
+        self.fb_groups.get(&p.id).filter(|(of, _)| *of == key).map(|(_, g)| g)
     }
 
     /// The group 1 a draw binds: its pipeline's own (the bones; white for
-    /// the copies), or with this frame's framebuffer copies.
+    /// the copies and the mask), or with this frame's framebuffer copies
+    /// and, for a draw the shadows are laid on, their mask.
     fn bones_group<'a>(
         &'a self,
         d: &GameDraw<'_>,
         own: &'a [wgpu::BindGroup; 2],
     ) -> &'a wgpu::BindGroup {
-        let fb = if d.pipeline.reads_fb { self.fb_group(d.pipeline.id) } else { None };
+        let frame = d.pipeline.reads_fb || d.pipeline.shaded && d.shaded;
+        let fb = if frame { self.fb_group(&d.pipeline) } else { None };
         fb.unwrap_or(&own[1])
     }
 
@@ -2828,11 +2926,13 @@ impl GameShaders {
                 },
             ]
         };
-        let need_fb = p.reads_fb
-            && self
-                .fb
-                .as_ref()
-                .is_some_and(|fb| self.fb_groups.get(&p.id).is_none_or(|(of, _)| *of != fb.id));
+        let mask_entry = |view| wgpu::BindGroupEntry {
+            binding: MASK_BINDING,
+            resource: wgpu::BindingResource::TextureView(view),
+        };
+        let frame_key = self.frame_key(p);
+        let need_fb =
+            frame_key.is_some_and(|k| self.fb_groups.get(&p.id).is_none_or(|(of, _)| *of != k));
         let (prev_sg, prev_bg) =
             self.draw_groups.get(&p.id).map_or((None, None), |(sg, bg, _)| (Some(*sg), Some(*bg)));
         let need_storage = prev_sg != Some(self.storage_gen);
@@ -2852,15 +2952,23 @@ impl GameShaders {
                     })
                     .collect()
             };
-            if need_fb && let Some(fb) = &self.fb {
+            if need_fb && let Some(key) = frame_key {
                 let mut entries = make_bones();
-                entries.extend(fb_entries(&fb.color, &fb.depth));
+                if p.reads_fb {
+                    entries.extend(match &self.fb {
+                        Some(fb) => fb_entries(&fb.color, &fb.depth),
+                        None => fb_entries(views.white, views.white),
+                    });
+                }
+                if p.shaded {
+                    entries.push(mask_entry(self.mask.as_ref().map_or(views.white, |m| &m.view)));
+                }
                 let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("game bones, framebuffer"),
                     layout: &p.layouts[3],
                     entries: &entries,
                 });
-                self.fb_groups.insert(p.id, (fb.id, group));
+                self.fb_groups.insert(p.id, (key, group));
             }
             if need_storage || need_bones {
                 let storage = if need_storage {
@@ -2895,6 +3003,9 @@ impl GameShaders {
                     let mut entries = make_bones();
                     if p.reads_fb {
                         entries.extend(fb_entries(views.white, views.white));
+                    }
+                    if p.shaded {
+                        entries.push(mask_entry(views.white));
                     }
                     gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("game bones"),
@@ -2974,7 +3085,7 @@ impl GameShaders {
         particles: &wgpu::Buffer,
         bound: &mut Bound3,
     ) -> usize {
-        let Bound3 { pipeline, material, mesh, pipelines, materials, storage } = bound;
+        let Bound3 { pipeline, material, mesh, pipelines, materials, storage, shaded } = bound;
         let mut calls = 0;
         let mut i = 0;
         #[allow(clippy::type_complexity)]
@@ -3041,7 +3152,13 @@ impl GameShaders {
                 }
                 if !skinned {
                     pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
+                    *shaded = d.shaded;
                 }
+            } else if !skinned && d.pipeline.shaded && *shaded != d.shaded {
+                // (A draw the shadows are laid on after one they aren't, or
+                // the other way: the mask, or white.)
+                pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
+                *shaded = d.shaded;
             }
             if skinned {
                 // (Its bones, or the zeros of a draw without.)

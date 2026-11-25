@@ -138,15 +138,17 @@ pub struct GpuMesh {
     /// Its place in its chunk, given back when the last mesh drawing from
     /// it is dropped.
     slot: Arc<crate::pool::Slot>,
-    /// Its shadow volume ([`crate::volume`]), made the first time it casts
-    /// one with the shadows' High quality.
-    pub(crate) volume: crate::volume::VolumeSlot,
     /// The first of its model's meshes (in the model's order) naming the
     /// same textures (case not counted), itself if none before does: in
     /// static geometry (a tile, a static placeable) the client draws them
     /// as one bucket, with that mesh's alpha and `NO_DISCARD`
     /// (`docs/findings.md`, "Static geometry is drawn in buckets").
     pub(crate) bucket: usize,
+    /// Where the renderer keeps its shadow volumes (from its faces' fronts,
+    /// and from both sides: [`crate::volume`]), found at once: a hint the
+    /// renderer checks (the volumes are the renderer's, let go of apart
+    /// from the mesh).
+    pub(crate) volume_at: [std::sync::atomic::AtomicU32; 2],
     /// Cached rest upload + normal smoothing topology populated on first animation.
     pub(crate) anim_cache: std::sync::OnceLock<crate::anim::AnimMeshCache>,
 }
@@ -191,6 +193,10 @@ pub struct GpuModel {
     pub shadow_only: Vec<GpuMesh>,
     /// The rest pose (model-space node transforms).
     pub rest: Vec<Mat4>,
+    /// Held while the model is: what the renderer keeps of its meshes
+    /// (their shadow volumes, [`crate::volume`]) is let go of when it
+    /// isn't.
+    pub(crate) life: Arc<()>,
 }
 
 /// The next model's [`GpuModel::id`].
@@ -326,15 +332,15 @@ impl GpuModel {
                 casts: m.shadow,
                 skin,
                 slot: Arc::new(slot),
-                volume: Default::default(),
                 bucket: 0,
+                volume_at: Default::default(),
                 anim_cache: std::sync::OnceLock::new(),
             };
             if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
         buckets(&mut meshes);
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        GpuModel { id, model, meshes, shadow_only, rest }
+        GpuModel { id, model, meshes, shadow_only, rest, life: Arc::default() }
     }
 
     /// This model drawing only the first `count(mesh)` of each mesh's
@@ -359,15 +365,15 @@ impl GpuModel {
                 tangents_made: m.tangents_made,
                 casts: m.casts,
                 slot: m.slot.clone(),
-                volume: Default::default(),
                 bucket: m.bucket,
+                volume_at: Default::default(),
                 anim_cache: std::sync::OnceLock::new(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // (Grass casts no shadow.)
         let (model, rest) = (self.model.clone(), self.rest.clone());
-        GpuModel { id, model, meshes, shadow_only: Vec::new(), rest }
+        GpuModel { id, model, meshes, shadow_only: Vec::new(), rest, life: Arc::default() }
     }
 }
 

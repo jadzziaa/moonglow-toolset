@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T11:43:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -20,6 +20,9 @@ sources:
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
     title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+  - id: volumes-apart
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
   - id: area084-again
     resource: crates/mg-ui/tests/frame_perf.rs
     title: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
@@ -567,6 +570,63 @@ the symbols of a script of 7,466 declarations read again: its outline
 Taking back a change of the whole text lays it out again whole, as
 opening it does.
 
+## High's first frame in an area: the volumes made apart (25 November 2026)
+
+Shadows quality High drew an area's first frame with every casting
+mesh's stencil volume made in it ([the deferred list](../deferred.md)
+had area084's longest opening frame at 48 to 51 ms with High on 30
+October[^volumes-apart]). Read again on 25 November with
+`sound_ranges_frames_at_144` (area084, Tyrants of the Moonsea: 4,764
+casters of 846 meshes; `FRAME_VIEW=none-at-all FRAME_DETAIL=1`, release,
+`--test-threads=1`, the first opening of each run, two runs each):
+
+| Longest frame of area084's opening | Fast | High |
+|---|---|---|
+| Before (`e0cd765d`) | 22.1, 19.2 ms | 34.6, 34.9 ms |
+| After | 19.0, 21.2 ms | 21.9, 21.2 ms |
+
+A timer around the volumes' part of the frame, put in and taken out:
+before, the first High frame spent 19.7 ms making the volumes and 1.6
+ms on the stencil target and the volumes' pipelines (made once a
+session, left in the frame). The volumes are now made on two threads of
+their own (`mg_render::volume::VolumeMeshes`, the area view's
+`Renderer::volumes_apart`); a caster casts nothing until its volume is
+made, and the frame never waits. In both runs the casters waited for
+6 of the window's frames, 29 ms from the first to the last, before
+every shadow showed. What is left of the opening's longest frame (13
+to 15 ms where the area is first drawn, 19 to 22 ms twice after) is
+there with Fast too: it is not the shadows'.
+
+The frames after the opening: the volumes are the renderer's now, not
+each mesh's, and are looked up for each caster of each frame. Looked up
+in a map by their key, the volumes' part of a steady High frame took
+0.14 to 0.22 ms against 0.08 to 0.09 before. The map is now a slab whose
+place each mesh remembers (checked against the key), and the casters
+point at their places, with no reference count for each. That made it
+0.08 to 0.09 ms again (medians of about 75 frames, timed in turn with
+the build before).
+
+The pictures are unchanged. `FRAME_SHOTS=1 FRAME_SHADOW_QUALITY=high`
+shots of area084's 14 views (Sound Ranges off) from the build with the
+volumes made in the frame (and the opening timed as before) matched
+those from the build before, bit for bit, all but the Log's clock. With
+the volumes made apart, where the opening goes on until no caster waits
+(6 frames longer), 13 views match and the close view's grass
+tufts move by up to 16 of 255 (172 pixels). Fast's close view is the
+same with either build. The cause of the grass's change was not taken
+further than that: it is shaped as the tufts, not as a shadow.
+
+The renderer lets go of a model's volumes with the model, or when none
+of them has been cast for 30 s of its frames (High turned to Fast). With
+`FRAME_MEMORY=labels FRAME_SHADOW_QUALITY=high`, area084 open held 11.4
+MiB of volumes (1,692 buffers) and 69.8 MiB of stencil target. Three
+seconds after its tab closed (the view lets go of its scene) both were
+gone, with no volume kept (`shadow volumes kept: 0`), and no other view
+drew. So were area084's targets and framebuffer copies (the review's
+R10): the 238.5 MiB left are the module's own first area's view
+(aquarium001, its tab still open), the one view the renderer still
+keeps something for.
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -592,4 +652,5 @@ In short:
 [^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
 [^area084-again]: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
 [^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
+[^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

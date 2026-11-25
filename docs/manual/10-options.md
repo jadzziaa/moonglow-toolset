@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
 ---
 
 # Options
@@ -158,6 +158,9 @@ again from its file.
   and stencil buffer of the view's size (about 160 MB at 3440×1440 with
   four samples a pixel). Skins (a robe's or a dragon's wings' skinned
   meshes) cast none with High, as the wiki says of the game, where Fast casts them.
+  A model's High shadow is made beside the frames the first time it
+  casts, so an area opens without waiting for its shadows: they show a
+  few frames later (about 30 ms for the largest stock area).
 - **Largest textures**: for a GPU with little memory (an integrated one,
   or a card of 2 to 4 GB). **As they are** (the default) draws every
   texture at its own size; **1024**, **512** or **256 pixels** draws a

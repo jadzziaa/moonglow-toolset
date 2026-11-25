@@ -491,9 +491,17 @@ pub struct Renderer {
     /// on; off (the default), a shadow map stands in for them (Fast:
     /// cheaper, its edges a texel of the map wide).
     pub shadow_volumes: bool,
-    /// The stencil volumes' pipelines, made at the first frame with
-    /// [`Renderer::shadow_volumes`].
+    /// The stencil volumes' pipelines and the meshes' volumes, made at the
+    /// first frame with [`Renderer::shadow_volumes`].
     volumes: Option<crate::volume::ShadowVolumes>,
+    /// The meshes' shadow volumes not made yet are made apart from the
+    /// frames, on threads of their own, a caster casting nothing until its
+    /// volume is ([`Drawn::volumes_pending`]): a large area's first frame
+    /// with High made them for 20 ms. Off (pictures drawn once, tests),
+    /// a frame makes them. Off by default.
+    pub volumes_apart: bool,
+    /// Nothing is made apart while it is on ([`Renderer::hold_volumes`]).
+    volumes_held: Arc<std::sync::atomic::AtomicBool>,
     /// Shiny water is drawn by the game's programs this frame: they are
     /// on, [`Renderer::game_water`], and the target has its copies.
     water_now: bool,
@@ -548,6 +556,9 @@ pub struct Renderer {
     draw_buffer: wgpu::Buffer,
     order_buffer: wgpu::Buffer,
     frame_group: Option<wgpu::BindGroup>,
+    /// The shadows' mask the frame group binds (0: white) and the view
+    /// it is kept for.
+    frame_mask: (u64, Option<u64>),
     batcher: Batcher,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
@@ -636,6 +647,8 @@ struct ViewState {
     sun: Option<crate::shadow::SunMap>,
     /// The stencil volumes' target, while the view's frames lay them.
     stencil: Option<crate::volume::StencilTarget>,
+    /// The shadows' mask, while the view's frames lay shadows.
+    mask: Option<crate::shadow::Mask>,
     /// The soft particles' bind group on the view's framebuffer copies
     /// (their number): one for the renderer, two views with soft particles
     /// in a frame made it again each.
@@ -715,6 +728,10 @@ pub struct Drawn {
     /// ([`Renderer::read_textures_apart`]): a frame drawn again once they
     /// are shows them.
     pub textures_pending: usize,
+    /// The casters that cast no stencil volume for theirs still being made
+    /// apart ([`Renderer::volumes_apart`]): a frame drawn again once they
+    /// are shows their shadows.
+    pub volumes_pending: usize,
     /// The sun's shadow map's casters, and the creatures casting the
     /// lights' shadows.
     pub sun_casters: usize,
@@ -1136,6 +1153,17 @@ impl Renderer {
                     },
                     count: None,
                 },
+                // (The shadows' mask: [`crate::shadow::Mask`].)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
@@ -1488,6 +1516,8 @@ impl Renderer {
             shadow_maps: None,
             shadow_volumes: false,
             volumes: None,
+            volumes_apart: false,
+            volumes_held: Default::default(),
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: Default::default(),
@@ -1517,6 +1547,7 @@ impl Renderer {
             draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
             order_buffer: buffer("draw order", 4 * 64, wgpu::BufferUsages::STORAGE),
             frame_group: None,
+            frame_mask: (0, None),
             batcher: Batcher::default(),
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
@@ -2264,7 +2295,31 @@ impl Renderer {
     /// ([`crate::watch::Observation::progress`]).
     pub fn progress(&self) -> u64 {
         let s = &self.game.stats;
-        self.textures_read() + (s.pipelines + s.failed) as u64
+        let volumes = self.volumes.as_ref().map_or(0, |v| v.meshes.taken);
+        self.textures_read() + (s.pipelines + s.failed) as u64 + volumes
+    }
+
+    /// How many meshes' shadow volumes the renderer keeps
+    /// ([`Renderer::shadow_volumes`]): let go of with their models, or
+    /// when none of a model's has been cast for half a minute.
+    pub fn shadow_volumes_kept(&self) -> usize {
+        self.volumes.as_ref().map_or(0, |v| v.meshes.count())
+    }
+
+    /// Lets go of what is kept of models no longer held (their meshes'
+    /// shadow volumes) now, not at the next frame drawn: for a view that
+    /// let go of its scene while no other view draws.
+    pub fn let_go_of_gone_models(&mut self) {
+        if let Some(v) = &mut self.volumes {
+            v.meshes.begin(self.kept.now);
+        }
+    }
+
+    /// Holds the making of shadow volumes apart ([`Renderer::volumes_apart`])
+    /// while `held`: those asked for wait (for a test).
+    #[doc(hidden)]
+    pub fn hold_volumes(&mut self, held: bool) {
+        self.volumes_held.store(held, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Takes the textures read apart since the last frame.
@@ -2407,6 +2462,9 @@ impl Renderer {
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
         self.let_go_of_stale_textures();
+        if let Some(v) = &mut self.volumes {
+            v.meshes.begin(self.kept.now);
+        }
         // (A target's copies of its own size only: the game's programs',
         // and Moonglow's soft particles'.)
         let all_copies = copies;
@@ -2560,8 +2618,9 @@ impl Renderer {
                 .then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect, for_volumes)));
             for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
                 // (Only where the frame has shadows: else the solid draws keep
-                // their order.)
-                let receives = may_shadow && inst.receives_shadows && !is_sky;
+                // their order.) Grass too, as the client darkens it; it isn't
+                // a receiver of the map's (which bounds the map by them).
+                let receives = may_shadow && (inst.receives_shadows || inst.grass) && !is_sky;
                 // (Where the instance stands from the eye: its meshes of mesh
                 // `alpha` under 1 are put in order by it, in the model's order
                 // among themselves.)
@@ -2733,6 +2792,19 @@ impl Renderer {
                         && inst.opacity < 1.0
                         && alpha / inst.opacity >= 1.0
                         && !see_through;
+                    // A see-through mesh the shadows fall on (a tile's leaves
+                    // and decals, grass), drawn whole: its solid part before
+                    // they are laid, and so under them, and its soft part,
+                    // which hides nothing, after, darkened by their mask, as
+                    // the client darkens both. Not water (deep water takes
+                    // none in the client; shallow water shows them on its
+                    // floor), nor a mesh of `alpha` under 1, drawn in one part
+                    // in its model's order, nor an instance drawn see-through.
+                    let soft_receives = receives
+                        && pass == Pass::Blend
+                        && !ordered
+                        && inst.opacity >= 1.0
+                        && !surface.water;
                     // (None of the sky is cut, whatever its texture's alpha:
                     // the game's sky program is made with `NO_DISCARD`.)
                     let discard = if is_sky { -1.0 } else { ALPHA_DISCARD };
@@ -2897,7 +2969,8 @@ impl Renderer {
                                 Some(q) => {
                                     // Its two parts, among the see-through
                                     // meshes (the same blocks for both).
-                                    let rest = self.game.again(&draw, q, f);
+                                    let mut rest = self.game.again(&draw, q, f);
+                                    rest.shaded = soft_receives;
                                     let at = game_blended.len() as u32;
                                     let batches = (draw.batch_key(), rest.batch_key());
                                     game_blended.push(draw);
@@ -2915,13 +2988,14 @@ impl Renderer {
                                         game_batch: batches.0,
                                         bounds,
                                         instance: instance as u32,
-                                        receives: false,
+                                        receives: soft_receives,
                                     };
                                     draws.push(draw);
                                     draws.push(Draw {
                                         pass: Pass::Fringe,
                                         game: Some(at + 1),
                                         game_batch: batches.1,
+                                        receives: false,
                                         ..draw
                                     });
                                 }
@@ -3037,7 +3111,7 @@ impl Renderer {
                         game_batch: None,
                         bounds,
                         instance: instance as u32,
-                        receives: receives && pass == Pass::Opaque,
+                        receives: receives && pass == Pass::Opaque || soft_receives,
                     };
                     // A see-through mesh is drawn in two parts: what is solid
                     // of it, then the rest.
@@ -3066,8 +3140,16 @@ impl Renderer {
                         let draw = Draw { uniform: uniforms.len() as u32, ..draw };
                         uniforms.push(part(1.0));
                         draws.push(draw);
-                        uniforms.push(part(2.0));
-                        draws.push(Draw { pass: Pass::Fringe, uniform: draw.uniform + 1, ..draw });
+                        let [far, fast, water, _] = uniform.water;
+                        let shaded = if soft_receives { 1.0 } else { 0.0 };
+                        uniforms
+                            .push(DrawUniform { water: [far, fast, water, shaded], ..part(2.0) });
+                        draws.push(Draw {
+                            pass: Pass::Fringe,
+                            uniform: draw.uniform + 1,
+                            receives: false,
+                            ..draw
+                        });
                     } else {
                         uniforms.push(uniform);
                         draws.push(draw);
@@ -3119,6 +3201,14 @@ impl Renderer {
             let key = if matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
                 // (What the shadows fall on first.)
                 rank << 61 | u64::from(!d.receives) << 60
+            } else if d.receives {
+                // (A see-through receiver's solid part: after the solid
+                // receivers, before the shadows are laid, by hint, then the
+                // farthest first.)
+                let bits = d.depth.to_bits();
+                let ascending = if bits >> 31 == 1 { !bits } else { bits | 1 << 31 };
+                let hint = u64::from(d.hint.min((1 << 27) - 1));
+                2 << 61 | 1 << 59 | hint << 32 | u64::from(!ascending)
             } else {
                 // (The depth's bits in `total_cmp`'s order, the farthest
                 // first.)
@@ -3287,8 +3377,32 @@ impl Renderer {
             0,
         );
 
+        // The shadows' mask, while the view's frames lay shadows: what the
+        // soft parts drawn after them read ([`crate::shadow::Mask`]).
+        if shadowing {
+            let samples = self.sample_count;
+            if kept_view.mask.as_ref().is_none_or(|m| m.size != size || m.samples != samples) {
+                if let Some(old) = kept_view.mask.take() {
+                    self.game.forget_mask(old.id);
+                }
+                kept_view.mask = Some(crate::shadow::Mask::new(&gpu.device, size, samples));
+            }
+        } else if let Some(old) = kept_view.mask.take() {
+            self.game.forget_mask(old.id);
+        }
+        let mask = kept_view.mask.as_ref();
+        self.game.set_mask(mask.map(|m| crate::game::MaskView {
+            id: m.id,
+            view: m.view.clone(),
+            of: all_copies.map(|c| c.id),
+        }));
+        let mask_id = mask.map_or(0, |m| m.id);
+        frame_dirty |= self.frame_mask != (mask_id, all_copies.map(|c| c.id));
+
         // Bind groups.
         if frame_dirty {
+            self.frame_mask = (mask_id, all_copies.map(|c| c.id));
+            let mask_view = mask.map_or(&self.white.view, |m| &m.view);
             self.frame_group = Some(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("frame"),
                 layout: &self.frame_layout,
@@ -3312,6 +3426,10 @@ impl Renderer {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: self.order_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(mask_view),
                     },
                 ],
             }));
@@ -3602,31 +3720,62 @@ impl Renderer {
             let mut own_lost = false;
             // Ends the pass, lays the shadows over what is drawn and
             // begins the next over it.
+            // (The game's solid draws the shadows fall on: before the
+            // see-through receivers' solid parts, which blend over them.)
+            let mut received_drawn = false;
+            macro_rules! draw_received {
+                () => {{
+                    if !received_drawn {
+                        let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                        let received = &game_draws[..received];
+                        self.drawn.batches += self.game.draw(
+                            &mut pass,
+                            received,
+                            dynamic,
+                            particles,
+                            &mut game_bound,
+                        );
+                        received_drawn = true;
+                    }
+                }};
+            }
             macro_rules! lay_shadows {
                 () => {{
-                    let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
-                    let received = &game_draws[..received];
-                    self.drawn.batches +=
-                        self.game.draw(&mut pass, received, dynamic, particles, &mut game_bound);
+                    draw_received!();
                     drop(pass);
+                    if let Some(mask) = &kept_view.mask {
+                        mask.clear(&mut encoder);
+                    }
                     let format = (self.color_format, self.sample_count);
+                    let mask = kept_view.mask.as_ref().expect("a mask where there are shadows");
                     if volumes {
-                        let device = &gpu.device;
-                        self.volumes
-                            .get_or_insert_with(|| crate::volume::ShadowVolumes::new(device))
-                            .lay(
-                                gpu,
-                                &mut encoder,
-                                (target, depth),
-                                format,
-                                (shadow_plan.as_ref(), light_plan.as_ref()),
-                                camera,
-                                size,
-                                scene.fog,
-                                &mut kept_view.stencil,
-                                stable_targets.then_some(&mut kept_view.vol_copy_group),
-                                stable_targets.then_some(&mut kept_view.vol_darken_groups),
+                        let (device, waker) = (&gpu.device, &self.game.waker);
+                        let held = &self.volumes_held;
+                        let now = self.kept.now;
+                        let vols = self.volumes.get_or_insert_with(|| {
+                            let mut v = crate::volume::ShadowVolumes::new(
+                                device,
+                                waker.clone(),
+                                held.clone(),
                             );
+                            v.meshes.begin(now);
+                            v
+                        });
+                        vols.meshes.apart = self.volumes_apart;
+                        self.drawn.volumes_pending = vols.lay(
+                            gpu,
+                            &mut encoder,
+                            (target, depth),
+                            mask,
+                            format,
+                            (shadow_plan.as_ref(), light_plan.as_ref()),
+                            camera,
+                            size,
+                            scene.fog,
+                            &mut kept_view.stencil,
+                            stable_targets.then_some(&mut kept_view.vol_copy_group),
+                            stable_targets.then_some(&mut kept_view.vol_darken_groups),
+                        );
                     }
                     if let (false, Some(plan), Some(maps), Some(map)) =
                         (volumes, &shadow_plan, &mut self.shadow_maps, &kept_view.sun)
@@ -3636,6 +3785,7 @@ impl Renderer {
                             gpu,
                             &mut encoder,
                             targets,
+                            mask,
                             format,
                             (plan, map),
                             camera,
@@ -3652,6 +3802,7 @@ impl Renderer {
                             gpu,
                             &mut encoder,
                             targets,
+                            mask,
                             format,
                             plan,
                             camera,
@@ -3669,13 +3820,18 @@ impl Renderer {
             for batch in starts.windows(2) {
                 // (A batch's draws are of one mesh and one material.)
                 let d = &draws[order[batch[0] as usize] as usize];
-                if !shadowed
-                    && !(matches!(d.pass, Pass::Sky | Pass::SkyFade)
-                        || (d.pass == Pass::Opaque && d.receives))
-                {
+                if !shadowed && d.receives && d.pass != Pass::Opaque && !received_drawn {
+                    draw_received!();
+                    own_lost = true;
+                }
+                if !shadowed && !(matches!(d.pass, Pass::Sky | Pass::SkyFade) || d.receives) {
                     lay_shadows!();
                 }
-                if !game_drawn && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                // (What is solid of the scene ends at the first draw neither
+                // solid nor under the shadows.)
+                let past_solid =
+                    !(matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) || d.receives);
+                if !game_drawn && past_solid {
                     let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
                     let solid = &game_draws[received..early];
                     self.drawn.batches +=
@@ -3683,7 +3839,7 @@ impl Renderer {
                     game_drawn = true;
                     own_lost = true;
                 }
-                if !copied && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                if !copied && past_solid {
                     drop(pass);
                     pass = Self::copy_framebuffer(
                         self.copier.as_ref(),
@@ -3746,7 +3902,7 @@ impl Renderer {
             if !shadowed {
                 lay_shadows!();
             }
-            let _ = (shadowed, own_lost);
+            let _ = (shadowed, own_lost, received_drawn);
             if !game_drawn {
                 let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
                 let solid = &game_draws[received..early];
@@ -3851,6 +4007,11 @@ impl Renderer {
     /// Lets go of the bind groups on the framebuffer copies numbered `id`.
     fn forget_copies(&mut self, id: u64) {
         self.game.forget_framebuffer(id);
+        // (The frame group binds the view's mask: made again.)
+        if self.frame_mask.1 == Some(id) {
+            self.frame_group = None;
+            self.frame_mask = (0, None);
+        }
     }
 
     /// How many views have something kept for them, for tests.

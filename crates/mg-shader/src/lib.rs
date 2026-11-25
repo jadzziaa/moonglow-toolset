@@ -44,7 +44,7 @@ pub use assemble::{
 };
 pub use cache::{Cached, ProgramCache};
 pub use defaults::{UniformDefault, uniform_defaults};
-pub use link::{AlphaKeep, FRAMEBUFFER_IMAGES};
+pub use link::{AlphaKeep, FRAMEBUFFER_IMAGES, SHADOW_MASK};
 pub use reflect::{Member, Part, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
 pub use spirv::{DRAWS, LIGHT_ARRAYS, LIGHT_INDEX, LIGHT_TABLE, LIGHTS, ORDER};
 

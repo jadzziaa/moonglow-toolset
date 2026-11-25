@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2239,6 +2239,43 @@ and a placeable's shadow at a cliff's top reaches the ground below it.
   read).
 - **Wiki:** "Model Shadows" says the volumes come of a mesh's faces;
   not that a face casts from its front only.
+
+### Grass and a tile's see-through meshes take the shadows
+
+The client darkens grass and the see-through meshes of tiles by the
+sun's shadows as it darkens the ground: their solid texels and their
+soft, blended ones alike. Under a white wall's shadow on ttr01, at
+Shadow Opacity 100 and the reference camera, a field of grass darkens
+by 0.42 where the bare floor does by 0.45; a road decal (transparency
+hint 1, most of its texels soft) by 0.39, as its ground by 0.39; a
+tree's alpha-blended crown by 0.07 where its ground does by 0.16 (the
+crown higher up the screen, where the plane fades). The grass also
+covers a creature's feet in the client's pictures. Water takes none of its own: deep water darkens by
+0.002 where its ground does by 0.37; a shallow pool darkens by 0.26,
+its shadowed floor seen through it. How much of a see-through texture
+is soft decides how much must be: ttr01's grass texture has 3% of its
+texels solid (alpha 0.95 and over) and 10% soft (0.2 to 0.95), its
+road 69% and 16%, its splotch 3% and 33%, its tree leaves 39% and 2%.
+
+- **Checked:** game client, `client_render/shadows.rs`'s
+  `shadows_look` (`MG_SHADOW_GRASS=1`) and `shadows_on_see_through`
+  (ttr01's `ttr01_h01_01` beside a deep pool, a shallow one with
+  `MG_SEE_THROUGH_WATER=53`, and a tall wall shading the tree with
+  `MG_SEE_THROUGH_WALLS=11,31.5`), 2026-11-25.
+- **Moonglow:** since 2026-11-25 (`crates/mg-render/src/renderer.rs`,
+  `shadow.rs`; `mg_shader::Program::darken_by_mask`): the solid part of
+  grass and of a receiver's see-through mesh is drawn before the
+  shadows are laid, and the soft part after them, multiplied by a mask
+  the darkening writes beside the picture ([the research
+  note](research/notes_shaders.md) §G.2). Beside the client's: grass
+  0.40 (0.34 to 0.36 before), the road 0.42 as its ground 0.42 (0.01
+  before), the crown 0.07 as the client's (0.01 before), the road under
+  the tall wall 0.45 as its ground (0.00 before); Fast and High, either
+  Shaders switch. Water as the client's but for the shallow pool's
+  floor, which Moonglow's water hides ([deferred list](deferred.md),
+  the fountain's entry). Test
+  `grass_and_see_through_receivers_are_darkened_in_the_shadow`.
+- **Wiki:** "Model Shadows" says what casts; not what receives.
 
 ### When the client shows an area transition
 

@@ -773,7 +773,7 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
     let uv = vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5);
     if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) {
         discard;
-        return vec4<f32>(0.0);
+        return Out(vec4<f32>(0.0), vec4<f32>(0.0));
     }
     let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);
     let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;",
@@ -788,7 +788,13 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
         )
     };
     format!(
-        "struct Params {{
+        "// The picture's darkening, and the same in the shadows' mask (what
+// the picture was multiplied by, read by what is drawn after it).
+struct Out {{
+    @location(0) color: vec4<f32>,
+    @location(1) mask: vec4<f32>,
+}}
+struct Params {{
     unproject: mat4x4<f32>,
     view: mat4x4<f32>,
     screen: vec4<f32>,
@@ -845,7 +851,7 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     if (total <= 0.0) {{ return 1.0; }}
     return 1.0 - pow(clamp(1.0 - mine / total, 0.0, 1.0), 1.0 / 2.2);
 }}
-{vs}@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @location(0) vec4<f32> {{
+{vs}@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> Out {{
     let at = vec2<i32>(frag.xy);
     let d = {load};
     let ndc = vec2<f32>(frag.x / p.screen.x * 2.0 - 1.0, 1.0 - frag.y / p.screen.y * 2.0);
@@ -860,7 +866,7 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     // returns at once (Metal runs a discarded fragment on).
     if (d >= 0.99999) {{
         discard;
-        return vec4<f32>(0.0);
+        return Out(vec4<f32>(0.0), vec4<f32>(0.0));
     }}
     // The game's plane: no more opaque than its fade up the screen (from
     // the bottom, as OpenGL counts) nor than the area's opacity in what
@@ -876,9 +882,9 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     {dark}
     if (a <= 0.0) {{
         discard;
-        return vec4<f32>(0.0);
+        return Out(vec4<f32>(0.0), vec4<f32>(0.0));
     }}
-    return vec4<f32>(0.0, 0.0, 0.0, a);
+    return Out(vec4<f32>(0.0, 0.0, 0.0, a), vec4<f32>(0.0, 0.0, 0.0, a));
 }}
 ",
         sources = MAX_LIGHT_SHADOWS / 4,
@@ -902,6 +908,89 @@ pub(crate) const DARKEN_BLEND: wgpu::BlendState = wgpu::BlendState {
         operation: wgpu::BlendOperation::Add,
     },
 };
+
+/// The shadows' mask's format: one channel, what the picture was
+/// multiplied by.
+pub(crate) const MASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+
+/// The darkening passes' second target: the shadows' mask, darkened as
+/// the picture is.
+pub(crate) const MASK_TARGET: wgpu::ColorTargetState = wgpu::ColorTargetState {
+    format: MASK_FORMAT,
+    blend: Some(DARKEN_BLEND),
+    write_mask: wgpu::ColorWrites::RED,
+};
+
+/// Numbers that tell one mask from another (0: none, white).
+static NEXT_MASK_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A view's mask of the shadows laid over its picture: white, darkened
+/// by every darkening pass as the picture is, so that it holds what the
+/// picture was multiplied by. What is drawn after the shadows and
+/// receives them (a see-through mesh's soft part, which hides nothing
+/// and so can't be under them) multiplies itself by it. Multisampled as
+/// the picture is, resolved into `view` at every pass.
+#[derive(Debug)]
+pub(crate) struct Mask {
+    pub(crate) id: u64,
+    pub(crate) size: (u32, u32),
+    pub(crate) samples: u32,
+    msaa: Option<wgpu::TextureView>,
+    /// What is read: the mask, resolved.
+    pub(crate) view: wgpu::TextureView,
+}
+
+impl Mask {
+    pub(crate) fn new(device: &wgpu::Device, size: (u32, u32), samples: u32) -> Mask {
+        let make = |samples, usage| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("shadows' mask"),
+                    size: wgpu::Extent3d {
+                        width: size.0.max(1),
+                        height: size.1.max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: MASK_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | usage,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        let msaa = (samples > 1).then(|| make(samples, wgpu::TextureUsages::empty()));
+        let view = make(1, wgpu::TextureUsages::TEXTURE_BINDING);
+        let id = NEXT_MASK_ID.fetch_add(1, Ordering::Relaxed);
+        Mask { id, size, samples, msaa, view }
+    }
+
+    /// The mask as a darkening pass's second target, laid over what it
+    /// holds; or cleared to white, where `clear`.
+    pub(crate) fn attachment(&self, clear: bool) -> wgpu::RenderPassColorAttachment<'_> {
+        let (view, resolve_target) = match &self.msaa {
+            Some(msaa) => (msaa, Some(&self.view)),
+            None => (&self.view, None),
+        };
+        let load = if clear { wgpu::LoadOp::Clear(wgpu::Color::WHITE) } else { wgpu::LoadOp::Load };
+        wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target,
+            ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+            depth_slice: None,
+        }
+    }
+
+    /// Clears the mask to white: nothing darkened yet.
+    pub(crate) fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("shadows' mask"),
+            color_attachments: &[Some(self.attachment(true))],
+            ..Default::default()
+        });
+    }
+}
 
 /// The darkening pass for a target's format and samples.
 #[derive(Debug)]
@@ -1056,6 +1145,7 @@ impl ShadowMaps {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         targets: (&wgpu::TextureView, &wgpu::TextureView),
+        mask: &Mask,
         format: (wgpu::TextureFormat, u32),
         (plan, map): (&Plan, &SunMap),
         camera: &Camera,
@@ -1081,7 +1171,7 @@ impl ShadowMaps {
             ));
         }
         if let Some((_, group)) = slot.as_ref() {
-            darkener.lay_with(encoder, targets.0, group);
+            darkener.lay_with(encoder, (targets.0, mask), group);
         }
     }
 
@@ -1108,6 +1198,7 @@ impl ShadowMaps {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         targets: (&wgpu::TextureView, &wgpu::TextureView),
+        mask: &Mask,
         format: (wgpu::TextureFormat, u32),
         plan: &LightPlan,
         camera: &Camera,
@@ -1132,7 +1223,7 @@ impl ShadowMaps {
         let group = slot.get_or_insert_with(|| {
             darkener.make_group(&gpu.device, targets.1, &maps.params, &maps.array, &self.sampler)
         });
-        darkener.lay_with(encoder, targets.0, group);
+        darkener.lay_with(encoder, (targets.0, mask), group);
     }
 }
 
@@ -1527,11 +1618,14 @@ impl Darkener {
                 module: &module,
                 entry_point: Some("fs"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(MASK_TARGET),
+                ],
             }),
             primitive: Default::default(),
             depth_stencil: None,
@@ -1576,17 +1670,20 @@ impl Darkener {
     fn lay_with(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
+        (target, mask): (&wgpu::TextureView, &Mask),
         group: &wgpu::BindGroup,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow darkening"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                depth_slice: None,
-            })],
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    depth_slice: None,
+                }),
+                Some(mask.attachment(false)),
+            ],
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);
