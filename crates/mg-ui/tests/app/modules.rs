@@ -2192,7 +2192,7 @@ fn unsaved_work_survives_a_crash() {
         app.ws.as_mut().unwrap().doc(&key).unwrap().root.string("Mod_Tag").unwrap().to_vec()
     };
     // A session edits the module, its copy is written, then it "crashes".
-    {
+    let copy = {
         let mut app = app_with(Vec::new());
         app.recovery_dir = Some(recovery.clone());
         app.open_module(&path);
@@ -2207,11 +2207,21 @@ fn unsaved_work_survives_a_crash() {
         h.run();
         let copy = h.state_mut().write_recovery().unwrap();
         assert!(copy.starts_with(&recovery) && copy.is_file());
-    }
+        copy
+    };
+    // (A child process another test's thread was starting as the session
+    // went holds the copy's lock a moment longer: stood in for by a hold
+    // let go of a little later. The next session waits for it.)
+    let lock = std::fs::OpenOptions::new().write(true).open(copy.with_extension("lock")).unwrap();
+    lock.lock().unwrap();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(lock);
+    });
     // The next session offers it back; Recover opens it as the module.
     let mut app = app_with(Vec::new());
     app.recovery_dir = Some(recovery.clone());
-    app.find_recoveries();
+    find_recoveries_let_go(&mut app);
     assert_eq!(app.recoveries.len(), 1);
     assert_eq!(app.recoveries[0].note.module.as_deref(), Some(path.as_path()));
     let mut h = window_harness(app);

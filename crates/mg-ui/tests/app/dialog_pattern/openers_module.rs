@@ -118,7 +118,7 @@ fn recovery() -> Option<H> {
     }
     let mut app = app_with(Vec::new());
     app.recovery_dir = Some(recovery);
-    app.find_recoveries();
+    find_recoveries_let_go(&mut app);
     Some(harness(app, 1280.0, 720.0))
 }
 
