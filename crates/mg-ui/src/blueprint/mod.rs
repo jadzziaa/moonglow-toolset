@@ -2439,17 +2439,75 @@ impl Form<'_> {
             let key = ResKey::new(current, edit);
             let in_module = self.app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
             let in_game = self.app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
-            if ui
-                .add_enabled(
-                    !current.is_empty() && (in_module || in_game),
-                    egui::Button::new("Edit").small(),
-                )
-                .clicked()
-            {
-                let tab = if in_module { tab(key) } else { Tab::Resource(key) };
-                self.app.actions.push(Action::OpenTab(tab));
+            if current.is_empty() || !(in_module || in_game) {
+                // (Empty, or a name nothing has: New makes it, as File ›
+                // New Conversation does, and gives it to the object.)
+                let module = self.app.ws.is_some();
+                let kind = match self.restype() {
+                    ResType::UTC => "creature",
+                    ResType::UTP => "placeable",
+                    ResType::UTD => "door",
+                    _ => "object",
+                };
+                let tip = if !module {
+                    "Open a module to make a conversation in it".to_string()
+                } else if current.is_empty() {
+                    format!("Make a new conversation for this {kind} and open it")
+                } else {
+                    format!("The module has no conversation of this name: make it for this {kind} and open it")
+                };
+                let button = ui.add_enabled(module, egui::Button::new("New").small());
+                if button.on_hover_text(tip).on_disabled_hover_text("Open a module to make a conversation in it").clicked() {
+                    let name = if current.is_empty() {
+                        self.new_conversation_name()
+                    } else {
+                        current.to_string()
+                    };
+                    self.app.new_dialog = Some(name);
+                    self.app.new_dialog_for =
+                        Some((self.targets().map(|(k, p)| (k, p.clone())).collect(), label.to_string()));
+                }
+            } else if ui.add(egui::Button::new("Edit").small()).clicked() {
+                self.app.actions.push(Action::OpenTab(if in_module { tab(key) } else { Tab::Resource(key) }));
             }
         });
+    }
+
+    /// The name suggested for a new conversation of this object: its
+    /// blueprint's resref or its tag where that is a free name in the
+    /// module, else the next free number of the first (or of "conversation").
+    fn new_conversation_name(&self) -> String {
+        let Some(ws) = self.app.ws.as_ref() else { return String::new() };
+        let naming = ws.module.project_file.naming_for(ResType::DLG);
+        let taken = |name: &str| {
+            ResRef::from_str(name).is_ok_and(|r| ws.module.contains(&ResKey::new(r, ResType::DLG)))
+        };
+        let blueprint = if self.is_instance() {
+            self.root.resref("TemplateResRef")
+        } else {
+            Some(self.key.resref)
+        };
+        let tag = decode(self.root.string("Tag").unwrap_or_default());
+        let bases: Vec<String> = blueprint
+            .map(|r| r.to_string())
+            .into_iter()
+            .chain(std::iter::once(tag))
+            .filter(|b| !b.is_empty())
+            .collect();
+        for base in &bases {
+            if let Some(r) = naming.resref(base, "")
+                && !taken(&r.to_string())
+            {
+                return r.to_string();
+            }
+        }
+        let base = bases
+            .iter()
+            .find(|b| naming.resref(b, "001").is_some())
+            .map_or("conversation", String::as_str);
+        let numbered =
+            naming.numbered(base, 1, &taken).or_else(|| naming.numbered("conversation", 1, &taken));
+        numbered.map(|r| r.to_string()).unwrap_or_default()
     }
 
     /// The palette category (Aurora: read-only text and `…`): a list of the

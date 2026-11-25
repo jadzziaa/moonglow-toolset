@@ -4092,12 +4092,23 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let module = app.ws.as_ref().map(|w| &w.module);
     app.new_dialog = match window.show(ui.ctx(), module, &mut name) {
         Named::Open => Some(name),
-        Named::Cancelled => None,
+        Named::Cancelled => {
+            app.new_dialog_for = None;
+            None
+        }
         Named::Chosen(k) => {
-            app.actions.push(Action::Apply(Command::new(
-                format!("New conversation {k}"),
-                vec![Edit::SetResource { key: k, data: Some(new_file()) }],
-            )));
+            let mut edits = vec![Edit::SetResource { key: k, data: Some(new_file()) }];
+            // (Made from an object's Conversation field: it is given the
+            // conversation in the same step.)
+            if let Some((targets, label)) = app.new_dialog_for.take() {
+                edits.extend(targets.into_iter().map(|(key, path)| Edit::SetField {
+                    key,
+                    path,
+                    label: label.clone(),
+                    value: Some(Value::resref(k.resref)),
+                }));
+            }
+            app.actions.push(Action::Apply(Command::new(format!("New conversation {k}"), edits)));
             app.actions.push(Action::OpenTab(Tab::Dialog(k)));
             None
         }

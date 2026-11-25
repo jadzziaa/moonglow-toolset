@@ -909,7 +909,14 @@ Shared parts:
 Basic (names and tag; race, appearance with its **Gallery…**,
 phenotype, gender and **Sound set**; challenge rating, category and
 **Faction** with **Edit Factions**, which opens the faction editor;
-portrait; conversation and **No interrupt**; the sound set and the
+portrait; conversation, with **…** and an **Edit** that opens it, or, with
+the field empty (or naming a conversation the module doesn't have), a
+**New** that makes an empty conversation (the New Conversation window,
+named after the blueprint's resref or tag where that name is free), gives
+it to the object and opens it, one Undo taking both back (the same on a
+placeable's and a door's Advanced page, and for a placed object's
+Properties; with no module open **New** is off) -- Aurora's own Edit
+with an empty field was not checked; and **No interrupt**; the sound set and the
 faction are on Advanced in Aurora; the Sound set list is narrowed by
 gender (**Both**, Male, Female) and by type (**All** or a type of
 soundsettype.2da), as Aurora's is, and **Play Sample** beside it plays

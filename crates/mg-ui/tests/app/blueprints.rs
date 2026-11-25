@@ -4940,3 +4940,122 @@ fn a_viewed_blueprint_s_check_boxes_are_quiet() {
         assert!(!box_fills(&h, "Useable").contains(&t.accent_fill_hover));
     }
 }
+
+/// The small button of that name in a form's field (the toolbar's own
+/// New is at the top of the window).
+fn field_button<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> Option<egui_kittest::Node<'t>> {
+    h.query_all_by_label(name).rfind(|n| n.rect().top() > 60.0)
+}
+
+/// Gives a blueprint's Conversation field `name` (none: empty).
+fn give_conversation(h: &mut Harness<'_, Moonglow>, key: ResKey, name: &str) {
+    let value = mg_gff::Value::resref(ResRef::from_str(name).unwrap());
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Conversation".into(),
+        value: Some(value),
+    };
+    h.state_mut()
+        .ws
+        .as_mut()
+        .unwrap()
+        .apply(mg_edit::Command::new("conversation", vec![edit]))
+        .unwrap();
+    h.run();
+}
+
+/// An object's Conversation field with nothing in it has New: it makes
+/// the conversation (named after the blueprint), gives it to the object
+/// and opens it, in one Undo step; with a name in the field, Edit opens
+/// that conversation as before.
+#[test]
+fn an_empty_conversation_field_makes_a_new_conversation_with_new() {
+    let Some((mut h, key)) = blueprint_harness("nw_chicken", "mg_hen", ResType::UTC) else {
+        return;
+    };
+    give_conversation(&mut h, key, "");
+    settle(&mut h);
+    let dlg = ResKey::parse("mg_hen", ResType::DLG).unwrap();
+    assert!(field_button(&h, "New").is_some(), "New, with the field empty");
+    field_button(&h, "New").expect("New").click();
+    settle(&mut h);
+    // The New Conversation window, the blueprint's name in it.
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&dlg), "the conversation is in the module");
+    assert!(h.state().dock.find_tab(&Tab::Dialog(dlg)).is_some(), "and open");
+    assert_eq!(field(&mut h, &key).resref("Conversation").unwrap().to_string(), "mg_hen");
+    // The field says Edit now.
+    assert!(field_button(&h, "Edit").is_some());
+    // One step takes both back.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert_eq!(field(&mut h, &key).resref("Conversation").unwrap().to_string(), "");
+    assert!(field_button(&h, "New").is_some(), "New again");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert_eq!(field(&mut h, &key).resref("Conversation").unwrap().to_string(), "mg_hen");
+}
+
+/// Edit opens the conversation the field names, as it did.
+#[test]
+fn a_named_conversation_is_opened_with_edit() {
+    let Some((mut h, key)) = blueprint_harness("nw_chicken", "mg_hen_edit", ResType::UTC) else {
+        return;
+    };
+    let dlg = ResKey::parse("mg_talk_a", ResType::DLG).unwrap();
+    h.state_mut()
+        .ws
+        .as_mut()
+        .unwrap()
+        .apply(mg_edit::Command::new(
+            "talk",
+            vec![mg_edit::Edit::SetResource {
+                key: dlg,
+                data: Some(mg_module::dialog::new_dialog().to_bytes().unwrap()),
+            }],
+        ))
+        .unwrap();
+    give_conversation(&mut h, key, "mg_talk_a");
+    settle(&mut h);
+    assert!(field_button(&h, "New").is_none(), "a conversation the module has");
+    field_button(&h, "Edit").expect("Edit").click();
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::Dialog(dlg)).is_some());
+}
+
+/// A placeable's Advanced page has New too, and a name nothing has is
+/// offered to be made.
+#[test]
+fn a_placeable_makes_its_conversation_and_a_missing_one_is_offered() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "mg_chest_talk", ResType::UTP) else {
+        return;
+    };
+    give_conversation(&mut h, key, "");
+    page(&mut h, "Advanced");
+    settle(&mut h);
+    field_button(&h, "New").expect("New").click();
+    settle(&mut h);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let dlg = ResKey::parse("mg_chest_talk", ResType::DLG).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&dlg));
+    assert_eq!(field(&mut h, &key).resref("Conversation").unwrap().to_string(), "mg_chest_talk");
+    // A name no conversation has: New, with that name.
+    // (The conversation's window over the form: closed.)
+    close_tab(h.state_mut(), &Tab::Dialog(dlg));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    give_conversation(&mut h, key, "not_there_yet");
+    page(&mut h, "Advanced");
+    settle(&mut h);
+    field_button(&h, "New").expect("New").click();
+    settle(&mut h);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    let made = ResKey::parse("not_there_yet", ResType::DLG).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&made));
+}
