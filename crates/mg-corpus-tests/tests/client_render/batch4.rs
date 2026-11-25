@@ -1072,6 +1072,70 @@ fn reading_static_placeable_default_animation() {
     print_log(&dir);
 }
 
+/// Whether a Custom Light's flicker plays in the client (the flicker
+/// of `mg_module::lights`, the model and the placeables.2da rows it
+/// makes): a dark tic01 room, the light of a Torch flicker, red 255 0 0,
+/// radius 4, its generated binary model, placed twice 5 m apart, west a
+/// static instance (its row `Static` 1) and east a dynamic one (its row
+/// `Static` 0, as the light's own row is). Eight pictures 0.4 s apart
+/// (the torch's cycle is 1.5 s): the floor's red under each.
+///
+/// Seen (2026-11-25, 89.8193.37; the floor's red, 0 to 255, in the two
+/// 6% by 5% rectangles at the light spots, the pictures 0.4 s apart asked,
+/// 0.5 to 0.7 s apart taken): the static one's 43.26, 43.22, 43.26,
+/// 43.23, 43.25, 43.24, 43.30, 43.25 (spread 0.08); the dynamic one's
+/// 39.71, 35.38, 39.70, 36.13, 38.10, 37.52, 42.90, 38.20 (spread 7.52,
+/// from 83% to 99% of the static one's, the key's table being 70% to
+/// 100% of the color: the client's light shows the keyed color). Green
+/// and blue never move. The test asserts a dynamic spread of 4 or more
+/// and a static one of 1.5 or less. See `docs/findings.md`, "A Custom
+/// Light's flicker plays on a dynamic placeable".
+#[test]
+#[ignore]
+fn reading_custom_light_flicker() {
+    use mg_module::lights::{Flicker, LightSpec};
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let spec = LightSpec {
+        color: [255, 0, 0],
+        radius: 4.0,
+        flicker: Flicker::Torch,
+        ..LightSpec::default()
+    };
+    let name = spec.model_name().to_string();
+    let binary = spec.model_binary().expect("the light's model compiles");
+    let (table, first) = placeables_with(&base, &[(&name, 1), (&name, 0)]);
+    let file = format!("{name}.mdl");
+    let overrides = [(file.as_str(), binary), ("placeables.2da", table.into_bytes())];
+    let light = Lighting { ambient: 0x202020, diffuse: 0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("custom_light_flicker", "tic01", light, &overrides);
+    r.place(first, [17.5, 23.0, 0.0], 0.0, &[("Static", Value::Byte(1))]);
+    r.place(first + 1, [22.5, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| {
+        v.animate = true;
+        v.time = 0.0;
+    });
+    let shots = common::client_screenshots(&dir, "MgScene", 8, Duration::from_millis(400))
+        .expect("the client's pictures");
+    let (mut west, mut east) = (Vec::new(), Vec::new());
+    for (i, (t, img)) in shots.iter().enumerate() {
+        let w = mean(img, [0.37, 0.43, 0.43, 0.48]);
+        let e = mean(img, [0.57, 0.43, 0.63, 0.48]);
+        eprintln!("picture {i} at {t:.2} s: floor west (static) {w:?}, east (dynamic) {e:?}");
+        west.push(w[0]);
+        east.push(e[0]);
+    }
+    print_log(&dir);
+    let spread = |v: &[f32]| {
+        v.iter().copied().fold(f32::MIN, f32::max) - v.iter().copied().fold(f32::MAX, f32::min)
+    };
+    let (sw, se) = (spread(&west), spread(&east));
+    eprintln!("red spread: static {sw:.2}, dynamic {se:.2}");
+    assert!(west.iter().all(|&r| r > 40.0), "the static light lights the floor: {west:?}");
+    assert!(se >= 4.0, "the dynamic light flickers: spread {se} of {east:?}");
+    assert!(sw <= 1.5, "the static light stays steady: spread {sw} of {west:?}");
+}
+
 /// A sphere a metre across, 1.2 m up, of `texture`, as an ASCII model
 /// `name` of `classification` (its texture's alpha 0: reflecting wholly).
 pub(super) fn sphere_model(name: &str, classification: &str, texture: &str, centre: f32) -> String {

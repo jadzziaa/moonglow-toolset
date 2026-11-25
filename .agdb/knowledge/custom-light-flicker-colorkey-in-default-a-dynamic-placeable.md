@@ -24,4 +24,4 @@ author: augustaugur
 ## Watch out
 - The area view takes a light node's color as gamma and linearizes it: a 0.7 key shows as about 0.45 of the linear light (the UI test checks a uniform ratio in 0.4..0.5).
 - The Flicker dropdown is found in kittest by value (`get_by_value("None")`), not by label.
-- Not yet watched in the client: the presets and the generated model; only the red-blue-red colorkey shape was.
+- Watched in the client (2026-11-25, `reading_custom_light_flicker`): the generated Torch model flickers placed dynamic (floor red spread 7.5 of 255) and stays steady placed static (0.08).
