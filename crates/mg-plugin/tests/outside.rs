@@ -351,6 +351,51 @@ fn an_area_is_made_and_painted() {
     assert!(tiles.iter().any(|t| t.integer("Tile_Height") == Some(1)));
 }
 
+/// With a seed, the same strokes choose the same tiles: a job seeded with
+/// `ctx.terrain:seed` makes its area again tile for tile (new_area's
+/// tiles and the painted ones, lights and all), and an area opened with a
+/// seed of its own paints the same whatever the job's random choices are.
+/// Another seed chooses other tiles.
+#[test]
+fn a_seed_paints_the_same_tiles_again() {
+    let Some(game) = game() else { return };
+    let paint = |job: i64, then: Option<i64>, area_seed: Option<i64>| {
+        let reseed = then.map_or(String::new(), |n| format!("ctx.terrain:seed({n})"));
+        let options = area_seed.map_or(String::new(), |n| format!(", {{ seed = {n} }}"));
+        let code = format!(
+            r#"
+            ctx.terrain:seed({job})
+            local resref = ctx.terrain:new_area({{ name = "Field", tileset = "ttr01", width = 8, height = 8 }})
+            {reseed}
+            local area = ctx.terrain:open(resref{options})
+            for y = 0, 8 do
+                for x = 0, 8 do
+                    area:paint(x, y, ((x * 3 + y) % 5 == 0) and "Water" or "Grass")
+                end
+            end
+            "#
+        );
+        let outcome = run_console(&code, Input::new(bare(), Some(game.clone())), host([]))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let module = applied(&outcome);
+        let are = module.gff(&ResKey::from_filename("field.are").unwrap()).unwrap().unwrap();
+        are.root.list("Tile_List").unwrap().to_vec()
+    };
+    let first = paint(1, None, None);
+    assert_eq!(first.len(), 64);
+    assert_eq!(paint(1, None, None), first, "the job's seed, the same tiles");
+    assert_ne!(paint(2, None, None), first, "another seed, other tiles");
+    // An area's own seed: the job's choices after new_area don't matter.
+    let own = paint(1, None, Some(5));
+    assert_eq!(paint(1, Some(99), Some(5)), own, "the area's seed, the same tiles");
+    assert_ne!(paint(1, None, Some(6)), own, "another area seed, other tiles");
+    // Seeds are whole numbers.
+    let h = host([]);
+    let refused =
+        run_console("ctx.terrain:seed(1.5)", Input::new(bare(), Some(game.clone())), h.clone());
+    assert!(refused.is_err());
+}
+
 /// Every corner of a 32 × 32 area painted in a batch (`area:batch`): the
 /// area's tiles read once, what the function reads back is what its
 /// strokes left, and the tiles go in as a handful of edits, where one

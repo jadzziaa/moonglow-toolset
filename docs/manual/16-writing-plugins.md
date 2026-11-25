@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.9): it may change in a
+The plugin API is **experimental** (version 0.10): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
@@ -235,7 +235,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The plugin's name for programs, the same wherever it is installed: `author.plugin-name`, in lower-case letters, digits, `.`, `-` and `_`. Settings and keys are kept under it, so don't change it between versions. |
 | `name` | Needed. Its name for people. |
 | `version` | Needed. The plugin's own version, as you number it. |
-| `api` | Needed. The plugin API it was written for: `"0.9"`, or an earlier one (`"0.8"`, `"0.7"`, `"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
+| `api` | Needed. The plugin API it was written for: `"0.10"`, or an earlier one (`"0.9"`, `"0.8"`, `"0.7"`, `"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
 | `description` | One or two sentences on what it does, shown on the Plugins tab. |
 | `author` | Who wrote it. Repeat the line for each author. |
