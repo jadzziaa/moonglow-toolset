@@ -55,8 +55,10 @@ use crate::Moonglow;
 use crate::area_view::AreaView;
 use crate::terrain_mode::current_grid;
 
-/// A cell and the tiles that fit there, each with its model's name.
-pub type Variants = ((u32, u32), Vec<(mg_tiles::Placement, String)>);
+/// The cells chosen and the tiles that fit every one of them, each with
+/// its model's name (as they fit the first cell: a tile fits another
+/// cell at that cell's height).
+pub type Variants = (Vec<(u32, u32)>, Vec<(mg_tiles::Placement, String)>);
 
 /// The Tile Properties panel's tiles and values: read from the area as
 /// the selection or the area changes ([`panel`]), and changed by its
@@ -105,10 +107,11 @@ pub struct TileProps {
     pub grouped: bool,
     /// The light whose color is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
-    /// With one tile chosen: its cell and the tiles that fit there, in
-    /// the order Next Variant steps through them, each with its model.
+    /// The cells chosen and the tiles that fit every one of them, in the
+    /// order Next Variant steps through them, each with its model.
     pub variants: Option<Variants>,
-    /// The tile there now.
+    /// The tile there now (the first cell's, where every cell has that
+    /// tile so turned; none where they differ).
     pub variant: Option<mg_tiles::Placement>,
     /// The tiles' cells, by `tiles`' order (the selection's).
     pub cells: Vec<(u32, u32)>,
@@ -886,12 +889,6 @@ fn read_props(app: &mut Moonglow, view: &AreaView) -> Option<TileProps> {
                     .is_some_and(|group| group.iter().all(|c| cells.contains(c)))
         })
     });
-    // One tile: the others that fit there, to choose among by picture
-    // (not for a group's tile, which changes only with its group).
-    let one = match view.tile_selection.as_slice() {
-        &[(x, y)] => grid.clone().map(|g| ((x, y), g)),
-        _ => None,
-    };
     // (A larger group's tile among them: nothing but its group changes
     // it. A group of one tile, a staircase, changes as any tile.)
     let grouped = grid.as_ref().is_some_and(|g| {
@@ -902,15 +899,20 @@ fn read_props(app: &mut Moonglow, view: &AreaView) -> Option<TileProps> {
     });
     let every =
         (tools.set.tiles.iter().enumerate()).map(|(i, t)| (i as u32, t.model.clone())).collect();
-    let variants = one.filter(|_| !grouped).and_then(|((x, y), g)| {
-        let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.get_cell(x, y)?);
+    // The tiles that fit every cell chosen, to choose among by picture
+    // (not for a group's tile, which changes only with its group).
+    let variants = grid.as_ref().filter(|_| !grouped && !cells.is_empty()).and_then(|g| {
+        let fits = common_fits(&tools.index, g, &cells)?;
         let named = fits
             .into_iter()
             .filter_map(|p| Some((p, tools.set.tiles.get(p.tile as usize)?.model.clone())))
             .collect();
-        Some((((x, y), named), g.get_tile(x, y)?))
+        let now: Vec<_> = cells.iter().map(|&(x, y)| g.get_tile(x, y)).collect::<Option<_>>()?;
+        let same = now.iter().all(|p| (p.tile, p.orientation) == (now[0].tile, now[0].orientation));
+        Some(((cells.clone(), named), same.then_some(now[0])))
     });
     let (variants, variant) = variants.unzip();
+    let variant = variant.flatten();
     // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
     let loops = [0, 1, 2].map(|k| first.loops[k] && has.loops[k]);
     let (main, source, replace) = (first.main, first.source, first.replace);
@@ -1259,15 +1261,28 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                 if let Some(p) = all_tiles_pictures(app, ui, &props, &found_list, side) {
                     pick = Some(Pick::Any(p));
                 }
-            } else if let Some((_, variants)) = props.variants.as_ref().filter(|(_, v)| v.len() > 1)
+            } else if let Some((cells, variants)) = props
+                .variants
+                .as_ref()
+                .filter(|(_, v)| v.len() > 1 || (v.len() == 1 && props.variant.is_none()))
             {
-                // The tile's variants: as many across as the panel is
+                // The tiles' variants: as many across as the panel is
                 // wide, in the panel's own scroll.
                 let side = variant_side(app);
-                ui.horizontal(|ui| {
-                    ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
+                let (label, tip) = if cells.len() == 1 {
+                    (
+                        format!("Variant ({} fit here)", variants.len()),
                         "The tiles that fit here, each turn of each. Click one to put it here.",
-                    );
+                    )
+                } else {
+                    (
+                        format!("Variant ({} fit every tile chosen)", variants.len()),
+                        "The tiles that fit every tile chosen, each turn of each. Click one to \
+                         put it in each.",
+                    )
+                };
+                ui.horizontal(|ui| {
+                    ui.label(label).on_hover_text(tip);
                     size_slider(app, ui, side);
                 });
                 // (The kit's small cells, as many across as the panel is
@@ -1584,6 +1599,30 @@ fn height_edits(
     mg_area::edit::tile_height_edits(&files, step, heights)
 }
 
+/// The tiles that fit every one of `cells`, in the order they fit the
+/// first (Next Variant's), each as it fits there; `None` where a cell is
+/// outside the area.
+fn common_fits(
+    index: &mg_tiles::TileIndex,
+    g: &mg_tiles::paint::Grid,
+    cells: &[(u32, u32)],
+) -> Option<Vec<mg_tiles::Placement>> {
+    let mut each = cells
+        .iter()
+        .map(|&(x, y)| Some(mg_tiles::paint::fits_in_order(index, &g.lattice.get_cell(x, y)?)));
+    let mut fits = each.next()??;
+    for other in each {
+        let other = other?;
+        fits.retain(|p| other.iter().any(|q| same_turned(*p, *q)));
+    }
+    Some(fits)
+}
+
+/// One tile, turned alike (at whatever height).
+fn same_turned(a: mg_tiles::Placement, b: mg_tiles::Placement) -> bool {
+    (a.tile, a.orientation % 4) == (b.tile, b.orientation % 4)
+}
+
 /// A tile put in from Tile Properties: a variant that fits, one of all the
 /// tileset's, or the tiles chosen turned (All tiles' Turn).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1594,7 +1633,7 @@ enum Pick {
 }
 
 /// Puts a tile in from Tile Properties, as its own step to undo, at once:
-/// - a variant, in the one tile chosen, as it fits there (lights chosen
+/// - a variant, in each tile chosen, as it fits there (lights chosen
 ///   afresh);
 /// - one of all the tiles, in each tile chosen as it is, turned as it is
 ///   shown, at that tile's height, nothing around fitted to it;
@@ -1636,9 +1675,14 @@ fn pick_command(
     let mut kept = Vec::new();
     let label = match what {
         Pick::Variant(p) => {
-            let &((x, y), _) = props.variants.as_ref()?;
-            g.get_tile(x, y)?;
-            changes.push(((x, y), p));
+            // (In each cell as it fits there: at that cell's height.)
+            let (cells, _) = props.variants.as_ref()?;
+            for &(x, y) in cells {
+                g.get_tile(x, y)?;
+                let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.get_cell(x, y)?);
+                let q = fits.into_iter().find(|q| same_turned(*q, p))?;
+                changes.push(((x, y), q));
+            }
             "Tile variant"
         }
         Pick::Any(_) | Pick::Turn(_) => {

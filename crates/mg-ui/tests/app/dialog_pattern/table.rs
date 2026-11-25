@@ -83,7 +83,7 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("widgets.rs:ui#2", &["OK", "Cancel"], None),
     ("widgets.rs:ui#3", &["None", "Cancel"], None),
     ("wizards.rs:ui#1", &["Create", "Cancel"], None),
-    ("wizards.rs:ui#2", &["Create", "Cancel"], None),
+    ("wizards.rs:ui#2", &["< Back", "Next >", "Finish", "Cancel"], Some(WIZARD)),
     ("wizards.rs:ui#3", &["Close Moonglow", "Cancel"], None),
     ("wizards.rs:ui#4", &["Save", "Don't Save", "Cancel"], None),
 ];

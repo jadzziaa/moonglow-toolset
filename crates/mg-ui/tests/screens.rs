@@ -1631,6 +1631,12 @@ fn welcome_recent_modules() {
         modules.join("castle.mod"),
         dir.join("projects/castle-project"),
     ];
+    // (Times from now, so the picture reads the same on every run; the
+    // last has none, as a module from older settings.)
+    let now = mg_core::time::unix_now();
+    for (path, ago) in app.settings.recent.clone().iter().zip([300, 7300]) {
+        app.settings.recent_opened.insert(path.clone(), now - ago);
+    }
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 600.0))
         .wgpu()
@@ -12772,7 +12778,8 @@ fn shell_welcome() {
 /// and with one the Welcome page is gone); the Area Wizard over the area
 /// with both docks open (`shell_area_wizard`); and the same in the least
 /// window, 420 points wide, where the editor area is narrower than the
-/// wizard (`shell_area_wizard_least`).
+/// wizard (`shell_area_wizard_least`); each also on its Size and Finish pages
+/// (`..._2`, `..._3`).
 #[test]
 #[ignore]
 fn shell_wizards() {
@@ -12801,6 +12808,14 @@ fn shell_wizards() {
         frames_until(&mut h, "the wizard", |h| h.query_by_label("Area Wizard").is_some());
         h.run_steps(3);
         shoot(&mut h, &dir, name);
+        // The wizard's other pages: Size, then Finish.
+        for page in [1, 2] {
+            if let Some(mg_ui::Wizard::NewArea(w)) = &mut h.state_mut().wizard {
+                w.page = page;
+            }
+            h.run_steps(3);
+            shoot(&mut h, &dir, &format!("{name}_{}", page + 1));
+        }
     }
 }
 

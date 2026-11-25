@@ -316,7 +316,8 @@ fn a_project_s_hidden_tilesets_are_left_out_of_the_pickers() {
         w.selected = castle_at;
     }
     h.run();
-    h.get_by_label("Create").click();
+    area_wizard_next(&mut h, 1);
+    area_wizard_finish(&mut h);
     h.run_steps(3);
     let made = (h.state().ws.as_ref().unwrap().module.keys_of(ResType::ARE)).find_map(|k| {
         let ws = h.state().ws.as_ref().unwrap();
@@ -369,9 +370,10 @@ fn new_module_and_area_through_the_wizards() {
     assert_eq!(w.selected, Some(0));
     h.get_by_label("Castle Interior").click();
     h.run();
+    area_wizard_next(&mut h, 1);
     h.get_by_label("Small").click();
     h.run();
-    h.get_by_label("Create").click();
+    area_wizard_finish(&mut h);
     h.run();
     let key = ResKey::parse("area001", ResType::ARE).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "{:?}", h.state().log.entries);

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T15:33:59Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:30:00Z }
 ---
 
 # Modules
@@ -75,7 +75,7 @@ a directory), nasher projects (see below) and the game's campaign files
   finds it on Windows (`Mymodule/` beside `mymodule.mod` on Linux), and
   is saved as that `.mod`. The welcome page's Recent Modules end a
   folder's name in `/` and name the folder each is in (`mymodule/ in
-  modules`, `mymodule.mod in modules`); the whole path is on hover, as
+  modules`, `mymodule.mod in modules`) and when it was opened last; the whole path is on hover, as
   in the File menu. `mg` opens the `.mod` it is given, as the server
   does, and says that the folder beside it is left as it is.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
@@ -2727,14 +2727,25 @@ plugin reads a description with `mg.twoda.describe`
 ## Areas
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
-size. It opens with the first tileset chosen (Aurora chooses none). It
-is one page: **Name**, **Tileset**, **Size** (**Tiny**, **Small**,
-**Medium** and **Large**, 2, 4, 8 and 16 tiles each way, or the rows and
-columns typed under them, 2 to 32 each), the check boxes **Open Area
-Properties** and **Open area in the Area Viewer**, and at its foot
-**Create** (the main button, which Enter presses once a name and a
-tileset are given) and **Cancel**. Its ResRef is made from the name,
-after [your builder code](#your-builder-code) where you have one (the
-wizard then shows it under the name). **Edit › Resize Area…** and
+size, in three steps as Aurora's does, listed at the left (the list
+drops out where the window is narrow) with the page's name over each:
+
+1. **Name and Tileset**: the **Name**, the **Tileset** list (it opens
+   with the first tileset chosen, where Aurora chooses none) and, where
+   the project hides tilesets, **Show hidden tilesets**. **Next >** is
+   on once there is a name and a tileset. A double click on a tileset
+   goes on to the next step, as **Next >** does.
+2. **Size**: **Tiny**, **Small**, **Medium** and **Large** (2, 4, 8 and
+   16 tiles each way), or the rows and columns typed under them, 2 to 32
+   each.
+3. **Finish**: a line saying what will be made, and the check boxes
+   **Open Area Properties** and **Open area in the Area Viewer**.
+
+The foot has **< Back** (what was entered stays), **Next >**, **Finish**
+and **Cancel**. **Finish** is on at the last step only, where it is the
+main button; before it, **Next >** is, and Enter presses the main
+button. Escape cancels. The wizard always opens on its first step. The
+ResRef is made from the name, after [your builder code](#your-builder-code)
+where you have one (the first step then shows it under the name). **Edit › Resize Area…** and
 **Rotate Area…** change the area shown last, as in Aurora. See
 [Areas](04-areas.md).

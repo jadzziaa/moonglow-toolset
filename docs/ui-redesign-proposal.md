@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T19:34:23Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -607,13 +607,13 @@ Also NEW with the look: the drag feedback, the readout chips, the Status Bar hin
 
 **Decided, but no board draws it:**
 
-- The dialogs that become dock panels (none of the new panels is drawn). Bottom Dock: Find Instance (a results list searched again and again; a Search Results tab), the hits of the module-wide Find and Replace Text (the form as the panel's header), Build Module's results (as Problems, the options as a panel), and the read-only reports (Hak Pak Conflict Analysis, Resources Used, Claims Table, Areas Not Yours). Right Dock of the area editor: Edit Areas Together (a Properties-style panel), Light Maker, Bake Walkmesh to Transform. A tab: Plugins. Staying dialogs: wizards, confirmations, Rename, Adjust Location, the pickers, NWSync publish.
+- The dialogs that become dock panels (none of the new panels is drawn). Bottom Dock: Find Instance (a results list searched again and again; a Search Results tab), the hits of the module-wide Find and Replace Text (the form as the panel's header), Build Module's results (as Problems, the options as a panel), and the read-only reports (Hak Pak Conflict Analysis, Resources Used, Claims Table, Areas Not Yours). Right Dock of the area editor: Edit Areas Together (a Properties-style panel), Light Maker, Bake Walkmesh to Transform. A tab: Plugins. Staying dialogs: wizards, confirmations, Rename, Adjust Location, the pickers, NWSync publish. (Since settled: Areas Not Yours stays a dialog, being a question asked on saving, Part 2's decision 5; Build Module keeps its options in its dialog, its results in Problems, Q4 (a).)
 - Floating editors: the tab menu (Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right) unchanged.
 - 2DA editor: Talk Table, Choose String…, New Line…, Choose Model… and the row chooser in the Cell panel for those column kinds; the read-only resource view with Copy to Module and Save As….
 - Talk table editor: the Language dropdown (nasher projects only), which would sit in the Talk Table panel.
-- Tiles: variant pictures (today only for a single selected tile); Tile Properties' Turn choices and search with All tiles on.
-- Welcome: a "last opened" time on Recent Modules (the settings keep only paths); the Left Dock (today only with a module open).
-- Hak editor: the row's right-click menu and the 2 GiB warning. Resources: Models as text (only when a model is listed), the row context menu, the Edit menu for 2DAs. Journal: the "Select a category or an entry" message and the Root or no-selection state. Factions: the Add Faction and Change Faction Name windows and the Basic chart view. Dialogs: Find Instance, Plugins, NWSync, Bake and Light maker; steps for the Area Wizard (one page today); a dimmed backdrop (today's do not dim). Viewer: TXI text; a list of animations beside the transport (the Timeline has only the combo).
+- Tiles: variant pictures (today only for a single selected tile; built 2026-11-25: with several chosen, those that fit every one); Tile Properties' Turn choices and search with All tiles on.
+- Welcome: a "last opened" time on Recent Modules (the settings keep only paths; built 2026-11-25); the Left Dock (today only with a module open).
+- Hak editor: the row's right-click menu and the 2 GiB warning. Resources: Models as text (only when a model is listed), the row context menu, the Edit menu for 2DAs. Journal: the "Select a category or an entry" message and the Root or no-selection state. Factions: the Add Faction and Change Faction Name windows and the Basic chart view. Dialogs: Find Instance, Plugins, NWSync, Bake and Light maker; steps for the Area Wizard (one page then; built 2026-11-25: Name and Tileset, Size, Finish, as Aurora's); a dimmed backdrop (today's do not dim). Viewer: TXI text; a list of animations beside the transport (the Timeline has only the combo).
 
 **Not mocked:**
 

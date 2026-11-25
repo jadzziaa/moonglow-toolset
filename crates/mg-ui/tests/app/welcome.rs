@@ -386,6 +386,31 @@ fn only_the_recent_rows_in_sight_are_laid_out() {
     assert!((5..40).contains(&rows), "{rows} rows laid out at the end");
 }
 
+/// A recent module's row says when it was opened where the settings know
+/// it (in its name for a screen reader), and says nothing where they do
+/// not (modules from settings written before the times).
+#[test]
+fn a_recent_row_tells_when_it_was_opened() {
+    let now = mg_core::time::unix_now();
+    for width in [1600.0, 700.0] {
+        let mut app = app_with(Vec::new());
+        app.settings.hide_log = true;
+        app.settings.recent = recent(&["castle.mod", "keep.mod", "tower.mod"]);
+        let times = [(now - 7300, "2 hours ago"), (now - 400, "6 minutes ago")];
+        for (name, (time, _)) in ["castle.mod", "keep.mod"].iter().zip(times) {
+            let path = std::path::Path::new("/srv/nwn/modules").join(name);
+            app.settings.recent_opened.insert(path, time);
+        }
+        let mut h = harness(app, width, 900.0);
+        settle(&mut h);
+        h.get_by_label("castle.mod in /srv/nwn/modules, opened 2 hours ago");
+        h.get_by_label("keep.mod in /srv/nwn/modules, opened 6 minutes ago");
+        // (No time known: the name as it was, with nothing about when.)
+        h.get_by_label("tower.mod in /srv/nwn/modules");
+        assert!(h.query_by_label_contains("opened less than").is_none());
+    }
+}
+
 /// A recent module's row is named for a screen reader with the folder it
 /// is in, takes the keys (Enter opens it, as a click does), and its box
 /// is where it is drawn.

@@ -778,7 +778,8 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
                 // (By its place in the list: a list edited by hand can name
                 // a module twice.)
                 let id = ui.id().with(("welcome-recent", i));
-                if recent_row(ui, id, path, r) {
+                let opened = app.settings.recent_opened.get(path).copied();
+                if recent_row(ui, id, path, opened, r) {
                     click = Some(Click::Recent(path.clone()));
                 }
             }
@@ -874,11 +875,15 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// The accessible name of a recent module's row: its name and the folder
-/// it is in.
-pub(crate) fn recent_label(path: &Path) -> String {
-    match recent_folder(path) {
+/// it is in, and when it was opened last where that is known.
+pub(crate) fn recent_label(path: &Path, opened: Option<u64>) -> String {
+    let place = match recent_folder(path) {
         folder if folder.is_empty() => recent_name(path),
         folder => format!("{} in {folder}", recent_name(path)),
+    };
+    match opened {
+        Some(time) => format!("{place}, opened {}", crate::recovery::age(time)),
+        None => place,
     }
 }
 
@@ -910,7 +915,7 @@ fn out_of_sight(ui: &mut Ui, id: egui::Id, r: Rect) -> Option<bool> {
 /// the folder it is in under it; the whole path its tooltip. Whether it
 /// was clicked (or Enter or Space pressed on it). Out of sight, only taken
 /// for the keyboard (the rows in sight alone are laid out).
-fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, r: Rect) -> bool {
+fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, opened: Option<u64>, r: Rect) -> bool {
     if let Some(pressed) = out_of_sight(ui, id, r) {
         return pressed;
     }
@@ -919,7 +924,7 @@ fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, r: Rect) -> bool {
     if response.gained_focus() {
         response.scroll_to_me(None);
     }
-    let label = recent_label(path);
+    let label = recent_label(path, opened);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));
     let painter = ui.painter();
     if response.hovered() || response.has_focus() {
@@ -932,7 +937,14 @@ fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, r: Rect) -> bool {
     let x = r.left() + ROW_OUT;
     let icon = if is_file(path) { Icon::Module } else { Icon::Folder };
     let words_x = x + metrics::ICON + ROW_ICON_GAP;
-    let words_w = r.right() - ROW_OUT - words_x;
+    // (The time at the row's right end, whole; the name and the folder
+    // are cut to what is left.)
+    let when = opened.map(|time| {
+        let words = crate::recovery::age(time);
+        one_line(ui, words, metrics::SMALL_SIZE, t.text_3, r.width())
+    });
+    let when_w = when.as_ref().map_or(0.0, |g| g.size().x + ROW_ICON_GAP);
+    let words_w = r.right() - ROW_OUT - words_x - when_w;
     let top = r.top() + 6.0;
     let name = one_line(ui, recent_name(path), metrics::BODY_SIZE, t.accent, words_w);
     let folder = one_line(ui, recent_folder(path), metrics::SMALL_SIZE, t.text_3, words_w);
@@ -945,6 +957,10 @@ fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, r: Rect) -> bool {
     painter.galley(pos2(words_x, top + (LINE - name.size().y) / 2.0), name, t.accent);
     let under = top + LINE + 1.0;
     painter.galley(pos2(words_x, under + (SMALL_LINE - folder.size().y) / 2.0), folder, t.text_3);
+    if let Some(g) = when {
+        let at = pos2(r.right() - ROW_OUT - g.size().x, r.center().y - g.size().y / 2.0);
+        painter.galley(at, g, t.text_3);
+    }
     response.on_hover_text(path.to_string_lossy().into_owned()).clicked()
 }
 

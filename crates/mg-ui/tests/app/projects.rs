@@ -1380,11 +1380,10 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     assert!(h.query_by_label("ResRef: ab_area002").is_some());
     h.get_by_label("Castle Interior").click();
     h.run();
+    area_wizard_next(&mut h, 1);
     h.get_by_label("Small").click();
     h.run();
-    h.get_by_label("Create").scroll_to_me();
-    settle(&mut h);
-    h.get_by_label("Create").click();
+    area_wizard_finish(&mut h);
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
     assert!(ws.module.contains(&ResKey::parse("ab_area002", ResType::ARE).unwrap()));

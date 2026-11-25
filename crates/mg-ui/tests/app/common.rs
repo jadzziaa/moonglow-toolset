@@ -1726,6 +1726,26 @@ pub(crate) const ANIMATIONS: (&str, &str, &str, &str) =
 /// any of its work takes on a busy machine, short of a test that hangs.
 pub(crate) const SETTLE_TIME: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The Area Wizard taken `pages` pages on, each by its Next button.
+pub(crate) fn area_wizard_next(h: &mut Harness<'_, Moonglow>, pages: usize) {
+    for _ in 0..pages {
+        h.get_by_label("Next >").scroll_to_me();
+        settle(h);
+        h.get_by_label("Next >").click();
+        settle(h);
+    }
+}
+
+/// The Area Wizard on its Size page taken to its last and finished.
+pub(crate) fn area_wizard_finish(h: &mut Harness<'_, Moonglow>) {
+    area_wizard_next(h, 1);
+    // (The step list has a Finish too: the button by its role.)
+    let role = egui::accesskit::Role::Button;
+    h.get_by_role_and_label(role, "Finish").scroll_to_me();
+    settle(h);
+    h.get_by_role_and_label(role, "Finish").click();
+}
+
 /// Frames until the UI stops asking for more and the window's own work is
 /// done ([`Moonglow::under_way`]: a gallery makes its pictures a few
 /// milliseconds' worth a frame, fewer on a busy machine; a look at the
