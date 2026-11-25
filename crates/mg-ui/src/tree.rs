@@ -1521,7 +1521,7 @@ pub(crate) const AREAS_HEIGHT_MENU: &str = "Areas Group Height";
 /// The handle's name, for a screen reader (and the tests).
 pub(crate) const WELL_HANDLE: &str = "Resize the Areas Group";
 /// The handle's tip.
-const WELL_HANDLE_TIP: &str = "Drag to resize the list of areas. Double-click to fit it.";
+const WELL_HANDLE_TIP: &str = "Drag to resize the list of areas, or double-click to fit it.";
 
 /// The handle along the Areas group's foot ([`WellFoot`]), over the tree's
 /// view `view`: a line across the pane with a grip in its middle, which
@@ -1539,15 +1539,22 @@ fn well_handle(app: &mut Moonglow, ui: &mut Ui, foot: WellFoot, view: egui::Rect
     let height = app.settings.areas_height;
     let least = WELL_LEAST_ROWS * row;
     let given = height != AreasHeight::Fit && foot.content > foot.auto + 0.5;
-    if foot.content <= least + 0.5 || !(foot.scrolls || given) {
+    let id = egui::Id::new("tree-well-handle");
+    // (Held, kept whatever the well becomes and wherever its foot goes:
+    // dragged as high as its rows, or below the tree's view, it is let go
+    // of here, where it opens out.)
+    let held = ui.ctx().dragged_id() == Some(id) || ui.ctx().drag_stopped_id() == Some(id);
+    if !held && (foot.content <= least + 0.5 || !(foot.scrolls || given)) {
         return;
     }
     let y = foot.foot;
-    if !view.y_range().contains(y) {
+    if !held && !view.y_range().contains(y) {
         return;
     }
-    let grip = egui::Rect::from_x_y_ranges(view.x_range(), y - 3.0..=y + 3.0).intersect(view);
-    let id = egui::Id::new("tree-well-handle");
+    let mut grip = egui::Rect::from_x_y_ranges(view.x_range(), y - 3.0..=y + 3.0);
+    if !held {
+        grip = grip.intersect(view);
+    }
     // (A press and a drag alone, never the keyboard's Tab: the docks'
     // seams'.)
     let r = ui.interact(grip, id, egui::Sense::CLICK | egui::Sense::DRAG);
@@ -1588,15 +1595,18 @@ fn well_handle(app: &mut Moonglow, ui: &mut Ui, foot: WellFoot, view: egui::Rect
         return;
     }
     let Some(at) = r.interact_pointer_pos() else { return };
-    // (Where on the line it was pressed, not where the drag began a few
-    // points on: the foot follows that point.)
+    // (By how far the pointer has gone since it was pressed (not since the
+    // drag began, a few points on), from the rows shown then: taken from
+    // where the foot is drawn, a tree scrolled to its end moved the well
+    // down as it grew shorter, and it went on shrinking to its least.)
     let taken = id.with("taken");
     if r.drag_started() {
         let from = ui.input(|i| i.pointer.press_origin()).map_or(at.y, |p| p.y);
-        ui.ctx().data_mut(|d| d.insert_temp(taken, from - y));
+        let shown = ((foot.foot - foot.top) / row).round();
+        ui.ctx().data_mut(|d| d.insert_temp(taken, (from, shown)));
     }
-    let offset = ui.ctx().data(|d| d.get_temp::<f32>(taken)).unwrap_or(0.0);
-    let rows = ((at.y - offset - foot.top) / row).round().clamp(WELL_LEAST_ROWS, all);
+    let (from, shown) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(taken)).unwrap_or((at.y, 0.0));
+    let rows = (shown + ((at.y - from) / row).round()).clamp(WELL_LEAST_ROWS, all);
     if r.dragged() {
         let now = ((foot.foot - foot.top) / row).round();
         if rows != now || matches!(height, AreasHeight::Rows(_)) {

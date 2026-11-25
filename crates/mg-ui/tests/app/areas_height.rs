@@ -201,6 +201,20 @@ fn opened_out_the_areas_are_the_tree_s_rows_and_it_alone_scrolls() {
     assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(last_key)));
     let last = h.get_by_label(&all[all.len() - 1].to_string()).rect();
     assert!(last.bottom() <= view_bottom(&h) + 0.5, "{last:?}");
+    // A name typed goes to its row, in sight; Home to the tree's top.
+    h.event(egui::Event::Text("area_04".into()));
+    h.run_steps(2);
+    settle(&mut h);
+    let typed = ResKey::new(all[40], ResType::ARE);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(typed)), "typed to area_040");
+    let row = h.get_by_label(&all[40].to_string()).rect();
+    assert!(row.top() >= 0.0 && row.bottom() <= view_bottom(&h) + 0.5, "{row:?}");
+    h.key_press(egui::Key::Home);
+    h.run_steps(2);
+    settle(&mut h);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Group("Areas")), "Home");
+    let areas_row = group(&h, "Areas").rect();
+    assert!(areas_row.top() >= 0.0 && top(&h) > was - 300.0, "at the tree's top: {areas_row:?}");
     // Kept opened out, with more areas.
     let settings = h.state().settings.clone();
     drop(h);
@@ -307,4 +321,31 @@ fn a_well_taller_than_the_tree_s_view_brings_its_rows_into_sight() {
     h.state_mut().tree_reveal = Some((ResKey::new(far, ResType::ARE), false));
     settle(&mut h);
     assert!(in_sight(&h, &far.to_string()), "{far} in sight");
+}
+
+/// The handle held while its foot goes out of the tree's view (dragged
+/// past the Status Bar) or the well comes to all its rows (fewer areas
+/// than the fitted well would show) is still the builder's: the height
+/// dragged to taken, and opened out once let go at all its rows.
+#[test]
+fn the_handle_stays_held_out_of_sight_and_at_all_its_rows() {
+    let mut h = many("ui-areas-height-held", 200, (1000.0, 800.0), None);
+    let fit = well_rows(&h);
+    drag_handle(&mut h, 25.0);
+    assert_eq!(h.state().settings.areas_height, AreasHeight::Rows((fit + 25.0) as u16));
+    assert_eq!(well_rows(&h), fit + 25.0);
+    // Taken again, the tree wheeled down to it.
+    let at = group(&h, "Areas").rect().center() + egui::vec2(0.0, 100.0);
+    wheel(&mut h, at, -400.0, 20);
+    drag_handle(&mut h, -10.0);
+    assert_eq!(well_rows(&h), fit + 15.0, "taken again");
+    // Twelve areas, the well six rows where fitted it shows them all:
+    // dragged down to all twelve and let go, opened out.
+    let mut h = many("ui-areas-height-twelve", 12, (1000.0, 800.0), None);
+    h.state_mut().settings.areas_height = AreasHeight::Rows(6);
+    settle(&mut h);
+    assert_eq!(well_rows(&h), 6.0);
+    drag_handle(&mut h, 8.0);
+    assert_eq!(h.state().settings.areas_height, AreasHeight::Open);
+    assert!(handle(&h).is_none(), "twelve rows fit");
 }
