@@ -4815,9 +4815,7 @@ fn script_review_cases() {
     h.run();
     let open = |h: &mut Harness<'_, Moonglow>, n: &str| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(nss(n))));
-        h.run_steps(10);
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        h.run_steps(10);
+        settle(h);
     };
     open(&mut h, "m1q3_formosa_9");
     h.state_mut().log.info("m1q3_formosa_9.nss: compiled");

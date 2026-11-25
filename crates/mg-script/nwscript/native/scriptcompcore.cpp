@@ -1250,6 +1250,13 @@ int32_t CScriptCompiler::CompileFile(const CExoString &sFileName)
 	}
 
 	m_pcIncludeFileStack[m_nCompileFileLevel].m_sCompiledScriptName = sFileName;
+	// MOONGLOW PATCH (include-trace-line)
+	// A file new at this level has no line saved yet: the entry's line is
+	// set only when the file includes another. Left as it was, an error's
+	// include trace ([via: ...]) printed a line from an earlier compile,
+	// or uninitialized memory.
+	m_pcIncludeFileStack[m_nCompileFileLevel].m_nLine = 0;
+	// END MOONGLOW PATCH
 
     m_nDeliveredFileSize = 0;
 
