@@ -3,7 +3,7 @@ type: Reference
 title: The machine's locks on the off-screen display and the GPU
 description: The protocol every program shares to take turns at the off-screen display (the game client, Aurora, the display's restarts) and at the GPU devices that tests open - the lock files, their modes, the order, MOONGLOW_LOCKS_HELD, the holder line, the waits and messages, who takes what and what takes nothing - for an outside program that wants to honor it.
 tags: [locks, flock, display, gpu, tests, oracle, protocol]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T14:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T19:00:31Z }
 sources:
   - id: code
     resource: "crates/mg-testkit/src/display.rs, crates/mg-testkit-gpu/src/{gpu,slots}.rs, tools/locks.sh, tools/aurora/{headless,run-aurora}.sh, tools/nwclient/run-{client,server-and-client}.sh"
@@ -97,6 +97,35 @@ The client tests call `common::gpu_after_display()` instead of
 | `mg_testkit::gpu` users (mg-render, mg-ui, mg-preview, the corpus tests, the viewer's tests) | one GPU slot per test |
 | A person or agent at the shell | `tools/locks.sh hold display -- CMD...` for anything driven by hand: one client run with xdrive calls under it, a whole Aurora capture session |
 
+**Take the lock first, then the display.** Start or check the display
+(`tools/aurora/headless.sh start` or `check`) inside your hold, and never
+read `DISPLAY` or the display's number before it: the holder before you
+may restart the display, so a number read outside the hold can name a
+session that is gone. A batch by hand is one hold around a script that
+starts the display and runs everything:
+`tools/locks.sh hold display -- bash -c 'export DISPLAY=$(tools/aurora/headless.sh start) && ...'`.
+
+## The display's history
+
+`${MOONGLOW_ORACLE}/locks/display.history` keeps one line per event at the
+display, the last 1,000 (`mg_display_history` in `tools/locks.sh`), so a
+run that failed can be set beside what happened to the display at the time:
+
+- `headless.sh start` when it launches a session (its display and session PID, or that it did not start), and `headless.sh stop`;
+- `run-client.sh` at the client's start (the display, the scratch folder, the arguments) and at its end, with the exit status (a SIGTERM or SIGINT to the script stops the client and still writes the end, which is how the client tests stop it, `common::stop_client`; a `kill -9` of the script leaves no end line: the sandbox dies with it);
+- `run-server-and-client.sh` at its start.
+
+Each line gives the UTC time, the PID, the event, the lock's state (held
+by this run, held by an ancestor with its holder line, or not held), the
+PID and command line that called the script, and the folder:
+
+```
+2026-11-25T19:02:11Z PID 41230: run-client.sh end: status 0, /…/target/test-output/client_reading_x; lock held by an ancestor (PID 41190, started 14:01:30, client_render, in /…); called by PID 41190 /…/client_render-… --ignored; in /…
+```
+
+Other programs that restart the display through `headless.sh` (TDoD's
+scripts do) show in it too.
+
 Taking nothing: the engine runner (`run_server`, `save_game`, `timed_turn`:
 `nwserver` is CPU-only), `mg`, `mgv`, and the GUIs (Moonglow, Moonglow
 Viewer): the owner's window never waits.
@@ -104,6 +133,6 @@ Viewer): the owner's window never waits.
 ## For an outside program
 
 1. Open `display.lock` for append (not truncating), `flock -x -w SECONDS`, write your holder line over the file, keep the descriptor open for your run, export `MOONGLOW_LOCKS_HELD=display` to what you start.
-2. Take it before restarting the display and keep your existing checks.
+2. Take it before restarting or checking the display, and read the display's number only inside the hold. Keep your existing checks.
 3. Keep the descriptor out of anything that must outlive you.
 4. If you run Moonglow's test suites, nothing else is needed: they take the display and the slots themselves.

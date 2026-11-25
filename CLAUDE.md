@@ -106,6 +106,9 @@ a restart of the display) holds the machine's display lock first
 `tools/locks.sh hold display -- CMD...` around anything you drive, and
 a holder exports `MOONGLOW_LOCKS_HELD=display` so what it starts does not
 wait for it. A wait is on stderr (`MOONGLOW_LOCK_WAIT=SECONDS`, 0 refuses).
+Take the lock first, then start or check the display inside the hold
+(`headless.sh start` there gives `DISPLAY`): never read `DISPLAY` before
+the hold, since the holder before you may restart the display.
 Reading the client's own code (`nm`, `objdump` on the unstripped
 `nwmain-linux`) is a last resort, by the owner's word: only once its
 pictures, patched includes, scripts, shims and runs made to tell the

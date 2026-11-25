@@ -311,6 +311,24 @@ pub(crate) fn gpu_after_display() {
     mg_testkit::gpu::hold();
 }
 
+/// Stops a client started with `run-client.sh`: a SIGTERM to the launcher,
+/// which stops the client (kill -9) and writes the display history's end
+/// line (`docs/locks.md`), then a kill -9 of the launcher if it has not
+/// ended in 10 seconds.
+#[allow(dead_code)]
+pub(crate) fn stop_client(child: &mut std::process::Child) {
+    let _ = Command::new("kill").args(["-TERM", &child.id().to_string()]).status();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// The client's launcher, told that the display is held (by
 /// [`client_lock`]), so that it takes nothing of its own.
 #[allow(dead_code)]
@@ -372,8 +390,7 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
             .arg(&shot)
             .status()
             .is_ok_and(|s| s.success());
-    let _ = child.kill();
-    let _ = child.wait();
+    stop_client(&mut child);
     ok.then(|| read_png(&shot))
 }
 
@@ -478,8 +495,7 @@ pub(crate) fn client_screenshots_with(
         let first = *first.get_or_insert(at);
         out.push(((at - first).as_secs_f64(), read_png(&shot)));
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    stop_client(&mut child);
     (out.len() == shots).then_some(out)
 }
 

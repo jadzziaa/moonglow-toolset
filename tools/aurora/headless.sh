@@ -65,7 +65,12 @@ EOF
       [[ -s "$H/display" ]] && break
       sleep 0.1
     done
-    [[ -s "$H/display" ]] || { echo "headless session did not start; see $H/kwin.log" >&2; exit 1; }
+    if [[ ! -s "$H/display" ]]; then
+      mg_display_history "headless.sh start: the session did not start"
+      echo "headless session did not start; see $H/kwin.log" >&2
+      exit 1
+    fi
+    mg_display_history "headless.sh start: display $(cat "$H/display"), session PID $(cat "$H/session.pid")"
     cat "$H/display"
     ;;
   check)
@@ -84,6 +89,11 @@ EOF
     ;;
   stop)
     mg_lock_display "headless.sh stop"
+    if running; then
+      mg_display_history "headless.sh stop: display $(cat "$H/display" 2>/dev/null), session PID $(cat "$H/session.pid")"
+    else
+      mg_display_history "headless.sh stop: no session running"
+    fi
     if running; then
       # setsid made the session its own process group.
       kill -- "-$(cat "$H/session.pid")" 2>/dev/null || true

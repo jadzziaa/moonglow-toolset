@@ -517,8 +517,7 @@ fn nui_readings_in_the_client() {
         }
     }
     std::thread::sleep(Duration::from_secs(2));
-    let _ = child.kill();
-    let _ = child.wait();
+    common::stop_client(&mut child);
     for line in read().lines().filter(|l| l.contains("MG_EV")) {
         eprintln!("{line}");
     }
@@ -760,8 +759,7 @@ fn reading_scrollbar_end_buttons() {
         }
     }
     let Some(marks) = found else {
-        let _ = child.kill();
-        let _ = child.wait();
+        common::stop_client(&mut child);
         panic!("the window was not seen (see {})", dir.display());
     };
     // (The picture runs behind the client: settle, then the one before.)
@@ -785,7 +783,6 @@ fn reading_scrollbar_end_buttons() {
             );
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    common::stop_client(&mut child);
     eprintln!("pictures: {}", dir.display());
 }
