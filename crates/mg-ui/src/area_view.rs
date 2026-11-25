@@ -1224,6 +1224,9 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
         if view.scene.is_some() && app.dock.find_tab(&crate::Tab::Area(*area)).is_none() {
             view.reload();
             view.particles.clear();
+            // (Its models' shadow volumes too, which the renderer keeps,
+            // though no view draws again.)
+            vp.renderer.let_go_of_gone_models();
         }
     }
 }

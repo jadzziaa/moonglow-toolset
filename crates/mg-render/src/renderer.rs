@@ -2289,6 +2289,15 @@ impl Renderer {
         self.volumes.as_ref().map_or(0, |v| v.meshes.count())
     }
 
+    /// Lets go of what is kept of models no longer held (their meshes'
+    /// shadow volumes) now, not at the next frame drawn: for a view that
+    /// let go of its scene while no other view draws.
+    pub fn let_go_of_gone_models(&mut self) {
+        if let Some(v) = &mut self.volumes {
+            v.meshes.begin(self.kept.now);
+        }
+    }
+
     /// Holds the making of shadow volumes apart ([`Renderer::volumes_apart`])
     /// while `held`: those asked for wait (for a test).
     #[doc(hidden)]
