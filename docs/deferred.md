@@ -566,22 +566,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   built on it; left filed by the owner's word, 2026-11-10. (the part
   textures, 2026-11-10)
 
-- **A mesh whose texture is nowhere is drawn darker than the client
-  draws it, black on top where the client's is gray:** seen beside the
-  part textures' reading (`part_textures_look`, rows l and z: a head's
-  mesh naming its own missing texture), with the Shaders switch off and
-  on alike. Read since (2026-11-13, GitHub issue 45, group `Z9@^~`): the
-  client draws such a mesh, a helmet's and a part's alike, close to a
-  white TGA of alpha 0 (row @), its object's environment map reflected
-  over all of it; Moonglow draws it so too, and draws row @ as dark as
-  its own row Z. What differs is how `chrome1` is reflected by a surface
-  that reflects wholly (the tops black in Moonglow, gray in the client),
-  which is every fully reflective texture's, not a missing one's.
-  Deferred as beyond what was asked (it would change the reflections of
-  every such texture in every view, and wants a reading of its own:
-  `chrome1` on a fully reflective box seen from several sides and
-  above, under the area's sun and without). M. (a builder's report on
-  4.0, the part textures, 2026-11-10; GitHub issue 45, 2026-11-13)
+- **A scene with little light draws the client's boxes 4 to 8 times
+  brighter than Moonglow's:** read with `chrome1_reflection_look`'s dark
+  light (ambient `0x080808`, no diffuse): the client's boxes of
+  `chrome1` stay several times brighter than Moonglow's, in the
+  placeables' boxes and the worn helmet's alike; the light uniforms the
+  two read (`frontLightModelProductSceneColor`, `lightAreaAmbient`) are
+  equal, so the cause is not found. Under the sun, and with none, the
+  two agree within a few of 255. Deferred as beyond what was asked (the
+  helmet fix of 2026-11-25 was the reflection's map; this is the dark
+  scene's whole brightness, and wants a reading of its own: which term
+  the client adds that Moonglow lacks). M. (the chrome1 reading,
+  2026-11-25)
 - **A creature holding a torch** stands in the client with its arm
   raised, the torch held up, and the torch lights the area around it;
   Moonglow draws the arm as in any other stance and no light (its flame

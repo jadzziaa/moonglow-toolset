@@ -1373,6 +1373,31 @@ is `default` too, the area's, not `chrome1`.
   (`Instance::env_map_default`).
 - **Wiki:** missing.
 
+### A creature's worn and held items reflect the area's map
+
+A helmet, a shield and a weapon a creature wears or holds reflect the
+area's environment map (its tileset's `EnvMap`, `tic01__ref01` in
+`tic01`), as the creature does, not `chrome1`. A mesh whose texture is
+nowhere, drawn as a white texture of alpha 0, reflects wholly, so the map
+shows over all of it: a helmet's tops were gray in the client and bluish
+in Moonglow until its map was the area's. A placeable's `chrome1` is the
+placeable's alone. And on a placeable whose `Reflection` is `default`, a
+texture's TXI `envmaptexture` naming a map is not taken: the client
+keeps `chrome1` (the TXI's gradient did not show), where Moonglow
+reflected the named one.
+
+- **Checked:** `chrome1_helmet_reflection_look` (2026-11-25; a worn
+  `helm_241` box, a held shield and a held long sword, with
+  `MG_CHROME_HELD`; the variants `chrome1` and `ref01-gradient`, a
+  gradient over `tic01__ref01.tga`, which shows on the client's items
+  and, since the fix, on Moonglow's), and `chrome1_reflection_look`
+  (boxes over placeables 428 and 447, and a TXI naming a gradient).
+- **Moonglow:** `crates/mg-preview/src/creature.rs` and `item.rs`
+  (a worn or held part's `env_map` is `default`); the TXI case in
+  `crates/mg-render/src/renderer.rs`
+  (`a_texture_s_default_map_is_the_area_s_unless_the_object_names_one`).
+- **Wiki:** missing.
+
 ### The game's shaders and Moonglow's own in stock interiors
 
 With the game's stock shaders, the area view draws an interior the same

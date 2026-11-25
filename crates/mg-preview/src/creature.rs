@@ -288,7 +288,12 @@ pub(crate) fn dressed_with(
                     let scale_col = if female { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };
                     p.scale = cell_f32(&appearance, r, scale_col).unwrap_or(1.0);
                     p.colors = Some(h.colors_over(colors));
-                    p.env_map = Some("chrome1".into());
+                    // The creature's `default`, the area's map: the client
+                    // reflects `tic01__ref01` on a worn helmet, where this
+                    // was `chrome1`, blue gray and black on top
+                    // (`chrome1_helmet_reflection_look` in
+                    // mg-corpus-tests' `client_render`, 2026-11-25).
+                    p.env_map = Some("default".into());
                     p.textures = helmet_textures(&lk, &p.model);
                     // (In the head's place, as the head's.)
                     p.local = look.head_transform.and_then(|t| t.matrix());
