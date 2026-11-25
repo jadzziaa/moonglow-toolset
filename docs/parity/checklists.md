@@ -74,7 +74,7 @@ unless their file (under `crates/`) follows the name.
 | Aurora | Moonglow | |
 |---|---|---|
 | Export chosen resources (+ dependencies) to `.erf` | Export Resources window | ✅ [export_then_import_into_another_module] |
-| (none: Aurora's export has each resource ticked by hand) | File › Export Changed Resources…: the Export Resources window with the resources changed since the module was opened ticked (saved or not, by any route; `module.ifo` listed unticked), and its **Select the N Changed** | — Moonglow's own (Twohand's ask) [export_changed_resources_ticks_what_changed_since_the_module_was_opened], [what_changed_since_the_module_was_opened] |
+| (none: Aurora's export has each resource ticked by hand) | File › Export Changed Resources…: the Export Resources window with the resources changed since the module was opened ticked (saved or not, by any route; `module.ifo` listed unticked), and its **Select Changed** | — Moonglow's own (Twohand's ask) [export_changed_resources_ticks_what_changed_since_the_module_was_opened], [what_changed_since_the_module_was_opened] |
 | Import `.erf`, ask about overwriting | Import Resources window with overwrite choices, one undoable step | ✅ |
 
 ## Options (`TdlgOptions`)

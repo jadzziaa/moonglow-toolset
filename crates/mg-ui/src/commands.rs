@@ -945,6 +945,9 @@ impl Id {
             Id::BuilderCode => "Open a module in a folder or a nasher project first",
             Id::ClaimsTable => "The project keeps no claims table",
             Id::TakeInLeftOut => "nasher.cfg leaves no files out",
+            Id::ExportChanged if open && !app.unsaved_module_editors().is_empty() => {
+                "Nothing changed in the module yet: save the editors with unsaved changes first"
+            }
             Id::ExportChanged if open => "No resource has changed since the module was opened",
             Id::ViewTree | Id::ViewPalettes => "The dock holds no panel now",
             Id::ViewProperties if open => "Switch to an area first",

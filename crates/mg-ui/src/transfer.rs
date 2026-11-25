@@ -1443,12 +1443,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 // goes with them, as Export Changed Resources ticks them.)
                 if !changed.is_empty() {
                     let all = changed.is_subset(&draft.selected);
+                    // (Its count in the tip: the row is full with the
+                    // Listed button's.)
+                    let tip = match changed.len() {
+                        1 => "Tick the resource changed since the module was opened".to_string(),
+                        n => format!("Tick the {n} resources changed since the module was opened"),
+                    };
                     if ui
-                        .add_enabled(
-                            !all,
-                            egui::Button::new(format!("Select the {} Changed", changed.len())),
-                        )
-                        .on_hover_text("Tick the resources changed since the module was opened")
+                        .add_enabled(!all, egui::Button::new("Select Changed"))
+                        .on_hover_text(tip)
+                        .on_disabled_hover_text("They are ticked")
                         .clicked()
                     {
                         draft.selected.extend(changed.iter().copied());

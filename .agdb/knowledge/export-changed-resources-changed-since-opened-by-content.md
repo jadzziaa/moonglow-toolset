@@ -43,3 +43,6 @@ for free.
   so not in the export (as a normal Export); the dialog warns of them.
 - Menus show no why-disabled tips in general (Quick Open does); this command
   adds one for itself in `commands::button`.
+- A module without custom palettes gets them at its first save with game
+  data: they count as new (changed). A module that has them sees no change
+  from a bare save (tested with the game's data).

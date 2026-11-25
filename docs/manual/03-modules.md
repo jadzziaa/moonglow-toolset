@@ -2539,7 +2539,7 @@ plugin reads a description with `mg.twoda.describe`
   some or tick more, then **Export N…** or **Export N as Files…** as
   always. **Include the resources they use** starts off here (what they
   use did not change). The command is grayed while nothing has changed.
-  The window's **Select the N Changed** ticks the same resources in an
+  The window's **Select Changed** ticks the same resources in an
   Export opened any other way. Scripts and 2DAs open with unsaved
   changes are named in a warning: an export takes them as they were last
   saved.
