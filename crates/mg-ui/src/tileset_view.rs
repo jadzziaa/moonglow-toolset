@@ -2395,7 +2395,8 @@ fn prepare_minimap_plan(app: &mut Moonglow, d: &TilesetDoc) -> Option<MinimapPla
         app.log.error("Rendering minimaps needs the game data");
         return None;
     }
-    // Verify exclusive access before mutating `d`.
+    // (The folder is mounted only into game data the window alone holds:
+    // refused now, before anything is asked or named.)
     app.release_game_data();
     if crate::exclusive(&mut app.game).is_none() {
         app.log.error(MINIMAP_HELD);
