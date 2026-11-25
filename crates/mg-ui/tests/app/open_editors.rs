@@ -1121,3 +1121,35 @@ fn a_floating_editor_s_tab_menu_keeps_today_s_entries() {
     assert!(tops.windows(2).all(|t| t[0] < t[1]), "in the menu's order: {entries:?} at {tops:?}");
     assert!(h.query_by_label("Eject").is_none(), "no Eject for the window's lone tab");
 }
+
+#[test]
+fn docked_tabs_omit_maximize_and_floating_windows_hint_escape() {
+    let mut h = window(Mode::Tabs, "ui-docked-no-maximize", &[]);
+    open(&mut h, &script(1));
+    assert_eq!(in_main(&h, &script(1)), Some(true), "docked tab in As Tabs");
+    assert_eq!(
+        mg_ui::commands::Id::MaximizeWindow.why_disabled(h.state()),
+        "No floating editor window is open"
+    );
+    doc_tab(&h, "s01.nss").click_secondary();
+    until(&mut h, "the tab's menu", |h| h.query_by_label("Close Others").is_some());
+    assert!(h.query_by_label("Maximize").is_none(), "docked tab menu omits dead Maximize");
+    escape(&mut h);
+
+    // A floating OK/Cancel window hovered shows Esc: Cancel in the Status Bar.
+    let mut h = window(Mode::Floating, "ui-float-esc-hint", &[]);
+    let wp = waypoint("wp_a");
+    open(&mut h, &wp);
+    assert_eq!(in_main(&h, &wp), Some(false), "floating window");
+    let over = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&wp))
+        .expect("floating waypoint open")
+        .1
+        .viewport
+        .center();
+    hover(&mut h, over);
+    until(&mut h, "floating window shows Esc: Cancel hint", esc_hinted);
+}

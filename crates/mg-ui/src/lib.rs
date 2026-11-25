@@ -1012,6 +1012,7 @@ pub struct Moonglow {
     /// after the editor area; and those being drawn this frame.
     pub(crate) window_bars: Vec<Panel>,
     pub(crate) window_bars_drawn: Vec<Panel>,
+    pub(crate) window_previews_drawn: Vec<Tab>,
     /// The Right Dock's panels chosen in front in the run, the last one
     /// chosen last: each section's front is the last of its panels here
     /// (`shell::section_front`).
@@ -1397,6 +1398,8 @@ pub struct Moonglow {
     /// no hint is shown). (A window in front with OK and Cancel takes an
     /// Escape only where no docked tab does.)
     pub(crate) escape_hint_next: Option<Tab>,
+    pub(crate) window_layers_drawn: Vec<egui::LayerId>,
+    pub(crate) window_escape_candidates: Vec<(Tab, egui::LayerId)>,
     /// The pointer over a floating model's window as the editor area was
     /// drawn: an Escape closes that window, whatever docked tab would
     /// take it otherwise (`tabs::Viewer::body`'s `model`).
@@ -1837,6 +1840,7 @@ impl Moonglow {
             right_places: Vec::new(),
             window_bars: Vec::new(),
             window_bars_drawn: Vec::new(),
+            window_previews_drawn: Vec::new(),
             right_fronts: Vec::new(),
             bottom_panel: None,
             window_bottoms: HashMap::new(),
@@ -1969,6 +1973,8 @@ impl Moonglow {
             escape_docked: None,
             escape_docked_next: None,
             escape_hint_next: None,
+            window_layers_drawn: Vec::new(),
+            window_escape_candidates: Vec::new(),
             model_under_pointer_next: false,
             options_hovered_next: false,
             window_tabs_next: Vec::new(),
@@ -2197,9 +2203,12 @@ impl Moonglow {
         // (The Status Bar's Esc and Enter hints, as the editor area was
         // drawn last.)
         self.escape_hint_next = None;
+        self.window_layers_drawn.clear();
+        self.window_escape_candidates.clear();
         self.model_under_pointer_next = false;
         self.options_hovered_next = false;
         self.window_tabs_next.clear();
+        self.window_previews_drawn.clear();
         let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
         if let Some(at) = pressed.flatten() {
             self.last_press = Some((at, ui.ctx().layer_id_at(at)));
@@ -2590,10 +2599,6 @@ impl Moonglow {
         // (What a NUI designer's panels changed where its editor was not
         // drawn after them, M4's U18.)
         nui_view::follow(self, ui.ctx());
-        // (What the Status Bar shows, made once a frame from the editor
-        // area as this frame left it; the bar was drawn before it, so where
-        // it changed, the next frame shows it.)
-        shell::update_shown(self, ui.ctx());
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
@@ -2685,6 +2690,10 @@ impl Moonglow {
         plugins::remove_window(self, ui.ctx());
         tileset_view::windows(self, ui.ctx());
         jobs::window(self, ui.ctx());
+        // (What the Status Bar shows, made once a frame after the editor area
+        // and all dialog windows have drawn so dialog closing does not lag by
+        // a frame.)
+        shell::update_shown(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
         // The 3D views not drawn lately: their targets let go of (and a
@@ -4178,7 +4187,7 @@ impl Moonglow {
         let mut grips: Vec<(egui::LayerId, egui::Rect)> = Vec::new();
         for (path, leaf) in self.dock.iter_leaves() {
             let Some(tab) = leaf.tabs.get(leaf.active.0).or(leaf.tabs.first()) else { continue };
-            if path.surface.is_main() || tab.docks() {
+            if path.surface.is_main() {
                 continue;
             }
             let own: Vec<_> = buttons.iter().filter(|(t, ..)| leaf.tabs.contains(t)).collect();
@@ -4305,10 +4314,16 @@ impl Moonglow {
     /// it is known by its first tab.
     fn windows_maximized(&self, tabs: &[Tab]) -> bool {
         let Some(path) = tabs.first().and_then(|t| self.dock.find_tab(t)) else { return false };
-        (self.dock.iter_leaves())
-            .find(|(p, _)| p.surface == path.surface)
-            .and_then(|(_, leaf)| leaf.tabs.first())
-            .is_some_and(|first| self.maximized.contains_key(first))
+        self.surface_maximized(path.surface)
+    }
+
+    /// Whether floating `surface` is maximized (known by its first leaf tab).
+    pub(crate) fn surface_maximized(&self, surface: egui_dock::SurfaceIndex) -> bool {
+        !surface.is_main()
+            && (self.dock.iter_leaves())
+                .find(|(p, _)| p.surface == surface)
+                .and_then(|(_, leaf)| leaf.tabs.first())
+                .is_some_and(|first| self.maximized.contains_key(first))
     }
 
     /// Where each window is: its first tab, and the room its panes take.

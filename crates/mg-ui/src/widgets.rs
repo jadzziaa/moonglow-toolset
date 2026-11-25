@@ -4895,6 +4895,12 @@ pub(crate) fn dialog_open(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| !d.open.is_empty())
 }
 
+/// Whether any dialog drew during the current frame, without the one-frame
+/// `Dialogs.open` lag after a dialog closes.
+pub(crate) fn dialog_drawn(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| !d.seen.is_empty())
+}
+
 /// Whether the window on `layer` is a dialog (one that Escape closes or a
 /// Cancel answers, shown last frame): what the Welcome page's update line
 /// may stand under without the strip telling it (About over the line
@@ -7135,7 +7141,7 @@ pub(crate) fn header_with_ok_cancel<'a>(
     let buttons: Vec<mg_uikit::KitButton> = match close_tip {
         Some(tip) => vec![mg_uikit::KitButton::new(None, "Close").tip(tip)],
         None => vec![
-            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
+            mg_uikit::KitButton::new(None, "OK").look(mg_uikit::ButtonLook::Primary).tip(tips[0]),
             mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
         ],
     };

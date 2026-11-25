@@ -190,7 +190,9 @@ fn hints(
             Hint::keys(["Shift", "Click"], "Place more"),
             stop(),
         ]);
-    } else if let Some(key) = brush(app) {
+    } else if !view.tile_mode
+        && let Some(key) = brush(app)
+    {
         out.push(Hint::note(format!("Placing {}", key.resref)));
         match ObjectKind::from_restype(key.restype) {
             Some(kind) if kind.has_outline() => out.extend([
@@ -272,6 +274,10 @@ fn hints(
             Hint::keys(["Right Click"], "Tile menu"),
             Hint::keys(["Shift", "Right Click"], "Next tile"),
             Hint::keys(["Shift", "Drag"], "Add a box"),
+            Hint::keys(
+                ["Esc"],
+                if view.tile_selection.is_empty() { "Select objects" } else { "Clear selection" },
+            ),
         ]);
     } else if let Some(drag) = view.drag.filter(|d| !matches!(d, Drag::Box { .. })) {
         // (One object moved or turned: where it is now, first.)

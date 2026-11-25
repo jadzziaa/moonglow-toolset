@@ -250,7 +250,19 @@ impl Canvas {
     ) {
         let galley = painter.layout_no_wrap(text, egui::FontId::monospace(11.0), t.text);
         let size = egui::vec2(2.0 + 6.0 + galley.size().x + 6.0, CHIP_HEIGHT);
-        let rect = Rect::from_min_size(corner - egui::vec2(0.0, size.y), size);
+        let bounds = painter.clip_rect().shrink(4.0);
+        let mut pos = corner - egui::vec2(0.0, size.y);
+        if bounds.width() >= size.x {
+            pos.x = pos.x.min(bounds.right() - size.x).max(bounds.left());
+        } else {
+            pos.x = bounds.left();
+        }
+        if bounds.height() >= size.y {
+            pos.y = pos.y.min(bounds.bottom() - size.y).max(bounds.top());
+        } else {
+            pos.y = bounds.top();
+        }
+        let rect = Rect::from_min_size(pos, size);
         let rim = Stroke::new(1.0, t.chip_rim);
         let chip = egui::epaint::RectShape::new(
             rect,

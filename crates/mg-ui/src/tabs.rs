@@ -582,6 +582,18 @@ impl Viewer<'_> {
             self.app.cancel_rects_next.push((layer, ui.max_rect()));
             self.foresee_escape(ui, tab, layer, tool || recording);
         }
+        if floating {
+            self.app.window_layers_drawn.push(layer);
+            if self.app.escape_docked_seen.is_none()
+                && tab.escape_cancels()
+                && !recording
+                && !tool
+                && ui.memory(|m| m.focused().is_none())
+                && !ui.input(|i| i.pointer.any_down())
+            {
+                self.app.window_escape_candidates.push((tab.clone(), layer));
+            }
+        }
         if *tab == Tab::Options && ui.rect_contains_pointer(ui.max_rect()) {
             self.app.options_hovered_next = true;
         }
@@ -818,7 +830,7 @@ impl TabViewer for Viewer<'_> {
 
     /// The tab's menu (before egui_dock's Eject): Rename… for a resource of
     /// the module, which renames it everywhere it is named, and the rest.
-    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, _path: egui_dock::NodePath) {
+    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, path: egui_dock::NodePath) {
         mg_uikit::menu_rows(ui);
         let ours = tab
             .renamable()
@@ -861,8 +873,9 @@ impl TabViewer for Viewer<'_> {
             ui.close();
         }
         // A window of its own fills the main pane, and goes back.
-        if !tab.docks() {
-            let label = if self.app.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
+        if !path.surface.is_main() {
+            let label =
+                if self.app.surface_maximized(path.surface) { "Restore" } else { "Maximize" };
             if ui.button(label).on_hover_text("Also: double-click the tab").clicked() {
                 self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
                 ui.close();
@@ -965,7 +978,9 @@ impl TabViewer for Viewer<'_> {
         if response.middle_clicked() && tab.closeable() {
             self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
         }
-        if response.double_clicked() && !tab.docks() {
+        if response.double_clicked()
+            && self.app.dock.find_tab(tab).is_some_and(|p| !p.surface.is_main())
+        {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
     }

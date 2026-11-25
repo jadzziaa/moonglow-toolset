@@ -2776,6 +2776,29 @@ pub(crate) fn grid_in(
     let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
     let still = egui::scroll_area::ScrollSource::NONE;
     let (scroll_x, scroll_y) = (doc.scroll.x, doc.scroll.y);
+    let spacing_x = ui.spacing().item_spacing.x;
+    let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
+    let view_width = (ui.available_width() - NUMBER).max(0.0);
+    let rows_height = (ui.available_height() - look::HEADER_HIGH - bar).max(row_height);
+    let scroll_edge = std::mem::take(&mut doc.edge_scroll);
+    let mut target_x =
+        (dragging && scroll_edge.x != 0.0).then_some((scroll_x + scroll_edge.x).max(0.0));
+    let mut target_y =
+        (dragging && scroll_edge.y != 0.0).then_some((scroll_y + scroll_edge.y).max(0.0));
+    if reveal && let Some((row, column)) = selected {
+        if let Some(place) = rows.iter().position(|r| *r == row) {
+            let above = (rows_height / 2.0 - pitch).max(0.0);
+            target_y = Some((place as f32 * pitch - above).max(0.0));
+        }
+        // Sideways only where the cell is out of sight, snapped to column edges.
+        let left = lefts.get(column).copied().unwrap_or_default();
+        let step = widths.get(column).copied().unwrap_or(CELL) + spacing_x;
+        if left - lead < scroll_x || left + step > scroll_x + view_width {
+            target_x = Some(snap_reveal_x(&lefts, &widths, column, view_width));
+        }
+    }
+    let head_x = target_x.unwrap_or(scroll_x);
+    let gutter_y = target_y.unwrap_or(scroll_y);
     let id = doc.id;
     let selected_column = selected.map(|s| s.1);
     ui.horizontal(|ui| {
@@ -2788,7 +2811,7 @@ pub(crate) fn grid_in(
             .auto_shrink([false, true])
             .scroll_bar_visibility(hidden)
             .scroll_source(still)
-            .horizontal_scroll_offset(scroll_x)
+            .horizontal_scroll_offset(head_x)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if layered.is_some() {
@@ -3039,29 +3062,13 @@ pub(crate) fn grid_in(
     }
     let mut list =
         egui::ScrollArea::both().id_salt(("table-rows", doc.id)).auto_shrink([false, false]);
-    // (A drag selecting cells past an edge, the frame before: on that way.)
-    let edge = std::mem::take(&mut doc.edge_scroll);
-    if dragging && edge.y != 0.0 {
-        list = list.vertical_scroll_offset((scroll_y + edge.y).max(0.0));
+    if let Some(y) = target_y {
+        list = list.vertical_scroll_offset(y);
     }
-    if dragging && edge.x != 0.0 {
-        list = list.horizontal_scroll_offset((scroll_x + edge.x).max(0.0));
-    }
-    if reveal && let Some((row, column)) = selected {
-        if let Some(place) = rows.iter().position(|r| *r == row) {
-            let above = (ui.available_height() / 2.0 - pitch).max(0.0);
-            list = list.vertical_scroll_offset((place as f32 * pitch - above).max(0.0));
-        }
-        // Sideways only where the cell is out of sight.
-        let left = lefts.get(column).copied().unwrap_or_default();
-        let step = widths.get(column).copied().unwrap_or(CELL) + ui.spacing().item_spacing.x;
-        let width = ui.available_width() - NUMBER;
-        if left - lead < scroll_x || left + step > scroll_x + width {
-            list = list.horizontal_scroll_offset((left - width / 2.0).max(0.0));
-        }
+    if let Some(x) = target_x {
+        list = list.horizontal_scroll_offset(x);
     }
     let room = ui.available_height();
-    let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
     let shown = mg_uikit::with_rows(ui, |ui| {
         ui.horizontal_top(|ui| {
             let gutter = egui::vec2(NUMBER, (room - bar).max(row_height));
@@ -3074,7 +3081,7 @@ pub(crate) fn grid_in(
                     .auto_shrink([false, false])
                     .scroll_bar_visibility(hidden)
                     .scroll_source(still)
-                    .vertical_scroll_offset(scroll_y)
+                    .vertical_scroll_offset(gutter_y)
                     .show_rows(ui, row_height, rows.len(), |ui, range| {
                         for &r in &rows[range] {
                             let (rect, _) = ui.allocate_exact_size(
@@ -3280,6 +3287,9 @@ pub(crate) fn grid_in(
         .inner
     });
     doc.scroll = shown.state.offset;
+    if (shown.state.offset - egui::vec2(head_x, gutter_y)).length_sq() > 0.25 {
+        ui.ctx().request_repaint();
+    }
     // A drag selecting cells past the grid's edge scrolls it that way,
     // the faster the further, and the selection reaches the row and
     // column at that edge, as a spreadsheet's does.
@@ -4230,6 +4240,21 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
     }
 }
 
+/// Snaps a horizontal reveal scroll offset to a column left edge so `column`
+/// is visible without slicing the leftmost column header mid-text.
+fn snap_reveal_x(lefts: &[f32], widths: &[f32], column: usize, width: f32) -> f32 {
+    let col_left = lefts.get(column).copied().unwrap_or_default();
+    let col_w = widths.get(column).copied().unwrap_or(CELL);
+    if width <= 0.0 || col_w <= 0.0 {
+        return 0.0;
+    }
+    let need_min_x = (col_left + col_w - width).max(0.0);
+    std::iter::once(0.0)
+        .chain(lefts.iter().zip(widths.iter()).filter(|&(_, &w)| w > 0.0).map(|(&l, _)| l))
+        .find(|&x| x <= col_left && x >= need_min_x)
+        .unwrap_or_else(|| need_min_x.min(col_left))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4425,5 +4450,19 @@ mod tests {
         assert_eq!(app.tables[0].edit.table().cell(0, 0), Some("changed_outside"));
         assert_ne!(app.tables[0].seen, seen);
         assert_eq!(app.settings.table_widths, [(key, vec![("Name".to_string(), 222)])]);
+    }
+
+    #[test]
+    fn snap_reveal_x_aligns_to_column_edges() {
+        let widths = [80.0, 150.0, 90.0, 120.0, 110.0];
+        let lefts = [0.0, 80.0, 230.0, 320.0, 440.0];
+        // Revealing column 4 inside a 400 px viewport lands cleanly on column 2's left edge.
+        let x = snap_reveal_x(&lefts, &widths, 4, 400.0);
+        assert_eq!(x, 230.0);
+        assert!(lefts[4] + widths[4] <= x + 400.0);
+        // Column 0 stays at 0.0.
+        assert_eq!(snap_reveal_x(&lefts, &widths, 0, 400.0), 0.0);
+        // A column wider than the viewport aligns its left edge to the gutter.
+        assert_eq!(snap_reveal_x(&lefts, &[80.0, 500.0], 1, 300.0), 80.0);
     }
 }

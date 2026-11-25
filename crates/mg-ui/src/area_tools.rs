@@ -425,13 +425,16 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         let text = egui::RichText::new(note).color(ui.visuals().warn_fg_color);
                         ui.add(egui::Label::new(text).wrap());
                     });
-                } else if !empty && a.has_changes() {
-                    ui.add_space(crate::widgets::SECTION_GAP);
-                    ui.weak("Clicking outside applies changes. Cancel or Esc discards them.");
                 }
             });
             let can = !empty && read_only.is_none();
-            let foot = crate::widgets::Foot::new().main("OK", can).button("Apply", can).cancel();
+            let foot = crate::widgets::Foot::new()
+                .main("OK", can)
+                .tip("Apply changes and close (clicking outside also applies)")
+                .button("Apply", can)
+                .tip("Apply changes and keep open")
+                .cancel()
+                .tip("Discard unapplied changes (Esc)");
             ((), foot)
         });
     let (cancel, done) = match &footed {

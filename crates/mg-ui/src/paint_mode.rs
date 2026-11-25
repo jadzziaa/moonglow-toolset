@@ -884,14 +884,14 @@ pub(crate) fn input(
         view.paint.painting = false;
         view.paint.row_from = None;
         view.paint.row_end = None;
-        // Paint on with nothing chosen to place: Escape or a right click
-        // puts it away, as the status line says.
+        // Paint on with no placeable chosen: Escape or a right click
+        // puts it away, while clicks do not fall through to Brush.
         let stop = crate::area_view::cancelled(ui, response);
-        if app.paint && app.palette.selected.is_none() && stop {
+        if app.paint && stop {
             app.paint = false;
             return true;
         }
-        return false;
+        return app.paint;
     };
     view.read_walkable(app);
     let hovered = response.hovered();
@@ -1159,7 +1159,12 @@ pub(crate) fn hints(app: &Moonglow, k: &crate::shell::HintKeys) -> Option<Vec<Hi
     let size = Hint::keys(["Shift", "Wheel"], "Brush size");
     let what = match keys.len() {
         0 => {
-            let choose = Hint::note("Paint: choose placeables in the palette");
+            let note = if app.palette.selected.is_some() {
+                "Paint works with placeables. Choose placeables in the palette"
+            } else {
+                "Paint: choose placeables in the palette"
+            };
+            let choose = Hint::note(note);
             return Some(vec![choose, several, Hint::keys(["Esc"], "Stop")]);
         }
         1 => keys[0].resref.to_string(),

@@ -1969,3 +1969,27 @@ fn saving_changes_only_the_fields_changed() {
     let m = Module::open(&path).unwrap();
     assert_eq!(Factions::of_module(&m).reputation(5, 2), Some(7), "as written");
 }
+
+#[test]
+fn journal_add_allows_sibling_entries_and_delete_keeps_selection() {
+    let mut h = opened(Mode::Tabs, "ui-journal-add-del", 1600.0, Tab::Journal, 0);
+    choose_second_entry(&mut h);
+    assert_eq!(h.state().journal_view.selected, Some(Node::Entry(0, 1)));
+    assert!(!h.get_by_label(JOURNAL_HEADER).get_by_label("Add").accesskit_node().is_disabled());
+
+    // Add while an entry is selected appends a sibling entry in the same category.
+    h.get_by_label(JOURNAL_HEADER).get_by_label("Add").click();
+    settle(&mut h);
+    assert_eq!(h.state().journal_view.selected, Some(Node::Entry(0, 2)));
+    assert_eq!(mg_module::journal::entries(&categories(&mut h)[0]).len(), 3);
+
+    // Deleting keeps focus on a remaining sibling or parent category instead of jumping to Root.
+    h.get_by_label(JOURNAL_HEADER).get_by_label("Delete").click();
+    settle(&mut h);
+    assert_eq!(h.state().journal_view.selected, Some(Node::Entry(0, 1)));
+    h.get_by_label(JOURNAL_HEADER).get_by_label("Delete").click();
+    settle(&mut h);
+    h.get_by_label(JOURNAL_HEADER).get_by_label("Delete").click();
+    settle(&mut h);
+    assert_eq!(h.state().journal_view.selected, Some(Node::Category(0)));
+}

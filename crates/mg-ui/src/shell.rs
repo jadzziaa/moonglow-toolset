@@ -2398,6 +2398,9 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                         crate::dialog_view::node_tool(app, Some(tab), tool);
                     }
                     app.window_bars_drawn.push(front);
+                    if front == Panel::Preview {
+                        app.window_previews_drawn.push(tab.clone());
+                    }
                     let on = (front, section.len() == 1);
                     panel_body(app, &mut part, on, Host::Window, pane, Some(tab));
                 }
@@ -2577,19 +2580,13 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
 
 /// The width of a kind's window's right pane (`bottom`: the height of its
 /// bottom pane) as the builder last dragged it, in any window of the kind
-/// (`DockLayout::window_width`, `window_bottom`): a new window opens with
-/// it (5.2.0, Jasperre's report: a floating script's panes kept no size).
-/// Scripts' alone ([`KEPT_WINDOW_KINDS`]): the ruling was theirs.
+/// (`DockLayout::window_width`, `window_bottom`): a new window opens with it.
 fn window_kept(app: &Moonglow, kind: Option<&str>, bottom: bool) -> Option<f32> {
-    let kind = kind.filter(|k| KEPT_WINDOW_KINDS.contains(k))?;
+    let kind = kind?;
     let layout = app.settings.dock_layouts.get(kind)?;
     let kept = if bottom { layout.window_bottom } else { layout.window_width };
     kept.map(f32::from)
 }
-
-/// The editor kinds whose floating windows keep their panes' sizes
-/// ([`window_kept`]): scripts (5.2.0, Jasperre's report).
-const KEPT_WINDOW_KINDS: &[&str] = &["script"];
 
 /// Lets the kind's kept size ([`window_kept`]) apply to a window's pane
 /// `panel` that was not drawn in the pass before (its window opened, its
@@ -2626,7 +2623,7 @@ fn keep_window_size(
     kept: Option<f32>,
     now: f32,
 ) {
-    let Some(kind) = kind.filter(|k| KEPT_WINDOW_KINDS.contains(k)) else { return };
+    let Some(kind) = kind else { return };
     let dragged = edges.iter().any(|id| ui.ctx().is_being_dragged(*id));
     let now = now.round();
     if !dragged || kept.is_some_and(|k| (k - now).abs() < 0.5) {
@@ -4122,8 +4119,7 @@ impl<'a> HintKeys<'a> {
 /// Options); where it differs from what the bar showed, that frame is
 /// asked for.
 pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
-    let escape = app.escape_hint_next.clone().filter(|_| !app.model_under_pointer_next);
-    let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
+    let mut escape = app.escape_hint_next.clone().filter(|_| !app.model_under_pointer_next);
     let hovered = app.options_hovered_next;
     // (A floating window's editor in place of the docked one: under the
     // pointer, or with the last press while the pointer is over no docked
@@ -4140,8 +4136,23 @@ pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
     let pressed = (app.window_tabs_next.iter())
         .find(|(_, l, _)| app.last_press.is_some_and(|(_, p)| p == Some(*l)))
         .filter(|_| pointer.is_none_or(|p| !over_docked(p)));
-    let window = under.or(pressed).map(|(tab, _, _)| tab);
-    let next = shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered, window);
+    let window = under.or(pressed).map(|(tab, _, _)| tab.clone());
+    let front_dock_layer = app.window_layers_drawn.iter().copied().max_by_key(|l| order(l));
+    if escape.is_none()
+        && let Some(w) = &window
+        && let Some(front_layer) = front_dock_layer
+        && app.window_escape_candidates.iter().any(|(t, l)| t == w && *l == front_layer)
+        && !app.model_under_pointer_next
+        && !crate::widgets::dialog_drawn(ctx)
+        && ctx.memory(|m| m.top_modal_layer()).is_none()
+        && !egui::Popup::is_any_open(ctx)
+        && !mg_uikit::popover::Popover::any_open(ctx)
+    {
+        escape = Some(w.clone());
+    }
+    let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
+    let next =
+        shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered, window.as_ref());
     if next.said() != app.bar_shown.said() {
         ctx.request_repaint();
     }
@@ -4158,10 +4169,13 @@ const MODEL_VIEW_HINTS: [(&[&str], &str); 5] = [
     (&["Shift", "Wheel"], "Zoom finer"),
 ];
 
-/// Whether the Right Dock's Preview is drawn for the active docked
-/// editor: the dock unfolded and the panel available.
-fn preview_unfolded(app: &Moonglow) -> bool {
-    !right_folded(app) && Panel::Preview.available(app)
+/// Whether Preview is drawn for the active editor (`tab`), floating or docked.
+fn preview_shown(app: &Moonglow, tab: &crate::Tab, floating: bool) -> bool {
+    if floating {
+        app.window_previews_drawn.contains(tab)
+    } else {
+        !right_folded(app) && Panel::Preview.available(app)
+    }
 }
 
 /// Whether something in front takes the keys and presses the views'
@@ -4316,7 +4330,10 @@ pub(crate) fn shown(
         // shown, M4's U11: the 3D view's ways, the Creature board's, after
         // Esc where an Escape would be its own; not Tab's, which the board
         // leaves out.)
-        Some(tab) if own_preview(app, Some(tab)).is_some() && preview_unfolded(app) => {
+        Some(tab)
+            if own_preview(app, Some(tab)).is_some()
+                && preview_shown(app, tab, window.is_some()) =>
+        {
             let mut hints = Vec::new();
             if esc_mine {
                 hints.push(Hint::keys(["Esc"], "Cancel"));

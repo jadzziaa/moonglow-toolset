@@ -2157,11 +2157,6 @@ impl AreaView {
             .collect()
     }
 
-    /// The scale handle `pos` is on: its object's place.
-    fn scale_handle_at(&self, pos: Pos2) -> Option<Vec3> {
-        self.scale_handle_of_at(pos).map(|h| h.1)
-    }
-
     /// The scale handle `pos` is on: its object and its place.
     fn scale_handle_of_at(&self, pos: Pos2) -> Option<((ObjectKind, usize), Vec3)> {
         let handles = self.scale_handles_of(self.model.as_ref()?);
@@ -3341,7 +3336,7 @@ impl PressTo {
             };
         }
         match () {
-            _ if writable && crate::paint_mode::active(app).is_some() => PressTo::Paint,
+            _ if writable && app.paint => PressTo::Paint,
             _ if writable && view.tile_pasting => PressTo::TilePaste,
             _ if writable && view.tile_mode => PressTo::Tiles,
             _ if view.pasting => PressTo::Pasting,
@@ -5304,7 +5299,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         || view.held.on;
     // (And said to the windows over the view: Escape with the pointer here
     // drops what is in hand and leaves the Properties window in front open.)
-    if in_hand || view.redraw.is_some() || crate::terrain_mode::active(app, view).is_some() {
+    if in_hand
+        || view.tile_mode
+        || view.redraw.is_some()
+        || crate::terrain_mode::active(app, view).is_some()
+    {
         app.area_tool_at = ui.ctx().cumulative_pass_nr();
     }
     view.held = Held::read(ui, response, view.held);
@@ -5698,12 +5697,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.start_selected = true;
     } else if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
-        && !(view.spawn_arrow_at(pos).is_some()
-            || view.spawn_foot_at(pos).is_some()
-            || view.ring_at(pos).is_some_and(|_| !shift)
-            || (shift && view.tilt_ring_at(pos).is_some())
-            || (shift && view.axis_arrow_at(pos).is_some())
-            || (shift && view.scale_handle_at(pos).is_some()))
+        && view
+            .handle_under(pos, ui.input(|i| i.modifiers), !app.settings.no_spawn_markers, None)
+            .is_none()
     {
         let hits: Vec<(ObjectKind, usize)> = view
             .pick_all(pos)

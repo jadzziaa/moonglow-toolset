@@ -360,6 +360,14 @@ pub(crate) fn input(
         next_variant(app, view, t, false);
     }
     let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if !typing && view.tile_box.is_none() && crate::area_view::escaped(ui, response) {
+        if !view.tile_selection.is_empty() {
+            view.tile_selection.clear();
+        } else {
+            view.tile_mode = false;
+        }
+        return true;
+    }
     if response.hovered()
         && !typing
         && ui.input(|i| i.key_pressed(egui::Key::Delete))

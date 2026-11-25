@@ -846,10 +846,9 @@ impl Id {
             Id::SplitEditor => app.can_split(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
-            // (A script's, with the keys in its editor: as its Ctrl+Z,
-            // which does nothing with nothing to undo. Whether its history
-            // has a step is not known without a copy of it all.)
-            Id::Undo | Id::Redo if app.undo_script.is_some() => true,
+            Id::Undo | Id::Redo if let Some(key) = app.undo_script => {
+                app.scripts.get(&key).is_some_and(|b| b.undo.can_step(matches!(self, Id::Redo)))
+            }
             // (A side editor's own or the talk table's, with the pointer
             // over it or the keys in its grid.)
             Id::Undo => app
@@ -916,7 +915,7 @@ impl Id {
 
     /// Why it cannot be chosen now, in a few words (a grayed row's tip in
     /// Quick Open); empty where it can.
-    pub(crate) fn why_disabled(self, app: &Moonglow) -> &'static str {
+    pub fn why_disabled(self, app: &Moonglow) -> &'static str {
         if self.enabled(app) {
             return "";
         }
@@ -938,7 +937,8 @@ impl Id {
             Id::IndentToTabs | Id::IndentToSpaces => {
                 "It acts on the script in front, or the one typed in last, and none is open"
             }
-            Id::CloseTab | Id::MaximizeWindow => "No tab is open",
+            Id::CloseTab => "No tab is open",
+            Id::MaximizeWindow => "No floating editor window is open",
             Id::SplitEditor => "The editor group in front has one tab",
             Id::ReopenTab => "No tab was closed",
             Id::InstallPlugin => "Moonglow has no plugin folder",

@@ -171,8 +171,13 @@ fn pages(
                 None => a.to_string(),
             })
             .collect();
+        let cue = if others.len() > crate::blueprint::MIXED_LIMIT {
+            "more than 64 selected: mixed markers omitted"
+        } else {
+            "≠: they differ there"
+        };
         ui.weak(format!(
-            "{} areas: shown as the first ({}); what you change is set on each (≠: they differ there)",
+            "{} areas: shown as the first ({}); what you change is set on each ({cue})",
             names.len(),
             names[0]
         ))

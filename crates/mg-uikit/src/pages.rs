@@ -129,7 +129,7 @@ impl PageRail {
         // sight as it changes.)
         let kept = child.ctx().data(|d| d.get_temp::<usize>(self.id.with("shown")));
         let mut in_sight = false;
-        egui::ScrollArea::vertical()
+        let out = egui::ScrollArea::vertical()
             .id_salt(self.id.with("scroll"))
             .auto_shrink([false, false])
             .min_scrolled_height(0.0)
@@ -164,6 +164,12 @@ impl PageRail {
                 }
                 ui.allocate_exact_size(vec2(PAGE_BUTTON, RAIL_PADDING - RAIL_GAP), Sense::hover());
             });
+        paint_overflow_cues(
+            &child,
+            inner,
+            out.state.offset.y > 1.0,
+            out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
+        );
         // (Noted once it is in sight: until then each frame brings it in.)
         if in_sight {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
@@ -171,6 +177,41 @@ impl PageRail {
         changed |= move_focus_with_arrows(ui, &pages, page);
         ui.advance_cursor_after_rect(rect);
         RailOutput { response, changed, pages }
+    }
+}
+
+/// Paints subtle top/bottom chevron indicators when a vertical page selector
+/// (`PageRail` or `PageList`) overflows beyond the visible rect.
+fn paint_overflow_cues(ui: &Ui, rect: Rect, more_above: bool, more_below: bool) {
+    if !more_above && !more_below {
+        return;
+    }
+    let t = ui.tokens();
+    let painter = ui.painter_at(rect);
+    let band_h = 14.0;
+    if more_above {
+        let band = Rect::from_min_max(
+            rect.min,
+            pos2(rect.right(), (rect.top() + band_h).min(rect.bottom())),
+        );
+        painter.rect_filled(band, 0.0, t.bar.gamma_multiply(0.92));
+        Icon::ChevronUp.paint(
+            &painter,
+            Rect::from_center_size(band.center(), vec2(12.0, 12.0)),
+            t.text_3,
+        );
+    }
+    if more_below {
+        let band = Rect::from_min_max(
+            pos2(rect.left(), (rect.bottom() - band_h).max(rect.top())),
+            rect.max,
+        );
+        painter.rect_filled(band, 0.0, t.bar.gamma_multiply(0.92));
+        Icon::ChevronDown.paint(
+            &painter,
+            Rect::from_center_size(band.center(), vec2(12.0, 12.0)),
+            t.text_3,
+        );
     }
 }
 
@@ -327,7 +368,7 @@ impl PageList {
         let name = self.name.clone();
         let kept = child.ctx().data(|d| d.get_temp::<usize>(self.id.with("shown")));
         let mut brought = false;
-        egui::ScrollArea::vertical()
+        let out = egui::ScrollArea::vertical()
             .id_salt(self.id.with("scroll"))
             .auto_shrink([false, false])
             .min_scrolled_height(0.0)
@@ -358,6 +399,12 @@ impl PageList {
                 }
                 ui.allocate_exact_size(vec2(1.0, RAIL_PADDING), Sense::hover());
             });
+        paint_overflow_cues(
+            &child,
+            inner,
+            out.state.offset.y > 1.0,
+            out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
+        );
         if brought {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
         }
@@ -2300,5 +2347,33 @@ mod tests {
         h.run();
         let three = h.get_by_label("Three page").rect();
         assert!(three.height() < 300.0, "the list given less in a shorter view: {three:?}");
+    }
+
+    #[test]
+    fn overflowing_rail_and_list_settle_cleanly() {
+        let mut page = 0usize;
+        let rail_room = egui::Rect::from_min_size(pos2(10.0, 10.0), vec2(44.0, 52.0));
+        let list_room = egui::Rect::from_min_size(pos2(70.0, 10.0), vec2(120.0, 60.0));
+        let mut h = Harness::builder().with_size(vec2(220.0, 100.0)).build_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let mut r_ui = ui.new_child(egui::UiBuilder::new().max_rect(rail_room));
+            r_ui.set_clip_rect(rail_room);
+            let _ = PageRail::new("cue-rail")
+                .page(Icon::Info, "One")
+                .page(Icon::Inventory, "Two")
+                .page(Icon::Lock, "Three")
+                .page(Icon::Trap, "Four")
+                .show(&mut r_ui, &mut page);
+
+            let mut l_ui = ui.new_child(egui::UiBuilder::new().max_rect(list_room));
+            l_ui.set_clip_rect(list_room);
+            let _ = PageList::new("cue-list")
+                .page(Icon::Info, "One")
+                .page(Icon::Inventory, "Two")
+                .page(Icon::Lock, "Three")
+                .page(Icon::Trap, "Four")
+                .show(&mut l_ui, &mut page);
+        });
+        h.run();
     }
 }

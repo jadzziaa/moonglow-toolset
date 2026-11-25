@@ -426,7 +426,7 @@ fn header(ui: &mut Ui, view: &JournalView, copy: &Seen) -> Asked {
     use crate::icons::editor as icon;
     use mg_uikit::header::{EditorHeader, Item};
     let selected = view.selected.is_some();
-    let can_add = !matches!(view.selected, Some(Node::Entry(..)));
+    let can_add = true;
     let can_paste = matches!(
         (&view.clipboard, view.selected),
         (Some(Clip::Category(_)), _) | (Some(Clip::Entry(_)), Some(_))
@@ -485,7 +485,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     };
     if asked.add {
         match view.selected {
-            Some(Node::Category(c)) => {
+            Some(Node::Category(c) | Node::Entry(c, _)) => {
                 let mut list = entries(&cats[c]).to_vec();
                 list.push(new_entry(&list));
                 view.selected = Some(Node::Entry(c, list.len() - 1));
@@ -497,7 +497,6 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
                 view.selected = Some(Node::Category(list.len() - 1));
                 actions.push(set_categories("Add journal category", exists, list));
             }
-            Some(Node::Entry(..)) => {}
         }
         view.reveal = true;
     }
@@ -528,16 +527,21 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
             Some(Node::Category(c)) => {
                 let mut list = cats.to_vec();
                 list.remove(c);
+                view.selected = (!list.is_empty()).then(|| Node::Category(c.min(list.len() - 1)));
                 actions.push(set_categories("Delete journal category", exists, list));
             }
             Some(Node::Entry(c, e)) => {
                 let mut list = entries(&cats[c]).to_vec();
                 list.remove(e);
+                view.selected = Some(if list.is_empty() {
+                    Node::Category(c)
+                } else {
+                    Node::Entry(c, e.min(list.len() - 1))
+                });
                 actions.push(set_entries("Delete journal entry", c, list));
             }
             None => {}
         }
-        view.selected = None;
     }
     if asked.expand {
         view.open = (0..copy.seen.len()).collect();

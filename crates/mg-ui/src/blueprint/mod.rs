@@ -415,7 +415,8 @@ fn ok_cancel_header_with(
     match viewed {
         true => buttons.push(KitButton::new(None, "Close")),
         false => {
-            buttons.push(KitButton::new(None, "OK").tip(tips[0]));
+            buttons
+                .push(KitButton::new(None, "OK").look(mg_uikit::ButtonLook::Primary).tip(tips[0]));
             buttons.push(KitButton::new(None, "Cancel").tip(tips[1]));
         }
     }
@@ -3309,8 +3310,13 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     }
     if !also.is_empty() {
         let what = if path.0.is_empty() { "blueprints" } else { "objects" };
+        let cue = if also.len() > MIXED_LIMIT {
+            "more than 64 selected: mixed markers omitted"
+        } else {
+            "≠: they differ there"
+        };
         ui.weak(format!(
-            "{} {what}: shown as the first; what you change is set on each (≠: they differ there)",
+            "{} {what}: shown as the first; what you change is set on each ({cue})",
             also.len() + 1
         ));
     }
@@ -3507,7 +3513,7 @@ pub(crate) const VIEW_REFUSED_SHOWN: f64 = 4.0;
 
 /// The most objects edited together whose values are compared, field by
 /// field, to mark the fields that differ.
-const MIXED_LIMIT: usize = 64;
+pub(crate) const MIXED_LIMIT: usize = 64;
 
 /// The mark of a field whose value differs among the objects edited
 /// together.
