@@ -3209,9 +3209,14 @@ fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
     true
 }
 
-/// Axis-aligned bounding corners for framing `o`: an outline's bounding box
-/// for triggers and encounters, or the object's position otherwise.
-fn object_bounds_for_focus(o: &mg_area::AreaObject) -> (Vec3, Vec3) {
+/// Axis-aligned world corners for framing object `i` of `model`: an
+/// outline's box for triggers and encounters; for an object whose model
+/// `scene` draws, that model's box where it stands (turned, tilted and
+/// scaled as drawn, the box selected objects show), so that the view
+/// looks at the middle of what is seen rather than its feet; else (a
+/// waypoint's arrow, a sound, a model not loaded yet) its position.
+fn object_bounds_for_focus(scene: Option<&AreaScene>, model: &AreaModel, i: usize) -> (Vec3, Vec3) {
+    let o = &model.objects[i];
     if o.kind.has_outline() && !o.outline.is_empty() {
         let mut min = o.outline[0];
         let mut max = o.outline[0];
@@ -3219,13 +3224,20 @@ fn object_bounds_for_focus(o: &mg_area::AreaObject) -> (Vec3, Vec3) {
             min = min.min(p);
             max = max.max(p);
         }
-        (min, max)
-    } else {
-        (o.position, o.position)
+        return (min, max);
     }
+    let Some((low, high)) = scene.and_then(|s| s.model_bounds(model, i)) else {
+        return (o.position, o.position);
+    };
+    let t = o.model_transform();
+    let corners = mg_render::box_corners(low, high).map(|p| t.transform_point3(p));
+    let min = corners.iter().copied().reduce(Vec3::min).unwrap_or(o.position);
+    let max = corners.iter().copied().reduce(Vec3::max).unwrap_or(o.position);
+    (min, max)
 }
 
-/// Frames the camera on the center of `min..=max`, pulling back if wide.
+/// Frames the camera on the center of `min..=max`, pulling back if wide,
+/// or if nearer than shows all of it.
 fn focus_bounds(orbit: &mut Orbit, min: Vec3, max: Vec3) {
     let center = (min + max) * 0.5;
     let half_extent = ((max - min) * 0.5).length();
@@ -3233,7 +3245,7 @@ fn focus_bounds(orbit: &mut Orbit, min: Vec3, max: Vec3) {
     orbit.distance = if half_extent > 8.0 {
         (half_extent * 2.4).clamp(12.0, 200.0)
     } else {
-        orbit.distance.min(25.0)
+        orbit.distance.min(25.0).max(half_extent * 2.4)
     };
 }
 
@@ -3245,10 +3257,13 @@ fn focus_selection(app: &mut Moonglow, view: &mut AreaView) -> bool {
     let (Some(model), Some(orbit)) = (&view.model, &mut view.orbit) else {
         return false;
     };
+    let scene = view.scene.as_ref();
     let mut bounds: Option<(Vec3, Vec3)> = None;
     for &(kind, index) in &view.selection {
-        let Some(o) = model.object(kind, index) else { continue };
-        let (omin, omax) = object_bounds_for_focus(o);
+        let Some(i) = model.objects.iter().position(|o| o.kind == kind && o.index == index) else {
+            continue;
+        };
+        let (omin, omax) = object_bounds_for_focus(scene, model, i);
         bounds = Some(match bounds {
             Some((bmin, bmax)) => (bmin.min(omin), bmax.max(omax)),
             None => (omin, omax),
@@ -3502,8 +3517,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         && a == area
         && let Some(model) = &view.model
     {
-        if let Some(o) = model.object(kind, index) {
-            let (min, max) = object_bounds_for_focus(o);
+        if let Some(i) = model.objects.iter().position(|o| o.kind == kind && o.index == index) {
+            let (min, max) = object_bounds_for_focus(view.scene.as_ref(), model, i);
             view.selection = vec![(kind, index)];
             view.start_selected = false;
             if let Some(orbit) = &mut view.orbit {

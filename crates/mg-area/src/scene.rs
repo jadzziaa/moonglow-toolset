@@ -1079,6 +1079,18 @@ impl AreaScene {
         }
     }
 
+    /// Object `i`'s models' box in its own space, as [`AreaScene::bounds`]
+    /// has it, where a model of its own is drawn: `None` for one drawn as
+    /// an arrow or a marker, a light too small to see, or a model not
+    /// loaded yet.
+    pub fn model_bounds(&self, area: &AreaModel, i: usize) -> Option<(Vec3, Vec3)> {
+        let shown = self.objects.get(i).and_then(Option::as_ref);
+        if self.as_arrow(area.objects.get(i)?, shown) {
+            return None;
+        }
+        shown.map(|s| s.bounds).filter(|b| !bare(*b))
+    }
+
     /// Whether object `i` is only a light: a placeable with a model too
     /// small to see whose appearance has a light (placeables.2da's
     /// `LightColor`), as the game's "Light, White" has, or whose model has

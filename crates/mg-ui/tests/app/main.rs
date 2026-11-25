@@ -30,6 +30,7 @@ mod dock_pictures;
 mod dock_tabs;
 mod drawing;
 mod fields;
+mod focus_frames;
 mod form_columns;
 mod form_pages;
 mod free_doors;

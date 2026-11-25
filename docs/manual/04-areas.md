@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-24T23:46:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T00:24:57Z }
 ---
 
 # Areas
@@ -471,7 +471,7 @@ Options › Keyboard):
 | Z, C | move the camera up, down |
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
-| F, . | Focus Selection: center and zoom the camera onto the selected objects (framing the bounding box of an encounter or trigger outline, or the start location); `.` also works right after clicking a row in the Outliner or module tree, where letters go to the rows |
+| F, . | Focus Selection: center the camera on the middle of what is drawn of the selected objects (their models' boxes, the yellow box a selected object shows, not the point at their feet; an encounter's or trigger's outline; for a sound or anything without a model of its own, where it stands; or the start location), drawing back far enough to see a tall one whole; `.` also works right after clicking a row in the Outliner or module tree, where letters go to the rows |
 | F10 | select tiles or objects (Aurora's; with the pointer over the area's view, shelf or header) |
 | B | Paint on or off |
 | Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
@@ -834,8 +834,11 @@ Properties last, as in Aurora):
   seconds), drawn at its end. Setting that value here ends the lerp; a
   value left as it is keeps it.
 - **Focus Selection** (F or `.`): centers and zooms the camera onto the
-  selected objects or start location (framing the bounding box of a
-  trigger or encounter outline).
+  selected objects or start location: the middle of their models' boxes
+  (a tree's crown and trunk, not its foot), a trigger's or encounter's
+  outline, or where an object without a model stands. A double click on
+  an object's row in the module tree or the Outliner frames it the same
+  way.
 - **Position**, the quick ways of setting where the selection stands
   and how it faces:
   - **Position › Drop to Ground** (G): puts raised objects back on the
