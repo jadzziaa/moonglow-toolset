@@ -216,15 +216,25 @@ pub fn hold() {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader, Write};
-    use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, Stdio};
+    use std::io::Write;
+    #[cfg(unix)]
+    use std::io::{BufRead, BufReader};
+    use std::path::Path;
+    #[cfg(unix)]
+    use std::path::PathBuf;
+    use std::process::Command;
+    #[cfg(unix)]
+    use std::process::{Child, Stdio};
     use std::time::Duration;
 
-    use super::{held_by_us, refusal, take_in};
+    #[cfg(unix)]
+    use super::refusal;
+    use super::{held_by_us, take_in};
 
     const CHILD: &str = "MG_DISPLAY_TEST_CHILD";
 
+    // (The helpers serve the tests that run on Unix alone.)
+    #[cfg(unix)]
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("mg-display-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -233,6 +243,7 @@ mod tests {
 
     /// This test binary run again as a separate process that takes the
     /// lock in `dir`, says `READY`, and holds it until its stdin closes.
+    #[cfg(unix)]
     fn child(dir: &Path) -> Child {
         let mut c = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "display::tests::the_child_holds_the_display", "--nocapture"])
@@ -255,6 +266,7 @@ mod tests {
         c
     }
 
+    #[cfg(unix)]
     fn end(mut c: Child) {
         drop(c.stdin.take());
         assert!(c.wait().unwrap().success());
