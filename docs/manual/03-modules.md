@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T15:33:59Z }
 ---
 
 # Modules
@@ -1414,6 +1414,8 @@ Choosing one:
    made outside, and closes the module's haks, so that the command may
    write over any of them (Windows refuses to replace a file another
    program has open). Moonglow keeps no other file of the project open.
+   Where the game data is still in use, the haks stay open, and the log
+   says so.
    A command with `writes = false` leaves the haks open, so the open
    areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
@@ -1522,6 +1524,23 @@ blueprints appear in the area viewer, the palettes and the editors. Haks
 are looked for in the user folder's `hak`, then the game's `data/hk`. A
 change to the list (adding, removing, reordering, an undo) takes effect at
 once.
+
+**While the game data is still in use.** The haks and the module itself
+are layers of the game data, which Moonglow changes when a module is
+opened or closed, after edits, before a build or a check, when the hak
+list or the custom talk table changes, and on **Tools › Reload
+Resources**. Where something still reads the game data at that moment
+(an area still being read, a job that is running), Moonglow waits a few
+seconds at most. If it is still in use after that, the change is kept
+and made as soon as the game data is free. The log says what waits ("The
+game data is still in use (read on another thread, or by a job): the
+module's haks and resources will be updated once it is free"), the
+Status Bar says *Waiting for the game data to be free…* until then, and
+the log says "The game data is free again: … updated" once the change is
+made. A module closed and another opened meanwhile gets its own haks,
+in their order, and none of the last module's: its areas are drawn again
+with them. A [project command](#the-projects-commands) that would close
+the haks before it runs leaves them open instead, and the log says so.
 
 **A language the game has no letters for.** A hak can have an
 `encoding.2da`: a table of the Unicode character each of the 256 bytes of
