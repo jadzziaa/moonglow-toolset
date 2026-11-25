@@ -1037,6 +1037,25 @@ contribution itself states as not done or not checked.
   - the list scrolls by pixels at the same rate, where the client moves
     one in whole rows: snapping to rows was left out.
   (S) (the review of November 2026, N9)
+- **The NUI Creator's per-frame walks, what is left** (measured
+  2026-11-25 in release, `nui_perf`; `check`'s copy, 0.3 µs on an idle
+  frame, and Interact's two comparisons, 47 µs at 304 controls, need
+  nothing):
+  - **A variant's context document** is built anew each frame while the
+    variant is edited: 277 µs at 304 controls (86 at 96). A cache would
+    compare the variant, the settings and the window (90 to 100 µs), and
+    the canvas takes the document owned, so a hit would also clone it
+    (168 µs): it saves nothing unless the canvas borrows the cached
+    document, and every frame that changes the window (typing) would
+    pay the cache's copies on top. Not done for that unintended
+    consequence; the saving is at most 180 µs a frame.
+  - **A long chart's walk:** a series of a million samples is walked each
+    frame, 1.3 ms for a line (the fingerprint that keeps its points) or
+    for columns (their least and most value). The window is edited in
+    place, so there is no cheaper sign that a value changed; a revision
+    kept by every writer of the window and its binds would be one. Not
+    done: beyond the frame budget's need (the idle frame is 2.0 ms).
+  (S) (the review of November 2026, N13, N16)
 - **A font of a sliver of a line, not reproduced:** a font whose line is
   a sliver of its em is refused and the skin's numbers are held to a
   range (the review's N17), but the gigabyte glyph itself was not
