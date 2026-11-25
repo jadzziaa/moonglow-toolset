@@ -127,6 +127,50 @@ fn native_chart_uses_per_series_extents_and_zero_baseline() {
     assert!((line.points[2].x - plot.left() - plot.width() * 2.0 / 3.0).abs() < 0.1);
 }
 
+/// A long series' line (kept between frames while its values stay) is drawn
+/// anew when one value changes in place, in the window or in a bind's value.
+#[test]
+fn a_long_series_changed_in_place_is_drawn_anew() {
+    fn line(h: &Harness<'_, Case>) -> Vec<egui::Pos2> {
+        h.output()
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Path(p) if !p.closed && p.points.len() > 2 => Some(p.points.clone()),
+                _ => None,
+            })
+            .expect("line series")
+    }
+    let samples: Vec<f64> = (0..5000).map(|i| f64::from(i % 7)).collect();
+    let mut settings = Settings::default();
+    settings
+        .bindings
+        .insert("samples".into(), Binding { value: json!(samples), ..Default::default() });
+    for bound in [false, true] {
+        let data = if bound { json!({"bind": "samples"}) } else { json!(samples) };
+        let mut h = harness(
+            json!([{"type":"chart","width":600.0,"height":180.0,"value":[
+                {"type":0,"legend":"Lines","data":data}
+            ]}]),
+            300.0,
+            settings.clone(),
+        );
+        h.run();
+        let before = line(&h);
+        h.run();
+        assert_eq!(line(&h), before, "bound {bound}: the same values, the same line");
+        let state = h.state_mut();
+        let value = if bound {
+            &mut state.settings.bindings.get_mut("samples").unwrap().value[2500]
+        } else {
+            &mut state.doc["root"]["children"][0]["value"][0]["data"][2500]
+        };
+        *value = json!(100.0);
+        h.run();
+        assert_ne!(line(&h), before, "bound {bound}: a value changed in place");
+    }
+}
+
 #[test]
 fn native_chart_empty_message_and_constant_series() {
     for data in [json!([]), json!([{"type":0,"legend":"Equal -5","data":[-5.0,-5.0,-5.0]}])] {

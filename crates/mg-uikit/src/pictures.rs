@@ -181,7 +181,12 @@ impl Budget {
 /// What a painter made of a picture asked for ([`PicturePainter::paint`]).
 #[derive(Clone, Debug)]
 pub enum Painted {
+    /// Pixels, made an egui texture the pictures own.
     Ready(egui::ColorImage),
+    /// A texture the painter drew and keeps (a native one registered with
+    /// the renderer): handed back when let go of, to free
+    /// ([`PaintedPictures::pump`], `forget`, `forget_one`).
+    Drawn(egui::TextureId),
     /// Not yet (its shaders still being made): asked again after
     /// [`Retry::again`], in a frame it is still shown in.
     Later,
@@ -192,7 +197,7 @@ pub enum Painted {
 /// A picture as a gallery's cell shows it ([`PaintedPictures::get`]).
 #[derive(Clone, Copy)]
 pub enum Picture<'a> {
-    Ready(&'a egui::TextureHandle),
+    Ready(egui::TextureId),
     /// Not made yet (or still being made): the kind's icon.
     Waiting,
     /// "No picture", the reason its tip.
@@ -231,7 +236,32 @@ impl Default for Retry {
 
 /// A picture made by a [`PicturePainter`]: its texture, or why there is
 /// none.
-pub struct PaintedPicture(Result<egui::TextureHandle, String>);
+pub struct PaintedPicture(Result<Texture, String>);
+
+/// A picture's texture: the pictures' own, or the painter's.
+enum Texture {
+    Own(egui::TextureHandle),
+    Painters(egui::TextureId),
+}
+
+impl Texture {
+    fn id(&self) -> egui::TextureId {
+        match self {
+            Texture::Own(handle) => handle.id(),
+            Texture::Painters(id) => *id,
+        }
+    }
+}
+
+impl PaintedPicture {
+    /// The painter's texture, to free, if it is one.
+    fn painters(self) -> Option<egui::TextureId> {
+        match self.0 {
+            Ok(Texture::Painters(id)) => Some(id),
+            _ => None,
+        }
+    }
+}
 
 impl std::fmt::Debug for PaintedPicture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -245,7 +275,7 @@ impl std::fmt::Debug for PaintedPicture {
 impl std::fmt::Debug for Picture<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Picture::Ready(texture) => write!(f, "Ready({:?})", texture.id()),
+            Picture::Ready(id) => write!(f, "Ready({id:?})"),
             Picture::Waiting => write!(f, "Waiting"),
             Picture::Failed(reason) => write!(f, "Failed({reason:?})"),
         }
@@ -284,7 +314,7 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
     pub fn get(&mut self, key: K) -> Picture<'_> {
         self.pictures.show(key, |_| false);
         match self.pictures.get(&key) {
-            Some(PaintedPicture(Ok(texture))) => Picture::Ready(texture),
+            Some(PaintedPicture(Ok(texture))) => Picture::Ready(texture.id()),
             Some(PaintedPicture(Err(reason))) => Picture::Failed(reason),
             None => Picture::Waiting,
         }
@@ -294,14 +324,16 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
     /// `budget`, one painted Later again only once [`Retry::again`] has
     /// passed (and as drawn past [`Retry::give_up`]); those no longer
     /// shown stop being waited for. Asks for another frame where more
-    /// wait. Past `keep` made, the longest unseen are let go of.
+    /// wait. Past `keep` made, the longest unseen are let go of: the
+    /// painter's own textures among them ([`Painted::Drawn`]) are
+    /// returned, to free.
     pub fn pump(
         &mut self,
         ctx: &egui::Context,
         painter: &mut (impl PicturePainter<K> + ?Sized),
         budget: Budget,
         keep: usize,
-    ) {
+    ) -> Vec<egui::TextureId> {
         let wanted = self.pictures.take_wanted();
         self.tries.retain(|k, _| wanted.contains(k));
         let (started, mut painted, mut left) = (Instant::now(), 0, Vec::new());
@@ -328,9 +360,12 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
                 try_at.is_some_and(|(first, _)| now.duration_since(first) >= self.retry.give_up);
             painted += 1;
             let made = match painter.paint(key, as_drawn) {
-                Painted::Ready(image) => {
-                    Ok(ctx.load_texture(format!("picture-{key:?}"), image, Default::default()))
-                }
+                Painted::Ready(image) => Ok(Texture::Own(ctx.load_texture(
+                    format!("picture-{key:?}"),
+                    image,
+                    Default::default(),
+                ))),
+                Painted::Drawn(id) => Ok(Texture::Painters(id)),
                 Painted::Failed(reason) => Err(reason),
                 Painted::Later if as_drawn => {
                     Err(format!("Not drawn within {} s", self.retry.give_up.as_secs()))
@@ -354,19 +389,21 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
             ctx.request_repaint();
         }
         self.pictures.set_wanted(left);
-        self.pictures.let_go_unseen(keep);
+        self.pictures.let_go_unseen(keep).into_iter().filter_map(PaintedPicture::painters).collect()
     }
 
-    /// Lets go of every picture, and of what was waited for.
-    pub fn forget(&mut self) {
-        self.pictures.forget();
+    /// Lets go of every picture, and of what was waited for; the painter's
+    /// own textures returned, to free.
+    pub fn forget(&mut self) -> Vec<egui::TextureId> {
         self.tries.clear();
+        self.pictures.forget().into_iter().filter_map(PaintedPicture::painters).collect()
     }
 
-    /// Lets go of one picture (its subject edited).
-    pub fn forget_one(&mut self, key: K) {
-        self.pictures.remove(&key);
+    /// Lets go of one picture (its subject edited); the painter's own
+    /// texture returned, to free.
+    pub fn forget_one(&mut self, key: K) -> Option<egui::TextureId> {
         self.tries.remove(&key);
+        self.pictures.remove(&key).and_then(PaintedPicture::painters)
     }
 }
 
@@ -460,6 +497,33 @@ mod tests {
         frame(&mut p, &mut painter, &[3]);
         assert_eq!(asked.borrow().last(), Some(&(3, true)));
         assert!(matches!(p.get(3), Picture::Failed(r) if r.starts_with("Not drawn")));
+    }
+
+    /// A texture the painter drew is shown as its own, and handed back when
+    /// let go of (past those kept, one forgotten, all forgotten); the
+    /// pictures' own textures never are.
+    #[test]
+    fn a_painter_s_own_texture_is_handed_back_when_let_go_of() {
+        let ctx = egui::Context::default();
+        let mut p: PaintedPictures<u64> = PaintedPictures::default();
+        let mut painter = |key: u64, _| match key {
+            0 => Painted::Ready(egui::ColorImage::filled([2, 2], egui::Color32::RED)),
+            key => Painted::Drawn(egui::TextureId::User(key)),
+        };
+        let mut gone = Vec::new();
+        for key in 0..6 {
+            p.begin_frame();
+            let _ = p.get(key);
+            gone.extend(p.pump(&ctx, &mut painter, Budget::default(), 3));
+        }
+        assert!(matches!(p.get(5), Picture::Ready(egui::TextureId::User(5))));
+        gone.sort_unstable_by_key(|id| format!("{id:?}"));
+        assert_eq!(gone, [egui::TextureId::User(1), egui::TextureId::User(2)], "0 is the kit's");
+        assert_eq!(p.forget_one(5), Some(egui::TextureId::User(5)));
+        assert_eq!(p.forget_one(5), None);
+        let mut rest = p.forget();
+        rest.sort_unstable_by_key(|id| format!("{id:?}"));
+        assert_eq!(rest, [egui::TextureId::User(3), egui::TextureId::User(4)]);
     }
 
     #[test]

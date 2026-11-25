@@ -967,12 +967,17 @@ fn the_view_menu_s_rows_fold_the_docks_and_say_so() {
 }
 
 /// The named controls of the bar `bar` (buttons, tabs, labels: named, or
-/// a label's words) and their rectangles.
+/// a label's words) and their rectangles; not the kit's named groups and
+/// tab lists, which hold them.
 pub(crate) fn bar_controls(h: &Harness<'_, Moonglow>, bar: &str) -> Vec<(String, egui::Rect)> {
+    use egui::accesskit::Role;
     let Some(group) = h.query_by_label(bar) else { return Vec::new() };
     let words = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.label().or(n.value());
+    let container = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        matches!(n.role(), Role::Group | Role::TabList)
+    };
     group
-        .query_all_by(|n| n.bounding_box().is_some() && words(n).is_some())
+        .query_all_by(|n| n.bounding_box().is_some() && words(n).is_some() && !container(n))
         .map(|n| (words(&n.accesskit_node()).unwrap_or_default(), n.rect()))
         .filter(|(_, r)| r.area() > 0.0)
         .collect()
@@ -1252,14 +1257,8 @@ fn at_760_wide_the_bars_controls_neither_overlap_nor_leave_the_window() {
         settle(&mut h);
         let window = h.ctx.content_rect();
         for bar in ["Top Bar", "Status Bar", "Left Dock"] {
-            let group = h.get_by_label(bar);
-            // (Its buttons, tabs and labels: named, or a label's words.)
-            let words = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.label().or(n.value());
-            let rects: Vec<(String, egui::Rect)> = group
-                .query_all_by(|n| n.bounding_box().is_some() && words(n).is_some())
-                .map(|n| (words(&n.accesskit_node()).unwrap_or_default(), n.rect()))
-                .filter(|(_, r)| r.area() > 0.0)
-                .collect();
+            assert!(h.query_by_label(bar).is_some(), "no {bar} at {width}");
+            let rects = bar_controls(&h, bar);
             assert!(rects.len() >= 3, "{bar}'s controls at {width}: {rects:?}");
             for (i, (a, ra)) in rects.iter().enumerate() {
                 assert!(
