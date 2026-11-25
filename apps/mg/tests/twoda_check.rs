@@ -92,7 +92,11 @@ fn a_folder_s_tables_are_held_to_their_descriptions() {
     write("loot.2da.toml", "[columns.Kinds]\nkind = \"flags\"\nconstants = \"nowhere\"\n");
     let (ok, out) = mg(&["2da-check", at]);
     assert!(!ok && out["unread"] == 1, "{out}");
-    assert!(out["tables"][0]["error"].as_str().unwrap().contains("nowhere was not found"));
+    // (Read as the editor does: the mistake is said by its line, and the
+    // table is checked all the same.)
+    let mistake = out["tables"][0]["mistakes"][0].as_str().unwrap();
+    assert!(mistake.starts_with("line 3: ") && mistake.contains("nowhere was not found"), "{out}");
+    assert_eq!(out["tables"][0]["faults"].as_array().unwrap().len(), 0, "{out}");
 }
 
 /// One description for a family of tables (`tables = "spawn_*"`); a

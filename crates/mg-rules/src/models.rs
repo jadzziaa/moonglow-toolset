@@ -225,6 +225,15 @@ pub fn item_models(uti: &Struct, baseitems: &TwoDa, cloaks: Option<&TwoDa>) -> V
     }
 }
 
+/// The base item's own model, which an item whose part models aren't there
+/// is drawn as (baseitems.2da row `row`'s `DefaultModel`, lower case), if
+/// it is there. The one fallback: the previews' items, an appearance's
+/// parts and [`crate::appearance::item_without_model`] go by it.
+pub fn item_default_model(baseitems: &TwoDa, row: usize, resman: &ResMan) -> Option<String> {
+    let model = baseitems.get(row, "DefaultModel")?.trim().to_ascii_lowercase();
+    (model != "****" && has_model(resman, &model)).then_some(model)
+}
+
 /// The models a body of parts' own parts name (its head and each body
 /// part numbered above 0) on its `skeletons` ([`skeletons`]).
 pub fn body_models(utc: &Struct, skeletons: &[String; 2]) -> Vec<Named> {

@@ -1448,7 +1448,8 @@ is `default` too, the area's, not `chrome1`.
   class of no model, or a part number past the class's models) leaves
   the client on the loading screen: its log says "CreateItem: Model …
   nor the default model could be loaded", then "Message type mismatch".
-  Moonglow draws the creature without the item.
+  Moonglow draws the creature without the item. Verify warns of it
+  (`item-model`, `mg_rules::appearance::item_without_model`).
 - **A two-digit phenotype's part** (phenotype 15, `pmh15`) takes its
   textures as a phenotype 0 part does: its own PLT on every mesh, else
   phenotype 0's by the fallback, else what its mesh names.

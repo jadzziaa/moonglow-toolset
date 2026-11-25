@@ -323,16 +323,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **Verify and a table description's mistakes, the owner's call:** the
-  2DA editor reads a `name.2da.toml` with a mistake in it by
-  `Description::read`, keeping the rest and noting each mistake by line
-  (the review's P22); Verify, `mg 2da-check` and plugins keep
-  `Description::parse`, which stops at the first, as a check that
-  skipped a broken column would pass. `doctor.rs` could take `read` and
-  report each mistake as a `2da-described` warning, checking the other
-  columns; whether Verify should report every mistake or the first is
-  asked. (S) (the review of November 2026, P22, and what its fixers saw
-  on the way)
 - **Two of a hak's saves stay synchronous:** a hak tab's OK, its closing
   question's Save, Extract, Export as Files, Add Haks and the hak
   editor's own Save and Save As are jobs (the review's D19), but the
@@ -416,15 +406,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   November 2026, A14)
 
 ## Rendering: creatures, particles, water and shaders
-
-- **A DDS of one luminance channel drawn alone:** the client draws it in
-  colors of no rule (`part_textures_look`, rows R to U: 60 blue, 128
-  dark red, 0 and 255 black), Moonglow gray. Read again on 2026-11-25
-  with all four levels written: the same colors, so they are the
-  format's, not the fixture's (a PLT of the name still wins, row Q).
-  Awaiting the owner's verdict: copying colors of no rule, or calling
-  such a file one the game misreads (Verify could say so). (the part
-  textures, 2026-11-10; read again in the eighth client batch)
 
 - **A scene with little light draws the client's boxes 4 to 8 times
   brighter than Moonglow's:** read with `chrome1_reflection_look`'s dark
@@ -1006,11 +987,6 @@ contribution itself states as not done or not checked.
     models, or the module and the haks it lists). The log now says,
     for each model left out, whether it was found and why it can't be
     read. (S, waits on the builder's hak)
-- **A tileset whose count lies, the owner's call:** `mg-set`'s
-  `add_tile` trusts `Count`: on a junk `Count=1869573190` it writes
-  `[TILE1869573190]` (one section, no hang). What to do with a file
-  whose count lies is asked. (S) (what the fixers of the review of
-  November 2026 saw on the way)
 
 ## The install, starting and crashes
 

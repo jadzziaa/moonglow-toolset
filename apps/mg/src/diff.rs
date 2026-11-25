@@ -461,7 +461,9 @@ pub(crate) fn check(
                 )),
                 false => description_path,
             };
-            let d = match Description::parse(&source, &script) {
+            // (Read as the 2DA editor does: each column or rule that can't
+            // be read is said by its line, and the others are checked.)
+            let d = match Description::read(&source, &script) {
                 Ok(d) => d,
                 Err(e) => {
                     unread += 1;
@@ -474,6 +476,10 @@ pub(crate) fn check(
                     continue;
                 }
             };
+            unread += d.mistakes.len();
+            for mistake in &d.mistakes {
+                out.line(format!("{}: not read: {mistake}", description_path.display()));
+            }
             let mut faults = d.faults(&t, &rows_of, tlk);
             // (Moonglow's description of a game's table: a cell as the
             // game's own copy has it is the game's, not the builder's.)
@@ -494,7 +500,8 @@ pub(crate) fn check(
                 let column = &t.columns()[f.column];
                 out.line(format!("  {}, {column}: {}", row_name(&[&t], f.row), f.message));
             }
-            for note in &d.notes {
+            let notes: Vec<&String> = d.notes.iter().filter(|n| !d.mistakes.contains(n)).collect();
+            for note in &notes {
                 out.note(format!("{}: {note}", description_path.display()));
             }
             if !missing.is_empty() {
@@ -511,7 +518,8 @@ pub(crate) fn check(
                     "message": f.message,
                 })).collect::<Vec<_>>(),
                 "missing_columns": missing,
-                "notes": d.notes,
+                "mistakes": d.mistakes,
+                "notes": notes,
             }));
         }
     }

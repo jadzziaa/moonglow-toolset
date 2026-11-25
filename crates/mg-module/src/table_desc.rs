@@ -119,6 +119,11 @@ pub struct Description {
     /// What was not understood, which leaves the rest as it reads: a
     /// script's constant that is not a plain number, a key unknown.
     pub notes: Vec<String>,
+    /// Of [`Description::read`], the columns and rules it could not read
+    /// and left out (each also among `notes`, by its line): what Verify
+    /// and `mg 2da-check` report one by one. Always empty from
+    /// [`Description::parse`], which stops at the first.
+    pub mistakes: Vec<String>,
 }
 
 /// The description file of the table at `table` (`name.2da` gives
@@ -786,12 +791,13 @@ struct Said<'s> {
 
 impl Said<'_> {
     /// A column or a rule that cannot be read.
-    fn mistake(&self, notes: &mut Vec<String>, line: usize, message: String) -> Result<(), String> {
+    fn mistake(&self, d: &mut Description, line: usize, message: String) -> Result<(), String> {
         let message = format!("line {line}: {message}");
         if !self.keep {
             return Err(message);
         }
-        notes.push(message);
+        d.notes.push(message.clone());
+        d.mistakes.push(message);
         Ok(())
     }
 
@@ -851,7 +857,7 @@ impl Description {
             Some(toml::Value::Table(t)) => t,
             Some(_) => {
                 let message = "\"columns\" is not a table of columns".to_string();
-                said.mistake(&mut d.notes, said.lines.key(&["columns"]), message)?;
+                said.mistake(&mut d, said.lines.key(&["columns"]), message)?;
                 &none
             }
             None => &none,
@@ -859,14 +865,14 @@ impl Description {
         for (name, column) in columns {
             let Some(c) = column.as_table() else {
                 let message = format!("column {name}: not a table ([columns.{name}])");
-                said.mistake(&mut d.notes, said.lines.key(&["columns", name]), message)?;
+                said.mistake(&mut d, said.lines.key(&["columns", name]), message)?;
                 continue;
             };
             match d.kind(name, c, script, &said) {
                 Ok(kind) => d.columns.push((name.clone(), Column { kind, note: text(c, "note") })),
                 Err((key, message)) => {
                     let line = said.lines.key(&["columns", name, key]);
-                    said.mistake(&mut d.notes, line, message)?;
+                    said.mistake(&mut d, line, message)?;
                 }
             }
         }
@@ -874,7 +880,7 @@ impl Description {
             Some(toml::Value::Array(a)) => a,
             Some(_) => {
                 let message = "\"rules\" is not a list ([[rules]])".to_string();
-                said.mistake(&mut d.notes, said.lines.key(&["rules"]), message)?;
+                said.mistake(&mut d, said.lines.key(&["rules"]), message)?;
                 &[]
             }
             None => &[],
@@ -894,7 +900,7 @@ impl Description {
                         "rule {at}: it reads `when = {{ column = \"…\", is = \"…\" }}` and \
                          `require = \"…\"`"
                     );
-                    said.mistake(&mut d.notes, said.lines.rule(i), message)?;
+                    said.mistake(&mut d, said.lines.rule(i), message)?;
                 }
             }
         }
@@ -1504,6 +1510,8 @@ require = "Cures"
         assert_eq!(d.column("level").unwrap().kind, Kind::Int { min: Some(0), max: None });
         assert_eq!(d.rules.len(), 1);
         assert_eq!(d.notes.len(), 3, "{:?}", d.notes);
+        // (The two it could not read, apart from the one it did not understand.)
+        assert_eq!(d.mistakes, d.notes[1..], "{:?}", d.mistakes);
         assert_eq!(d.notes[0], "line 1: \"extra\" is not a key this reads");
         assert!(
             d.notes[1].starts_with("line 8: column Damage: \"flag\" is no kind"),

@@ -303,8 +303,7 @@ impl AppearanceRow {
         let drawn_instead = (item && !armor && out.found.is_empty())
             .then(|| {
                 let r = usize::try_from(self.row).ok()?;
-                let d = tables("baseitems")?.get(r, "DefaultModel")?.trim().to_ascii_lowercase();
-                models::has_model(resman, &d).then_some(d)
+                models::item_default_model(tables("baseitems")?, r, resman)
             })
             .flatten();
         // (An item none of whose own models are there and whose
@@ -319,6 +318,79 @@ impl AppearanceRow {
             out.problems.push(ModelProblem { at: *self, problem });
         }
         out
+    }
+}
+
+/// An item the game can't make: none of the models its parts name is
+/// there, and its base item's `DefaultModel` isn't either (or is empty),
+/// so the game's `CreateItem` fails ("Model ... nor the default model
+/// could be loaded") and a creature that holds or wears it leaves the
+/// client on the loading screen. Seen in the client (`batch8d.rs` in
+/// `client_render`, 2026-11-25).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemWithoutModel {
+    /// The item's baseitems.2da row.
+    pub row: i64,
+    /// The row's `ItemClass`, which its models are named by; `None`: it
+    /// has none.
+    pub class: Option<String>,
+    /// The first model its parts name (lower case) and the field with its
+    /// number; `None` where the row has no `ItemClass`, so no model.
+    pub first: Option<(&'static str, String)>,
+    /// The row's `DefaultModel`, when it names one (which isn't there).
+    pub default: Option<String>,
+}
+
+/// Whether an item (a blueprint's or an inline item's fields) has no
+/// model at all: the one rule Verify's `item-model` goes by, built from
+/// the same lists as the previews' items ([`models::item_models`], the
+/// base item's [`models::item_default_model`]). Armor is the body's, and
+/// a row that isn't there is [`Problem::NotARow`]'s: `None` for both.
+pub fn item_without_model(
+    item: &Struct,
+    baseitems: &TwoDa,
+    cloaks: Option<&TwoDa>,
+    resman: &ResMan,
+) -> Option<ItemWithoutModel> {
+    use crate::models;
+    let row = usize::try_from(item.integer("BaseItem").unwrap_or(0)).ok()?;
+    baseitems.get(row, "label").filter(|l| !l.trim().is_empty())?;
+    if crate::items::is_armor_row(baseitems, row) {
+        return None;
+    }
+    let named = models::item_models(item, baseitems, cloaks);
+    if named.iter().any(|n| n.models.iter().any(|m| models::has_model(resman, m))) {
+        return None;
+    }
+    if models::item_default_model(baseitems, row, resman).is_some() {
+        return None;
+    }
+    let cell = |column: &str| {
+        let v = baseitems.get(row, column)?.trim();
+        (!v.is_empty() && v != "****").then(|| v.to_string())
+    };
+    Some(ItemWithoutModel {
+        row: row as i64,
+        class: cell("ItemClass"),
+        first: named.first().map(|n| (n.field, n.models[0].clone())),
+        default: cell("DefaultModel").map(|d| d.to_ascii_lowercase()),
+    })
+}
+
+impl std::fmt::Display for ItemWithoutModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let row = self.row;
+        match &self.first {
+            Some((field, model)) => write!(
+                f,
+                "No model: {model} (its {field}) isn't in the module, its haks or the game"
+            )?,
+            None => write!(f, "No model: baseitems.2da row {row} has no ItemClass to name one")?,
+        }
+        match &self.default {
+            Some(d) => write!(f, ", and its base item's DefaultModel {d} isn't either"),
+            None => write!(f, ", and baseitems.2da row {row} has no DefaultModel"),
+        }
     }
 }
 
@@ -581,6 +653,47 @@ mod tests {
         assert_eq!(find(3), None, "portraits.2da has none of it");
         assert_eq!(find(4), Some(5), "a name without po_ as it is");
         assert_eq!(find(9), None, "no such row");
+    }
+
+    /// An item has no model at all where none of its parts' models and no
+    /// DefaultModel is there (the game can't make it): said with why; not
+    /// where one is, nor for an armor or a row that isn't there.
+    #[test]
+    fn an_item_with_no_model_at_all_is_found() {
+        let table = |text: &str| TwoDa::parse(text.as_bytes(), Default::default()).unwrap();
+        let baseitems = table(
+            "2DA V2.0\n\n  label ItemClass ModelType DefaultModel\n0 ring ring 0 it_ring\n\
+             1 odd **** 0 ****\n2 helm helm 1 ****\n3 armor cloth 3 ****\n4 bag bag 0 it_gone\n",
+        );
+        let mut mem = MemContainer::new();
+        for name in ["it_ring", "helm_001"] {
+            mem.insert(ResKey::parse(name, ResType::MDL).unwrap(), *b"x");
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak", LayerClass::Erf, mem);
+        let item = |base: i32, part: u8| {
+            let mut s = Struct::new(0);
+            s.set("BaseItem", Value::Int(base));
+            s.set("ModelPart1", Value::Byte(part));
+            s
+        };
+        let find = |base, part| item_without_model(&item(base, part), &baseitems, None, &rm);
+        assert_eq!(find(0, 9), None, "its DefaultModel is there");
+        assert_eq!(find(2, 1), None, "its model is there");
+        assert_eq!(find(3, 1), None, "armor is the body's");
+        assert_eq!(find(7, 1), None, "no such row");
+        let past = find(2, 9).unwrap();
+        assert_eq!(past.first, Some(("ModelPart1", "helm_009".to_string())));
+        assert_eq!(
+            past.to_string(),
+            "No model: helm_009 (its ModelPart1) isn't in the module, its haks or the game, \
+             and baseitems.2da row 2 has no DefaultModel"
+        );
+        let odd = find(1, 1).unwrap();
+        assert_eq!((odd.class, odd.first), (None, None));
+        assert!(find(1, 1).unwrap().to_string().contains("has no ItemClass"));
+        let gone = find(4, 1).unwrap();
+        assert!(gone.to_string().ends_with("its base item's DefaultModel it_gone isn't either"));
     }
 
     fn resman() -> ResMan {

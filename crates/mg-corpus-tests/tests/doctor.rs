@@ -349,3 +349,34 @@ fn the_game_s_own_tables_have_only_their_known_cell_faults() {
     );
     assert_eq!(wrong, known);
 }
+
+/// Every item blueprint of the game itself has a model the game can make
+/// (`item-model` would be a false alarm on it): the rule
+/// `mg_rules::appearance::item_without_model` finds none.
+#[test]
+fn the_game_s_own_items_all_have_a_model() {
+    let root = corpus!();
+    let gi = GameInstall::new(&root, None, "en");
+    let rm = mg_testkit::shared_resman(&gi).unwrap();
+    let table = |name: &str| {
+        let data =
+            rm.get(&mg_resman::ResKey::parse(name, mg_core::ResType::TWODA).unwrap()).unwrap();
+        mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
+    };
+    let (baseitems, cloaks) = (table("baseitems"), table("cloakmodel"));
+    let keys: Vec<_> = rm.entries().into_iter().map(|(k, _)| k).collect();
+    let items = keys.iter().filter(|k| k.restype == mg_core::ResType::UTI);
+    let mut seen = 0;
+    let mut said = Vec::new();
+    for k in mg_testkit::sweep(items.collect(), 3) {
+        let Ok(Ok(gff)) = rm.get(k).map(|d| mg_gff::Gff::read(&d)) else { continue };
+        seen += 1;
+        if let Some(p) =
+            mg_rules::appearance::item_without_model(&gff.root, &baseitems, Some(&cloaks), &rm)
+        {
+            said.push(format!("{k}: {p}"));
+        }
+    }
+    assert!(seen > mg_testkit::at_least(1000, 3), "only {seen} items read");
+    assert!(said.is_empty(), "{} items with no model:\n{}", said.len(), said.join("\n"));
+}

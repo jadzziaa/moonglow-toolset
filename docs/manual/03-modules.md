@@ -2500,9 +2500,10 @@ In the 2DA editor, a described table says so under its buttons, and:
 - a column or a rule the description gets wrong (a `kind` mistyped, a
   list without values) is said under the buttons by its line (`line 12:
   column Damage: "flag" is no kind…`) and left out, and the other
-  columns are described all the same. Verify Module, `mg 2da-check` and
-  a plugin take no such description: they say the first mistake, by its
-  line, and check nothing by it until it is mended.
+  columns are described all the same. Verify Module and `mg 2da-check`
+  read it the same way: each mistake is said by its line (`2da-described`
+  warns once for each), and the columns that read well are checked all
+  the same. A plugin's `mg.twoda.describe` stops at the first mistake.
 
 Where the description is looked for:
 

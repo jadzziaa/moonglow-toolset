@@ -2335,7 +2335,12 @@ The pages:
   the tile's `Doors` count following (a count that is no count, as some
   custom tilesets have, becomes the doors there are). **Add Tile** and **Duplicate Tile** add at the end, and
   **Remove Last Tile** takes the last away: areas store tiles by number,
-  so tiles in the middle stay where they are. What is typed in a field is
+  so tiles in the middle stay where they are. The end is the file's last
+  `[TILEn]` section (holes among them counted), not its `Count=`: a count
+  that is no count (`Count=1869573190`), or short of the sections there
+  are, numbers nothing, and the new tile is written after the sections the
+  file has, with `Count=` set to match. Groups, terrains and crossers are
+  numbered the same way; a painting rule goes by its count. What is typed in a field is
   set on its own tile as you leave it, a button pressed included.
   A **hole** (a tile the file has no `[TILEn]` section for, or one
   without `Model=`, as an old tileset merged by hand may have) is
