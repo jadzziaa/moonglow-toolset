@@ -45,6 +45,21 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.3.0" date="2026-11-25">
+      <description>
+        <p>File, Export Changed Resources for what changed since the
+        module was opened, doors placed anywhere and not only on a
+        tile's door hooks, Focus Selection that frames an object's
+        model, a New button beside an empty Conversation field, and an
+        Areas group in the Module panel as tall as you drag it.</p>
+        <p>Closing a script with unsaved text asks first, every kind of
+        floating window keeps its pane sizes, Paint with no placeable
+        chosen works as Select Objects, and the interface says check
+        where it said tick. Adjust Location with several objects
+        selected no longer gives them all the first one's visual
+        transform. See the release notes.</p>
+      </description>
+    </release>
     <release version="5.2.0" date="2026-11-24">
       <description>
         <p>Script Help back under the text, the error found as you type
