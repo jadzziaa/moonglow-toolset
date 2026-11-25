@@ -416,8 +416,8 @@ mod tests {
     #[test]
     fn painted_pictures_wait_for_later_and_keep_failures() {
         let ctx = egui::Context::default();
-        let mut p: PaintedPictures<u32> = PaintedPictures::default();
-        p.retry = Retry { again: Duration::ZERO, give_up: Duration::from_secs(3600) };
+        let retry = Retry { again: Duration::ZERO, give_up: Duration::from_secs(3600) };
+        let mut p: PaintedPictures<u32> = PaintedPictures { retry, ..Default::default() };
         let asked: std::cell::RefCell<Vec<(u32, bool)>> = Default::default();
         let mut painter = |key: u32, as_drawn: bool| {
             asked.borrow_mut().push((key, as_drawn));
