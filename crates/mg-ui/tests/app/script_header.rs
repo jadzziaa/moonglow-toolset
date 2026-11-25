@@ -712,12 +712,24 @@ fn ok_and_cancel_stand_at_the_header_s_end() {
         h.get_all_by_label("Cancel").last().unwrap().click();
         settle(&mut h);
         assert!(h.query_by_label("Don't Save").is_none(), "{mode:?}: the question answered");
-        // OK: into the module, closed.
+        // OK: into the module, closed, its editor's state kept for the
+        // session as the question's Save keeps it (a bookmark: what only
+        // the editor's state has).
+        h.state_mut().scripts_mut_bookmark_for_test(key, 0);
         h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label("OK").click();
         settle(&mut h);
         assert!(h.state().dock.find_tab(&script).is_none(), "{mode:?}: closed by OK");
         let saved = h.state().ws.as_ref().unwrap().module.get(&key).map(<[u8]>::to_vec);
         assert!(saved.unwrap().starts_with(b"int n;"), "{mode:?}: saved into the module");
+        assert_eq!(h.state().script_bookmarks(key), [0], "{mode:?}: its bookmark kept");
+        // Opened again: nothing unsaved in it, so its close asks nothing.
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+        settle(&mut h);
+        assert_eq!(h.state().script_bookmarks(key), [0], "{mode:?}: reopened, its bookmark");
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![script.clone()]));
+        settle(&mut h);
+        assert!(h.query_by_label("Unsaved Changes").is_none(), "{mode:?}: kept clean");
+        assert!(h.state().dock.find_tab(&script).is_none(), "{mode:?}: closed again");
     }
 }
 

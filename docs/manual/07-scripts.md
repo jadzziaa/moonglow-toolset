@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T10:35:01Z }
 ---
 
 # Scripts
@@ -28,14 +28,15 @@ then **Save As…**, **Print…**, **Open…** and **External Editor**,
 in its tooltip with its key); at its right end the codepage the script
 is read and saved in (below), **More** (⋯), which holds **To
 Scratch**, and **OK** and **Cancel**: OK puts the text into the module
-and closes the tab. Cancel closes it as last saved; with text not yet
+and closes the tab, keeping its bookmarks, Undo history, codepage and
+External Editor link for the session as a clean close does. Cancel closes it as last saved; with text not yet
 saved into the module it asks first, as closing the tab does (its ×,
 Ctrl+W, the tab's menu, its window's Close): **Save** puts the text
 into the module, as Save does, and closes the tab, **Don't Save** closes
 it as last saved, and **Cancel** keeps it open. A script closed with
-nothing unsaved and opened again in the same session has its bookmarks,
-Undo history, codepage and External Editor link as it left them; one
-closed by that question's Save or Don't Save opens anew. A script deleted from the module while closed loses what was kept. Where the
+nothing unsaved, or closed by that question's Save, and opened again in
+the same session has its bookmarks, Undo history, codepage and External
+Editor link as it left them; one closed by Don't Save opens anew. A script deleted from the module while closed loses what was kept. Where the
 editor is narrow, Save and Compile lose their words first, then the icons go into More from the end of the row, then
 the codepage, Save and Compile last of all, so every command stays one
 click away; OK and Cancel stay at the end whatever the width. An unsaved

@@ -4,7 +4,7 @@ title: 'UI/UX waves 1 to 3 and their review: findings, rulings and fixes'
 description: 'Compact reference (2026-11-25, branch ui-ux-fixes) to the three UI/UX waves (0e3c6195, 6da9e560, 62e1c507): what each answers, what the review of them found, the owner''s five rulings, and what was fixed on top in the working tree.'
 tags: [review, ui, ux, accessibility, contrast, focus, copy, style-guide]
 status: stable
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T09:38:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T10:35:01Z }
 sources:
   - id: wave1
     resource: git show 0e3c6195
@@ -80,12 +80,14 @@ The review of waves 1 and 2 (read-only at `6da9e560`: one blocker, seven to fix,
 4. **The switch's light track off and the slider thumb's light ring stay as the proposal has them**, though both are under 3:1 ([the redesign](ui-redesign-proposal.md) §4.2, noted there).[^owner]
 5. **Paint with nothing paintable chosen swallows only the placing click**, not all input.[^owner]
 
+Later the same day, on ruling 1: a script tab closed with unsaved text and answered **Save** (and the header's OK, the same action) keeps the editor's state (bookmarks, Undo history, codepage, External Editor link) for the session, as a clean close does; **Don't Save** still drops it.[^owner]
+
 ## Fixed on top of Wave 3
 
 | Where | What |
 |---|---|
 | Shell | `Moonglow::window_tabs_maximized`, a snapshot taken before the dock swap, drives a floating tab's double click and its menu's Maximize or Restore. Pane sizes kept for every kind (ruling 2), and a size let go of as the pointer moves is kept (the pane lags the pointer a frame; `keep_window_size` keeps saving for three passes after the drag). |
-| Scripts | Close asks (ruling 1); a clean close keeps the editor's state for the session, Don't Save and the question's Save drop it; Edit › Undo off with nothing typed. |
+| Scripts | Close asks (ruling 1); a clean close, the question's Save and the header's OK keep the editor's state for the session, Don't Save drops it (`scripts::a_script_closed_with_save_keeps_its_bookmarks_and_history`); Edit › Undo off with nothing typed. |
 | Side editors, Options | Cancel's tip "Close the window, asking about unsaved changes first"; the two Options tips. |
 | Area view | Adjust Location's write path over several objects tested (`area_input_fixes::adjust_location_on_several_keeps_each_object_s_own_values`). Paint (ruling 5) through one rule, `clicks_place` and `to_place`; Escape or a right click turns Paint off, a double click on the ground goes to Select Tiles. Select Tiles' Escape during a box drops the box alone. Mixed-markers cue from the limit ("more than 65 selected: mixed markers omitted"). Paint hint, Rotate Tile and Delete tips, tick to check. |
 | Kit | Slider thumb: no ring in dark, 1 px `#8d949e` in light; value text `--text`. Swatch button raised with its color inset 3 px, lit hovered and open, a 1 px `--accent` border inside on open or focus. One ring per control. Scroll cue band in the selector's own ground, chevron `--text-3`. Gallery hover rim `--text-off` in light (2.81:1, 3.19:1), outside the tile (ruling 3). Compass N `--text`. [The redesign](ui-redesign-proposal.md) amended. |

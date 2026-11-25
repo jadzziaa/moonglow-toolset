@@ -195,7 +195,9 @@ pub(crate) fn pressed_ok_cancel(
                 return app.side_doc(tab).is_none();
             }
             let saved = !unsaved || app.save_side(tab);
-            if saved {
+            // (A script saved keeps its editor's state for the session, as
+            // the closing question's Save does.)
+            if saved && !app.script_kept_on_close(tab) {
                 app.forget_side(tab);
             } else if app.failed_saving(tab).is_some() && !app.side_closing.contains(tab) {
                 app.side_closing.push_back(tab.clone());
@@ -404,6 +406,14 @@ impl Moonglow {
         }
     }
 
+    /// Whether `tab` is a script whose editor's state stays for the session
+    /// as its tab closes: nothing in it unsaved (a clean close, the
+    /// closing question's Save, the header's OK; the owner's ruling of
+    /// 2026-11-25). With unsaved text (Don't Save) it is let go.
+    fn script_kept_on_close(&self, tab: &Tab) -> bool {
+        matches!(tab, Tab::Script(key) if self.scripts.get(key).is_some_and(|b| !b.is_dirty()))
+    }
+
     /// What the closing question asks about a tab: its document's name
     /// and whether it has unsaved changes. A side editor's, or (for its
     /// Cancel: their tabs' close keeps what is unsaved, for the module's
@@ -555,7 +565,8 @@ impl Moonglow {
             // (With nothing unsaved its editor's state stays for the
             // session, as before the question was asked: its bookmarks,
             // history, codepage and external editor's file when it is
-            // opened again. Don't Save lets it go: `closing_window`.)
+            // opened again. The question's Save keeps it likewise, Don't
+            // Save lets it go: `closing_window`'s `close`.)
             return true;
         }
         match self.side_doc(tab) {
@@ -824,11 +835,17 @@ fn carry_on(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-/// A side editor's tab closed, its document let go.
+/// A side editor's tab closed, its document let go: a script's only with
+/// its unsaved text (Don't Save). A script saved (the question's Save, or
+/// saved meanwhile) keeps its editor's state for the session, as a clean
+/// close does (the owner's ruling of 2026-11-25): a buffer with no tab is
+/// never unsaved.
 /// (Noted for Reopen Closed Tab as a close without the question is: the
 /// Talk Table tab; a side editor's is not noted.)
 fn close(app: &mut Moonglow, tab: &Tab) {
-    app.forget_side(tab);
+    if !app.script_kept_on_close(tab) {
+        app.forget_side(tab);
+    }
     app.closed(tab);
     if let Some(path) = app.dock.find_tab(tab) {
         app.dock.remove_tab(path);

@@ -3244,6 +3244,48 @@ fn closing_a_script_with_unsaved_text_saves_or_stays_as_answered() {
     assert!(in_module(&h).starts_with("// kept\n"), "saved into the module: {}", in_module(&h));
 }
 
+/// A script's tab closed with unsaved text and answered Save keeps its
+/// editor's state for the session, as a clean close does (the owner's
+/// ruling of 2026-11-25): opened again, its bookmark and its history are
+/// there, and nothing is unsaved in it. (Don't Save lets it go:
+/// `script_bottom`'s `closing_a_dirty_script_tab_asks_to_save_and_dont_save_drops_edits`.)
+#[test]
+fn a_script_closed_with_save_keeps_its_bookmarks_and_history() {
+    let (mut h, _path, key) = hello_window("ui-script-close-save-keeps");
+    let tab = Tab::Script(key);
+    let in_module = |h: &Harness<'_, Moonglow>| {
+        let ws = h.state().ws.as_ref().unwrap();
+        String::from_utf8_lossy(ws.module.get(&key).unwrap()).into_owned()
+    };
+    type_at_top(&mut h, key, "// kept\n");
+    // Its first line bookmarked (F5).
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    h.key_press(egui::Key::F5);
+    h.run_steps(3);
+    assert_eq!(h.state().script_bookmarks(key), [0], "bookmarked");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    settle(&mut h);
+    h.get_by_label("Unsaved Changes").get_by_label("Save").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "answered");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "Save: the tab closed");
+    assert!(in_module(&h).starts_with("// kept\n"), "saved into the module: {}", in_module(&h));
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark kept while closed");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    assert!(h.state().script_text(key).unwrap().starts_with("// kept\n"));
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark kept");
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    assert!(edit_undo_enabled(&h, false), "its history kept: Undo on");
+    // Not unsaved: closed again, nothing is asked.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved Changes").is_none(), "the kept buffer is not unsaved");
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+}
+
 /// A script's tab closed with nothing unsaved asks nothing, and its
 /// editor's state stays for the session, as before Wave 1 (develop kept
 /// the script's buffer on a close): opened again, its bookmarks and its
@@ -3304,9 +3346,12 @@ fn a_closed_script_is_not_open_to_find_and_replace() {
     (search.find, search.replace) = ("a".into(), "total".into());
     search.options.whole_word = true;
     settle(&mut h);
+    // (A bookmark: what only the editor's state has, not the module.)
+    h.state_mut().scripts_mut_bookmark_for_test(key, 0);
     close_tab(h.state_mut(), &Tab::Script(key));
     settle(&mut h);
     assert_eq!(h.state().script_text(key).as_deref(), Some(text), "its editor's state kept");
+    assert_eq!(h.state().script_bookmarks(key), [0], "its bookmark with it");
     h.get_by_label("Replace All").click();
     settle(&mut h);
     assert_eq!(h.state().script_text(key).as_deref(), Some(text), "the closed script untouched");
