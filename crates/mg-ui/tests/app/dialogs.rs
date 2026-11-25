@@ -254,7 +254,7 @@ fn reachable(h: &mut Harness<'_, Moonglow>, title: &str, buttons: &[&str], at: e
 
 /// The Area Wizard (the tallest dialog over an area) in the least window,
 /// 420 by 320, and in a short one, 800 by 450: in the window, its title
-/// row in sight, its body scrolling to Create and Cancel.
+/// row in sight, its body scrolling to Next and Cancel.
 #[test]
 fn a_tall_dialog_stays_whole_and_scrolls_in_a_short_window() {
     let Some((mut h, _)) = area_ui_harness("dialog-least") else { return };
@@ -270,7 +270,7 @@ fn a_tall_dialog_stays_whole_and_scrolls_in_a_short_window() {
             let area = h.state().editor_area_rect().expect("the editor area");
             assert!(area.width() < window.width(), "the editor area narrower: {area:?} {window:?}");
         }
-        reachable(&mut h, "Area Wizard", &["Create", "Cancel"], at);
+        reachable(&mut h, "Area Wizard", &["Next >", "Cancel"], at);
     }
 }
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:44Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T19:01:51Z }
 ---
 
 # Getting started
@@ -114,8 +114,9 @@ to resource or command (Quick Open).
 1. **File › New Module…** (Ctrl+N) asks for a **Module name**; **Create**
    makes an empty module, as Aurora's module wizard does, and opens the
    **Area Wizard**.
-2. The Area Wizard makes an area: give it a name, pick a tileset and a
-   size, and press **Create**. With **Open area in the Area Viewer**
+2. The Area Wizard makes an area in three steps: give it a name and
+   pick a tileset (**Next >**), choose a size (**Next >**), and press
+   **Finish**. With **Open area in the Area Viewer**
    checked (as it is at first), the area opens in the area viewer. For another area later,
    choose **Wizards › Area Wizard…** (Ctrl+Alt+A), or **New Area** (the
    plus) on the Module panel's tab bar. While no area is open in front,

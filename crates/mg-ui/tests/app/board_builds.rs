@@ -147,8 +147,7 @@ fn chosen_segment(h: &Harness<'_, Moonglow>) -> Vec<&'static str> {
         .collect()
 }
 
-/// The Area Wizard's Size: a radio group named Area size (its label, Size,
-/// the one node of that name) of Tiny, Small, Medium
+/// The Area Wizard's Size page: a radio group named Area size of Tiny, Small, Medium
 /// and Large in a row, Medium chosen as it opens (8 × 8); a click on each
 /// sets the rows and columns to its size; the arrows, Home and End move
 /// the choice and set them too; rows and columns of another size choose
@@ -159,6 +158,8 @@ fn the_area_wizard_s_size_segments_set_rows_and_columns() {
     h.set_size(egui::vec2(1280.0, 720.0));
     h.state_mut().actions.push(mg_ui::Action::AreaWizard);
     settle(&mut h);
+    // (The wizard's second page.)
+    area_wizard_next(&mut h, 1);
     let groups = h.query_all_by(|n| {
         n.role() == Role::RadioGroup && n.label().as_deref() == Some("Area size")
     });
@@ -171,13 +172,9 @@ fn the_area_wizard_s_size_segments_set_rows_and_columns() {
         assert!((pair[0].center().y - pair[1].center().y).abs() < 0.5, "in a row: {rects:?}");
         assert!(pair[1].left() > pair[0].right() - 0.5, "side by side: {rects:?}");
     }
-    // (Under its label, the rows × columns and "tiles, 10 m each" under it,
-    // as on the board: not laid out in the middle of the body's height.)
-    // (The label is the one node named Size: a test finds it so.)
-    let label = h.get_by_label("Size").rect();
+    // (The rows × columns and "tiles, 10 m each" under the segments, as on
+    // the board: not laid out in the middle of the body's height.)
     let tiles = h.get_by_label("tiles, 10 m each").rect();
-    let gap = rects[0].top() - label.bottom();
-    assert!((0.0..10.0).contains(&gap), "the segments {gap} under Size: {label:?} {rects:?}");
     let gap = tiles.top() - rects[0].bottom();
     assert!((0.0..12.0).contains(&gap), "the rows and columns {gap} under them: {tiles:?}");
     for (label, n) in [("Tiny", 2), ("Small", 4), ("Large", 16), ("Medium", 8)] {

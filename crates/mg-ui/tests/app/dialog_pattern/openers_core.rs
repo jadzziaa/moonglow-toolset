@@ -47,6 +47,13 @@ pub(crate) fn click_reached(h: &mut Harness<'static, Moonglow>, name: &str) {
     h.get_all_by_label(name).next().unwrap_or_else(|| panic!("{name}")).click();
 }
 
+/// The open Area Wizard on its page `page` (counted from 0).
+fn area_wizard_page(h: &mut Harness<'static, Moonglow>, page: usize) {
+    if let Some(mg_ui::Wizard::NewArea(w)) = &mut h.state_mut().wizard {
+        w.page = page;
+    }
+}
+
 pub(crate) fn openers() -> Vec<Opener> {
     vec![
         Opener::new("wizards.rs:ui#1", "New Module", plain, |h| {
@@ -58,7 +65,15 @@ pub(crate) fn openers() -> Vec<Opener> {
             h.state_mut().actions.push(mg_ui::Action::AreaWizard)
         })
         .field(0)
-        .off(|h| clear_field(h, "Area Wizard", 0)),
+        .off(|h| clear_field(h, "Area Wizard", 0))
+        // (Its Size and Finish pages.)
+        .states(vec![
+            ("on step 2", |h| area_wizard_page(h, 1)),
+            ("on step 3", |h| area_wizard_page(h, 2)),
+        ])
+        .enter_does("goes to its next page", |h| {
+            super::is_shown(h, "Area Wizard") && h.query_by_label_contains("Step 2 of").is_some()
+        }),
         Opener::new("wizards.rs:ui#3", "Close Moonglow?", plain, |h| h.state_mut().closing = true),
         Opener::new("wizards.rs:ui#4", "Unsaved Changes", plain, |h| {
             h.state_mut().confirm_discard = Some(mg_ui::Action::NewModuleDialog)
