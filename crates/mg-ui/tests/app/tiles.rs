@@ -5824,6 +5824,15 @@ fn other_brushes_on_an_object_today() {
             )
         };
         click_with(&mut h, on_chest, egui::Modifiers::NONE);
+        // (The Eraser on a tile with nothing to erase chooses its tile
+        // again among those that fit: about one click in 20 comes out as
+        // the tile there, changing nothing. Each click chooses afresh.)
+        for _ in 0..5 {
+            if mode != "Eraser" || !changed(&mut h).is_empty() {
+                break;
+            }
+            click_with(&mut h, on_chest, egui::Modifiers::NONE);
+        }
         let click = outcome(&mut h);
         while undo_label(&h).is_some_and(|l| l != "Setup") {
             h.state_mut().ws.as_mut().unwrap().undo().unwrap();
@@ -5833,6 +5842,18 @@ fn other_brushes_on_an_object_today() {
         h.run_steps(2);
         let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
         press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+        // (So may the Eraser's drag choose the chest's tile as it was:
+        // undone and dragged again.)
+        for _ in 0..5 {
+            if mode != "Eraser" || changed(&mut h).contains(&5) {
+                break;
+            }
+            while undo_label(&h).is_some_and(|l| l != "Setup") {
+                h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+                h.run_steps(3);
+            }
+            press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+        }
         let drag = outcome(&mut h);
         table.push(format!("{mode} | click: {click} | press-drag: {drag}"));
     }
