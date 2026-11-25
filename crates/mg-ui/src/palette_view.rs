@@ -1141,6 +1141,19 @@ impl PaletteView {
     }
 
     /// Forgets palettes built from the game data (after Reload Resources).
+    /// Forgets what was read of `sets` (tilesets kept in the module,
+    /// changed): their palettes, names and grass, and a tile brush or
+    /// choice of one of them, a number in its file.
+    pub(crate) fn forget_tilesets(&mut self, sets: &[ResRef]) {
+        self.tile_palettes.retain(|t, _| !sets.contains(t));
+        self.tileset_names.retain(|t, _| !sets.contains(t));
+        self.tileset_grass.borrow_mut().retain(|t, _| !sets.contains(t));
+        if self.tile_brush.as_ref().is_some_and(|b| sets.contains(&b.tileset)) {
+            self.tile_brush = None;
+            self.tile_choice = None;
+        }
+    }
+
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
         self.custom_cache.clear();

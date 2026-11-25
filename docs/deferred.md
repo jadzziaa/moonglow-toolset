@@ -1204,22 +1204,6 @@ contribution itself states as not done or not checked.
   `[TILE1869573190]` (one section, no hang). What to do with a file
   whose count lies is asked. (S) (what the fixers of the review of
   November 2026 saw on the way)
-- **A tileset kept in the module, changed, not redrawn in open areas:**
-  the areas and the Tiles palette draw a tileset from the game data
-  (`GameData`, the install, haks, override and development folders),
-  which a tileset changed outside in one of those is read again into
-  (M5's W5) with every area view reloaded; a `.set` kept inside the
-  module (or put into it) changes only the game data's module layer,
-  in place (`update_module_layer`, which forgets the tables for a 2DA,
-  the Appearance marks for a model and the drawn textures, not the
-  tilesets read nor the areas drawn from them), so an open area keeps
-  drawing the tileset as it was until it is opened again. Redrawing
-  them means dropping the game data's tileset and every area and
-  palette made from it on a module change too, which reloads every
-  open area for any `.set` change of the module's: a change to how the
-  module layer and the views meet, beyond what the answer asked (the
-  editor's own file, at any path, is read again).
-  (M) (the review of M5's W5)
 
 ## The install, starting and crashes
 
