@@ -192,6 +192,23 @@ pub fn decide(path: &Path, root: &Path, plugin: &Plugin, allow: bool) -> Result<
     Ok(answers)
 }
 
+/// Takes out the answers for projects no longer on disk (a checkout or
+/// worktree removed), and keeps the rest in `path`: those taken out. Only
+/// when asked (`mg plugin allow --prune`): a project on a drive not
+/// mounted is not there either, and its answers would go with it. A
+/// project that can't be looked at (no leave to read its folder) stays.
+/// A yes taken out no longer holds for the same files elsewhere.
+pub fn prune(path: &Path) -> Result<Vec<Answer>, String> {
+    let mut answers = Answers::read(path)?;
+    let (gone, kept) = (answers.answers.drain(..))
+        .partition::<Vec<_>, _>(|a| matches!(a.project.try_exists(), Ok(false)));
+    answers.answers = kept;
+    if !gone.is_empty() {
+        answers.write(path)?;
+    }
+    Ok(gone)
+}
+
 /// The folder of a project's plugins, for its root and its files.
 pub fn folder(root: &Path, file: &ProjectFile) -> PathBuf {
     file.plugins.folder_in(root)
