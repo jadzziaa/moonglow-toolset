@@ -16,8 +16,9 @@
 //! in its own tokens rather than faded; what stands over a 3D view
 //! (the compass and the view's corner buttons, [overlay]); a
 //! [dialog]'s parts (`empty`, `StepState`, `StepList`, `page_bar`, and
-//! `Footer`); and the [gallery] cell, its grid and the pictures' size
-//! slider.
+//! `Footer`); the [gallery] cell, its grid and the pictures' size
+//! slider; and what a gallery keeps of its [pictures] (asked for, made,
+//! let go).
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -46,6 +47,7 @@ pub mod menu;
 pub mod metrics;
 pub mod overlay;
 pub mod pages;
+pub mod pictures;
 pub mod popover;
 pub mod scrolling;
 pub mod shelf;
