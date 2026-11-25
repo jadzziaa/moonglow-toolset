@@ -1413,7 +1413,8 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     }
     h.run_steps(4);
     let focused = h.state().area_views[&area].orbit.unwrap();
-    assert!((focused.target - wp_pos).length() < 0.01, "double click goes to {wp_pos:?}");
+    let on = camera_on(&h, area, ObjectKind::Waypoint, 36);
+    assert!(on, "double click goes to the waypoint at {wp_pos:?}: {:?}", focused.target);
     assert!(focused.distance <= 25.0, "zoomed in: {}", focused.distance);
     let path = mg_edit::GffPath::root().item("WaypointList", 36);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
@@ -3149,10 +3150,6 @@ fn a_triple_click_on_an_object_s_row_opens_its_properties() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     settle(&mut h);
-    let position = |h: &Harness<'_, Moonglow>, index: usize| {
-        let view = &h.state().area_views[&area];
-        view.model.as_ref().unwrap().object(ObjectKind::Waypoint, index).unwrap().position
-    };
     let window = |index: usize| {
         let path = mg_edit::GffPath::root().item("WaypointList", index);
         Tab::Instance { area, path }
@@ -3177,10 +3174,8 @@ fn a_triple_click_on_an_object_s_row_opens_its_properties() {
         }
         settle(h);
     };
-    let focused = |h: &Harness<'_, Moonglow>, index: usize| {
-        let target = h.state().area_views[&area].orbit.unwrap().target;
-        (target - position(h, index)).length() < 0.01
-    };
+    let focused =
+        |h: &Harness<'_, Moonglow>, index: usize| camera_on(h, area, ObjectKind::Waypoint, index);
 
     // The Module Tree: a double click goes to waypoint 0 and opens
     // nothing; a triple click goes to it and opens its Properties.

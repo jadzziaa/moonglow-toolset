@@ -9650,11 +9650,8 @@ fn focus_selection_with_f_and_period_keys() {
     settle(&mut h);
     // (On the middle of the waypoint's model, its flag, above where it
     // stands: `focus_frames.rs`.)
-    let on_waypoint = |target: Vec3, at: Vec3| {
-        (target - at).truncate().length() < 0.5 && target.z > at.z && target.z < at.z + 2.5
-    };
     let o = h.state().area_views[&area].orbit.unwrap();
-    assert!(on_waypoint(o.target, Vec3::new(20.0, 20.0, 0.0)), "F focuses waypoint 0: {o:?}");
+    assert!(camera_on(&h, area, ObjectKind::Waypoint, 0), "F focuses waypoint 0: {o:?}");
     assert!(o.distance <= 25.0);
 
     // Click waypoint 1 in the Outliner (camera stays put, Outliner gets keys), then press `.`.
@@ -9673,20 +9670,11 @@ fn focus_selection_with_f_and_period_keys() {
     settle(&mut h);
     let after_click = h.state().area_views[&area].orbit.unwrap();
     assert!((after_click.target - o.target).length() < 0.01, "no auto-zoom");
-    let expected = h.state().area_views[&area]
-        .model
-        .as_ref()
-        .unwrap()
-        .object(
-            h.state().area_views[&area].selection[0].0,
-            h.state().area_views[&area].selection[0].1,
-        )
-        .unwrap()
-        .position;
+    let (kind, index) = h.state().area_views[&area].selection[0];
     h.key_press(egui::Key::Period);
     settle(&mut h);
     assert!(
-        on_waypoint(h.state().area_views[&area].orbit.unwrap().target, expected),
+        camera_on(&h, area, kind, index),
         "`.` focuses selected waypoint straight after clicking in the Outliner"
     );
 }
