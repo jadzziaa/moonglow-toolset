@@ -313,8 +313,9 @@ gaps against the original scope: the Plot Wizard is not built; spell
 checking is left out (EE ships no lexicon, and Aurora's finds nothing);
 the Conversation Editor's Scrap tab is partly done. The renderer's approximations (dangly-mesh dynamics and the
 point-to-point and lightning emitters follow the wiki's descriptions, not
-measurements) and what it does not draw (creatures' and point lights'
-shadows) are in §5.5.
+measurements) are in §5.5; creatures' and point lights' shadows are drawn
+since 2026-10-28, and what is left of shadows is on the
+[deferred list](deferred.md).
 
 ### After parity
 
