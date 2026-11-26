@@ -276,6 +276,13 @@ pub(crate) struct Assets {
     /// filter, how many were asked for, the names.
     listings: u64,
     found: Option<(u64, String, usize, Vec<String>)>,
+    /// What filters typed of late found, every one of them, by their
+    /// places in `catalog`, each filter narrowing the one below it: a key
+    /// typed looks among what the filter before it found, and a key taken
+    /// back finds its filter's again, rather than each searching all
+    /// 130,000 names. The listing they were found in.
+    narrowing: Vec<(mg_core::text::Needle, Vec<u32>)>,
+    narrowed_in: u64,
     requested: BTreeSet<String>,
     /// How many times the skin was read, and how many pictures were (for
     /// tests: what a change of the names costs).
@@ -582,6 +589,10 @@ fn image_resource(
         .map(|(ty, (bytes, origin))| (ty, bytes, origin))
 }
 
+/// How many passes a picture no window asks for any more is kept for
+/// (about a fifth of a second at 144 frames a second).
+const LINGER: u64 = 30;
+
 /// The longest side a picture of a window may have.
 const MAX_SIDE: u32 = 4096;
 
@@ -666,6 +677,55 @@ pub(super) fn names(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
     mg_nui::image_names_in(v, s, out);
 }
 
+/// The talk table rows layout `doc` and its settings' binds name.
+pub(super) fn strrefs(doc: &Value, s: &Settings) -> BTreeSet<i64> {
+    fn collect(v: &Value, refs: &mut BTreeSet<i64>) {
+        match v {
+            Value::Object(o) => {
+                if let Some(id) = o.get("strref").and_then(Value::as_i64) {
+                    refs.insert(id);
+                }
+                let is_chart = o.get("type").and_then(Value::as_str) == Some("chart");
+                for (k, child) in o {
+                    if is_chart && k == "value" {
+                        if let Some(slots) = child.as_array() {
+                            for slot in slots {
+                                if let Some(so) = slot.as_object() {
+                                    for (sk, sv) in so {
+                                        if sk != "data"
+                                            && matches!(sv, Value::Object(_) | Value::Array(_))
+                                        {
+                                            collect(sv, refs);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    if matches!(child, Value::Object(_) | Value::Array(_)) {
+                        collect(child, refs);
+                    }
+                }
+            }
+            Value::Array(a) => {
+                for child in a {
+                    if matches!(child, Value::Object(_) | Value::Array(_)) {
+                        collect(child, refs);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut refs = BTreeSet::new();
+    collect(doc, &mut refs);
+    for binding in s.bindings.values() {
+        collect(&binding.value, &mut refs);
+    }
+    refs
+}
+
 impl Assets {
     /// Resolve only referenced talk-table rows through the same game/module TLK
     /// stack as the rest of Moonglow. Refresh independently of texture caching:
@@ -676,55 +736,21 @@ impl Assets {
         doc: &Value,
         s: &Settings,
     ) {
-        fn collect(v: &Value, refs: &mut BTreeSet<i64>) {
-            match v {
-                Value::Object(o) => {
-                    if let Some(id) = o.get("strref").and_then(Value::as_i64) {
-                        refs.insert(id);
-                    }
-                    let is_chart = o.get("type").and_then(Value::as_str) == Some("chart");
-                    for (k, child) in o {
-                        if is_chart && k == "value" {
-                            if let Some(slots) = child.as_array() {
-                                for slot in slots {
-                                    if let Some(so) = slot.as_object() {
-                                        for (sk, sv) in so {
-                                            if sk != "data"
-                                                && matches!(sv, Value::Object(_) | Value::Array(_))
-                                            {
-                                                collect(sv, refs);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            continue;
-                        }
-                        if matches!(child, Value::Object(_) | Value::Array(_)) {
-                            collect(child, refs);
-                        }
-                    }
-                }
-                Value::Array(a) => {
-                    for child in a {
-                        if matches!(child, Value::Object(_) | Value::Array(_)) {
-                            collect(child, refs);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut refs = BTreeSet::new();
-        collect(doc, &mut refs);
-        for binding in s.bindings.values() {
-            collect(&binding.value, &mut refs);
-        }
+        self.prepare_strings_of(game, &strrefs(doc, s));
+    }
+
+    /// The talk table rows `refs` resolved ([`Self::prepare_strings`]).
+    pub(super) fn prepare_strings_of(
+        &mut self,
+        game: Option<&mg_rules::GameData>,
+        refs: &BTreeSet<i64>,
+    ) {
         if refs.is_empty() && self.strings.is_empty() {
             return;
         }
         self.strings = refs
-            .into_iter()
+            .iter()
+            .copied()
             .filter_map(|id| {
                 let raw =
                     u32::try_from(id).ok().or_else(|| i32::try_from(id).ok().map(|n| n as u32))?;
@@ -773,6 +799,20 @@ impl Assets {
     ) {
         let mut wanted = BTreeSet::new();
         names(v, s, &mut wanted);
+        self.prepare_names(ctx, rm, module, revision, &wanted);
+    }
+
+    /// [`Self::prepare`] with the names of the pictures the layout shows
+    /// walked for already.
+    pub(super) fn prepare_names(
+        &mut self,
+        ctx: &egui::Context,
+        rm: Option<&ResMan>,
+        module: &Module,
+        revision: u64,
+        names: &BTreeSet<String>,
+    ) {
+        let mut wanted = names.clone();
         // What the client draws for an image it can't find (nuklear_image.cpp).
         wanted.insert("gui_error".into());
         wanted.extend(self.requested.iter().cloned());
@@ -815,14 +855,17 @@ impl Assets {
             self.catalog = self.game_pictures.union(&self.module_pictures).cloned().collect();
             self.listings += 1;
         }
-        // Pictures no window asked for in the pass before this one go (a
-        // tab closed or behind another, a name while it was typed).
+        // Pictures no window asked for in the last few passes go (a tab
+        // closed or behind another, a name while it was typed). (Not the
+        // pass before alone: a key typed into Find a picture and taken back
+        // read the picture the name had found again, every other frame.)
         let pass = ctx.cumulative_pass_nr();
         let mut changed = false;
         if self.pass != pass {
             let last = std::mem::replace(&mut self.pass, pass);
             let before = self.pictures.len();
-            self.pictures.retain(|_, p| p.skin || p.asked.is_none_or(|asked| asked >= last));
+            let since = last.saturating_sub(LINGER);
+            self.pictures.retain(|_, p| p.skin || p.asked.is_none_or(|asked| asked >= since));
             changed = self.pictures.len() != before;
         }
         let reload = self.dirty
@@ -867,10 +910,44 @@ impl Assets {
             .is_some_and(|(at, f, n, _)| (*at, f.as_str(), *n) == (self.listings, filter, most));
         if !fresh {
             let query = mg_core::text::Needle::new(filter);
-            let names = self.catalog.iter().filter(|n| name_found(&query, n)).take(most).cloned();
-            self.found = Some((self.listings, filter.to_string(), most, names.collect()));
+            let names = match query.is_empty() {
+                true => self.catalog.iter().take(most).cloned().collect(),
+                false => {
+                    self.narrow(query);
+                    let at = self.narrowing.last().map_or(&[][..], |(_, at)| at);
+                    at.iter().take(most).map(|&i| self.catalog[i as usize].clone()).collect()
+                }
+            };
+            self.found = Some((self.listings, filter.to_string(), most, names));
         }
         self.found.as_ref().map_or(&[], |(_, _, _, names)| names)
+    }
+
+    /// Finds what `query` (not empty) finds, as the top of `narrowing`:
+    /// the filters it does not narrow taken off first, then looked for
+    /// among what the one left found, or in the whole catalog.
+    fn narrow(&mut self, query: mg_core::text::Needle) {
+        if self.narrowed_in != self.listings {
+            self.narrowing.clear();
+            self.narrowed_in = self.listings;
+        }
+        while self.narrowing.last().is_some_and(|(wider, _)| !query.narrows(wider)) {
+            self.narrowing.pop();
+        }
+        if self.narrowing.last().is_some_and(|(same, _)| *same == query) {
+            return;
+        }
+        let catalog = &self.catalog;
+        let found = |&i: &u32| name_found(&query, &catalog[i as usize]);
+        let at: Vec<u32> = match self.narrowing.last() {
+            Some((_, within)) => within.iter().copied().filter(found).collect(),
+            None => (0..catalog.len() as u32).filter(found).collect(),
+        };
+        // (A long name typed key by key keeps the last few dozen.)
+        if self.narrowing.len() == 64 {
+            self.narrowing.remove(0);
+        }
+        self.narrowing.push((query, at));
     }
 
     /// The skin, its pictures and the fonts read, and every picture kept
@@ -1239,6 +1316,35 @@ mod tests {
                 assert_eq!(name_found(&query, name), query.finds(name), "{filter:?} in {name:?}");
             }
         }
+    }
+
+    /// Keys typed, taken back, a filter replaced and the catalog listed
+    /// again: what is found each time is what a search of every name
+    /// finds, and a key taken back looks in no name again.
+    #[test]
+    fn a_filter_typed_key_by_key_finds_what_a_search_of_every_name_does() {
+        let mut assets = Assets::default();
+        let list = |assets: &mut Assets, names: &[&str]| {
+            assets.catalog = names.iter().map(|n| n.to_string()).collect();
+            assets.listings += 1;
+        };
+        list(&mut assets, &["gui_error", "gui_errorq", "gui_ok", "ctl_btn", "über_gui", "x"]);
+        let typed = ["g", "gu", "gui", "gui_e", "gui_eq", "gui_e", "gui", "", "btn", "x", "gui ok"];
+        for (step, filter) in typed.into_iter().enumerate() {
+            if step == 9 {
+                list(&mut assets, &["x", "xx", "gui_ok"]);
+            }
+            let query = mg_core::text::Needle::new(filter);
+            let every: Vec<String> =
+                assets.catalog.iter().filter(|n| query.finds(n)).take(3).cloned().collect();
+            assert_eq!(assets.found(filter, 3), every, "{filter:?}");
+        }
+        // Taken back to a filter still kept: nothing searched again.
+        assets.found("gui_", 10);
+        assets.found("gui_o", 10);
+        let kept = assets.narrowing.len();
+        assert_eq!(assets.found("gui_", 10), ["gui_ok"]);
+        assert_eq!(assets.narrowing.len(), kept - 1);
     }
 
     #[test]
@@ -1781,8 +1887,13 @@ mod tests {
             );
         }
         assert!(textures.iter().all(|t| *t == textures[0]), "{textures:?}");
-        // A window that is drawn no more: its picture goes, the other's stays.
+        // A window that is drawn no more: its picture goes (once it has
+        // not been asked for in a few passes), the other's stays.
         for _ in 0..3 {
+            frame(&mut assets, &windows[..1]);
+        }
+        assert!(assets.picture("only_b").is_some(), "kept a few passes");
+        for _ in 0..LINGER {
             frame(&mut assets, &windows[..1]);
         }
         assert!(assets.picture("only_b").is_none());
@@ -1891,13 +2002,18 @@ mod tests {
         assets.request_images(&ctx, BTreeSet::new());
         assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
         assert_eq!(assets.reads, (1, 6), "nothing read to let go");
-        // (What no window asked for in a pass goes with the next: another
-        // tab's pictures are kept while both are drawn.)
+        // (What no window asked for in some passes goes: another tab's
+        // pictures are kept while both are drawn.)
+        for _ in 0..LINGER {
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+            assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        }
+        assert!(assets.picture("two").is_some(), "kept a few passes, in case it is asked again");
         for _ in 0..2 {
             ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
             assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
         }
-        assert_eq!(assets.reads, (1, 6), "nor to let go a pass later");
+        assert_eq!(assets.reads, (1, 6), "nor to let go some passes later");
         let mut fresh = Assets::default();
         fresh.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
         assert_eq!(held(&assets), held(&fresh));
