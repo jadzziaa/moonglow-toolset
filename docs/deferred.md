@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T19:52:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:07:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -943,13 +943,6 @@ contribution itself states as not done or not checked.
     kept by every writer of the window and its binds would be one. Not
     done: beyond the frame budget's need (the idle frame is 2.0 ms).
   (S) (the review of November 2026, N13, N16)
-- **A font of a sliver of a line, not reproduced:** a font whose line is
-  a sliver of its em is refused and the skin's numbers are held to a
-  range (the review's N17), but the gigabyte glyph itself was not
-  drawn: the test's font has no glyphs, so the size it would be drawn
-  at is tested, not the drawing. (S, waits on such a font with glyphs)
-  (the review of November 2026, N17)
-
 ## Automation
 
 - **Plugins, beyond API 0.4** (`plugin-proposal.md`; commands and checks
