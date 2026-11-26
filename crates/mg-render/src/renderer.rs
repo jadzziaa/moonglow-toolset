@@ -4236,6 +4236,11 @@ pub(crate) struct BoundMesh {
     indices: Option<u64>,
     /// The slot, the chunk, and replaced vertices' first.
     skin: Option<(u32, u64, Option<i32>)>,
+    /// The slots the game's zeros are bound at (a bit each), for the
+    /// inputs a program declares that a mesh lacks: bound once a pass, not
+    /// at every pipeline (the same buffer for all, and a dense area's
+    /// see-through draws change pipeline thousands of times a frame).
+    zeros: u32,
     /// How many times a draw bound another chunk's indices than the
     /// draw's before it ([`Drawn::chunks`]).
     pub(crate) chunks: usize,
@@ -4259,6 +4264,25 @@ impl BoundMesh {
     /// (particles).
     pub(crate) fn forget_vertices(&mut self) {
         self.vertices = None;
+    }
+
+    /// Binds the game's zeros at `slot` (`GamePipeline::zero_slot`),
+    /// where they aren't bound.
+    pub(crate) fn bind_zeros(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        slot: u32,
+        zeros: &wgpu::Buffer,
+    ) {
+        let bit = 1u32.checked_shl(slot).unwrap_or(0);
+        if self.zeros & bit == 0 {
+            pass.set_vertex_buffer(slot, zeros.slice(..));
+            self.zeros |= bit;
+            // (A skinned mesh's bones and weights bound there are gone.)
+            if self.skin.is_some_and(|(s, _, _)| s == slot) {
+                self.skin = None;
+            }
+        }
     }
 
     /// Binds what a draw of `mesh` reads (its vertices replaced by those
@@ -4295,6 +4319,8 @@ impl BoundMesh {
                 let from = at.map_or(0, |b| b as u64 * std::mem::size_of::<SkinVertex>() as u64);
                 pass.set_vertex_buffer(slot, skin.vertices.slice(from..));
                 self.skin = Some(key);
+                // (The zeros bound there are gone.)
+                self.zeros &= !1u32.checked_shl(slot).unwrap_or(0);
             }
         }
         if dynamic.is_some() { 0 } else { mesh.base_vertex }

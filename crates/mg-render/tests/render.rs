@@ -5081,6 +5081,94 @@ fn the_game_s_programs_draw_particles_in_their_blends() {
     }
 }
 
+/// The zeros a program reads for the inputs a mesh lacks are bound once a
+/// pass, not at every pipeline, and again after a skinned mesh's bones and
+/// weights took their slot: three see-through quads over one another, the
+/// middle one skinned (its skin at the slot the others' zeros are at), the
+/// nearest drawn last, look as they do with the middle one not skinned.
+/// (Read from the skin, the nearest quad's second zero input would be the
+/// skin's weights, red.)
+#[test]
+fn the_zeros_are_bound_again_after_a_skin_took_their_slot() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+// (Inputs Moonglow has none of: the zeros, 16 bytes apart.)
+attribute vec4 vColor;
+attribute vec4 vStaticLightDir;
+varying vec2 vUv;
+varying vec3 vZero;
+void main ()
+{
+    vUv = vTcIn;
+    vZero = vColor.rgb + vStaticLightDir.rgb;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform vec4 materialFrontDiffuse;
+varying vec2 vUv;
+varying vec3 vZero;
+void main ()
+{
+    vec4 t = texture2D(texUnit0, vUv);
+    gl_FragColor = vec4(t.rgb * materialFrontDiffuse.rgb + vZero, t.a);
+}
+"#;
+    assets.shaders.insert("vslit".into(), vs.into());
+    assets.shaders.insert("fslit".into(), fs.into());
+    let data = [255, 255, 255, 128].repeat(16);
+    assets
+        .textures
+        .insert("veil".into(), mg_image::Rgba { width: 4, height: 4, data }.into_texture(true));
+    let veiled = |mut model: Model, rgb: [f32; 3]| {
+        for node in &mut model.nodes {
+            if let NodeKind::Mesh(m) = &mut node.kind {
+                m.textures[0] = Some("veil".into());
+                m.diffuse = rgb;
+            }
+        }
+        Arc::new(GpuModel::new(&gpu, Arc::new(model)))
+    };
+    let blue = veiled(quad(), [0.0, 0.0, 1.0]);
+    let at = |z: f32| Mat4::from_translation(Vec3::new(0.0, 0.0, z));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut seen = Vec::new();
+    for middle in [veiled(skinned_quad(0.0), [0.0, 1.0, 0.0]), veiled(quad(), [0.0, 1.0, 0.0])] {
+        let scene = Scene {
+            instances: vec![
+                Instance::new(blue.clone(), at(0.0)),
+                Instance::new(middle, at(0.5)),
+                Instance::new(blue.clone(), at(1.0)),
+            ],
+            background: [0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        assert_eq!(r.game_shader_failures(), &[]);
+        assert_eq!(r.drawn.game, 6, "{:?}", r.drawn);
+        seen.push(image.pixel(32, 32));
+    }
+    assert_eq!(seen[0], seen[1], "the middle quad skinned or not");
+    let [red, green, blue, _] = seen[0];
+    assert!(red < 10 && green > 20 && blue > 100, "blue over green over blue: {seen:?}");
+}
+
 /// See-through meshes the game's programs draw are instances of one draw
 /// where they don't meet on the screen, as Moonglow's own are (M5: a field
 /// of fires and grass was a draw for each part of each mesh), each with its
