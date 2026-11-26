@@ -63,6 +63,13 @@ impl Gff {
         read::read(data)
     }
 
+    /// Parses a GFF file's root with only the root's lists named in
+    /// `lists` read: the others are there, empty, and nothing under them
+    /// is read (a GIT's doors without its creatures and their items).
+    pub fn read_lists(data: &[u8], lists: &[&str]) -> Result<Gff, ReadError> {
+        read::read_with(data, Some(lists))
+    }
+
     /// Serializes to GFF bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>, WriteError> {
         write::write(self)

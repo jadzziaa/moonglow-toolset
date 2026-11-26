@@ -1099,7 +1099,9 @@ impl Together {
                 let (area, path) = objects[0].clone();
                 Tab::Instance { area, path }
             }
-            Together::Placed { objects, .. } => Tab::Instances { objects: objects.clone() },
+            Together::Placed { objects, .. } => {
+                Tab::Instances { objects: objects.as_slice().into() }
+            }
         }
     }
 }

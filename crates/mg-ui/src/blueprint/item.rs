@@ -271,10 +271,17 @@ pub(super) fn model_numbers(
 
 /// The numbers `nnn` for which the game data has a resource
 /// `{prefix}{nnn:03}` of one of `types`, in order, each once.
+///
+/// (The layers' names looked through once, for all of `types`, those of
+/// another start passed over unread: listed whole, type by type, the
+/// install's and a world's haks' 135,000 textures took 45 ms.)
 fn numbered(game: &GameData, types: &[ResType], prefix: &str) -> Vec<u16> {
-    let mut v: Vec<u16> = (types.iter())
-        .flat_map(|t| game.resman.list(*t))
-        .filter_map(|r| number_after(&r.to_string(), prefix))
+    let start = prefix.as_bytes();
+    let mut v: Vec<u16> = (game.resman.layers().iter())
+        .flat_map(|l| l.container.keys())
+        .filter(|k| types.contains(&k.restype))
+        .filter(|k| k.resref.as_bytes().starts_with(start))
+        .filter_map(|k| number_after(&k.resref.to_string(), prefix))
         .collect();
     v.sort_unstable();
     v.dedup();
@@ -322,17 +329,23 @@ pub(super) fn set_part(f: &mut Form<'_>, what: &str, labels: &[&str], v: i64) {
     f.set_many(what, &fields);
 }
 
-/// A part number chosen among `numbers` (shown as `text(n)`).
+/// A part number chosen among `numbers` (shown as `text(n)`), the
+/// choices made once for them (a base item's thousand icons were each
+/// given a name every frame).
 fn part_choice(
     f: &mut Form<'_>,
     ui: &mut Ui,
     what: &str,
     labels: &[&str],
-    numbers: &[u16],
+    numbers: &Arc<Vec<u16>>,
     text: impl Fn(u16) -> String,
 ) {
-    let choices: Vec<Choice> =
-        numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect();
+    let id = egui::Id::new(("uti-part-choices", f.key, labels[0]));
+    let choices = super::kept_for(ui.ctx(), id, numbers, &(), || {
+        Arc::new(
+            numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect::<Vec<_>>(),
+        )
+    });
     pick_part(f, ui, what, labels, &choices);
 }
 
@@ -991,17 +1004,19 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             let prefix = if class == "cloak" { String::new() } else { format!("{class}_") };
             // The numbers to choose from: a cloak's are cloakmodel.2da's
             // rows, another item's those it has icons for.
-            let numbers: Vec<u16> = if prefix.is_empty() {
-                game.table("cloakmodel")
-                    .map(|t| {
-                        (0..t.len())
-                            .filter(|&r| t.get(r, "LABEL").is_some())
-                            .map(|r| r as u16)
-                            .collect()
-                    })
-                    .unwrap_or_default()
+            let numbers: Arc<Vec<u16>> = if prefix.is_empty() {
+                Arc::new(
+                    game.table("cloakmodel")
+                        .map(|t| {
+                            (0..t.len())
+                                .filter(|&r| t.get(r, "LABEL").is_some())
+                                .map(|r| r as u16)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                )
             } else {
-                icon_numbers(ui, game, load_order, &prefix).to_vec()
+                icon_numbers(ui, game, load_order, &prefix)
             };
             super::row(ui, |ui| {
                 crate::widgets::field_label(ui, "Appearance");

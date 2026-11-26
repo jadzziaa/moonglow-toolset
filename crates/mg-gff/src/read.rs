@@ -50,9 +50,19 @@ struct Tables<'a> {
     field_used: Vec<bool>,
     /// Bytes copied out so far: every field may point at the same data.
     budget: CopyBudget,
+    /// The root's lists read ([`Gff::read_lists`]): the others left
+    /// empty, unread. None: all.
+    lists: Option<&'a [&'a str]>,
 }
 
 pub(crate) fn read(data: &[u8]) -> Result<Gff, ReadError> {
+    read_with(data, None)
+}
+
+pub(crate) fn read_with<'a>(
+    data: &'a [u8],
+    lists: Option<&'a [&'a str]>,
+) -> Result<Gff, ReadError> {
     let mut r = Reader::new(data);
     let file_type: [u8; 4] = r.array()?;
     let version: [u8; 4] = r.array()?;
@@ -84,6 +94,7 @@ pub(crate) fn read(data: &[u8]) -> Result<Gff, ReadError> {
         struct_used: vec![false; structs.len() / 12],
         field_used: vec![false; fields.len() / 12],
         budget: CopyBudget::for_input(data.len()),
+        lists,
     };
     if t.struct_used.is_empty() {
         return Err(ReadError::NoRoot);
@@ -175,6 +186,14 @@ impl<'a> Tables<'a> {
                 Value::Void(self.copy(r.bytes(len)?)?)
             }
             FieldType::Struct => Value::Struct(self.read_struct(data, depth + 1)?),
+            FieldType::List
+                if depth == 0
+                    && (self.lists).is_some_and(|keep| {
+                        !keep.iter().any(|l| l.as_bytes() == label.as_bytes())
+                    }) =>
+            {
+                Value::List(Vec::new())
+            }
             FieldType::List => {
                 let mut r = Reader::at(self.list_indices, data as usize)?;
                 let count = r.u32_usize()?;
@@ -220,6 +239,31 @@ impl<'a> Tables<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file read for some of its root's lists has those as read and
+    /// the others empty, its other fields all there; cut short, it says
+    /// so as a whole read does.
+    #[test]
+    fn a_file_read_for_some_lists_leaves_the_others_empty() {
+        let entry = |tag: &str| {
+            let mut s = Struct::new(0);
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        let mut gff = Gff::new(*b"GIT ");
+        gff.root.set("Door List", Value::List(vec![entry("door")]));
+        gff.root.set("Creature List", Value::List(vec![entry("orc"), entry("bat")]));
+        gff.root.set("Name", Value::String(b"area".to_vec()));
+        let bytes = gff.to_bytes().unwrap();
+        let some = Gff::read_lists(&bytes, &["Door List"]).unwrap();
+        assert_eq!(some.root.list("Door List"), gff.root.list("Door List"));
+        assert_eq!(some.root.list("Creature List"), Some(&[][..]));
+        assert_eq!(some.root.get("Name"), gff.root.get("Name"));
+        assert_eq!(Gff::read_lists(&bytes, &["Door List", "Creature List"]).unwrap(), gff);
+        for cut in 0..bytes.len() {
+            assert!(Gff::read_lists(&bytes[..cut], &["Door List"]).is_err(), "cut at {cut}");
+        }
+    }
 
     /// A GFF whose root has `fields` fields of type `type_id`, every one
     /// pointing at the same `blob` in the field data.

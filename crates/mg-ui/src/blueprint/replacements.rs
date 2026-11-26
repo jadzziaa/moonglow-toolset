@@ -590,10 +590,17 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     let Some(game) = app.game.clone() else { return Arc::default() };
     let id = egui::Id::new("select-texture-names");
     let listed = super::kept_for_load_order(ui, app.load_order, id, || {
-        let mut names: Vec<String> = Vec::new();
-        for t in [ResType::DDS, ResType::TGA] {
-            names.extend(game.resman.list(t).into_iter().map(|r| r.to_lowercase().to_string()));
-        }
+        // (The layers' names looked through once for both types, each
+        // ResRef sorted and made a name once: listed type by type, a
+        // world's 135,000 textures took 36 ms.)
+        let mut refs: Vec<mg_core::ResRef> = (game.resman.layers().iter())
+            .flat_map(|l| l.container.keys())
+            .filter(|k| k.restype == ResType::DDS || k.restype == ResType::TGA)
+            .map(|k| k.resref.to_lowercase())
+            .collect();
+        refs.sort_unstable();
+        refs.dedup();
+        let names: Vec<String> = refs.iter().map(|r| r.to_string()).collect();
         Arc::new(Textures::of(names, &icon_prefixes(&game)))
     });
     let own_sig: (usize, u64) = match &app.ws {
@@ -663,7 +670,13 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let shown_for = (state.filter.clone(), state.interface);
     let shown = super::kept_for(ui.ctx(), id.with("shown"), &textures, &shown_for, || {
         let listed = textures.names.iter().zip(&textures.interface).enumerate();
-        let shown = listed.filter(|(_, (n, i))| (state.interface || !**i) && needle.finds(n));
+        // (The names are lowercase, folded as they are when ASCII: folded
+        // again for each, 135,000 took 7 ms a letter typed.)
+        let finds = |n: &str| match n.is_ascii() {
+            true => needle.is_empty() || needle.finds_folded(n),
+            false => needle.finds(n),
+        };
+        let shown = listed.filter(|(_, (n, i))| (state.interface || !**i) && finds(n));
         Arc::new(shown.map(|(at, _)| at as u32).collect::<Vec<u32>>())
     });
     let name_at = |i: u32| &textures.names[i as usize];

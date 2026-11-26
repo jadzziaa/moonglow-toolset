@@ -84,6 +84,10 @@ struct NodeMeta {
     total: u32,
     shown: u32,
     subtree_len: u32,
+    /// Where the node's own blueprints a search finds begin in
+    /// [`MetaCache::picks`] (their places in the node), and how many.
+    picks_from: u32,
+    picks: u32,
 }
 
 #[derive(Debug)]
@@ -92,6 +96,10 @@ struct MetaCache {
     grouped: Option<Arc<Grouped>>,
     found: Option<Arc<std::collections::HashSet<ResRef>>>,
     meta: Arc<[NodeMeta]>,
+    /// The places of each node's blueprints the search finds, node after
+    /// node ([`NodeMeta::picks_from`]): found once for the search, not
+    /// looked up row by row each frame (8,000 found, 0.3 ms a frame).
+    picks: Arc<[u32]>,
 }
 
 /// Zero-allocation view over either a raw blueprint slice or a filtered subset.
@@ -143,6 +151,14 @@ impl<'a> Iterator for NodeRowsIter<'a> {
         match self {
             NodeRowsIter::Slice(it) => it.size_hint(),
             NodeRowsIter::Refs(it) => it.size_hint(),
+        }
+    }
+
+    // (Skipped at once: the rows above those in sight, `Tree::rows`.)
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        match self {
+            NodeRowsIter::Slice(it) => it.nth(n),
+            NodeRowsIter::Refs(it) => it.nth(n).copied(),
         }
     }
 }
@@ -1326,6 +1342,12 @@ pub(crate) fn palette(
     }
     let ws = app.ws.as_mut()?;
     let rev = ws.revision();
+    if let Some((r, _)) = view.custom_cache.get_mut(&kind)
+        && *r != rev
+        && untouched(ws, *r, kind)
+    {
+        *r = rev;
+    }
     if view.custom_cache.get(&kind).is_none_or(|(r, _)| *r != rev) {
         // The palette as the next save writes it (as Aurora shows it): the
         // module's, with the blueprints changed since it was saved.
@@ -1450,36 +1472,47 @@ pub(crate) fn remove_entry(app: &mut Moonglow, kind: BlueprintKind, resref: ResR
     }
 }
 
-/// Builds flat pre-order subtree metadata once per `(nodes, found)` pair.
+/// Builds flat pre-order subtree metadata once per `(nodes, found)` pair,
+/// and the places of the blueprints the search finds in each node.
 fn build_node_meta(
     nodes: &[PaletteNode],
     found: Option<&std::collections::HashSet<ResRef>>,
-) -> Arc<[NodeMeta]> {
+) -> (Arc<[NodeMeta]>, Arc<[u32]>) {
     fn push(
         node: &PaletteNode,
         found: Option<&std::collections::HashSet<ResRef>>,
         out: &mut Vec<NodeMeta>,
+        picks: &mut Vec<u32>,
     ) -> (u32, u32) {
         let idx = out.len();
         out.push(NodeMeta::default());
         let mut total = node.blueprints.len() as u32;
-        let mut shown = match found {
+        let picks_from = picks.len() as u32;
+        if let Some(f) = found {
+            let found = (node.blueprints.iter().enumerate())
+                .filter(|(_, b)| f.contains(&b.resref))
+                .map(|(i, _)| i as u32);
+            picks.extend(found);
+        }
+        let own = match found {
             None => total,
-            Some(f) => node.blueprints.iter().filter(|b| f.contains(&b.resref)).count() as u32,
+            Some(_) => picks.len() as u32 - picks_from,
         };
+        let mut shown = own;
         for child in &node.children {
-            let (ct, cs) = push(child, found, out);
+            let (ct, cs) = push(child, found, out, picks);
             total += ct;
             shown += cs;
         }
-        out[idx] = NodeMeta { total, shown, subtree_len: (out.len() - idx) as u32 };
+        let subtree_len = (out.len() - idx) as u32;
+        out[idx] = NodeMeta { total, shown, subtree_len, picks_from, picks: own };
         (total, shown)
     }
-    let mut out = Vec::with_capacity(nodes.len() * 2);
+    let (mut out, mut picks) = (Vec::with_capacity(nodes.len() * 2), Vec::new());
     for node in nodes {
-        push(node, found, &mut out);
+        push(node, found, &mut out, &mut picks);
     }
-    Arc::from(out)
+    (Arc::from(out), Arc::from(picks))
 }
 
 /// What a search finds in a palette, kept until the search, the palette
@@ -1494,6 +1527,14 @@ fn found(
 ) -> (Arc<std::collections::HashSet<ResRef>>, Needle) {
     let revision = app.ws.as_ref().map(|w| w.revision());
     let key = (kind, custom, app.palette.filter.clone(), revision, app.game_names());
+    if let Some((k, _, _)) = &mut app.palette.found
+        && (k.0, k.1, &k.2, k.4) == (key.0, key.1, &key.2, key.4)
+        && let (Some(was), Some(ws)) = (k.3, app.ws.as_ref())
+        && Some(was) != revision
+        && untouched(ws, was, kind)
+    {
+        k.3 = revision;
+    }
     if let Some((k, f, find)) = &app.palette.found
         && *k == key
     {
@@ -1555,6 +1596,19 @@ fn found(
     (hits, find)
 }
 
+/// Whether the module's changes since `revision` leave what a palette of
+/// `kind` made of the module as it was: they are known
+/// ([`mg_edit::Workspace::touched_since`]) and touched no blueprint of the
+/// kind and no palette. (An edit of an area made the custom palette, its
+/// blueprints' tags, a search's finds and the module's own anew: with
+/// 8,000 items and a search typed, an edit each frame took 14 ms a frame.)
+fn untouched(ws: &mg_edit::Workspace, revision: u64, kind: BlueprintKind) -> bool {
+    ws.touched_since(revision).is_some_and(|touched| {
+        (touched.iter())
+            .all(|t| t.key.restype != kind.restype() && t.key.restype != mg_core::ResType::ITP)
+    })
+}
+
 /// The tags of a palette's blueprints (read from each once; for a custom
 /// palette, again after the module changes).
 fn tags(
@@ -1564,10 +1618,16 @@ fn tags(
     custom: bool,
 ) -> Arc<HashMap<ResRef, String>> {
     let revision = if custom { app.ws.as_ref().map(|w| w.revision()) } else { None };
-    if let Some((r, t)) = app.palette.tags.get(&(kind, custom))
-        && *r == revision
-    {
-        return t.clone();
+    if let Some((r, t)) = app.palette.tags.get_mut(&(kind, custom)) {
+        if let (Some(was), Some(ws)) = (*r, app.ws.as_ref())
+            && *r != revision
+            && untouched(ws, was, kind)
+        {
+            *r = revision;
+        }
+        if *r == revision {
+            return t.clone();
+        }
     }
     let (Some(game), ws) = (app.game.as_deref(), app.ws.as_ref()) else { return Arc::default() };
     let module = ws.map(|w| &w.module);
@@ -2546,6 +2606,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let own = match (&app.ws, custom) {
         (Some(ws), true) => {
             let at = (ws.revision(), kind);
+            if let Some(((was, k), _)) = &mut view.own
+                && (*was, *k) != at
+                && *k == kind
+                && untouched(ws, *was, kind)
+            {
+                *was = at.0;
+            }
             match &view.own {
                 Some((was, own)) if *was == at => own.clone(),
                 _ => {
@@ -2560,7 +2627,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         _ => Arc::default(),
     };
     let new_label = new_label(kind);
-    let meta = match &view.node_meta {
+    let (meta, picks) = match &view.node_meta {
         Some(c)
             if Arc::ptr_eq(&c.palette, &palette)
                 && match (&c.grouped, &grouped) {
@@ -2574,18 +2641,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     _ => false,
                 } =>
         {
-            c.meta.clone()
+            (c.meta.clone(), c.picks.clone())
         }
         _ => {
             let nodes = grouped.as_ref().map_or(&palette.nodes, |g| &g.palette.nodes);
-            let meta = build_node_meta(nodes, found.as_deref());
+            let (meta, picks) = build_node_meta(nodes, found.as_deref());
             view.node_meta = Some(MetaCache {
                 palette: palette.clone(),
                 grouped: grouped.clone(),
                 found: found.clone(),
                 meta: meta.clone(),
+                picks: picks.clone(),
             });
-            meta
+            (meta, picks)
         }
     };
     if view.open_synced != app.settings.palette_open {
@@ -2654,6 +2722,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         plugin_kind,
         has_plugin_menu,
         meta,
+        found_at: picks,
     };
     if find.is_in_order() {
         ui.weak("No exact matches: close ones");
@@ -3073,6 +3142,8 @@ struct Tree<'a> {
     plugin_kind: Option<mg_plugin::Target>,
     has_plugin_menu: bool,
     meta: Arc<[NodeMeta]>,
+    /// The places of the blueprints the search finds ([`MetaCache::picks`]).
+    found_at: Arc<[u32]>,
 }
 
 /// Where a blueprint's row is: its branch, the branch's place in the
@@ -3131,10 +3202,6 @@ impl Tree<'_> {
             self.open.remove(&key);
         }
         self.open_changed = true;
-    }
-
-    fn shown(&self, b: &PaletteBlueprint) -> bool {
-        self.found.is_none_or(|f| f.contains(&b.resref))
     }
 
     /// Whether a blueprint the search finds since the module changed is in
@@ -3263,8 +3330,11 @@ impl Tree<'_> {
                     self.node(ui, child, &p, listing, meta_idx);
                 }
                 if searching {
-                    let rows: Vec<&PaletteBlueprint> =
-                        node.blueprints.iter().filter(|b| self.shown(b)).collect();
+                    let from = node_meta.picks_from as usize;
+                    let picks = self.found_at.get(from..from + node_meta.picks as usize);
+                    let rows: Vec<&PaletteBlueprint> = (picks.unwrap_or_default().iter())
+                        .filter_map(|&i| node.blueprints.get(i as usize))
+                        .collect();
                     self.rows(ui, NodeRows::Refs(&rows), (&branch, listing, within));
                 } else {
                     self.rows(ui, NodeRows::Slice(&node.blueprints), (&branch, listing, within));
@@ -3724,9 +3794,29 @@ impl Tree<'_> {
     fn rows(&mut self, ui: &mut egui::Ui, rows: NodeRows<'_>, within: Within<'_>) {
         if self.gallery {
             self.grid(ui, rows, within);
-        } else {
+        } else if self.listed.is_some() || self.reveal || self.range.is_some() {
+            // (Every row gone through: the keys need every place.)
             for b in rows.iter() {
                 self.row(ui, b, within, None);
+            }
+        } else {
+            // The rows out of sight take their room in one go, as each
+            // would take it alone (a search may find thousands: one by
+            // one, 8,000 found took a millisecond a frame).
+            let height = ui.spacing().interact_size.y;
+            let gap = ui.spacing().item_spacing.y;
+            let (step, n) = (height + gap, rows.len());
+            let (clip, top) = (ui.clip_rect(), ui.cursor().top());
+            let first = (((clip.top() - top) / step).floor().max(0.0) as usize).min(n);
+            let last = ((((clip.bottom() - top) / step).ceil().max(0.0) as usize) + 1).min(n);
+            if first > 0 {
+                ui.allocate_space(egui::vec2(1.0, first as f32 * step - gap));
+            }
+            for b in rows.iter().skip(first).take(last.saturating_sub(first)) {
+                self.row(ui, b, within, None);
+            }
+            if last < n {
+                ui.allocate_space(egui::vec2(1.0, (n - last) as f32 * step - gap));
             }
         }
         self.choose_range(rows);
@@ -4207,6 +4297,80 @@ mod tests {
         m.remove(&ResKey::parse("well", mg_core::ResType::UTW).unwrap());
         let (tags, read) = tags_read(&palette(&m), kind, Some(&m), &game, &mut kept);
         assert_eq!((read, tags.len(), kept.len()), (0, 3, 3));
+    }
+
+    /// What a palette made of the module is kept through a change that
+    /// touched none of its kind's blueprints and no palette (an area's
+    /// edit), and made again after one that did, or where what changed
+    /// isn't known.
+    #[test]
+    fn a_palette_is_kept_through_a_change_to_none_of_its_blueprints() {
+        use mg_edit::{Command, Edit, GffPath, Workspace};
+        let kind = BlueprintKind::Waypoint;
+        let (mut m, _) = waypoints(&["gate", "inn"]);
+        let area = ResKey::parse("field", mg_core::ResType::ARE).unwrap();
+        m.set_gff(area, &Gff::new(*b"ARE ")).unwrap();
+        let mut ws = Workspace::new(m);
+        let set = |key: ResKey, label: &str| {
+            let value = Some(mg_gff::Value::String(b"x".to_vec()));
+            let edit = Edit::SetField { key, path: GffPath::root(), label: label.into(), value };
+            Command::new("Set", vec![edit])
+        };
+        let was = ws.revision();
+        ws.apply(set(area, "Comments")).unwrap();
+        assert!(untouched(&ws, was, kind), "an area's edit");
+        let inn = ResKey::parse("inn", mg_core::ResType::UTW).unwrap();
+        let after_area = ws.revision();
+        ws.apply(set(inn, "Comment")).unwrap();
+        assert!(!untouched(&ws, after_area, kind), "one of its blueprints");
+        assert!(untouched(&ws, after_area, BlueprintKind::Item), "another kind's blueprint");
+        assert!(!untouched(&ws, was, kind), "the area's edit and the blueprint's");
+        ws.undo().unwrap();
+        assert!(!untouched(&ws, after_area + 1, kind), "its undo");
+        // (Not known: from before what the workspace keeps.)
+        assert!(!untouched(&ws, 0, kind));
+    }
+
+    /// The places of the blueprints a search finds, node by node, are the
+    /// rows each node shows (looked up one by one before, each frame).
+    #[test]
+    fn the_rows_a_search_finds_are_kept_by_node() {
+        let named = |r: &str| PaletteBlueprint {
+            resref: ResRef::from_str(r).unwrap(),
+            name: mg_module::palette::PaletteName::StrRef(0),
+            cr: None,
+            faction: None,
+        };
+        let node = |blueprints: Vec<PaletteBlueprint>, children: Vec<PaletteNode>| PaletteNode {
+            name: mg_module::palette::PaletteName::StrRef(0),
+            id: None,
+            blueprints,
+            children,
+        };
+        let nodes = vec![
+            node(
+                vec![named("a1"), named("b1"), named("a2")],
+                vec![node(vec![named("b2"), named("a3")], vec![])],
+            ),
+            node(vec![named("b3")], vec![]),
+        ];
+        let found: std::collections::HashSet<ResRef> =
+            ["a1", "a2", "a3"].iter().map(|r| ResRef::from_str(r).unwrap()).collect();
+        let (meta, picks) = build_node_meta(&nodes, Some(&found));
+        let rows = |i: usize, n: &PaletteNode| -> Vec<String> {
+            let m = meta[i];
+            picks[m.picks_from as usize..][..m.picks as usize]
+                .iter()
+                .map(|&p| n.blueprints[p as usize].resref.to_string())
+                .collect()
+        };
+        assert_eq!(rows(0, &nodes[0]), ["a1", "a2"]);
+        assert_eq!(rows(1, &nodes[0].children[0]), ["a3"]);
+        assert!(rows(2, &nodes[1]).is_empty());
+        assert_eq!((meta[0].shown, meta[2].shown), (3, 0));
+        let (meta, picks) = build_node_meta(&nodes, None);
+        assert!(picks.is_empty());
+        assert_eq!((meta[0].shown, meta[0].total), (5, 5));
     }
 
     /// A module with no custom palette has it made once, and brought up

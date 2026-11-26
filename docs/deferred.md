@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:54:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T02:13:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -223,17 +223,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   world_perf's content doctor, fixed: V6, V10, V12), and gave views to
   the five largest costs that grew with the module (D20, D23, B22, A18,
   N16; [the log](log.md), 10 November). These have no view yet:
-  - the blueprint editors: the Instances window of 100 creatures on its
-    Inventory page (B20); Setup Area Transition in a module of hundreds
-    of areas (B21); the Creature Wizard's appearance page and a
-    creature's Feats with long tables (B22's rest); a large Custom
-    palette, List and Gallery, a search typed (B23, B24); the gallery's
-    scroll bar dragged to its end (B25); an item's Appearance page with
-    a thousand icons, Select Portrait, Select Texture with a search
-    (B26);
-  - an item blueprint's Properties page with text in its search, which
-    still matches every subtype row a frame (G4's half; the page is
-    timed without it, 1.6 ms);
   - the editors: `spells.2da` at full width (D20's rest); Choose Model
     open, and a described table whose `Row` column names itself (D21);
     Advanced Search with a plugin menu command (D23's rest); the Claims
@@ -263,8 +252,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     plugin check of many fixes in Verify Module (C4); `mg haks --usage`
     on a module of many part-based creatures (M17); opening a large
     nasher project (P19);
-  - the review's last pass (its item 17): the Blueprint Wizard's
-    category page, the Variables window on a variable with a large
+  - the review's last pass (its item 17): the Variables window on a
+    variable with a large
     `rows` table, the module tree with an area opened out, and a hak
     saved with a large module open.
   Each is a view to build in its timing test, timed before and after
@@ -280,6 +269,32 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its outlines put on screen each frame the camera turns (0.8 to 1.1
   ms); and the Position menu's walkmesh items, untimed, since the
   scratch module has no `[bake]` (a project with one would time them).
+  The blueprint editors' have theirs since 26 November
+  (`frame_perf::blueprint_editors_at_scale`, [the log](log.md)); what
+  they leave, at a load of 4 to 5 (lowest of three runs, then the
+  spread): the first openings that list the install's resources, each
+  a walk of every layer's names that a per-type index in `mg-resman`
+  would shorten, beyond a local change: Select Texture's first in a load
+  order 27 ms (to 27.5; 135,094 textures), Select Portrait's 9.9 (to
+  12.4) with the install's portraits.2da and 18.8 (to 23.2) with 32,000
+  rows (likely each row's picture looked for in every layer), an item's
+  Appearance page of 999 icons 8.4 (to 8.9); a letter typed in Select
+  Texture's Find 6.4 (to 9.6) ms, at the budget (every name searched in
+  that frame); that page of 999 icons +145 (to 197) µs over the same
+  with 142 (likely each icon out of sight given its room one by one: a
+  layout by lines would change how the wrapped grid is laid out); the
+  Custom palette with 8,000 items found against 100, List +105 (to 108),
+  Gallery +150 (to 168) (likely a header built each frame for every
+  category holding a find, in sight or not: laying the palette's tree
+  out by rows is a change of its own); the Instances window of 100
+  creatures on its Feats page +90 (to 130) µs, its timers' remaining
+  costs each under the line (Classes 20 µs, the inventory's rows 40);
+  and the Appearance Gallery's drag to the end, its median 3.5 (to 4.6)
+  ms at 30,000 rows but worst frames of 10.4 to 14.0, and its pictures
+  in sight made in frames of up to 4.9 to 7.9 ms (a creature's picture
+  drawn on the window's thread at about 5 ms, past the 2 ms a frame
+  gives pictures, one drawn whatever it costs: drawing them apart is a
+  renderer change).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories

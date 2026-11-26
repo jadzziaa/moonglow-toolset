@@ -1089,6 +1089,17 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let skills = f.choices("skills", Some("Name"), Some("Label"));
     let described_by = f.app.game.clone();
     let targets = f.list_targets();
+    // Which skills' ranks the others have another of, by row: kept while
+    // the targets are (the review's B20: 100 creatures' ranks compared
+    // each frame took 0.1 ms).
+    let rows = skills.iter().map(|s| s.row + 1).max().unwrap_or(0);
+    let differ: std::sync::Arc<Vec<bool>> = super::kept_for(
+        ui.ctx(),
+        egui::Id::new(("utc-skills-differ", key)),
+        &targets,
+        &rows,
+        || std::sync::Arc::new(skills_differ(&targets, rows)),
+    );
     let mut edit = None;
     // (Two lists side by side where the page has the room, as
     // WideCreature's; one in a narrow form or a narrow page.)
@@ -1115,8 +1126,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
                                 s.row,
                             );
                             let rank = lists::skill_rank(&targets[0], s.row);
-                            let differs =
-                                targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
+                            let differs = differ.get(s.row).copied().unwrap_or(false);
                             f.mark_if(ui, &format!("Skill#{}", s.row), differs);
                             if let Some(v) = commit_number(ui, rank, 0..=127) {
                                 edit = Some((s.row, v));
@@ -1143,6 +1153,18 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
         let out = lists::set_skill_rank(&targets, row, v as u8);
         f.apply_each("Skill rank", out, "Set on");
     }
+}
+
+/// Of skill rows up to `rows`, whether each has a rank in any of
+/// `targets` other than the first's.
+fn skills_differ(targets: &[lists::Target], rows: usize) -> Vec<bool> {
+    let Some((first, others)) = targets.split_first() else { return vec![false; rows] };
+    (0..rows)
+        .map(|row| {
+            let rank = lists::skill_rank(first, row);
+            others.iter().any(|t| lists::skill_rank(t, row) != rank)
+        })
+        .collect()
 }
 
 /// The width from which a creature's skills stand in two lists side by
@@ -1318,6 +1340,28 @@ fn sample_of(ssf: &mg_ssf::Ssf) -> Option<ResRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The skills whose ranks the others have another of: a rank left out
+    /// of a shorter list is 0, as the page reads it; one creature alone
+    /// differs in none.
+    #[test]
+    fn skills_differ_where_another_has_another_rank() {
+        let key = ResKey::parse("area", ResType::GIT).unwrap();
+        let creature = |i: usize, ranks: &[u8]| {
+            let list = ranks.iter().map(|&r| {
+                let mut e = Struct::new(0);
+                e.set("Rank", Value::Byte(r));
+                e
+            });
+            let mut s = Struct::new(0);
+            s.set("SkillList", Value::List(list.collect()));
+            lists::Target::new(key, GffPath::root().item("Creature List", i), s)
+        };
+        let targets = [creature(0, &[4, 0, 2]), creature(1, &[4, 1]), creature(2, &[4, 0, 2])];
+        assert_eq!(skills_differ(&targets, 4), [false, true, true, false]);
+        assert_eq!(skills_differ(&targets[..1], 3), [false, false, false]);
+        assert_eq!(skills_differ(&[], 2), [false, false]);
+    }
 
     /// A sound set's sample is named by its field up to the first NUL:
     /// bytes a tool left after it are not part of the name (the field

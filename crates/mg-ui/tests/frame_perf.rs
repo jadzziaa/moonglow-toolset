@@ -181,6 +181,12 @@ enum Pointer {
     /// Rests at the point with the wheel turning down by so many points a
     /// frame (a form's pages on one scroll, top to bottom).
     Down(egui::Pos2, f32),
+    /// Pressed at the point in the first frame and let go in the second, then
+    /// resting there: a click (a button that opens a window).
+    Clicks(egui::Pos2),
+    /// The text typed in the first frame (into the field that has the
+    /// keys), the pointer away.
+    Types(&'static str),
 }
 
 struct Report {
@@ -351,6 +357,22 @@ fn frames(
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
                 });
+            }
+            Pointer::Clicks(at) => {
+                input.events.push(egui::Event::PointerMoved(at));
+                if n < 2 {
+                    input.events.push(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed: n == 0,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+            }
+            Pointer::Types(text) => {
+                if n == 0 {
+                    input.events.push(egui::Event::Text(text.into()));
+                }
             }
             Pointer::Drags(from, to) => {
                 let at = from.lerp(to, n as f32 / (count - 1).max(1) as f32);
@@ -4763,4 +4785,804 @@ fn big_tileset(game: &mg_rules::GameData, dir: &std::path::Path) -> std::path::P
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, f.text()).unwrap();
     path
+}
+
+/// The review of November 2026's blueprint editor findings at the sizes
+/// they name (B20, B21, B22's rest, B23 to B26, G4's half and the last
+/// pass's item 17: the deferred list's "performance fixes without a timing
+/// view"), each against the same view at a small size, timed just before
+/// it, in a scratch copy of the persistent world (`world/mod.rs`: 300
+/// areas, 8,000 custom items, the haks' 100,000 textures and 17,100-row
+/// appearance.2da) with 100 creatures of 20 items each placed in its first
+/// area: the Instances window of 2 and of 100 of them on their Inventory
+/// and Feats pages (B20); a door's Area Transition page and Setup Area
+/// Transition opened on it over the 300 areas, the click's frame and the
+/// areas' objects the workspace holds after (B21); the Custom palette of a
+/// kind with few blueprints and of the 8,000 items, List and Gallery,
+/// Recent and Favorites filled from the standard items, a search typed,
+/// and with the search an edit of an area made every frame (B23, B24); an
+/// item blueprint's Properties page with no search, a search that finds
+/// nothing (every choice tested) and one that finds some (G4); the Sound
+/// and the Placeable Wizard's category pages (item 17); Select Texture
+/// opened and searched (B26); a creature's Feats page, Select Portrait, an
+/// item's Appearance page of icons and the Creature Wizard's appearance
+/// page, with the install's tables and then, after Reload Resources, with
+/// feat.2da of 20,000 rows, portraits.2da of 32,000, appearance.2da of
+/// 30,000 and 999 icons of a simple item in the scratch user folder's
+/// `development` (B22's rest, B26; the window with nothing open, timed on
+/// both sides, tells a drift from a cost); and the Appearance Gallery of
+/// creatures scrolled to its end, a long way a frame as its scroll bar
+/// dragged, and the frames until the pictures in sight are made (B25).
+/// The frames a click, a key or an opening lands in are held to the
+/// budget. `FRAME_VIEW=<part of a name>` picks a group ("Instances",
+/// "Setup Area Transition", "custom palette", "Properties page",
+/// "Blueprint Wizard", "Select Texture", "tables", "Appearance Gallery").
+#[test]
+#[ignore]
+fn blueprint_editors_at_scale() {
+    use mg_edit::{Command, Edit, GffPath};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let Some(w) = world::world(&root) else { return };
+    let dir = mg_testkit::scratch_dir("frame-perf-blueprints");
+    let user = dir.join("user");
+    let dev = user.join("development");
+    std::fs::create_dir_all(&dev).unwrap();
+    link_dir(&w.user.join("hak"), &user.join("hak"));
+    let made = {
+        let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+        blueprints_module(&game, &w.module, &dir)
+    };
+    let mut r = Report::new();
+    let mut lines = Vec::new();
+    println!("the blueprint editors at scale: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.set_render_state(rs.clone());
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.open_module(&made.path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    // (Pictures read apart, as the desktop app reads them.)
+    h.state_mut().background_jobs = true;
+    fold_palette(&mut h);
+    close(&mut h, &Tab::ModuleProperties);
+    close_areas(&mut h);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let wanted = |r: &Report, what: &str| {
+        r.only.as_ref().is_none_or(|o| what.contains(o.as_str()) || o.starts_with(what))
+    };
+    // The worst of the frames a click, a key or an opening lands in, the
+    // pointer doing `pointer`: a line against the budget.
+    let landed = |h: &mut App<'_>, lines: &mut Vec<String>, what: &str, pointer: Pointer| {
+        let f = frames(h, screen, pointer, 4, |_, _| {});
+        let worst = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).max().unwrap();
+        let verdict = if worst > BUDGET { "over the budget" } else { "within the budget" };
+        let line = format!("{what}: its worst frame {:.2} ms, {verdict}", ms(worst));
+        println!("  {line}");
+        lines.push(line);
+        worst
+    };
+
+    // B20: the Instances window of 2 and of 100 creatures.
+    let name = "Instances of creatures";
+    if wanted(&r, name) {
+        let git = ResKey::new(made.area, ResType::GIT);
+        let first = made.creatures[0].clone();
+        for page in ["Inventory", "Feats"] {
+            let mut took = Vec::new();
+            // (The two timed again after the hundred: the noise of the run.)
+            for (i, n) in [2, 100, 2].into_iter().enumerate() {
+                let t = Tab::Instances {
+                    objects: made.creatures[..n].iter().map(|p| (made.area, p.clone())).collect(),
+                };
+                h.state_mut().blueprint_pages.insert((git, first.clone()), page);
+                open(&mut h, t.clone());
+                h.run_steps(5);
+                let rect = rect_of(h.state(), &t).expect("the Instances window");
+                let again = if i == 2 { ", again" } else { "" };
+                let what = format!("{name}, {n} on the {page} page{again}");
+                took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
+                assert!(h.state().dock.find_tab(&t).is_some(), "{what}: the window closed");
+                close(&mut h, &t);
+            }
+            against(&mut lines, &format!("{name}, 100 on the {page} page"), took[0], took[1]);
+            let noise = format!("{name}, 2 on the {page} page timed again (the noise)");
+            against(&mut lines, &noise, took[0], took[2]);
+        }
+    }
+
+    // B21: Setup Area Transition over the 300 areas.
+    let name = "Setup Area Transition";
+    if wanted(&r, name) {
+        let t = Tab::Blueprint(made.door);
+        h.state_mut().blueprint_pages.insert((made.door, GffPath::root()), "Area Transition");
+        open(&mut h, t.clone());
+        h.run_steps(5);
+        let held = |h: &App<'_>| {
+            let ws = h.state().ws.as_ref().unwrap();
+            ws.module.keys_of(ResType::GIT).filter(|k| ws.loaded(k).is_some()).count()
+        };
+        let areas = h.state().ws.as_ref().unwrap().module.keys_of(ResType::GIT).count();
+        let before = held(&h);
+        let rest = timed(
+            &mut h,
+            &mut r,
+            &format!("{name}'s door, its Area Transition page"),
+            "pointer",
+            screen,
+            Pointer::Moves,
+        );
+        let button = h.get_by_label("Setup Area Transition…").rect().center();
+        let mut clicks = Vec::new();
+        for n in 0..5 {
+            let what = format!("{name}, the click that opens it over {areas} areas ({})", n + 1);
+            clicks.push(landed(&mut h, &mut lines, &what, Pointer::Clicks(button)));
+            h.run_steps(3);
+            assert!(h.query_by_label("Target area").is_some(), "{name}: the window not open");
+            if n < 4 {
+                close_menu(&mut h);
+                assert!(h.query_by_label("Target area").is_none(), "{name}: the window not closed");
+            }
+        }
+        let after = held(&h);
+        let line = format!(
+            "{name}: the areas' objects held by the workspace: {before} before, {after} after \
+             five openings"
+        );
+        println!("  {line}");
+        lines.push(line);
+        let open_ = timed(
+            &mut h,
+            &mut r,
+            &format!("{name} open over {areas} areas"),
+            "pointer",
+            screen,
+            Pointer::Moves,
+        );
+        assert!(h.query_by_label("Target area").is_some(), "{name}: the window closed");
+        against(&mut lines, &format!("{name} open over {areas} areas"), rest, open_);
+        close_menu(&mut h);
+        close(&mut h, &t);
+    }
+
+    // B23 and B24: the Custom palette, few blueprints and 8,000.
+    let name = "custom palette";
+    if wanted(&r, name) {
+        let standard: Vec<String> = {
+            let game = h.state().game.as_deref().unwrap();
+            let mut items = game.resman.list(ResType::UTI);
+            items.sort();
+            items
+                .iter()
+                .filter(|r| r.to_string().starts_with("nw_"))
+                .take(20)
+                .map(|r| format!("uti:{r}"))
+                .collect()
+        };
+        assert_eq!(standard.len(), 20, "{name}: twenty standard items");
+        h.state_mut().settings.palette_recent = standard.clone();
+        h.state_mut().settings.palette_favorites = standard[..10].to_vec();
+        let count = |h: &App<'_>, kind: BlueprintKind| {
+            h.state().ws.as_ref().unwrap().module.keys_of(kind.restype()).count()
+        };
+        let few = [BlueprintKind::Waypoint, BlueprintKind::Sound, BlueprintKind::Trigger]
+            .into_iter()
+            .filter(|k| count(&h, *k) > 0)
+            .min_by_key(|k| count(&h, *k))
+            .expect("a kind with a few custom blueprints");
+        let kinds = [(few, count(&h, few)), (BlueprintKind::Item, count(&h, BlueprintKind::Item))];
+        let palcus = |h: &App<'_>, kind: BlueprintKind| {
+            let m = &h.state().ws.as_ref().unwrap().module;
+            m.contains(&kind.custom_key())
+        };
+        println!(
+            "  ({name}: {} {:?} blueprints, its palcus {}; {} items, theirs {})",
+            kinds[0].1,
+            few,
+            palcus(&h, few),
+            kinds[1].1,
+            palcus(&h, BlueprintKind::Item)
+        );
+        let area = ResKey::new(made.area, ResType::ARE);
+        let edit = |app: &mut Moonglow, n: usize| {
+            let edit = Edit::SetField {
+                key: area,
+                path: GffPath::root(),
+                label: "Comments".into(),
+                value: Some(mg_gff::Value::String(format!("frame {n}").into_bytes())),
+            };
+            app.actions.push(Action::Apply(Command::new("Edit the area's comment", vec![edit])));
+        };
+        // Unsearched, a kind of few blueprints against the 8,000 items;
+        // searched, the items with a search that finds 100 against one
+        // that finds them all (as many rows drawn).
+        let items = kinds[1];
+        for (gallery, searched) in [(false, false), (true, false), (false, true), (true, true)] {
+            h.state_mut().settings.palette_gallery = gallery;
+            h.state_mut().settings.gallery_tile = gallery.then_some(64);
+            let shown = if gallery { "Gallery" } else { "List" };
+            let pair = match searched {
+                false => [(kinds[0], ""), (items, "")],
+                true => [(items, "pw_i000"), (items, "pw")],
+            };
+            let mut took = Vec::new();
+            let mut edited = Vec::new();
+            let mut whats = Vec::new();
+            for ((kind, n), search) in pair {
+                palette(&mut h, kind, true, search);
+                show_palette(&mut h);
+                h.run_steps(if gallery { 300 } else { 5 });
+                let rect = palette_rect(&h).expect("the palette");
+                let what = match search {
+                    "" => format!("{name} of {n} {}, {shown}", kind.label().to_lowercase()),
+                    s => format!("{name} of {n} items, {shown}, \"{s}\" searched"),
+                };
+                took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
+                assert_eq!(h.state().palette.filter, search, "{what}: the search kept");
+                if search == "pw_i000" {
+                    assert!(h.query_by_label("100 items").is_some(), "{what}: not 100 found");
+                }
+                if searched {
+                    edited.push(timed_with(
+                        &mut h,
+                        &mut r,
+                        &format!("{what}, an edit each frame"),
+                        "pointer",
+                        rect,
+                        Pointer::Moves,
+                        edit,
+                    ));
+                }
+                fold_palette(&mut h);
+                whats.push(what);
+            }
+            against(&mut lines, &whats[1], took[0], took[1]);
+            if let [small, large] = edited[..] {
+                against(&mut lines, &format!("{}, an edit each frame", whats[1]), small, large);
+            }
+        }
+        h.state_mut().settings.palette_gallery = false;
+        h.state_mut().settings.gallery_tile = None;
+        h.state_mut().settings.palette_recent.clear();
+        h.state_mut().settings.palette_favorites.clear();
+        h.state_mut().palette.filter.clear();
+        // (The edits taken back.)
+        while h.state().ws.as_ref().and_then(|w| w.can_undo()) == Some("Edit the area's comment") {
+            h.state_mut().actions.push(Action::Undo);
+            h.run_steps(1);
+        }
+    }
+
+    // G4's half: an item's Properties page with a search.
+    let name = "item blueprint's Properties page";
+    if wanted(&r, name) {
+        let item = ResKey::parse("pw_i00001", ResType::UTI).unwrap();
+        let t = Tab::Blueprint(item);
+        h.state_mut().blueprint_pages.insert((item, GffPath::root()), "Properties");
+        open(&mut h, t.clone());
+        h.run_steps(5);
+        let rect = rect_of(h.state(), &t).expect("the item's tab");
+        let rest =
+            timed(&mut h, &mut r, &format!("{name}, no search"), "pointer", rect, Pointer::Moves);
+        let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput
+                && (n.placeholder() == Some("Search properties")
+                    || n.value().as_deref() == Some("zzzz"))
+        };
+        for (text, what) in [("zzzz", "a search that finds nothing"), ("fire", "\"fire\" searched")]
+        {
+            h.get(egui_kittest::kittest::by().predicate(field)).click();
+            h.run_steps(2);
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+            h.run_steps(1);
+            h.event(egui::Event::Text(text.into()));
+            h.run_steps(3);
+            let what = format!("{name}, {what}");
+            let it = timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves);
+            assert!(h.query_all_by_value(text).next().is_some(), "{what}: the search kept");
+            let none = h.query_by_label("No property has that.").is_some();
+            assert_eq!(none, text == "zzzz", "{what}: found what it should");
+            against(&mut lines, &what, rest, it);
+        }
+        close(&mut h, &t);
+    }
+
+    // The last pass's item 17: the Blueprint Wizard's category page.
+    let name = "Blueprint Wizard's category page";
+    if wanted(&r, name) {
+        let mut took = Vec::new();
+        for (kind, wizard) in
+            [(BlueprintKind::Sound, "Sound"), (BlueprintKind::Placeable, "Placeable")]
+        {
+            h.state_mut().blueprint_wizard =
+                Some(mg_ui::blueprint_wizard::BlueprintWizard::new(kind));
+            h.run_steps(5);
+            let what = format!("{name}, the {wizard} Wizard");
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+            assert!(
+                h.query_all_by_label_contains("Choose the palette category").next().is_some(),
+                "{what}: not its category page"
+            );
+        }
+        against(&mut lines, &format!("{name}, the Placeable Wizard"), took[0], took[1]);
+        h.state_mut().blueprint_wizard = None;
+        h.run_steps(3);
+    }
+
+    // B26: Select Texture over the haks' textures, opened and searched.
+    let name = "Select Texture";
+    if wanted(&r, name) {
+        let chest = view_game_blueprint(&mut h, "plc_chest1", ResType::UTP);
+        let textures = {
+            let game = h.state().game.as_deref().unwrap();
+            game.resman.list(ResType::TGA).len() + game.resman.list(ResType::DDS).len()
+        };
+        let t = Tab::Blueprint(chest);
+        h.state_mut().blueprint_pages.insert((chest, GffPath::root()), "Visuals");
+        open(&mut h, t.clone());
+        h.run_steps(10);
+        let button = h.get_all_by_label("Select Texture…").next().unwrap().rect().center();
+        landed(
+            &mut h,
+            &mut lines,
+            &format!("{name}, the click that opens it ({textures} textures)"),
+            Pointer::Clicks(button),
+        );
+        h.run_steps(300);
+        let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.placeholder() == Some("Find")
+        };
+        assert!(h.query_by_label("Select Texture").is_some(), "{name}: not open");
+        let open_ = timed(
+            &mut h,
+            &mut r,
+            &format!("{name} open ({textures} textures)"),
+            "pointer",
+            screen,
+            Pointer::Moves,
+        );
+        h.query_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
+        h.run_steps(2);
+        landed(&mut h, &mut lines, &format!("{name}, \"wood\" typed"), Pointer::Types("wood"));
+        h.run_steps(300);
+        let what = format!("{name}, \"wood\" searched ({textures} textures)");
+        let searched = timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves);
+        assert!(h.query_all_by_value("wood").next().is_some(), "{what}: the search kept");
+        against(&mut lines, &what, open_, searched);
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        h.run_steps(3);
+        close(&mut h, &t);
+    }
+
+    // B22's rest and B26: the tables' views, with the install's tables
+    // and grown.
+    let name = "tables";
+    if wanted(&r, name) {
+        let small = tables_views(&mut h, &mut r, &mut lines, &made, "the install's tables");
+        let sizes = grow_tables(&h, &dev);
+        h.state_mut().actions.push(Action::ReloadResources);
+        let begun = Instant::now();
+        loop {
+            h.run_steps(1);
+            let game = h.state().game.as_deref().unwrap();
+            if game.table("feat").is_ok_and(|t| t.len() == sizes.feats) {
+                break;
+            }
+            assert!(begun.elapsed() < Duration::from_secs(60), "{name}: the reload not taken");
+        }
+        h.run_steps(5);
+        {
+            let game = h.state().game.as_deref().unwrap();
+            let len = |t: &str| game.table(t).map_or(0, |t| t.len());
+            assert_eq!(len("portraits"), sizes.portraits, "{name}: portraits.2da not grown");
+            assert_eq!(len("appearance"), sizes.appearance, "{name}: appearance.2da not grown");
+            assert_eq!(icons_of(game, &made.icon_prefix), 999, "{name}: not 999 icons");
+        }
+        let large = tables_views(&mut h, &mut r, &mut lines, &made, "grown tables");
+        for (what, a, b) in [
+            ("the window with nothing open (the control)", small.control, large.control),
+            ("a creature's Feats page", small.feats, large.feats),
+            ("Select Portrait", small.portrait, large.portrait),
+            ("an item's Appearance page of icons", small.icons, large.icons),
+            ("the Creature Wizard's appearance page", small.wizard, large.wizard),
+        ] {
+            against(&mut lines, &format!("{name}, {what}, grown"), a, b);
+        }
+        against(
+            &mut lines,
+            &format!("{name}, the control timed again (the noise)"),
+            large.control,
+            large.control_again,
+        );
+    }
+
+    // B25: the Appearance Gallery scrolled to its end.
+    let name = "Appearance Gallery";
+    if wanted(&r, name) {
+        let rows = h.state().game.as_deref().unwrap().table("appearance").map_or(0, |t| t.len());
+        let mut gallery = mg_ui::appearance_gallery::Gallery::default();
+        gallery.kind = mg_ui::appearance_gallery::Kind::Creature;
+        h.state_mut().placeable_gallery = Some(gallery);
+        let t = Tab::PlaceableGallery;
+        open(&mut h, t.clone());
+        let rect = rect_of(h.state(), &t).expect("the gallery's tab");
+        let at = rect.center();
+        h.hover_at(at);
+        let made_all = |h: &mut App<'_>| {
+            let (begun, mut frames_, mut ui, mut worst) =
+                (Instant::now(), 0, Duration::ZERO, Duration::ZERO);
+            loop {
+                let f = frames(h, rect, Pointer::Rests(at), 1, |_, _| {});
+                frames_ += 1;
+                ui += f.ui[0];
+                worst = worst.max(f.ui[0]);
+                let th = &h.state().thumbnails;
+                if th.waiting() == 0 && th.reading() == 0 && frames_ > 8 {
+                    break (frames_, begun.elapsed(), ui, worst);
+                }
+                assert!(begun.elapsed() < Duration::from_secs(300), "{name}: pictures not made");
+            }
+        };
+        made_all(&mut h);
+        let what = format!("{name} of creatures ({rows} rows)");
+        let rest = timed(
+            &mut h,
+            &mut r,
+            &format!("{what}, at its top"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        // (Down a long way a frame, as the scroll bar dragged to the end:
+        // farther in all than the rows reach, at 150 points a row of
+        // pictures, so the last frames rest at the end.)
+        let across = (rect.width() / 150.0).floor().max(1.0);
+        let by = 6_000.0;
+        let count = ((rows as f32 / across * 150.0 / by).ceil() as usize + 20).min(2_000);
+        let f = frames(&mut h, rect, Pointer::Down(at, by), count, |_, _| {});
+        said(&mut r, &format!("{what}, scrolled to its end"), "wheel", &f);
+        let worst = f.ui.iter().max().copied().unwrap_or_default();
+        let (waiting, reading) = (h.state().thumbnails.waiting(), h.state().thumbnails.reading());
+        let (frames_, took, ui, slowest) = made_all(&mut h);
+        let line = format!(
+            "{what}: scrolled to its end in {count} frames (their worst {:.2} ms), then {waiting} \
+             pictures waiting and {reading} being read; the pictures in sight made in {frames_} \
+             frames, {:.0} ms ({:.2} ms of the interface's, the slowest frame {:.2} ms)",
+            ms(worst),
+            ms(took),
+            ms(ui),
+            ms(slowest),
+        );
+        println!("  {line}");
+        lines.push(line);
+        let end = timed(
+            &mut h,
+            &mut r,
+            &format!("{what}, at its end"),
+            "still",
+            rect,
+            Pointer::Rests(at),
+        );
+        against(&mut lines, &format!("{what}, at its end"), rest, end);
+        close(&mut h, &t);
+        h.state_mut().placeable_gallery = None;
+    }
+    println!(
+        "against their resting views (the line {} µs):\n  {}",
+        UI_LINE.as_micros(),
+        lines.join("\n  ")
+    );
+    r.end();
+}
+
+/// What [`tables_views`] timed.
+#[derive(Default)]
+struct TablesTimed {
+    control: Option<Duration>,
+    control_again: Option<Duration>,
+    feats: Option<Duration>,
+    portrait: Option<Duration>,
+    icons: Option<Duration>,
+    wizard: Option<Duration>,
+}
+
+/// The views whose cost grew with a table, timed with the tables `when`
+/// says: a creature's Feats page, Select Portrait (and the click's frame),
+/// an item's Appearance page of icons (and its opening's frames), the
+/// Creature Wizard's appearance page; and the window with nothing open
+/// before and after them (the control).
+fn tables_views(
+    h: &mut App<'_>,
+    r: &mut Report,
+    lines: &mut Vec<String>,
+    made: &Blueprints,
+    when: &str,
+) -> TablesTimed {
+    use mg_edit::GffPath;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let mut out = TablesTimed::default();
+    let lens = {
+        let game = h.state().game.as_deref().unwrap();
+        let len = |t: &str| game.table(t).map_or(0, |t| t.len());
+        format!(
+            "feat.2da {}, portraits.2da {}, appearance.2da {}, {} icons",
+            len("feat"),
+            len("portraits"),
+            len("appearance"),
+            icons_of(game, &made.icon_prefix)
+        )
+    };
+    println!("  ({when}: {lens})");
+    let what = |view: &str| format!("tables, {view}, {when}");
+    out.control = timed(h, r, &what("nothing open"), "pointer", screen, Pointer::Moves);
+    // A creature's Feats page.
+    let creature = ResKey::parse("pw_c00001", ResType::UTC).unwrap();
+    let t = Tab::Blueprint(creature);
+    h.state_mut().blueprint_pages.insert((creature, GffPath::root()), "Feats");
+    open(h, t.clone());
+    h.run_steps(5);
+    let rect = rect_of(h.state(), &t).expect("the creature's tab");
+    out.feats = timed(h, r, &what("a creature's Feats page"), "pointer", rect, Pointer::Moves);
+    close(h, &t);
+    // Select Portrait, from a placeable's Advanced page.
+    let chest = view_game_blueprint(h, "plc_chest1", ResType::UTP);
+    let t = Tab::Blueprint(chest);
+    h.state_mut().blueprint_pages.insert((chest, GffPath::root()), "Advanced");
+    open(h, t.clone());
+    h.run_steps(5);
+    h.get_by_label("Portraits…").scroll_to_me();
+    h.run_steps(2);
+    let button = h.get_by_label("Portraits…").rect().center();
+    let f = frames(h, screen, Pointer::Clicks(button), 4, |_, _| {});
+    let worst = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).max().unwrap();
+    let verdict = if worst > BUDGET { "over the budget" } else { "within the budget" };
+    let line = format!(
+        "{}: its worst frame {:.2} ms, {verdict}",
+        what("the click that opens Select Portrait"),
+        ms(worst)
+    );
+    println!("  {line}");
+    lines.push(line);
+    h.run_steps(300);
+    assert!(h.query_by_label("Plot Characters").is_some(), "Select Portrait not open ({when})");
+    out.portrait = timed(h, r, &what("Select Portrait"), "pointer", screen, Pointer::Moves);
+    close_menu(h);
+    close(h, &t);
+    // An item's Appearance page of icons, opened.
+    let t = Tab::Blueprint(made.icons);
+    h.state_mut().blueprint_pages.insert((made.icons, GffPath::root()), "Appearance");
+    h.state_mut().actions.push(Action::OpenTab(t.clone()));
+    let f = frames(h, screen, Pointer::Away, 4, |_, _| {});
+    let worst = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).max().unwrap();
+    let verdict = if worst > BUDGET { "over the budget" } else { "within the budget" };
+    let line = format!(
+        "{}: its worst frame {:.2} ms, {verdict}",
+        what("an item's Appearance page of icons, opened"),
+        ms(worst)
+    );
+    println!("  {line}");
+    lines.push(line);
+    h.run_steps(300);
+    let rect = rect_of(h.state(), &t).expect("the item's tab");
+    out.icons =
+        timed(h, r, &what("an item's Appearance page of icons"), "pointer", rect, Pointer::Moves);
+    assert!(h.query_all_by_label_contains("Appearance 1").next().is_some(), "no icons ({when})");
+    close(h, &t);
+    // The Creature Wizard's appearance page.
+    h.state_mut().creature_wizard = Some(mg_ui::creature_wizard::CreatureWizard {
+        page: 3,
+        race: Some(6),
+        classes: vec![(4, 4)],
+        chosen_class: Some(4),
+        portrait: Some(1),
+        first_name: "Perf".into(),
+        category: Some(0),
+        ..Default::default()
+    });
+    h.run_steps(300);
+    out.wizard = timed(
+        h,
+        r,
+        &what("the Creature Wizard's appearance page"),
+        "pointer",
+        screen,
+        Pointer::Moves,
+    );
+    h.state_mut().creature_wizard = None;
+    h.run_steps(3);
+    out.control_again =
+        timed(h, r, &what("nothing open, again"), "pointer", screen, Pointer::Moves);
+    out
+}
+
+/// What [`blueprints_module`] made.
+struct Blueprints {
+    path: std::path::PathBuf,
+    /// The area of the 100 creatures.
+    area: ResRef,
+    /// Where they are in its GIT.
+    creatures: Vec<mg_edit::GffPath>,
+    /// A door blueprint (its Area Transition page).
+    door: ResKey,
+    /// A simple item of the base item [`Blueprints::icon_prefix`] names.
+    icons: ResKey,
+    /// Its icons' names before their number (`iit_midmisc_`).
+    icon_prefix: String,
+}
+
+/// A copy of the persistent world's module with 100 creatures (the game's
+/// `nw_bandit001`, each holding 20 of the game's items) placed in its first
+/// area, a door blueprint and a simple item of the misc medium base item
+/// (`mg_door`, `mg_icons`), in `dir`.
+fn blueprints_module(
+    game: &mg_rules::GameData,
+    world: &std::path::Path,
+    dir: &std::path::Path,
+) -> Blueprints {
+    use mg_gff::{Gff, Struct, Value};
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::{Module, ModuleLocation};
+    let mut m = Module::open(world).unwrap();
+    let area = m.areas().unwrap()[0];
+    let read =
+        |name: &str, t: ResType| Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+    // The creatures, each with 20 kinds of item.
+    let mut items = game.resman.list(ResType::UTI);
+    items.sort();
+    let items: Vec<ResRef> =
+        items.into_iter().filter(|r| r.to_string().starts_with("nw_")).take(20).collect();
+    let mut bandit = read("nw_bandit001", ResType::UTC).root;
+    let held: Vec<Struct> = items
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let mut e = Struct::new(i as u32);
+            e.set("InventoryRes", Value::resref(*r));
+            e.set("Repos_PosX", Value::Word((i % 10) as u16));
+            e.set("Repos_Posy", Value::Word((i / 10) as u16));
+            e
+        })
+        .collect();
+    bandit.set("ItemList", Value::List(held));
+    let item = |r: ResRef| {
+        game.resman
+            .get(&ResKey::new(r, ResType::UTI))
+            .ok()
+            .and_then(|d| Gff::read(&d).ok())
+            .map(|g| g.root)
+    };
+    let placing = Placing { game, item: &item };
+    let mut rng = fastrand::Rng::with_seed(20);
+    let key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&key).unwrap().unwrap();
+    let mut list = git.root.list("Creature List").unwrap_or(&[]).to_vec();
+    let from = list.len();
+    for _ in 0..100 {
+        let at = Placement { position: [rng.f32() * 20.0, rng.f32() * 20.0, 0.0], rotation: 0.0 };
+        list.push(instance(&placing, ResType::UTC, &bandit, at, &[]).unwrap());
+    }
+    assert!(list[from].list("ItemList").is_some_and(|l| l.len() == 20), "the creatures' items");
+    git.root.set("Creature List", Value::List(list));
+    m.set_gff(key, &git).unwrap();
+    let creatures =
+        (from..from + 100).map(|i| mg_edit::GffPath::root().item("Creature List", i)).collect();
+    // A door blueprint.
+    let door_src = game.resman.list(ResType::UTD)[0];
+    let door = ResKey::parse("mg_door", ResType::UTD).unwrap();
+    let mut d = Gff::read(&game.resman.get(&ResKey::new(door_src, ResType::UTD)).unwrap()).unwrap();
+    d.root.set("TemplateResRef", Value::resref(door.resref));
+    m.set_gff(door, &d).unwrap();
+    // A simple misc medium item.
+    let base = game.table("baseitems").unwrap();
+    let row = (0..base.len())
+        .find(|&r| {
+            base.get(r, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case("it_midmisc"))
+                && base.get_int(r, "ModelType") == Some(0)
+        })
+        .expect("a misc medium base item");
+    let icons = ResKey::parse("mg_icons", ResType::UTI).unwrap();
+    let mut i = read(&items[0].to_string(), ResType::UTI);
+    i.root.set("TemplateResRef", Value::resref(icons.resref));
+    i.root.set("BaseItem", Value::Int(row as i32));
+    i.root.set("ModelPart1", Value::Byte(1));
+    m.set_gff(icons, &i).unwrap();
+    let path = dir.join("blueprints.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    Blueprints { path, area, creatures, door, icons, icon_prefix: "iit_midmisc_".into() }
+}
+
+/// The sizes [`grow_tables`] grew the tables to.
+struct Grown {
+    feats: usize,
+    portraits: usize,
+    appearance: usize,
+}
+
+/// feat.2da of 20,000 rows, portraits.2da of 32,000 and appearance.2da of
+/// 30,000 (the game data's as the window has them, their rows copied in
+/// turn), and an icon for every number to 999 of the simple item's, in the
+/// scratch user folder's `development` (`dev`), over the haks.
+fn grow_tables(h: &App<'_>, dev: &std::path::Path) -> Grown {
+    let game = h.state().game.as_deref().unwrap();
+    let grown = Grown { feats: 20_000, portraits: 32_000, appearance: 30_000 };
+    for (name, rows) in
+        [("feat", grown.feats), ("portraits", grown.portraits), ("appearance", grown.appearance)]
+    {
+        let mut t = (*game.table(name).unwrap()).clone();
+        let (had, columns) = (t.len(), t.columns().len());
+        for k in had..rows {
+            let from = k % had;
+            let row = t.add_row();
+            for c in 0..columns {
+                let value = t.cell(from, c).map(str::to_string);
+                t.set(row, c, value).unwrap();
+            }
+        }
+        std::fs::write(dev.join(format!("{name}.2da")), t.to_bytes(game.codepage()).unwrap())
+            .unwrap();
+    }
+    // (A 32 by 32 picture, its color from the number.)
+    for n in 1..=999u32 {
+        let name = format!("iit_midmisc_{n:03}");
+        if game.resman.get_named(&name, ResType::TGA).is_ok()
+            || game.resman.get_named(&name, ResType::DDS).is_ok()
+        {
+            continue;
+        }
+        let mut v = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 32, 0, 32, 8];
+        for _ in 0..32 * 32 {
+            v.extend_from_slice(&[(n % 251) as u8, (n / 251 * 60) as u8, 128, 255]);
+        }
+        std::fs::write(dev.join(format!("{name}.tga")), v).unwrap();
+    }
+    grown
+}
+
+/// How many icons the game data has of `prefix` (TGA, DDS or PLT), each
+/// number once.
+fn icons_of(game: &mg_rules::GameData, prefix: &str) -> usize {
+    let mut n: Vec<String> = [ResType::TGA, ResType::DDS, ResType::PLT]
+        .iter()
+        .flat_map(|t| game.resman.list(*t))
+        .map(|r| r.to_string())
+        .filter(|r| {
+            r.strip_prefix(prefix)
+                .is_some_and(|d| d.len() == 3 && d.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .collect();
+    n.sort();
+    n.dedup();
+    n.len()
+}
+
+/// A blueprint of the game's given to the window to look at (never the
+/// module's: `Workspace::view`): its key.
+fn view_game_blueprint(h: &mut App<'_>, name: &str, t: ResType) -> ResKey {
+    let key = ResKey::parse(name, t).unwrap();
+    let gff = {
+        let game = h.state().game.as_deref().expect("the game's data");
+        mg_gff::Gff::read(&game.resman.get(&key).expect("the game's blueprint")).unwrap()
+    };
+    h.state_mut().ws.as_mut().expect("the module").view(key, gff);
+    key
+}
+
+/// `to` made to show `from` (a link where the system has them, else a
+/// copy), read-only use: the world's haks in a scratch user folder.
+fn link_dir(from: &std::path::Path, to: &std::path::Path) {
+    let _ = std::fs::remove_file(to);
+    let _ = std::fs::remove_dir_all(to);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(from, to).unwrap();
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        }
+    }
 }

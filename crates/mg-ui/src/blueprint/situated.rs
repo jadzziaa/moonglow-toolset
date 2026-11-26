@@ -592,6 +592,11 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
             (None, None) => {}
         }
     }
+    // (Their doors', triggers' and waypoints' lists alone: a persistent
+    // world's 300 areas read whole, creatures, placeables and the items
+    // they hold, took 20 ms on every core.)
+    let lists = LEADS_TO.map(|(kind, ..)| kind.list());
+    let lists = &lists;
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let each = unread.len().div_ceil(threads).max(1);
     let of = &of;
@@ -601,7 +606,7 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
             readers.push(s.spawn(move || {
                 let mut out = Vec::new();
                 for (key, data) in some {
-                    if let Ok(g) = mg_gff::Gff::read(data) {
+                    if let Ok(g) = mg_gff::Gff::read_lists(data, lists) {
                         out.extend(of(key, &g.root));
                     }
                 }
@@ -644,7 +649,9 @@ struct Worked {
 #[derive(Debug, Clone, Default)]
 struct TransitionPick {
     open: bool,
-    destinations: Vec<Destination>,
+    /// (Shared: the state is copied out of egui's memory and back each
+    /// frame, and a persistent world's thousands were copied with it.)
+    destinations: std::sync::Arc<Vec<Destination>>,
     area: Option<mg_core::ResRef>,
     map: Option<crate::minimap::Map>,
     chosen: Option<Placed>,
@@ -972,14 +979,19 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             ui.weak(refused_text(Refused::NoCurrentTag));
         }
         let showing = state.showing;
-        let here: Vec<usize> = (state.destinations.iter().enumerate())
-            .filter(|(_, d)| {
-                Some(d.area) == state.area
-                    && showing.is_none_or(|k| d.object.kind == k)
-                    && !state.editing.contains(&d.object)
-            })
-            .map(|(i, _)| i)
-            .collect();
+        // (Found once for the area and the kind shown, while the window is
+        // open: its objects edited are left out as it opened.)
+        let here_for = (state.area, showing);
+        let here = super::kept_for(ui.ctx(), pick_id.with("here"), &state.destinations, &here_for, || {
+            let here = (state.destinations.iter().enumerate())
+                .filter(|(_, d)| {
+                    Some(d.area) == state.area
+                        && showing.is_none_or(|k| d.object.kind == k)
+                        && !state.editing.contains(&d.object)
+                })
+                .map(|(i, _)| i);
+            std::sync::Arc::new(here.collect::<Vec<usize>>())
+        });
         let is = |d: &Destination, chosen: &Option<Placed>| *chosen == Some(d.object);
         // (The map smaller where the window is: the lines under it keep
         // their room.)
@@ -1009,7 +1021,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                         .filter(|x| dist(x) <= MARKER_REACH)
                         .min_by(|a, b| dist(a).total_cmp(&dist(b)))
                 });
-                for &idx in &here {
+                for &idx in here.iter() {
                     let d = &state.destinations[idx];
                     let at = map.to_map(rect, d.at);
                     let lit = is(d, &state.chosen) || near == Some(d);
@@ -1188,7 +1200,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
                 open: true,
                 area: now.or(here).or(destinations.first()).map(|d| d.area),
                 chosen: now.map(|d| d.object),
-                destinations,
+                destinations: std::sync::Arc::new(destinations),
                 editing,
                 ..Default::default()
             };
