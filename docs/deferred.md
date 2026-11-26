@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:53:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -24,6 +24,17 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
+- **Three of the hak saves' job tests skip on Windows:**
+  `hak_closing.rs`'s `the_module_s_save_writes_its_haks_as_jobs_then_goes_on`,
+  `a_hak_s_job_canceled_stops_what_the_save_was_for` and
+  `the_plugins_saved_event_comes_after_the_hak_is_written` hold a hak's
+  save under way with a FIFO in the hak, which blocks the job's read
+  until the test opens it; Windows has no FIFO, and a file locked there
+  fails the read rather than holding it. Holding it on Windows would take
+  a gate in the hak save's own code that only tests open, an unintended
+  addition to the program for a test's sake; what they test is the same
+  code on every system and runs on Linux and macOS (CI too). Deferred for
+  that consequence. (S, the review of D19, November 2026)
 - **Moonglow Viewer's shader cache across toolset tags:** the libraries
   are 0.0.0 and read the release from the program (`mg_core::release`),
   which the viewer doesn't set, so its compiled-shader cache is named by

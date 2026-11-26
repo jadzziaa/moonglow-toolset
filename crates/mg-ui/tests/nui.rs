@@ -405,8 +405,17 @@ fn picture_fields_take_a_file_from_disk() {
     assert!(!h.state().log.entries.iter().any(|(_, line)| line.contains("c40e2b2-1610-41b takes")));
 }
 
-/// Frames until the window's work (a job) is done, at most a minute.
+/// Frames until the window's work (a job) is done, at most a minute. A
+/// click's job starts some frames after the click (the page draws the
+/// button, then the job is asked for): those frames are drawn first, up
+/// to 10, or the wait ended before the job began.
 fn jobs_done(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..10 {
+        if h.state().under_way().is_some() {
+            break;
+        }
+        h.step();
+    }
     let started = std::time::Instant::now();
     while h.state().under_way().is_some() {
         assert!(started.elapsed().as_secs() < 60, "the job never ended");
@@ -414,6 +423,49 @@ fn jobs_done(h: &mut Harness<'_, Moonglow>) {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     h.run();
+}
+
+/// A picture the module had, moved into a new hak, then the window's
+/// Cancel: the module has it back (the hak written stays on disk, as a
+/// file saved is). The job ends on a thread of its own, as in the
+/// application: outside the window's frame, so the move is noted for it
+/// by the job's end.
+#[test]
+fn cancel_puts_back_the_pictures_moved_into_a_hak() {
+    let dir = mg_testkit::scratch_dir("nui-images-cancel");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut tga = vec![0u8; 18];
+    (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
+    tga.extend([255u8; 3]);
+    let hak = user.join("hak").join("nui_moved.hak");
+    let dialogs = NoDialogs { save: vec![hak.clone()], ..Default::default() };
+    let install = mg_resman::GameInstall::new(mg_testkit::corpus!(), Some(user), "en");
+    let mut app = game_app(install, dialogs);
+    let mut module = mg_module::Module::new();
+    module.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let key = ResKey::parse("my_bg", ResType::TGA).unwrap();
+    module.set(key, tga);
+    app.ws = Some(mg_edit::Workspace::new(module));
+    app.run(Action::NewNui("pictures".into()));
+    let mut h = creator(app, [1100, 900]);
+    h.run();
+    page(&mut h, "Images");
+    let jui = ResKey::parse("pictures", ResType::JUI).unwrap();
+    let mut doc: Value =
+        serde_json::from_slice(h.state().ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap();
+    doc["root"]["children"] = json!([{"type":"image","value":"my_bg","height":40.0}]);
+    h.state_mut().ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&doc).unwrap());
+    h.run();
+    let has = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.contains(&key);
+    h.state_mut().background_jobs = true;
+    h.get_by_label("Move Module Images into a New Hak").click();
+    jobs_done(&mut h);
+    assert!(!has(&h), "moved out of the module");
+    assert!(mg_module::hak_edit::Hak::open(&hak).unwrap().items().iter().any(|i| i.key == key));
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(has(&h), "Cancel puts the picture back in the module");
 }
 
 /// Images page: a picture from disk into the module, used as the
