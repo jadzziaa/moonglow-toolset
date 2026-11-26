@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:42:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:43:45Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1269,7 +1269,8 @@ is not taken for a new gap.
 
 - **TGA textures compressed as read, PLT colored copies kept as RGBA8**
   (closing the performance audit's "TGA and PLT textures are
-  uncompressed", 2026-11-25): a PLT's layers meet in sharp edges between
+  uncompressed", 2026-11-25; kept off by the owner's word, 2026-11-25,
+  shown the crops and the memory it would save): a PLT's layers meet in sharp edges between
   unrelated colors inside a 4×4 block, which BC blurs (up to 72 of 255
   in a picture of dyed armor, the trim and rivets dulled at 4×); a copy
   is made for each object's colors. The cost: an area of many creatures
