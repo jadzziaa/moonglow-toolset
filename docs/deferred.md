@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:43:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -433,6 +433,40 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   scene's whole brightness, and wants a reading of its own: which term
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
+
+- **A shallow pool with the Shaders switch off is a bright opaque
+  picture:** since shiny water keeps its DDS whole under the rippling
+  procedure (2026-11-26), Moonglow's own water, which draws the
+  picture opaque and lit, shows ttr01's shallow pool (`shadows.rs`'s
+  `shadows_on_see_through`, `MG_SEE_THROUGH_WATER=53`) as a light blue
+  sheet where the client shows its dark floor through the water: the
+  pool's region 87.9 of 255 from the client's (20.9 with the flat gray
+  before), and The Domains of Dread's fountain's basin (54, 65, 74)
+  against the client's (54, 53, 50) (50, 51, 52 before). Far water
+  gained (a rural lake's 23.3 to 12.5), and with the switch on, the
+  default, both are as the client's. Deferred as beyond what was
+  asked: the gray only hid it, and what the client shows is the floor
+  through the water, which Moonglow's own water would have to draw
+  (the depth under it from the framebuffer's copies, `fswater`'s
+  `exp2(−depth·0.25·a/(1−a))`), a new path for the fallback. M.
+  (The Domains of Dread's fountain entry, 2026-11-26)
+
+- **A see-through mesh's soft part and shiny water:** read with
+  `copies::reading_copy_order` (`MG_COPY_ORDER=front`): a standard
+  DXT5 of alpha 0.5 texels with `transparencyhint 1` standing in front
+  of a pool is drawn over its ground in the client, the water not
+  drawn behind it (its green, painted by a patched `fswater`, 39 of
+  255 there against 255 beside), as though the soft mesh wrote its
+  depth; and the water's copy holds the soft meshes behind it.
+  Moonglow draws a see-through mesh's soft part after the water,
+  without writing depth: in front of the pool it is laid over the
+  water (green 132), and behind it the copy lacks it (a render test
+  with the soft part drawn before the copy took it in, but then the
+  water was laid over the soft card in front, green 255). Deferred
+  for its consequences: whether the soft parts write depth decides
+  how every see-through mesh's soft texels overlap (grass, leaves,
+  decals over decals), which wants a reading of its own in the client
+  before it changes. M. (The framebuffer's copies entry, 2026-11-26)
 
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by

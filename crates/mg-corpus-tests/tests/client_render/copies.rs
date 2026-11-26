@@ -104,7 +104,7 @@ fn flat(c: [u8; 4]) -> mg_image::Rgba {
 /// `fswater`, no cards, and a white still particle 4.5 m wide (its softness
 /// 2.2) over each pool, its middle at the water's surface: whether a soft
 /// particle fades where it meets the water (its depth copy holding the
-/// water) or not. Moonglow's area view is drawn beside
+/// water) or not; `front`, see below. Moonglow's area view is drawn beside
 /// with the same program. Pictures in
 /// `target/test-output/client_reading_copy_order_<paint>/`.
 ///
@@ -127,6 +127,14 @@ fn flat(c: [u8; 4]) -> mg_image::Rgba {
 /// additive card not in it. Moonglow's three read this frame's copy. With
 /// `particles`, the particles end at the water's surface without fading
 /// in the client as in Moonglow: their depth copy holds no water.
+/// The "alpha" card, a 32-bit TGA of alpha 0.5 texels, is drawn opaque
+/// in both. `MG_COPY_ORDER=front`: magenta cards with `transparencyhint
+/// 1` standing in front of each pool, a standard DXT5 of alpha 0.5
+/// texels (soft) and an opaque one, `fswater` painting its copy's red and
+/// blue with a green of 255. In the client the water is not drawn behind
+/// the soft card (green 39 there), as though it wrote its depth; Moonglow
+/// lays its soft part over the water (green 132): the deferred list's
+/// "A see-through mesh's soft part and shiny water".
 #[test]
 #[ignore]
 fn reading_copy_order() {
@@ -136,6 +144,10 @@ fn reading_copy_order() {
     let find = "\tgl_FragColor = FragmentColor;\n}";
     let with = match paint.as_str() {
         "depth" => "\tgl_FragColor = vec4(vec3(clamp(fDepthOffset * 0.5, 0.0, 1.0)), 1.0);\n}",
+        "front" => {
+            "\tvec3 copy = texture2D(texFBColor, vScreenCoords).rgb;\n\
+             \tgl_FragColor = vec4(copy.r, 1.0, copy.b, 1.0);\n}"
+        }
         _ => "\tgl_FragColor = vec4(texture2D(texFBColor, vScreenCoords).rgb, 1.0);\n}",
     };
     let water_fs = patched(&water_fs, find, with);
@@ -177,6 +189,33 @@ fn reading_copy_order() {
             nodes.push(one.replace("parent mg_soft", &format!("parent {parent}")));
             continue;
         }
+        if paint == "front" {
+            // (Magenta cards with `transparencyhint 1`, of alpha 0.5
+            // texels (soft, as a road decal's) and opaque ones, standing
+            // in front of the pool, seen over it: is the water drawn over
+            // them?)
+            for (i, (card, alpha)) in [("soft", 128), ("hint", 255)].into_iter().enumerate() {
+                let hint = "  transparencyhint 1\n";
+                let texture = format!("mgcf_{card}");
+                let picture = flat([255, 0, 255, alpha]);
+                // (A standard DXT5, as ttr01's grass and decals: a TGA's
+                // alpha the client draws opaque here.)
+                let t = mg_image::encode::compress(&picture, mg_image::Format::Bc3, true, false);
+                let dds = mg_image::dds::write_standard(&t).unwrap();
+                overrides.push((format!("{texture}.dds"), dds));
+                let x = x0 + 0.5 + i as f32 * 2.0;
+                let node = format!("front_{half}_{card}");
+                nodes.push(quad(
+                    &node,
+                    parent,
+                    &texture,
+                    hint,
+                    [x, -2.0, 0.8],
+                    [x + 1.2, -2.0, 2.4],
+                ));
+            }
+            continue;
+        }
         for (i, (card, color, kind, mtr, extra)) in ORDER_CARDS.iter().enumerate() {
             let x = x0 + 0.1 + i as f32 * 0.75;
             let texture = format!("mgco_{card}");
@@ -205,7 +244,8 @@ fn reading_copy_order() {
             nodes.push(quad(&node, parent, &bitmap, extra, [x, 0.0, 0.0], [x + 0.6, 0.0, 2.0]));
         }
     }
-    for (i, (name, lines)) in FEEDBACK_CARDS.iter().enumerate().filter(|_| !particles) {
+    let feedback = !particles && paint != "front";
+    for (i, (name, lines)) in FEEDBACK_CARDS.iter().enumerate().filter(|_| feedback) {
         let x = -3.0 + i as f32 * 2.0;
         let mtr =
             format!("texture0 mgwhite\ncustomshadervs mgfdvs\ncustomshaderfs mgfdfs\n{lines}");

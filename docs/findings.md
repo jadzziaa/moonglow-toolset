@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2284,7 +2284,10 @@ road 69% and 16%, its splotch 3% and 33%, its tree leaves 39% and 2%.
   0.264 with the Shaders switch on since 2026-11-26 (0.002 before, its
   floor hidden by the rippling procedure's gray: [A DDS with a
   rippling procedure loses its picture](#a-dds-with-a-rippling-procedure-loses-its-picture));
-  Moonglow's own water, with it off, still hides its floor. Test
+  Moonglow's own water, with it off, hides its floor and now draws the
+  picture bright where the gray had been nearer ([deferred
+  list](deferred.md), "A shallow pool with the Shaders switch off").
+  Test
   `grass_and_see_through_receivers_are_darkened_in_the_shadow`.
 - **Wiki:** "Model Shadows" says what casts; not what receives.
 
@@ -2295,7 +2298,12 @@ them (`texFBColor`, `texFBDepth`) once a frame, after the see-through
 meshes (alpha-blended cards, `transparencyhint 1`, a DXT5 with no
 `alphamean`) and before shiny water and `sample_framebuffer` meshes:
 the water shows those cards behind it, in color and in depth (a card
-standing in a pool shortens the depth the water reads to it). Which
+standing in a pool shortens the depth the water reads to it). A soft
+see-through mesh (a DXT5 of alpha 0.5 texels with `transparencyhint
+1`) standing in front of a pool hides the water behind it: the client
+draws no water there, as though the mesh wrote its depth. (A 32-bit
+TGA of alpha 0.5 texels on a placeable's mesh, with or without the
+hint, is drawn opaque.) Which
 copy a mesh reads depends on how it is drawn, not on its program:
 
 - shiny water and a material's `sample_framebuffer` mesh read this
@@ -2307,14 +2315,18 @@ copy a mesh reads depends on how it is drawn, not on its program:
 - particles read a depth copy without the water.
 
 - **Checked:** game client, `client_render/copies.rs`'s
-  `reading_copy_order` (`MG_COPY_ORDER=color`, `depth`, `particles`),
-  2026-11-26.
-- **Moonglow:** shiny water and `sample_framebuffer` meshes as the
-  client since 2026-11-26 (`renderer.rs`: their draws sort after the
-  other see-through meshes' solid parts, and the copy is made at the
-  first of them; test
-  `the_water_s_copy_holds_the_see_through_meshes_behind_it`), particles
-  as the client. A solid or `transparency 1` mesh reading the copy gets
+  `reading_copy_order` (`MG_COPY_ORDER=color`, `depth`, `particles`,
+  `front`), 2026-11-26.
+- **Moonglow:** shiny water and `sample_framebuffer` meshes read a
+  copy holding the see-through meshes' solid parts since 2026-11-26
+  (`renderer.rs`: their draws sort after them, and the copy is made at
+  the first of them; test
+  `the_water_s_copy_holds_the_see_through_meshes_behind_it`); particles
+  as the client. A see-through mesh's soft part is drawn after the
+  water, without writing depth: not in the copy, and laid over water
+  behind it, where the client draws no water (`MG_COPY_ORDER=front`;
+  [deferred list](deferred.md), "A see-through mesh's soft part and
+  shiny water"). A solid or `transparency 1` mesh reading the copy gets
   this frame's copy, not the frame before's: no program the game or
   The Domains of Dread draws reads it so ([deferred list](deferred.md),
   Settled).

@@ -3,7 +3,7 @@ type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
 description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -296,6 +296,11 @@ their copy over red (`MG_COPY_ORDER=color`, `depth`, `particles`):
   **frame before's finished picture**: painting half its copy over
   red, it grows redder frame by frame, and shows the green of an
   additive card drawn after it;
+- a **soft see-through mesh** (a DXT5 of alpha 0.5 texels with
+  `transparencyhint 1`, `MG_COPY_ORDER=front`) standing in front of a
+  pool hides the water behind it, as though it wrote its depth (the
+  green a patched `fswater` paints, 39 of 255 there, 255 beside); a
+  32-bit TGA of alpha 0.5 texels is drawn opaque;
 - **particles** read a depth copy without the water (a 4.5 m particle
   through the pool ends at the water's surface without fading).
 
@@ -305,7 +310,13 @@ of 324 water pixels without its red, in the render test). Now a
 see-through game draw that reads the copy (shiny water with
 `transparencyhint`, a `sample_framebuffer` mesh) is "late": the late
 draws sort after the other see-through meshes' solid parts, and the
-copy is made at the first late draw or soft part. Test
+copy is made at the first late draw or soft part. The soft parts stay
+after the water, not writing depth: not in the copy, and laid over
+water behind them (green 132 where the client's is 39). Drawing them
+before the copy (tried: the render test's soft wall then shows in the
+water) laid the water over a soft card in front of it (green 255), the
+client's way needing the soft parts' depth; left in the [deferred
+list](deferred.md). Test
 `the_water_s_copy_holds_the_see_through_meshes_behind_it`
 (`crates/mg-render/tests/render.rs`), solid and hinted water.
 
@@ -325,14 +336,15 @@ picture drawn once (a thumbnail, a blueprint preview) has no frame
 before to give. The difference is filed as Settled in the [deferred
 list](deferred.md).
 
-**What it costs**: no difference beyond the runs' spread (`frame_perf`'s
+**What it costs**: nothing beyond the runs' spread but one row left unresolved (`frame_perf`'s
 `game_shaders_frames_at_144`, base b21be998 and this change alternated
 three times each, the machine at a load of 28 to 54; the GPU's quickest
 tenth at 3000×1250, Shaders on, lowest / median of the three). The water
 area: overview at 4x 2.24 / 2.28 ms before, 2.26 / 2.36 after; turned
 2.30 / 2.35, 2.21 / 2.30; close 4.49 / 4.54, 4.43 / 4.66 (spreads 0.05
 to 0.24). TDoD's woods: overview at 4x 6.35 / 6.37, 6.51 / 6.87
-(spreads 0.60 and 0.45); turned 9.66 / 9.93, 9.43 / 9.80; close 3.47 /
+(spreads 0.60 and 0.45: the median 0.5 ms up, the lowest 0.16, not
+settled at this load); turned 9.66 / 9.93, 9.43 / 9.80; close 3.47 /
 3.48, 3.40 / 3.44. Memory:
 none more (the copies are the ones the targets had).
 

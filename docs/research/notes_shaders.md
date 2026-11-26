@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
 sources:
   - id: shadows-on-see-through
     resource: crates/mg-corpus-tests/tests/client_render/shadows.rs (shadows_on_see_through, shadows_look with MG_SHADOW_GRASS=1), run 2026-11-25 on 89.8193.37-17
@@ -762,7 +762,7 @@ Triggered by a texture TXI with `bumpmaptexture shinywater` (+ `bumpyshinytextur
   - time `fTick = worldtimerTimeOfDay·0.001`
   - normals by finite differences (offset 0.05 m); amplitude suppressed on non-horizontal surfaces
 - **Quality ≥1**: screen-space refraction (IOR 1.333, 5 steps, 4 m range) from `texFBColor/texFBDepth`. Depth-based transparency: `exp2(−depth·0.25·a/(1−a))`.
-- [CLIENT] (2026-11-26) **What the copies hold**: one copy a frame, after the see-through meshes (alpha-blended, `transparencyhint 1`, a DXT5 without `alphamean`) and before shiny water and `sample_framebuffer` meshes, which read it, color and depth; a solid or `transparency 1` mesh whose program reads `texFBColor` gets the frame before's finished picture instead (its additive meshes in it); particles a depth copy without the water (`copies::reading_copy_order`; [findings](../findings.md), "What the framebuffer's copies hold"). Moonglow copies after the see-through meshes' solid parts and draws the readers after it; the frame before's picture it does not keep ([framebuffer proposal](../framebuffer-proposal.md)).
+- [CLIENT] (2026-11-26) **What the copies hold**: one copy a frame, after the see-through meshes (alpha-blended, `transparencyhint 1`, a DXT5 without `alphamean`) and before shiny water and `sample_framebuffer` meshes, which read it, color and depth; a solid or `transparency 1` mesh whose program reads `texFBColor` gets the frame before's finished picture instead (its additive meshes in it); particles a depth copy without the water (`copies::reading_copy_order`; [findings](../findings.md), "What the framebuffer's copies hold"). A soft see-through mesh in front of the water hides it, as though it wrote its depth (`MG_COPY_ORDER=front`). Moonglow copies after the see-through meshes' solid parts and draws the readers after it; their soft parts it draws after the water, and the frame before's picture it does not keep ([framebuffer proposal](../framebuffer-proposal.md), [deferred list](../deferred.md)).
 - **Quality 2**: plus screen-space reflection (10 steps), a subsurface term (`LIGHT_SUBSURFACE_SCATTERING`, wrap 1.0), Fresnel mix.
 - **Quality 0**: plain lit texture.
 - Keyhole + fog applied.
