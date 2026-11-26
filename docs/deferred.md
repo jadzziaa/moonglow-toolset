@@ -943,6 +943,7 @@ contribution itself states as not done or not checked.
     kept by every writer of the window and its binds would be one. Not
     done: beyond the frame budget's need (the idle frame is 2.0 ms).
   (S) (the review of November 2026, N13, N16)
+
 ## Automation
 
 - **Plugins, beyond API 0.4** (`plugin-proposal.md`; commands and checks
