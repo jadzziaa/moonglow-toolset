@@ -98,6 +98,8 @@ mod programs;
 mod readings;
 #[path = "client_render/shadows.rs"]
 mod shadows;
+#[path = "client_render/soft.rs"]
+mod soft;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
 #[path = "client_render/transition_outlines.rs"]

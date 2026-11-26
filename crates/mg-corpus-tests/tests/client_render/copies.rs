@@ -59,7 +59,14 @@ const FEEDBACK_CARDS: [(&str, &str); 3] = [
 
 /// A quad from `(x0, y0, z0)` to `(x1, y1, z1)` as a node of `parent`:
 /// standing (y0 = y1, facing south) or lying (z0 = z1, facing up).
-fn quad(name: &str, parent: &str, bitmap: &str, extra: &str, a: [f32; 3], b: [f32; 3]) -> String {
+pub(super) fn quad(
+    name: &str,
+    parent: &str,
+    bitmap: &str,
+    extra: &str,
+    a: [f32; 3],
+    b: [f32; 3],
+) -> String {
     let [x0, y0, z0] = a;
     let [x1, y1, z1] = b;
     let verts = if (z0 - z1).abs() < 1e-6 {
