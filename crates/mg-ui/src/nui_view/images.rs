@@ -248,16 +248,29 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
     Some(path)
 }
 
-/// Writes pictures into the hak at `path`, at once (a hak isn't the
-/// module's: Undo doesn't take it back), and says in the log which hak was
-/// written and where the copy of what it was is kept. Whether it was written.
+/// What goes on once pictures are in their hak (or not): given whether
+/// they were written.
+type Written = Box<dyn FnOnce(&mut Moonglow, bool)>;
+
+/// What goes on once a hak written is in the hak folder ([`use_hak`]):
+/// given the module's edits that use it, or None where it can't be used.
+type Using = Box<dyn FnOnce(&mut Moonglow, Option<Vec<Edit>>)>;
+
+/// The title of the job that writes pictures into a hak ([`write_hak`]).
+const PICTURES_JOB: &str = "Add Pictures to Hak";
+
+/// Writes pictures into the hak at `path` (a hak isn't the module's: Undo
+/// doesn't take it back), as a job, and says in the log which hak was
+/// written and where the copy of what it was is kept; then `then`, told
+/// whether it was written. Written inside the frame, a hak of gigabytes
+/// stood the window still, and what the window said of it came at once.
 ///
 /// A hak open in the hak editor takes them in that document instead (its
-/// file written under it would be lost at its Save): saved at once, as the
-/// editor's Save saves it (a `.bak` kept, as here), when it had no unsaved
+/// file written under it would be lost at its Save): saved as the editor's
+/// Save saves it (a job; a `.bak` kept, as here), when it had no unsaved
 /// changes; else, one step of its Undo, left for you to save there, which
 /// is said (and is not written: false).
-fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -> bool {
+fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>, then: Written) {
     if let Some(doc) = app.haks.iter_mut().find(|d| d.hak.path.as_deref() == Some(path)) {
         let (id, unsaved) = (doc.id, doc.hak.is_dirty());
         let file = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -265,7 +278,7 @@ fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -
             Ok(added) => added,
             Err(e) => {
                 app.log.error(format!("Could not add the pictures to {file}: {e}"));
-                return false;
+                return then(app, false);
             }
         };
         doc.changed();
@@ -279,78 +292,132 @@ fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -
                 "{what} (Undo there takes them out). It has other unsaved changes, so it isn't \
                  saved: save it there for the game to find them"
             ));
-            return false;
+            return then(app, false);
         }
         // (As a hak written here: the copy of what it was kept beside it.)
         let bak = path.with_extension("hak.bak");
         if let Err(e) = std::fs::copy(path, &bak) {
             app.log.error(format!("Could not keep {}: {e}", bak.display()));
-            return false;
+            return then(app, false);
         }
         app.log.info(format!("{what}; the hak as it was is kept as {}", bak.display()));
-        return crate::hak_view::save(app, id, false);
+        return crate::hak_view::save_and(app, id, then);
+    }
+    if let Some(job) = &app.job {
+        app.log.error(format!(
+            "Could not write {}: {} is still running: wait for it to finish, or cancel it, first",
+            path.display(),
+            job.title
+        ));
+        return then(app, false);
     }
     let kept = path.exists().then(|| path.with_extension("hak.bak"));
-    match write_into(path, pictures) {
-        Ok(added) => {
-            let kept = kept.map_or(String::new(), |bak| {
-                format!("; the hak as it was is kept as {}", bak.display())
-            });
-            app.log.info(format!(
-                "Added {} to {}, replaced {}{kept}",
-                count(added.added, "picture"),
-                path.display(),
-                added.replaced
-            ));
-            true
-        }
-        Err(e) => {
-            app.log.error(format!("Could not write {}: {e}", path.display()));
-            false
-        }
-    }
-}
-
-/// After writing a hak: one outside the hak folder is copied there; one the
-/// module doesn't list yet is added at the top of its list (Undo takes it
-/// off), one it lists is read again. False when the hak can't be used.
-fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) -> bool {
-    let Some(folder) = app.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir) else {
-        return false;
-    };
-    let hak = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    if path.parent() != Some(folder.as_path()) {
-        let tlk_dir = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
-        let tlk_dir = tlk_dir.unwrap_or_else(|| folder.with_file_name("tlk"));
-        match mg_module::attach::placements(&folder, &tlk_dir, &[path.to_owned()]) {
-            Ok(places) => {
-                if places.iter().any(|p| p.there == mg_module::attach::There::Different) {
-                    app.log.error(format!("Another {hak}.hak is in the hak folder: not replaced"));
-                    return false;
-                }
-                if let Err(e) = mg_module::attach::copy(&places, false) {
-                    app.log.error(e);
-                    return false;
-                }
+    let to = path.to_owned();
+    app.start_job_apart(
+        PICTURES_JOB,
+        {
+            let to = to.clone();
+            move |_| write_into(&to, pictures)
+        },
+        move |app, wrote| match wrote {
+            Ok(added) => {
+                let kept = kept.map_or(String::new(), |bak| {
+                    format!("; the hak as it was is kept as {}", bak.display())
+                });
+                app.log.info(format!(
+                    "Added {} to {}, replaced {}{kept}",
+                    count(added.added, "picture"),
+                    to.display(),
+                    added.replaced
+                ));
+                then(app, true);
             }
             Err(e) => {
-                app.log.error(e);
-                return false;
+                app.log.error(format!("Could not write {}: {e}", to.display()));
+                then(app, false);
             }
+        },
+    );
+}
+
+/// After writing a hak: one outside the hak folder is copied there (a job:
+/// a hak of gigabytes); then `then` is given the module's edits that use it
+/// (one the module doesn't list yet is added at the top of its list, Undo
+/// taking it off; one it lists is read again), or None where the hak can't
+/// be used.
+fn use_hak(app: &mut Moonglow, path: PathBuf, then: Using) {
+    let Some(folder) = app.install.as_ref().and_then(mg_resman::GameInstall::user_hak_dir) else {
+        return then(app, None);
+    };
+    let hak = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let listed = move |app: &mut Moonglow| {
+        let mut edits = Vec::new();
+        let Some(ws) = &mut app.ws else { return then(app, None) };
+        if crate::listed_haks(ws).iter().any(|h| h.eq_ignore_ascii_case(&hak)) {
+            app.actions.push(Action::ReloadResources);
+        } else if let Ok(info) = ws.doc(&crate::module_props::info_key()) {
+            edits.push(Edit::SetField {
+                key: crate::module_props::info_key(),
+                path: mg_edit::GffPath::root(),
+                label: mg_schema::ifo::MOD_HAK_LIST.label.to_string(),
+                value: Some(mg_module::attach::hak_list(&info.root, &[hak])),
+            });
+        }
+        then(app, Some(edits));
+    };
+    if path.parent() == Some(folder.as_path()) {
+        return listed(app);
+    }
+    if let Some(job) = &app.job {
+        app.log.error(format!(
+            "Could not copy {} into the hak folder: {} is still running",
+            path.display(),
+            job.title
+        ));
+        return;
+    }
+    let tlk_dir = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
+    let tlk_dir = tlk_dir.unwrap_or_else(|| folder.with_file_name("tlk"));
+    app.start_job_anywhere(
+        "Copy Hak",
+        move |cx| {
+            let places =
+                mg_module::attach::placements(&folder, &tlk_dir, std::slice::from_ref(&path))?;
+            if places.iter().any(|p| p.there == mg_module::attach::There::Different) {
+                let hak = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+                return Err(format!("Another {hak}.hak is in the hak folder: not replaced"));
+            }
+            let progress = cx.progress.clone();
+            let copied = mg_module::attach::copy_with(&places, false, move |done, total| {
+                crate::hak_view::written(&progress, done, total)
+            })?;
+            Ok(copied.is_some())
+        },
+        move |app, copied: Result<bool, String>| match copied {
+            Ok(true) => listed(app),
+            Ok(false) => app.log.info("Copy Hak: canceled"),
+            Err(e) => app.log.error(e),
+        },
+    );
+}
+
+/// The module's edits of pictures moved into a hak, made once it is
+/// written (its job's end): one step, as the window's own are named.
+/// What it takes out of the module is noted for the window's Cancel, as
+/// the window's own edits are, while its tab is open.
+fn make_edits(app: &mut Moonglow, name: &str, edits: Vec<Edit>) {
+    if edits.is_empty() {
+        return;
+    }
+    let command = Command::new(format!("Edit NUI {name}"), edits);
+    if let Some(key) = ResKey::parse(name, ResType::JUI) {
+        let tab = Tab::Nui(key);
+        if app.dock.find_tab(&tab).is_some() {
+            let targets = [(key, mg_edit::GffPath::root())];
+            crate::blueprint::note_command(app, &tab, &targets, &command);
         }
     }
-    let Some(ws) = &mut app.ws else { return false };
-    if crate::listed_haks(ws).iter().any(|h| h.eq_ignore_ascii_case(&hak)) {
-        app.actions.push(Action::ReloadResources);
-    } else if let Ok(info) = ws.doc(&crate::module_props::info_key()) {
-        edits.push(Edit::SetField {
-            key: crate::module_props::info_key(),
-            path: mg_edit::GffPath::root(),
-            label: mg_schema::ifo::MOD_HAK_LIST.label.to_string(),
-            value: Some(mg_module::attach::hak_list(&info.root, &[hak])),
-        });
-    }
-    true
+    app.actions.push(Action::Apply(command));
 }
 
 /// The Images page. Returns the module's changes to make with the window's.
@@ -496,10 +563,19 @@ pub(super) fn page(
                         })
                         .collect();
                     match resources {
+                        // (Written as a job: the hak used once it is.)
                         Ok(pictures) => {
-                            if write_hak(app, &path, pictures) {
-                                use_hak(app, &path, &mut edits);
-                            }
+                            let name = name.to_owned();
+                            let at = path.clone();
+                            let used: Written = Box::new(move |app, written| {
+                                if written {
+                                    let made = move |app: &mut Moonglow, edits: Option<Vec<_>>| {
+                                        make_edits(app, &name, edits.unwrap_or_default())
+                                    };
+                                    use_hak(app, at, Box::new(made));
+                                }
+                            });
+                            write_hak(app, &path, pictures, used);
                         }
                         Err(e) => app.log.error(e),
                     }
@@ -523,19 +599,30 @@ pub(super) fn page(
                     .iter()
                     .filter_map(|k| Some((*k, Source::Bytes(ws.module.get(k)?.to_vec().into()))))
                     .collect();
-                // The module keeps its pictures unless the hak is in use.
-                if write_hak(app, &path, resources) {
-                    if use_hak(app, &path, &mut edits) {
-                        edits.extend(
-                            module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                // The module keeps its pictures unless the hak is in use (once
+                // it is written, as a job).
+                let removed: Vec<Edit> = module_images
+                    .iter()
+                    .map(|k| Edit::SetResource { key: *k, data: None })
+                    .collect();
+                let (name, at) = (name.to_owned(), path.clone());
+                let used: Written = Box::new(move |app, written| {
+                    if written {
+                        let made = move |app: &mut Moonglow, edits: Option<Vec<Edit>>| {
+                            if let Some(mut edits) = edits {
+                                edits.extend(removed);
+                                make_edits(app, &name, edits);
+                            }
+                        };
+                        use_hak(app, at, Box::new(made));
+                    } else if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(at.as_path())) {
+                        app.log.info(
+                            "The module keeps its pictures until the hak with them is saved: \
+                             Move them again once it is",
                         );
                     }
-                } else if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
-                    app.log.info(
-                        "The module keeps its pictures until the hak with them is saved: Move \
-                         them again once it is",
-                    );
-                }
+                });
+                write_hak(app, &path, resources, used);
             }
         });
         ui.weak(

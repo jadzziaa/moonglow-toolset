@@ -69,18 +69,52 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
     out
 }
 
-/// A creature's feats sorted by their names, as Aurora's creature
-/// Properties window writes them when it is OK'd.
+/// A creature's feats sorted by their names, as Moonglow's creature
+/// Properties window writes them at its OK, as Aurora's does.
 fn sort_feats_by_name(game: &GameData, c: &mut Struct) {
-    let feats = game.table("feat").unwrap();
-    let name = |f: &Struct| {
-        let row = f.integer("Feat").unwrap_or(0).max(0) as usize;
-        let strref = feats.get_int(row, "FEAT").unwrap_or(-1);
-        game.string(mg_core::StrRef(strref as u32)).unwrap_or_default().to_lowercase()
+    if let Some(list) = mg_edit::lists::feats_by_name(c, mg_edit::lists::feat_name(game)) {
+        c.set("FeatList", mg_gff::Value::List(list));
+    }
+}
+
+fn feats(c: &Struct) -> Vec<i64> {
+    c.list("FeatList").unwrap().iter().filter_map(|f| f.integer("Feat")).collect()
+}
+
+/// Aurora's creature Properties window writes the feats sorted by name at
+/// its OK, changed or not (`levelup/featsort-after.mod`, 2026-11-26: the
+/// first of `featsort-before.mod`'s bandits OK'd, the others left; and in
+/// `featsort-palette.mod`, from `spells-before.mod`, the first OK'd, the
+/// second OK'd on its Feats page, the third added to the palette, whose
+/// window OK'd its blueprint), and Moonglow's sort is its order: Windows'
+/// word sort (Bullheaded before Bull's Strength, Halflings before
+/// Half-Orcs).
+#[test]
+fn a_creature_s_properties_ok_sorts_its_feats_as_aurora_s() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let (before, after, palette) = (
+        Module::open(&aurora_capture!("levelup/featsort-before.mod")).unwrap(),
+        Module::open(&aurora_capture!("levelup/featsort-after.mod")).unwrap(),
+        Module::open(&aurora_capture!("levelup/featsort-palette.mod")).unwrap(),
+    );
+    let ours = |c: &Struct| {
+        let mut c = c.clone();
+        sort_feats_by_name(&game, &mut c);
+        feats(&c)
     };
-    let mut list = c.list("FeatList").unwrap_or(&[]).to_vec();
-    list.sort_by_cached_key(name);
-    c.set("FeatList", mg_gff::Value::List(list));
+    let (b, a) = (creatures(&before), creatures(&after));
+    assert_eq!(feats(&a[0]), ours(&b[0]));
+    assert_ne!(feats(&a[0]), feats(&b[0]), "the capture's feats were out of order");
+    assert_eq!(feats(&a[1]), feats(&b[1]), "one not opened is left");
+    let p = creatures(&palette);
+    for c in &p[..2] {
+        assert_eq!(feats(c), ours(c), "OK'd");
+    }
+    let blueprint =
+        palette.gff(&ResKey::parse("bandit002", ResType::UTC).unwrap()).unwrap().unwrap();
+    assert_eq!(feats(&blueprint.root), ours(&p[2]), "the palette's copy, OK'd");
+    assert_ne!(feats(&p[2]), ours(&p[2]), "the placed one is left");
 }
 
 #[test]
@@ -119,8 +153,8 @@ fn levelling_up_matches_aurora() {
     let mut failures = Vec::new();
     for (before, after, targets) in cases {
         // (These were levelled through the creature's Properties window,
-        // whose OK writes the feats sorted by name: Moonglow's are so
-        // sorted to be compared.)
+        // whose OK writes the feats sorted by name, as Moonglow's does:
+        // Moonglow's are so sorted to be compared.)
         let by_name = before.starts_with("levelup/spells");
         let (before, after) = (
             Module::open(&aurora_capture!(before)).unwrap(),

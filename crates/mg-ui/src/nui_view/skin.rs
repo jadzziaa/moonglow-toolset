@@ -1464,6 +1464,56 @@ mod tests {
         assert_eq!(assets.number("window.scrollbar_size_y", 18.0), -1e18);
     }
 
+    /// A font with glyphs whose line is a sliver of its em (`sliver.ttf`,
+    /// `tools/fonts/test_fonts.py`) is refused, and text the skin sets in it
+    /// is drawn: in the fallback, at its own size, its glyphs a line high,
+    /// the font atlas no larger than for the same glyphs with an ordinary
+    /// line (`boxes.ttf`), which are drawn in their own font. (Drawn with,
+    /// a 17-point glyph of it would be 34,816 pixels high.)
+    #[test]
+    fn a_sliver_font_with_glyphs_is_drawn_in_the_fallback() {
+        let boxes = include_bytes!("../../tests/fixtures/fonts/boxes.ttf");
+        let sliver = include_bytes!("../../tests/fixtures/fonts/sliver.ttf");
+        assert_eq!(pixel_height_to_em(sliver), Some(2048.0));
+        assert!(EM_RATIOS.contains(&pixel_height_to_em(boxes).unwrap()));
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        module.set(
+            ResKey::parse("nui_skin", ResType::TML).unwrap(),
+            b"[[fonts]]\nname = \"boxes\"\nresref = \"boxes\"\nfont_size = 17\n\
+              [[fonts]]\nname = \"sliver\"\nresref = \"sliver\"\nfont_size = 17\n"
+                .to_vec(),
+        );
+        module.set(ResKey::parse("boxes", ResType::TTF).unwrap(), boxes.to_vec());
+        module.set(ResKey::parse("sliver", ResType::TTF).unwrap(), sliver.to_vec());
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &mg_nui::window(), &Settings::default());
+        assert_eq!(assets.issues, ["Invalid font: sliver"]);
+        // (Fonts added are taken at the next frame's start.)
+        let frame = |ctx: &egui::Context, text: &str, font: FontId| {
+            let mut height = 0.0;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let shown = ui.label(egui::RichText::new(text).font(font.clone()));
+                height = shown.rect.height();
+            });
+            output.textures_delta.clear();
+            let atlas = ctx.fonts(|f| f.font_image_size());
+            (height, atlas, ctx.tessellate(output.shapes, 1.0).len())
+        };
+        frame(&ctx, "", FontId::default());
+        let (own, _) = assets.font(&ctx, "boxes", 1.0);
+        let (fallback, _) = assets.font(&ctx, "sliver", 1.0);
+        assert!(matches!(own.family, FontFamily::Name(_)), "{own:?}");
+        assert_eq!(fallback, FontId::proportional(17.0));
+        let (boxes_line, boxes_atlas, _) = frame(&ctx, "Boxes ABC xyz 019", own);
+        let (sliver_line, sliver_atlas, meshes) = frame(&ctx, "Sliver ABC xyz 019", fallback);
+        assert!(meshes > 0, "the sliver's text drawn");
+        assert!((15.0..40.0).contains(&boxes_line), "{boxes_line}");
+        assert!((15.0..40.0).contains(&sliver_line), "{sliver_line}");
+        assert!(sliver_atlas[0] <= 8192 && sliver_atlas[1] <= 8192, "{sliver_atlas:?}");
+        assert!(sliver_atlas[0] * sliver_atlas[1] <= 4 * boxes_atlas[0] * boxes_atlas[1]);
+    }
+
     #[test]
     fn the_skin_is_read_by_dotted_path() {
         let ctx = egui::Context::default();

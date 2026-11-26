@@ -5152,3 +5152,73 @@ fn a_placed_creature_makes_its_conversation_with_new() {
     assert_eq!(placed(&mut h), name);
     assert_eq!(field(&mut h, &bp), blueprint_before);
 }
+
+/// A creature's Properties window writes its feats sorted by name at its
+/// OK, changed or not, as Aurora's does (`levelup/featsort-*.mod`); its
+/// Cancel leaves them as they were, and Undo takes the sort back alone.
+#[test]
+fn a_creature_s_ok_sorts_its_feats_by_name() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_ui_harness("feats-sorted") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let bandit = {
+        let game = h.state().game.clone().unwrap();
+        let read = |name: ResRef, t: ResType| {
+            let data = game.resman.get(&ResKey::new(name, t)).ok()?;
+            Some(Gff::read(&data).ok()?.root)
+        };
+        let items = |r: ResRef| read(r, ResType::UTI);
+        let placing = Placing { game: &game, item: &items };
+        let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+        let utc = read(ResRef::from_str("nw_bandit001").unwrap(), ResType::UTC).unwrap();
+        let mut c = instance(&placing, ResType::UTC, &utc, at, &[]).unwrap();
+        // (Its feats as they were before Aurora's OK of the capture:
+        // the Weapon Proficiencies before Quick to Master, Shield
+        // Proficiency, Toughness and Weapon Focus; then Bullheaded, Bull's
+        // Strength, Favored Enemy: Halflings and Half-Orcs, out of order.)
+        let feat = |row: u16| {
+            let mut e = mg_gff::Struct::new(1);
+            e.set("Feat", mg_gff::Value::Word(row));
+            e
+        };
+        let rows = [0, 2, 3, 4, 44, 45, 46, 258, 32, 40, 123, 380, 478, 264, 266];
+        c.set("FeatList", mg_gff::Value::List(rows.map(feat).to_vec()));
+        c
+    };
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "Creature List".into(),
+        index: 0,
+        item: bandit,
+    };
+    h.state_mut().settings.no_inventory_warning = true;
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    let path = GffPath::root().item("Creature List", 0);
+    let feats = |h: &mut Harness<'_, mg_ui::Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let c = path.get(&ws.doc(&git).unwrap().root).cloned().unwrap();
+        c.list("FeatList").unwrap().iter().filter_map(|f| f.integer("Feat")).collect::<Vec<_>>()
+    };
+    let before = vec![0, 2, 3, 4, 44, 45, 46, 258, 32, 40, 123, 380, 478, 264, 266];
+    let tab = Tab::Instance { area, path: path.clone() };
+    // Cancel: as they were.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(feats(&mut h), before);
+    // OK with nothing changed: in Aurora's order.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    h.get_all_by_label("OK").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    assert_eq!(feats(&mut h), [0, 2, 3, 4, 380, 478, 264, 266, 258, 32, 40, 123, 44, 45, 46]);
+    // Undo: the sort alone, the creature still placed.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(feats(&mut h), before);
+}

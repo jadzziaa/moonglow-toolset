@@ -371,6 +371,32 @@ pub fn add_feat(targets: &[Target], row: u16) -> Outcome {
     )
 }
 
+/// A creature's feats in the order of their names, as Aurora's creature
+/// Properties window writes them at its OK, changed or not (captured
+/// 2026-11-26, `levelup/featsort-*.mod`): Windows' word sort
+/// ([`mg_module::new::word_sort_key`]: Bullheaded before Bull's Strength,
+/// Halflings before Half-Orcs), feats of one name as they were. `None`
+/// where they are so already. `name`: a feat row's name.
+pub fn feats_by_name(creature: &Struct, name: impl Fn(i64) -> String) -> Option<Vec<Struct>> {
+    let list = creature.list("FeatList")?;
+    let mut sorted = list.to_vec();
+    sorted.sort_by_cached_key(|e| mg_module::new::word_sort_key(&name(feat(e).unwrap_or(-1))));
+    (sorted != list).then_some(sorted)
+}
+
+/// A feat row's name, as the game's `feat.2da` and talk tables give it
+/// (empty for a row that has none).
+pub fn feat_name(game: &mg_rules::GameData) -> impl Fn(i64) -> String + '_ {
+    let feats = game.table("feat").ok();
+    move |row| {
+        let strref = usize::try_from(row)
+            .ok()
+            .and_then(|r| feats.as_ref()?.get_int(r, "FEAT"))
+            .and_then(|s| u32::try_from(s).ok());
+        strref.and_then(|s| game.string(mg_core::StrRef(s))).unwrap_or_default()
+    }
+}
+
 /// Feat `row` taken from each creature that has it.
 pub fn remove_feat(targets: &[Target], row: u16) -> Outcome {
     remove(targets, "FeatList", |e| feat(e) == Some(i64::from(row)), |_| None)
@@ -538,6 +564,29 @@ mod tests {
                 Target::new(key, GffPath::root(), s)
             })
             .collect()
+    }
+
+    #[test]
+    fn feats_are_sorted_by_name_as_windows_sorts_words() {
+        let names = |row: i64| {
+            match row {
+                1 => "Bull's Strength",
+                2 => "Bullheaded",
+                3 => "Favored Enemy: Half-Orcs",
+                4 => "Favored Enemy: Halflings",
+                5 => "alertness",
+                6 => "Toughness",
+                _ => "Toughness",
+            }
+            .to_string()
+        };
+        let rows = |l: Vec<Struct>| l.iter().filter_map(feat).collect::<Vec<_>>();
+        let sorted = feats_by_name(&feats(&[6, 1, 7, 3, 2, 4, 5]), names).unwrap();
+        // (Hyphens and apostrophes set aside, case too; one name's feats
+        // as they were.)
+        assert_eq!(rows(sorted), [5, 2, 1, 4, 3, 6, 7]);
+        assert_eq!(feats_by_name(&feats(&[5, 2, 1, 4, 3, 6, 7]), names), None);
+        assert_eq!(feats_by_name(&Struct::new(0), names), None, "no list");
     }
 
     #[test]

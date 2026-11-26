@@ -230,7 +230,10 @@ pub(crate) struct State {
     /// window is kept under it from one frame to the next (the canvas's
     /// layout, `measured`; the names of its pictures and strings, `walked`;
     /// Interact's check that its session is of this window), so that a
-    /// frame that changes nothing walks no more than is in sight.
+    /// frame that changes nothing walks no more than is in sight. (Drawn
+    /// from one count for every designer, [`GENERATIONS`]: what is kept
+    /// where all designers draw, as a chart's series in egui's memory, is
+    /// never taken for another window's of the same number.)
     window_gen: u64,
     /// Which window [`end`] last found the window unchanged in, on a frame
     /// with no input that could change it: the copy edited and the variant
@@ -241,6 +244,13 @@ pub(crate) struct State {
     /// what was kept under its generation taken ([`trusted`]).
     proven_in: Option<u64>,
     measured: Option<((u64, u32, u32), preview::Measured)>,
+    /// The variant edited, shown inside its window as last put together
+    /// (`layouts::Context`), kept under the window's generation and lent
+    /// to the canvas.
+    context: Option<layouts::Context>,
+    /// How many times the canvas put the variant's window together, and
+    /// walked a long chart's series (the tests').
+    walks: Walks,
     /// How many passes drew with the layout kept from the one before (the
     /// tests').
     carried: usize,
@@ -960,7 +970,26 @@ impl Walked {
 /// generation ([`State::window_gen`]).
 fn unsettle(state: &mut State) {
     state.settled = None;
-    state.window_gen += 1;
+    state.window_gen = GENERATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The next generation of any designer's window ([`State::window_gen`]).
+static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// What the canvas worked out anew rather than took as kept (the tests').
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Walks {
+    /// The variant edited, put together in its window.
+    pub contexts: usize,
+    /// A long chart's series walked (a line's fingerprint, columns' least
+    /// and most).
+    pub series: usize,
+}
+
+/// How many times a designer's canvas worked out its variant's window and
+/// its long charts' series (`Moonglow::nui_walks`).
+pub(crate) fn walks(state: &State) -> Walks {
+    state.walks
 }
 
 /// Whether the window is the one the last frame drew: [`end`] found it

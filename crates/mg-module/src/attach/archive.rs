@@ -68,14 +68,32 @@ pub(crate) fn extract(
     wanted: &BTreeSet<String>,
     open: &mut Open<'_>,
 ) -> Result<(), String> {
+    extract_with(kind, path, wanted, open, &mut || Box::new(std::io::sink()))
+}
+
+/// What a file of the archive not wanted is read through to (a solid
+/// archive's files follow one another): nowhere, or a writer that can
+/// stop it.
+pub(crate) type Skipped<'a> = dyn FnMut() -> Box<dyn Write> + 'a;
+
+/// [`extract`], the files not wanted that are read all the same (a solid
+/// 7z's or RAR's) read through to the writer `skipped` gives: one that
+/// fails stops the extraction there.
+pub(crate) fn extract_with(
+    kind: Kind,
+    path: &Path,
+    wanted: &BTreeSet<String>,
+    open: &mut Open<'_>,
+    skipped: &mut Skipped<'_>,
+) -> Result<(), String> {
     if wanted.is_empty() {
         return Ok(());
     }
     let mut seen = BTreeSet::new();
     match kind {
         Kind::Zip => extract_zip(path, wanted, open, &mut seen)?,
-        Kind::SevenZ => extract_7z(path, wanted, open, &mut seen)?,
-        Kind::Rar => extract_rar(path, wanted, open, &mut seen)?,
+        Kind::SevenZ => extract_7z(path, wanted, open, skipped, &mut seen)?,
+        Kind::Rar => extract_rar(path, wanted, open, skipped, &mut seen)?,
     }
     match wanted.difference(&seen).next() {
         Some(missing) => Err(format!("{}: has no {missing}", path.display())),
@@ -157,6 +175,7 @@ fn extract_7z(
     path: &Path,
     wanted: &BTreeSet<String>,
     open: &mut Open<'_>,
+    skipped: &mut Skipped<'_>,
     seen: &mut BTreeSet<String>,
 ) -> Result<(), String> {
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -175,7 +194,7 @@ fn extract_7z(
         if entry.is_directory() || !wanted.contains(name) {
             // (A solid block's files follow one another: those not wanted
             // are read through all the same.)
-            std::io::copy(data, &mut std::io::sink())?;
+            std::io::copy(data, &mut skipped())?;
             return Ok(true);
         }
         let mut to = match open(name) {
@@ -250,6 +269,7 @@ fn extract_rar(
     path: &Path,
     wanted: &BTreeSet<String>,
     open: &mut Open<'_>,
+    skipped: &mut Skipped<'_>,
     seen: &mut BTreeSet<String>,
 ) -> Result<(), String> {
     use rars::ExtractionDecision::{Extract, Skip, Stop};
@@ -266,7 +286,7 @@ fn extract_rar(
         if !wanted.contains(&name) {
             // (A solid archive's files follow one another: those not
             // wanted are decoded all the same.)
-            return Ok(Extract(Box::new(std::io::sink())));
+            return Ok(Extract(skipped()));
         }
         match open(&name) {
             Ok(to) => {

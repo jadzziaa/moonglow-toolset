@@ -85,13 +85,41 @@ fn sample_fingerprint(data: &[Value]) -> u64 {
     })
 }
 
+/// A line's points as last worked out, by what they were made from: the
+/// series' place and length, its fingerprint, the chart's width in pixels;
+/// and the window's revision they are known to be of (`Renderer::revision`),
+/// under which the series is not walked again.
 #[derive(Clone)]
 struct CachedChartSeries {
+    at: Option<(u64, Option<u64>)>,
     key: (usize, usize, u64, u32),
     min: f64,
     max: f64,
     samples: Vec<(usize, f64)>,
 }
+
+/// Columns' least and most value, as last walked for, by the series' place
+/// and length and the window's revision they are of (`CachedChartSeries`).
+#[derive(Clone)]
+struct CachedColumns {
+    at: (u64, Option<u64>),
+    place: (usize, usize),
+    min: f64,
+    max: f64,
+}
+
+/// The least and the most of `data`'s finite numbers.
+fn extremes(data: &[Value]) -> (f64, f64) {
+    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+    for v in data.iter().filter_map(Value::as_f64).filter(|n| n.is_finite()) {
+        min = min.min(v);
+        max = max.max(v);
+    }
+    (min, max)
+}
+
+/// Series longer than this are kept between frames.
+const KEPT_FROM: usize = 256;
 
 /// The points of a line through `data`'s numbers, a `step` apart from
 /// `left`, each at the height `y` gives its value: every one of them
@@ -118,7 +146,7 @@ pub(super) fn line_points(
 }
 
 impl Renderer<'_> {
-    pub(super) fn chart(ui: &mut Ui, c: &Control<'_>) {
+    pub(super) fn chart(&mut self, ui: &mut Ui, c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, tint, font, .. } = *c;
         let p = &c.p;
         let response = &c.response;
@@ -139,12 +167,36 @@ impl Renderer<'_> {
                 };
                 let step = chart.width() / data.len().max(1) as f32;
                 let color = rgba(val(&slot["color"], s, row), Color32::LIGHT_BLUE) * tint;
+                let cache_id = egui::Id::new(("nui-chart-series", c.source_path, c.row, slot_idx));
                 if slot["type"] == 1 {
-                    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
-                    for v in data.iter().filter_map(Value::as_f64).filter(|n| n.is_finite()) {
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
+                    // (A long series walked again only where the window may
+                    // have changed: 1.3 ms for a million, the review's N16.)
+                    let place = (data.as_ptr() as usize, data.len());
+                    let long = data.len() > KEPT_FROM;
+                    let kept = self.revision.filter(|_| long).and_then(|at| {
+                        ui.ctx().data_mut(|d| {
+                            d.get_temp::<CachedColumns>(cache_id)
+                                .filter(|k| k.at == at && k.place == place)
+                        })
+                    });
+                    let (min, max) = if let Some(kept) = kept {
+                        debug_assert!(
+                            extremes(data) == (kept.min, kept.max),
+                            "a chart's series changed while kept"
+                        );
+                        (kept.min, kept.max)
+                    } else {
+                        if long {
+                            self.state.walks.series += 1;
+                        }
+                        let (min, max) = extremes(data);
+                        if let Some(at) = self.revision.filter(|_| long) {
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(cache_id, CachedColumns { at, place, min, max });
+                            });
+                        }
+                        (min, max)
+                    };
                     if !min.is_finite() || max <= min {
                         continue;
                     }
@@ -192,28 +244,49 @@ impl Renderer<'_> {
                         p.rect_filled(column, 0, if hovered { Color32::WHITE } else { color });
                     }
                 } else {
-                    let (min, max, samples) = if data.len() > 256 {
-                        let cache_id =
-                            egui::Id::new(("nui-chart-series", c.source_path, c.row, slot_idx));
-                        let key = (
-                            data.as_ptr() as usize,
-                            data.len(),
-                            sample_fingerprint(data),
-                            (chart.width() * pixels).to_bits(),
-                        );
-                        let cached = ui.ctx().data_mut(|d| {
-                            d.get_temp::<CachedChartSeries>(cache_id).filter(|s| s.key == key)
-                        });
-                        if let Some(hit) = cached {
-                            (hit.min, hit.max, hit.samples)
+                    let (min, max, samples) = if data.len() > KEPT_FROM {
+                        let (ptr, len) = (data.as_ptr() as usize, data.len());
+                        let width = (chart.width() * pixels).to_bits();
+                        let mut cached =
+                            ui.ctx().data_mut(|d| d.get_temp::<CachedChartSeries>(cache_id));
+                        // Of the same revision, in the same place and as
+                        // wide: the series is not walked for its
+                        // fingerprint (the review's N16).
+                        let at = self.revision;
+                        let same_place = |k: &CachedChartSeries| {
+                            k.key.0 == ptr && k.key.1 == len && k.key.3 == width
+                        };
+                        if let Some(kept) =
+                            cached.take_if(|k| at.is_some() && k.at == at && same_place(k))
+                        {
+                            debug_assert!(
+                                kept.key.2 == sample_fingerprint(data),
+                                "a chart's series changed while kept"
+                            );
+                            (kept.min, kept.max, kept.samples)
                         } else {
-                            let Some((min, max, samples)) = line_series(data, step, pixels) else {
-                                continue;
+                            self.state.walks.series += 1;
+                            let key = (ptr, len, sample_fingerprint(data), width);
+                            let made = match cached.filter(|k| k.key == key) {
+                                Some(k) => (k.min, k.max, k.samples),
+                                None => {
+                                    let Some(made) = line_series(data, step, pixels) else {
+                                        continue;
+                                    };
+                                    made
+                                }
                             };
+                            let (min, max, samples) = made;
                             ui.ctx().data_mut(|d| {
                                 d.insert_temp(
                                     cache_id,
-                                    CachedChartSeries { key, min, max, samples: samples.clone() },
+                                    CachedChartSeries {
+                                        at,
+                                        key,
+                                        min,
+                                        max,
+                                        samples: samples.clone(),
+                                    },
                                 );
                             });
                             (min, max, samples)

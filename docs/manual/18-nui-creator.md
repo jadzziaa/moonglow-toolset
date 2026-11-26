@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -330,6 +330,10 @@ Workshop) can't take pictures: choose a new hak. A hak open in the hak
 editor takes them there: it is saved at once (a copy of what it was kept
 as `.hak.bak`), unless it has other unsaved changes, when the log asks you
 to save it there (and a Move leaves the module its pictures until then).
+A hak is written as a job, its window showing it under way (one open in
+the hak editor with how far it is and **Cancel**, as its own Save): the
+log says what was written, and the module's list and pictures change,
+once the hak is on disk.
 Pictures added to the module that the window doesn't show yet are listed
 too, ready to be the background. **Use as Background** puts a picture
 under the window's controls, stretched over it: a draw layer of the root

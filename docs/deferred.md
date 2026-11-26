@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T19:52:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -381,32 +381,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   to +18), a plugin panel's choice of 2,000 options (+5 to +6).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
-## Blueprint editors and inventories
-
-- **Random item properties, what is left** (done: the Item Wizard's
-  Magical, Item Level and Item Quality, with rules fitted to 127 items
-  Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
-  Aurora's code: whether a later property's tier is drawn (one or two
-  below the first) or tried in order, and Low items' most worth (levels
-  1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
-  would need more of Aurora's items to settle; amulets, belts, boots,
-  bracers, cloaks and rings get the armor table, where Aurora may use
-  the helmet's (they differ in Weight Reduction only). All of it waits
-  on Aurora: a few hundred of its wizard items, made by driving its
-  wizard on the oracle (Low items at each level band; later properties'
-  tiers; an amulet, belt, boots, bracers, cloak and ring each at 16-20
-  Godly, whose Weight Reduction would tell the table), read against
-  `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
-  since 2026-10-30.) (a second builder's review, October 2026)
-- **The feats' order in the Levelup Wizard's spell capture, the
-  owner's call:** the capture that settled the review's G8
-  (`levelup/spells-after.mod`) was made through Aurora's creature
-  Properties window, whose OK writes the FeatList sorted by name, so
-  `levelling_up_matches_aurora` sorts Moonglow's feats the same way for
-  that capture alone. Whether Moonglow's Properties window should sort
-  them so too is not checked; the choice is to confirm. (S) (the review
-  of November 2026, G8)
-
 ## Palettes
 
 - **A custom palette's names in the game, issue 13's other half** (a
@@ -424,19 +398,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **Two of a hak's saves stay synchronous:** a hak tab's OK, its closing
-  question's Save, Extract, Export as Files, Add Haks and the hak
-  editor's own Save and Save As are jobs (the review's D19), but the
-  module's Save still writes an open hak at once, as what follows it in
-  the same step reads the files written (the game started for a test,
-  a project's pack, the plugins' saved event, Exit), and so does the
-  NUI Creator's picture hak, whose caller reports at once whether it
-  was written: made jobs, each would need a continuation
-  (`side_doc.rs`, `lib.rs`), and until then a real unintended
-  consequence. Add Haks has no byte progress or Cancel mid-copy
-  (`attach::copy` has no hook for one). (M) (the review of November
-  2026, D19)
-
+Nothing open.
 
 ## Area visibility
 
@@ -939,31 +901,6 @@ contribution itself states as not done or not checked.
   - the list scrolls by pixels at the same rate, where the client moves
     one in whole rows: snapping to rows was left out.
   (S) (the review of November 2026, N9)
-- **The NUI Creator's per-frame walks, what is left** (measured
-  2026-11-25 in release, `nui_perf`; `check`'s copy, 0.3 µs on an idle
-  frame, and Interact's two comparisons, 47 µs at 304 controls, need
-  nothing):
-  - **A variant's context document** is built anew each frame while the
-    variant is edited: 277 µs at 304 controls (86 at 96). A cache would
-    compare the variant, the settings and the window (90 to 100 µs), and
-    the canvas takes the document owned, so a hit would also clone it
-    (168 µs): it saves nothing unless the canvas borrows the cached
-    document, and every frame that changes the window (typing) would
-    pay the cache's copies on top. Not done for that unintended
-    consequence; the saving is at most 180 µs a frame.
-  - **A long chart's walk:** a series of a million samples is walked each
-    frame, 1.3 ms for a line (the fingerprint that keeps its points) or
-    for columns (their least and most value). The window is edited in
-    place, so there is no cheaper sign that a value changed; a revision
-    kept by every writer of the window and its binds would be one. Not
-    done: beyond the frame budget's need (the idle frame is 2.0 ms).
-  (S) (the review of November 2026, N13, N16)
-- **A font of a sliver of a line, not reproduced:** a font whose line is
-  a sliver of its em is refused and the skin's numbers are held to a
-  range (the review's N17), but the gigabyte glyph itself was not
-  drawn: the test's font has no glyphs, so the size it would be drawn
-  at is tested, not the drawing. (S, waits on such a font with glyphs)
-  (the review of November 2026, N17)
 
 ## Automation
 

@@ -1533,3 +1533,269 @@ fn a_hak_opened_with_a_module_keeps_its_document() {
         assert_eq!(orphans(h.state()), 0, "{way}");
     }
 }
+
+// The module's Save with a changed hak open: the hak written as a job, and
+// what the save was for once it is (the review's D19).
+
+/// A hak's file its save waits on as it reads it: a FIFO standing in for
+/// a file added to the hak, which gives the job nothing (the file's size
+/// said 0) only once [`Held::release`] opens it for writing. While it is
+/// held the hak's job is under way, for as long as a test looks.
+#[cfg(unix)]
+struct Held(Option<PathBuf>);
+
+#[cfg(unix)]
+impl Held {
+    /// Lets the job read the file (empty), and go on.
+    fn release(&mut self) {
+        if let Some(path) = self.0.take() {
+            // (Opening blocks until the job opens it to read: a thread of
+            // its own, left behind where the job never comes to it.)
+            std::thread::spawn(move || drop(std::fs::OpenOptions::new().write(true).open(path)));
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// A hak opened from `path` in `h`, two files of `src` added to it, the
+/// first held ([`Held`]), the second after it: its tab, the hold, and the
+/// second's key, which the hak has on disk once it is written.
+#[cfg(unix)]
+fn held_hak(h: &mut Harness<'_, Moonglow>, path: &Path, src: &Path) -> (Tab, Held, ResKey) {
+    let (fifo, after) = (src.join("mg_held.2da"), src.join("mg_zafter.2da"));
+    std::fs::write(&fifo, "").unwrap();
+    std::fs::write(&after, NEW_TABLE).unwrap();
+    let id = mg_ui::hak_view::open_at(h.state_mut(), path).unwrap();
+    settle(h);
+    let d = h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap();
+    d.hak.add_files(&[fifo.clone(), after]);
+    assert!(d.hak.is_dirty());
+    settle(h);
+    std::fs::remove_file(&fifo).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success());
+    (Tab::Hak(id), Held(Some(fifo)), ResKey::parse("mg_zafter", ResType::TWODA).unwrap())
+}
+
+/// Whether the hak at `path` has `key` on disk.
+fn hak_has(path: &Path, key: ResKey) -> bool {
+    mg_module::hak_edit::Hak::open(path).is_ok_and(|h| h.data(key).is_ok())
+}
+
+/// Frames until `done` holds, at most [`SETTLE_TIME`], without waiting
+/// for the window's work to end (a job held under way).
+fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed() < SETTLE_TIME, "{what} never came");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// Where in the log the first line with `text` is.
+fn logged_at(h: &Harness<'_, Moonglow>, text: &str) -> Option<usize> {
+    h.state().log.entries.iter().position(|(_, m)| m.contains(text))
+}
+
+/// What Test Module says without the game: the sign it ran.
+const TESTED: &str = "Test Module needs the game";
+
+/// The module's Save with two changed haks open writes the module at
+/// once and the haks as jobs, one after the other; what the save was for
+/// (Test Module, with the project packed and the game started on what was
+/// written; Exit) goes on once both are on disk, not before. A second save
+/// asked for meanwhile is refused, said why. The haks' writes were inside
+/// the frame: a hak of gigabytes stood the window still.
+#[cfg(unix)]
+#[test]
+fn the_module_s_save_writes_its_haks_as_jobs_then_goes_on() {
+    let dir = mg_testkit::scratch_dir("ui-hak-module-save-jobs");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let added = src.join(ADDED);
+    std::fs::write(&added, NEW_TABLE).unwrap();
+    let (first, second, third) =
+        (dir.join("first.hak"), dir.join("second.hak"), dir.join("third.hak"));
+    for hak in [&first, &second, &third] {
+        author_hak(hak, &src);
+    }
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&module(&dir));
+    let mut h = harness(app, 1400.0, 900.0);
+    h.state_mut().background_jobs = true;
+    settle(&mut h);
+    let (one, mut held, after) = held_hak(&mut h, &first, &src);
+    let two = changed_hak(&mut h, &second, &added);
+    module_change(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::SaveThen(Box::new(mg_ui::Action::TestModule)));
+    until(&mut h, "the hak's job", |h| h.state().busy());
+    let s = h.state();
+    assert!(!s.ws.as_ref().unwrap().is_modified(), "the module written at once");
+    assert!(logged_at(&h, TESTED).is_none(), "Test Module waits for the haks");
+    assert!(!hak_has(&first, after) && !has_added(&second), "neither written yet");
+    // A second save meanwhile: refused, said why.
+    let saves = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().filter(|(_, m)| m.contains("sample.mod")).count()
+    };
+    let before = saves(&h);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.state_mut().actions.push(mg_ui::Action::SaveThen(Box::new(mg_ui::Action::TestModule)));
+    h.run_steps(3);
+    assert!(logged_at(&h, "Save Hak is still running").is_some(), "{:?}", h.state().log.entries);
+    assert_eq!(saves(&h), before, "no second save");
+    held.release();
+    settle(&mut h);
+    assert!(hak_has(&first, after) && has_added(&second), "{:?}", h.state().log.entries);
+    let (saved, tested) = (logged_at(&h, "second.hak ("), logged_at(&h, TESTED));
+    assert!(
+        saved.is_some() && saved < tested,
+        "Test Module once both are written: {saved:?} {tested:?}"
+    );
+    let tests = h.state().log.entries.iter().filter(|(_, m)| m.contains(TESTED)).count();
+    assert_eq!(tests, 1, "the refused one did not run");
+    // (Nothing was asked of the haks, nor their tabs closed, on the way.)
+    assert!(questions(&h).is_empty());
+    let open = |t: &Tab| h.state().dock.find_tab(t).is_some();
+    assert!(open(&one) && open(&two), "the haks' tabs stay open");
+
+    // Exit with the module's Save: the window closes once the hak is
+    // written.
+    let src2 = dir.join("src2");
+    std::fs::create_dir_all(&src2).unwrap();
+    let (_, mut held, after) = held_hak(&mut h, &third, &src2);
+    module_change(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Quit);
+    settle(&mut h);
+    assert_eq!(questions(&h), ["Save changes to sample.mod?"]);
+    h.get_all_by_label("Save").last().unwrap().click();
+    until(&mut h, "the hak's job", |h| h.state().busy());
+    assert!(!h.state().quit_requested, "Exit waits for the hak");
+    held.release();
+    settle(&mut h);
+    assert!(hak_has(&third, after), "{:?}", h.state().log.entries);
+    assert!(h.state().quit_requested, "then Exit");
+}
+
+/// The module's Save whose hak could not be written (a file added to it
+/// gone from disk): what the save was for (Test Module) does not run; the
+/// hak's question says why, and Don't Save lets it go on.
+#[test]
+fn a_hak_that_could_not_be_written_stops_what_the_save_was_for() {
+    let dir = mg_testkit::scratch_dir("ui-hak-module-save-failed");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let added = src.join(ADDED);
+    std::fs::write(&added, NEW_TABLE).unwrap();
+    let path = dir.join("mine.hak");
+    author_hak(&path, &src);
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&module(&dir));
+    let mut h = harness(app, 1400.0, 900.0);
+    h.state_mut().background_jobs = true;
+    settle(&mut h);
+    changed_hak(&mut h, &path, &added);
+    module_change(&mut h);
+    std::fs::remove_file(&added).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::SaveThen(Box::new(mg_ui::Action::TestModule)));
+    settle(&mut h);
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "the module saved");
+    assert!(logged_at(&h, "Could not save the hak").is_some(), "{:?}", h.state().log.entries);
+    assert!(logged_at(&h, TESTED).is_none(), "Test Module did not run");
+    assert_eq!(questions(&h), ["Save changes to mine.hak?"]);
+    assert_eq!(reason_shown(&h), 2, "why, in the question and under the editor");
+    answer(&mut h, "Don't Save");
+    assert!(logged_at(&h, TESTED).is_some(), "then Test Module");
+}
+
+/// The module's Save whose hak's job is canceled: the hak is as it was on
+/// disk and what the save was for (Exit) does not go on; the hak's
+/// question is asked, as for a save that failed (its Cancel keeps all).
+#[cfg(unix)]
+#[test]
+fn a_hak_s_job_canceled_stops_what_the_save_was_for() {
+    let dir = mg_testkit::scratch_dir("ui-hak-module-save-canceled");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let path = dir.join("mine.hak");
+    author_hak(&path, &src);
+    let was = std::fs::read(&path).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&module(&dir));
+    let mut h = harness(app, 1400.0, 900.0);
+    h.state_mut().background_jobs = true;
+    settle(&mut h);
+    let (_, mut held, _) = held_hak(&mut h, &path, &src);
+    module_change(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Quit);
+    settle(&mut h);
+    answer_now(&mut h, "Save");
+    until(&mut h, "the hak's job", |h| h.state().busy());
+    // (The job's window's Cancel, over the editor's.)
+    h.run_steps(2);
+    let cancel = h.get_all_by_label("Cancel").last().expect("the job's Cancel").rect().center();
+    click_pos(&h, cancel);
+    until(&mut h, "the job canceling", |h| h.query_by_label("Canceling…").is_some());
+    held.release();
+    settle(&mut h);
+    assert!(logged_at(&h, "Save Hak: canceled").is_some(), "{:?}", h.state().log.entries);
+    assert_eq!(std::fs::read(&path).unwrap(), was, "the file as it was");
+    assert!(!h.state().quit_requested, "Exit does not go on");
+    assert_eq!(questions(&h), ["Save changes to mine.hak?"]);
+    answer(&mut h, "Cancel");
+    assert!(!h.state().quit_requested && questions(&h).is_empty());
+    assert!(h.state().haks[0].hak.is_dirty(), "its changes kept");
+}
+
+/// Clicks the last button `label` without settling (a job may follow).
+fn answer_now(h: &mut Harness<'_, Moonglow>, label: &str) {
+    h.get_all_by_label(label).last().unwrap().click();
+}
+
+/// The plugins are told of the module's save once its hak is on disk: a
+/// plugin that acts on a save (and may read the hak) is not run, nor its
+/// event queued, while the hak is being written.
+#[cfg(unix)]
+#[test]
+fn the_plugins_saved_event_comes_after_the_hak_is_written() {
+    let Some((mut h, key)) = plugin_harness("ui-hak-plugin-saved", false) else { return };
+    h.state_mut().background_jobs = true;
+    settle(&mut h);
+    // (Saved once, the plugin off: what follows is the change.)
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    let dir = mg_testkit::scratch_dir("ui-hak-plugin-saved-hak");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let path = dir.join("mine.hak");
+    author_hak(&path, &src);
+    let (_, mut held, after) = held_hak(&mut h, &path, &src);
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"night_guard".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Another guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    settle(&mut h);
+    let said = |h: &Harness<'_, Moonglow>| logged_at(h, "module-saved: guard.utc");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    until(&mut h, "the hak's job", |h| h.state().busy());
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "the module written");
+    assert_eq!(h.state().plugins.events_waiting(), 0, "not told while the hak is written");
+    assert!(said(&h).is_none());
+    held.release();
+    settle(&mut h);
+    assert!(hak_has(&path, after), "{:?}", h.state().log.entries);
+    let saved = logged_at(&h, "mine.hak (");
+    assert!(said(&h).is_some() && saved < said(&h), "{:?}", h.state().log.entries);
+}
