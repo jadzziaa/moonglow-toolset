@@ -2789,6 +2789,7 @@ version = "0.0.0"
 dependencies = [
  "mg-core",
  "png",
+ "rayon",
  "thiserror 2.0.21",
 ]
 
