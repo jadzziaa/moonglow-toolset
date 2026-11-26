@@ -2873,8 +2873,10 @@ fn tree_levels(ui: &Ui, width: f32, least: f32) -> usize {
 /// `text` in `font` (`italics`) laid out on one line, cut with an ellipsis
 /// at `room` points (whole where `room` is infinite), its color left to
 /// whoever paints it: from what `view` keeps of this frame and the last,
-/// laid out anew only where the words, the font or the room changed
-/// (counted in [`DialogView::cuts_made`]).
+/// laid out anew only where the words, the font or the room changed, or
+/// egui made its fonts again (a theme switched: one kept would be drawn
+/// from the old atlas's places, garbled) (counted in
+/// [`DialogView::cuts_made`]).
 fn cut_words(
     ui: &Ui,
     view: &mut DialogView,
@@ -2886,7 +2888,8 @@ fn cut_words(
     use std::hash::{Hash as _, Hasher as _};
     let room = if room.is_finite() { room.max(1.0).floor() } else { f32::INFINITY };
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (text, font, italics, room.to_bits()).hash(&mut hasher);
+    let fonts = (crate::script_layout::fonts_made(ui.ctx()), ui.ctx().pixels_per_point().to_bits());
+    (text, font, italics, room.to_bits(), fonts).hash(&mut hasher);
     let key = hasher.finish();
     if let Some(galley) = view.cuts.0.get(&key) {
         return galley.clone();

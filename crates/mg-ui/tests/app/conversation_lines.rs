@@ -468,6 +468,29 @@ fn rows_are_cut_once_and_only_in_sight() {
     assert!(scrolled > 0 && scrolled < 300, "{scrolled} cuts made for the end");
 }
 
+/// The theme switched makes egui's fonts again: the rows' words kept were
+/// laid out on the old font atlas, drawn from its places garbled, and are
+/// laid out again (seen in the light theme's pictures of the tree).
+#[test]
+fn a_theme_switched_lays_the_rows_out_again() {
+    let mut g = new_dialog();
+    for i in 0..20 {
+        add_node(&mut g, Parent::Root, &format!("Line {i:02}."));
+    }
+    let size = egui::vec2(1200.0, 800.0);
+    let (mut h, keys) = window_with(Mode::Tabs, "ui-dialog-theme", &["talk"], &g, size, vec![]);
+    let key = keys[0];
+    settle(&mut h);
+    let made = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].cuts_made();
+    let first = made(&h);
+    h.run_steps(5);
+    assert_eq!(made(&h), first, "none at rest");
+    let light = !h.state().settings.light_theme;
+    h.state_mut().settings.light_theme = light;
+    settle(&mut h);
+    assert!(made(&h) - first >= 20, "{} cuts made again", made(&h) - first);
+}
+
 /// The line chosen at the tree's start: Hello's, its keys the tree's.
 fn hello(h: &mut Harness<'_, Moonglow>) {
     h.get_by_label("[OWNER] - Hello there.").click();
