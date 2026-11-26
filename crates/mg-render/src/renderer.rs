@@ -857,7 +857,7 @@ fn load_texture(
     let ripple = ripple_of(&t.texture, &t.txi);
     // (A picture read as RGBA compressed, but where the rippling
     // procedure takes it: a compressed texture is a DDS to it.)
-    let compressed = (role == Role::Picture && !t.txi.arturo())
+    let compressed = (role.compressed(t.txi.blending()) && !t.txi.arturo())
         .then(|| crate::texture::compressed(gpu, &t.texture, t.txi.mipmap()))
         .flatten();
     let uploaded = GpuTexture::try_upload(
@@ -890,14 +890,15 @@ fn load_texture(
 }
 
 /// What a texture is read for: a picture, which may be compressed as it
-/// is read ([`crate::texture::compressed`]), or a material's map
-/// (normals, specularity, roughness, height, a custom shader's slots) or
-/// data a program reads (`solid_noise`), kept as stored: BC1's 565
-/// colors and blocks would bend normals and steps, and the encoder makes
-/// neither BC4 nor BC5.
+/// is read ([`crate::texture::compressed`]); a particle's picture; or a
+/// material's map (normals, specularity, roughness, height, a custom
+/// shader's slots) or data a program reads (`solid_noise`), kept as
+/// stored: BC1's 565 colors and blocks would bend normals and steps, and
+/// the encoder makes neither BC4 nor BC5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Role {
     Picture,
+    Particle,
     Map,
 }
 
@@ -905,6 +906,19 @@ impl Role {
     /// The role of a material's slot: the first is its picture.
     fn of_slot(slot: usize) -> Role {
         if slot == 0 { Role::Picture } else { Role::Map }
+    }
+
+    /// Whether a texture read for this, blended so, is compressed. Only
+    /// a picture drawn over what is behind it: one added to it (a
+    /// particle's, most of them Lighten, or a TXI's `blending additive`)
+    /// is kept as stored. BC1's 565 colors put a tint of a few levels on
+    /// a dark gray (5 bits of red and blue, 6 of green), and where
+    /// pictures are added, layer on layer, the tints add up: a white lens
+    /// flare's dark rim (`fxpa_lensflare`, gray on black) drew green
+    /// specks over area026's floor around its glow. Particles' pictures
+    /// are small (64 to 128 pixels).
+    fn compressed(self, blending: mg_image::txi::Blending) -> bool {
+        self == Role::Picture && blending != mg_image::txi::Blending::Additive
     }
 }
 
@@ -3514,7 +3528,7 @@ impl Renderer {
             let mut kept = Vec::with_capacity(batches.len());
             for b in batches {
                 let read =
-                    |r: &mut Self, t: &str| r.texture_read(gpu, assets, t, Role::Picture).is_ok();
+                    |r: &mut Self, t: &str| r.texture_read(gpu, assets, t, Role::Particle).is_ok();
                 if b.texture.as_deref().is_none_or(|t| read(self, t)) && read(self, "chrome1") {
                     kept.push(b);
                 }
@@ -3529,6 +3543,11 @@ impl Renderer {
             let group = match self.particle_materials.get(&b.texture) {
                 Some(group) => *group,
                 None => {
+                    // (Its picture read as a particle's first, so that
+                    // the material finds it kept as stored.)
+                    if let Some(t) = b.texture.as_deref() {
+                        self.texture(gpu, assets, t, Role::Particle);
+                    }
                     let mut names: [Option<String>; SLOTS] = Default::default();
                     names[0] = b.texture.clone();
                     let key: MaterialKey = (names, "chrome1".into(), (false, false));
@@ -3591,7 +3610,7 @@ impl Renderer {
                 let textured = batches[k]
                     .texture
                     .as_deref()
-                    .is_some_and(|t| self.texture(gpu, assets, t, Role::Picture).is_some());
+                    .is_some_and(|t| self.texture(gpu, assets, t, Role::Particle).is_some());
                 let mut bound = [false; 16];
                 bound[0] = textured;
                 let d = crate::game::DrawValues {
@@ -4578,10 +4597,29 @@ mod tests {
         }
     }
 
+    /// Only a picture drawn over what is behind it is compressed: not a
+    /// particle's, nor one a TXI adds (`blending additive`), where BC1's
+    /// tints on dark grays add up layer on layer; nor a map.
+    #[test]
+    fn only_pictures_drawn_over_what_is_behind_are_compressed() {
+        use super::Role;
+        use mg_image::txi::Blending::{Additive, Default, Punchthrough};
+        for (role, blending, compressed) in [
+            (Role::Picture, Default, true),
+            (Role::Picture, Punchthrough, true),
+            (Role::Picture, Additive, false),
+            (Role::Particle, Default, false),
+            (Role::Particle, Additive, false),
+            (Role::Map, Default, false),
+        ] {
+            assert_eq!(role.compressed(blending), compressed, "{role:?} {blending:?}");
+        }
+    }
+
     /// Pictures read as RGBA, of each kind, as `load_texture` reads them
     /// with the compression on and off: whatever their format on the GPU
-    /// (BC1 opaque, BC3 with alpha used, RGBA8 small, a map or the
-    /// rippling procedure's), what is known of their alpha (see-through,
+    /// (BC1 opaque, BC3 with alpha used, RGBA8 small, a map, a particle's,
+    /// an additive one or the rippling procedure's), what is known of their alpha (see-through,
     /// cut) is the same, and their texels within BC's error.
     #[test]
     fn a_texture_compressed_as_it_is_read_keeps_what_is_known_of_it() {
@@ -4618,9 +4656,13 @@ mod tests {
                 let (has_alpha, txi) = match name {
                     "opaque24" => (false, ""),
                     "ripple" => (true, "proceduretype arturo\ndistort 0\n"),
+                    "additive" => (false, "blending additive\n"),
                     _ => (true, ""),
                 };
-                let base = if name == "ripple" { "opaque32" } else { name };
+                let base = match name {
+                    "ripple" | "additive" => "opaque32",
+                    _ => name,
+                };
                 let texture = picture(base)?.into_texture(has_alpha);
                 Some(crate::LoadedTexture {
                     texture,
@@ -4646,6 +4688,8 @@ mod tests {
             ("odd", Role::Picture, Rgba8Unorm),
             ("soft", Role::Map, Rgba8Unorm),
             ("ripple", Role::Picture, Rgba8Unorm),
+            ("opaque32", Role::Particle, Rgba8Unorm),
+            ("additive", Role::Picture, Rgba8Unorm),
         ] {
             let (on, off) = (read(name, role, true), read(name, role, false));
             let want = if bc { want } else { Rgba8Unorm };
