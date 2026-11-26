@@ -1757,6 +1757,7 @@ fn a_hak_s_job_canceled_stops_what_the_save_was_for() {
 }
 
 /// Clicks the last button `label` without settling (a job may follow).
+#[cfg(unix)]
 fn answer_now(h: &mut Harness<'_, Moonglow>, label: &str) {
     h.get_all_by_label(label).last().unwrap().click();
 }
