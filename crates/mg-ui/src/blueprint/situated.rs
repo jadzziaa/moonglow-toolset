@@ -592,6 +592,11 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
             (None, None) => {}
         }
     }
+    // (Their doors', triggers' and waypoints' lists alone: a persistent
+    // world's 300 areas read whole, creatures, placeables and the items
+    // they hold, took 20 ms on every core.)
+    let lists = LEADS_TO.map(|(kind, ..)| kind.list());
+    let lists = &lists;
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let each = unread.len().div_ceil(threads).max(1);
     let of = &of;
@@ -601,7 +606,7 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
             readers.push(s.spawn(move || {
                 let mut out = Vec::new();
                 for (key, data) in some {
-                    if let Ok(g) = mg_gff::Gff::read(data) {
+                    if let Ok(g) = mg_gff::Gff::read_lists(data, lists) {
                         out.extend(of(key, &g.root));
                     }
                 }
@@ -644,7 +649,9 @@ struct Worked {
 #[derive(Debug, Clone, Default)]
 struct TransitionPick {
     open: bool,
-    destinations: Vec<Destination>,
+    /// (Shared: the state is copied out of egui's memory and back each
+    /// frame, and a persistent world's thousands were copied with it.)
+    destinations: std::sync::Arc<Vec<Destination>>,
     area: Option<mg_core::ResRef>,
     map: Option<crate::minimap::Map>,
     chosen: Option<Placed>,
@@ -1188,7 +1195,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
                 open: true,
                 area: now.or(here).or(destinations.first()).map(|d| d.area),
                 chosen: now.map(|d| d.object),
-                destinations,
+                destinations: std::sync::Arc::new(destinations),
                 editing,
                 ..Default::default()
             };
