@@ -507,53 +507,37 @@ Nothing open.
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
 
-- **A see-through mesh's soft part and shiny water:** read with
-  `copies::reading_copy_order` (`MG_COPY_ORDER=front`): a standard
-  DXT5 of alpha 0.5 texels with `transparencyhint 1` standing in front
-  of a pool is drawn over its ground in the client, the water not
-  drawn behind it (its green, painted by a patched `fswater`, 39 of
-  255 there against 255 beside), as though the soft mesh wrote its
-  depth; and the water's copy holds the soft meshes behind it.
-  Moonglow draws a see-through mesh's soft part after the water,
-  without writing depth: in front of the pool it is laid over the
-  water (green 132), and behind it the copy lacks it (a render test
-  with the soft part drawn before the copy took it in, but then the
-  water was laid over the soft card in front, green 255). Deferred
-  for its consequences: whether the soft parts write depth decides
-  how every see-through mesh's soft texels overlap (grass, leaves,
-  decals over decals), which wants a reading of its own in the client
-  before it changes. M. (The framebuffer's copies entry, 2026-11-26)
-  That reading is made (`soft::reading_soft_depth`): the client's soft
-  texels write their depth above alpha 0.2. A change that wrote it so
-  (kept on the `soft-water` branch for after 5.4.0) matched the client
-  (cards in front of water 25.5 to 16.3 off its picture, in front of
-  particles 62.4 to 20.4) but was held out of the release for its cost,
-  timed by an in-process A/B (alternate frames, so both builds share
-  the GPU's clock level; an A/A control flat, 12.61 against 12.37):
-  TDoD's woods turned, quickest tenth 9.5 to 9.6 ms before against
-  11.4 to 12.4 after, about 2.5 ms (median about 11.5 to 17); the woods
-  overview 0.15 to 0.5 ms; the grass, water and area092 views within
-  0.05. Deferred for its consequence, a cost too high for the look.
-  Cheaper ways to try: write depth only where a soft part stands in
-  front of a mesh that reads the copy (shiny water, the particles); a
-  depth pre-pass of the soft parts; and see whether the discard with a
-  depth write loses early depth testing for the meshes drawn after.
-  Timed again by the GPU's clock level (26 November, 160 frames a run,
-  [the frames note](research/notes_frames.md), "The held soft-depth
-  change by level"): with each frame waited for and nothing else on
-  the GPU (934 to 1,091 MHz), the woods turned 9.4 to 10.4 ms in the
-  quickest tenth before against 9.7 to 12.0 after (+0.25 to +2.02,
-  median +1.17, nine runs; the A/A -0.39 to +0.67), its median 11.6 to
-  11.9 against 17.4 to 17.7 in seven of the nine: the morning's figure.
-  Paced as the app but held near 780 MHz by a sleep, the same (17.3
-  and 17.6 against 11.7, the old code on both sides 11.7 to 11.8 at that
-  clock): a cost of the low clock, not of the pacing. Paced as the app
-  paces its frames (1,110 to 1,405 MHz), +0.37 to +0.41 in the tenth
-  and +0.3 to +0.5 in the median (five runs; the A/A within 0.05), the
-  overview +0.21 to +0.32 (six). Waiting on the owner: whether the
-  change is taken with these figures on record; the app paces its
-  frames as the quick runs did (inferred, not timed in the app).
-  (2026-11-26)
+- **Soft see-through texels: three ways the client's differ, left**
+  (`soft::reading_soft_depth`, 2026-11-26; since that day a
+  see-through mesh's soft part writes its depth as the client's, and
+  shiny water drawn by `fswater` is hidden behind it: [the
+  findings](findings.md), "A see-through mesh's soft texels write their
+  depth"):
+  - **Moonglow's own water (the Shaders switch off) shows through a
+    soft card in front of it:** its shiny water is drawn with the solid
+    meshes, before the card, so the card's soft part is laid over it
+    (`soft_texels_hide_the_water_behind_them` keeps to the switch on),
+    where the client draws its water after them and none behind the
+    card. Deferred for its consequences: drawing it after the soft
+    parts takes it out of the solid draws the sun's shadows are laid
+    between, and the fallback's water would want its own shadow path.
+    (M)
+  - **A texture with TXI `blending punchthrough` and
+    `transparencyhint 1`:** the client draws its alpha-0.5 texels as
+    a cut-out (`MG_SOFT_KIND=punch`), Moonglow blends them (the hint
+    makes the mesh see-through). Deferred as beyond what was asked:
+    where the client cuts such a texture (its threshold) wants a
+    reading of its own. (S)
+  - **Two soft meshes of one model, one behind the other:** the
+    client's order between them was not one rule. With
+    `transparencyhint 1`, the pair whose nearer mesh is listed first
+    blends and the pair listed the other way hides the farther; with
+    an MTR's `transparency 1`, the reverse. Moonglow sorts them by
+    distance, the farther first, and both pairs blend. (Within one mesh
+    it draws the faces in their order, as the client does, and meshes
+    of `alpha` under 1 in the model's order.) Deferred as beyond what
+    was asked: it wants a reading of how the client orders a model's
+    see-through meshes by their kind. (M)
 
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by

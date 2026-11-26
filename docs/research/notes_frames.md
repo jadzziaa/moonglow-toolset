@@ -1105,6 +1105,8 @@ long (the morning's figure, a median of about 11.5 to 17, a tenth 9.5
 against 11.4 to 12.4), and at 1,100 to 1,400 MHz it costs 0.4 ms in the
 tenth, as the afternoon's runs at 900 to 1,600 MHz had it. Paced as
 the app, nothing else drawing, the woods were drawn at the second.
+The change was taken on the owner's word of 26 November, with these
+figures on record.
 
 ## Not covered
 

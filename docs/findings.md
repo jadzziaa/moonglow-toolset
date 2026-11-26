@@ -2331,14 +2331,60 @@ copy a mesh reads depends on how it is drawn, not on its program:
   (`renderer.rs`: their draws sort after them, and the copy is made at
   the first of them; test
   `the_water_s_copy_holds_the_see_through_meshes_behind_it`); particles
-  as the client. A see-through mesh's soft part is drawn after the
-  water, without writing depth: not in the copy, and laid over water
-  behind it, where the client draws no water (`MG_COPY_ORDER=front`;
-  [deferred list](deferred.md), "A see-through mesh's soft part and
-  shiny water"). A solid or `transparency 1` mesh reading the copy gets
+  as the client. A see-through mesh's soft part writes its depth since
+  2026-11-26 and is drawn after the water, as the client's: the water
+  is not drawn behind it ([A see-through mesh's soft texels write their
+  depth](#a-see-through-meshs-soft-texels-write-their-depth)). A solid or `transparency 1` mesh reading the copy gets
   this frame's copy, not the frame before's: no program the game or
   The Domains of Dread draws reads it so ([deferred list](deferred.md),
   Settled).
+- **Wiki:** missing.
+
+### A see-through mesh's soft texels write their depth
+
+The client writes the depth of a see-through mesh's soft texels (alpha
+over its cut of 0.2 and under opaque), not only its solid ones: shiny
+water and a particle behind cards of alpha 0.3 to 0.9 are not drawn
+where the cards are, each blended over what lies
+behind the water or the particle. It does so for a DXT5 with
+`transparencyhint 1`, a DXT5 alone, an MTR with `transparency 1` and a
+mesh of `alpha` under 1. So soft meshes hide each other by their order:
+
+- within one mesh, by its faces' order: the nearer quad's faces listed
+  first hide the farther quad, listed after it the two blend; a decal
+  over another decal the same;
+- grass tufts hide the decals under them;
+- two meshes of one model: the order is not one rule (with the hint,
+  the pair whose nearer mesh is listed first blends and the other pair
+  hides; with an MTR's `transparency 1`, the reverse).
+
+A 32-bit TGA's alpha on a placeable's mesh is drawn opaque, the hint or
+not, and a texture with TXI `blending punchthrough` and the hint is cut,
+not blended.
+
+- **Checked:** game client, `client_render/soft.rs`'s
+  `reading_soft_depth` (`MG_SOFT_KIND=hint`, `dxt5`, `tga`, `punch`,
+  `mtr`, `alpha`; `MG_SOFT_GRASS=1` with the grass on), and
+  `copies.rs`'s `reading_copy_order` (`MG_COPY_ORDER=front`),
+  2026-11-26.
+- **Moonglow:** since 2026-11-26 (`crates/mg-render/src/renderer.rs`,
+  `game.rs`): a see-through mesh's soft part (`Pass::Fringe`,
+  `GamePass::Fringe`) writes its depth; the soft parts are drawn after
+  every solid part and before the copy's readers, which come after them.
+  Mean difference from the client's picture of the placeable, of 255,
+  before and after: the hint's cards in front of the water 25.5 to
+  16.3, in front of a particle 62.4 to 20.4, the pairs 15.1 to 14.8, the
+  decals with the client's grass on 30.5 to 26.6; the whole placeable
+  26.0 to 19.9 (DXT5 and MTR 26.2 to 19.8, mesh alpha 19.1 to 18.3, TGA
+  21.2 to 20.3). The grass field under a wall's shadow (`shadows_look`,
+  `MG_SHADOW_GRASS=1`) 35.0 to 34.2 from the client's, and ttr01's tree,
+  road and splotch (`shadows_on_see_through`) unchanged. Tests
+  `soft_texels_hide_the_water_behind_them` and
+  `the_water_s_copy_holds_the_see_through_meshes_behind_it`. Left
+  ([deferred list](deferred.md), "Soft see-through texels"): Moonglow's
+  own water (the Shaders switch off) drawn before the card, the
+  punch-through texture blended, and two meshes of one model ordered by
+  distance.
 - **Wiki:** missing.
 
 ### When the client shows an area transition
