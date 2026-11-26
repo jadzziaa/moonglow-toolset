@@ -223,15 +223,38 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     map's region (R15); an interior with a flame on every tile (R16); a TDoD area of
     tinted placeables (R22); texture memory and area opening with DDS
     heads and many colored NPCs (R12, R13);
-  - (the command line's / Verify's) Verify, the plugins and the
-    models: a second Find with haks and game, Delete's question and Rename in a large module (V15 to V17); a
-    panel with `refresh = "selection"` over a large selection (C3), a
-    plugin check of many fixes in Verify Module (C4); `mg haks --usage`
-    on a module of many part-based creatures (M17); opening a large
-    nasher project (P19).
-  Each is a view to build in its timing test, timed before and after
-  its fix's commit: left as beyond what the reviewer's run was asked
-  (at most eight new views, the largest costs). The area editor's have
+  - (the command line's / Verify's) timed on 26 November
+    (`mg-module`'s `tests/timing.rs`, `mg-plugin`'s `tests/timing.rs`, `apps/mg`'s
+    `tests/timing.rs`; three alternating rounds at load 10 to 30, the lowest, the
+    median, the highest of nine runs, [the log](log.md)). All held; what is
+    left, each with its reason: a second Find with the haks and the game
+    over 45,000 blueprints (V15) 1,952 / 2,169 / 3,731 ms before, 54 / 77 / 112
+    after, 29 / 36 / 41 with the sort's rank looked up once; the rest
+    (the layers' key lists walked and sorted again at each Find, about 25 ms)
+    is a cache of the wanted list by the game's generation and the module's
+    revision, a design of its own (beyond a local change). Delete's question
+    of 20 areas in 5,000 (V16) 29.8 / 39.0 / 58.7 s before, 0.65 / 0.70 / 1.05
+    s after, 0.35 s the first time and 0.14 to 0.17 s after with the tag
+    counts kept per index; the rest is the index's walk for the transitions
+    (7 ms an area, over the line; beyond a local change: a map of the
+    transitions by their destination tag, made with the index). Rename of a
+    script in 5,000 areas (V17) 21.4 / 23.1 / 40.1 ms before, 5.6 / 6.6 /
+    11.1 after (the module's copy and the 255 references' rewrite, at the
+    line). A panel over 500 selected objects (C3) 389 / 411 / 564 ms before
+    (it ran out of time), 3.5 / 4.3 / 6.8 after; 1,024 tiles 13.4 to 2.7 ms.
+    A check of 2,000 fixes over 10,000 resources (C4) 1,752 / 2,262 / 3,114
+    ms before, 61 / 90 / 92 after (a job's thread, not a frame).
+    `mg haks --usage` of 20,000 creatures and 10,000 scripts (M17) 3.1 / 3.3 /
+    4.6 s before, 1.4 / 1.5 / 2.8 after, against 0.94 / 1.0 / 1.4 and 0.82 /
+    0.85 / 1.3 for a small module (the process's own cost): +2.2 s to +0.6
+    s (a command, no frame). Opening a project of 30,000 sources (P19) 272 /
+    289 / 522 ms before, 230 / 239 / 255 after, its walk for the files left
+    out 117 / 118 / 214, then 69 / 71 / 78 (what is left is the folder's own
+    walk). Quiet-machine confirmation of all: waits on a calm machine
+    (load under 5).
+  Each of the renderer's is a view to build in its timing test, timed
+  before and after its fix's commit: left as beyond what the reviewer's
+  run was asked (at most eight new views, the largest costs). The area editor's have
   theirs since 25 November (`frame_perf::area_editor_at_scale`, [the
   log](log.md)); what they leave, each beyond a local change: with 5,000
   placeables selected, the Properties panel, 2.2 to 2.9 ms a frame (its

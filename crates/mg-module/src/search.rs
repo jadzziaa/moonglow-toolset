@@ -1103,8 +1103,9 @@ impl Kept {
             );
         }
         // The module's first, then each layer's, highest first.
+        // (Each one's rank looked up once, not at each compare of the sort.)
         let rank = |f: &Found| f.layer.as_deref().map_or(0, |l| ranks.get(l).copied().unwrap_or(0));
-        found.sort_by_key(|(k, f)| (rank(f), *k));
+        found.sort_by_cached_key(|(k, f)| (rank(f), *k));
         joined(&found, q)
     }
 }
