@@ -857,7 +857,13 @@ impl Assets {
             .is_some_and(|(at, f, n, _)| (*at, f.as_str(), *n) == (self.listings, filter, most));
         if !fresh {
             let query = mg_core::text::Needle::new(filter);
-            let names = self.catalog.iter().filter(|n| query.finds(n)).take(most).cloned();
+            // (A name in lower case ASCII, as resource names are, is its
+            // own fold: no copy of each of the 100,000 made to look in.)
+            let finds = |n: &str| match n.is_ascii() && !n.bytes().any(|b| b.is_ascii_uppercase()) {
+                true => query.is_empty() || query.finds_folded(n),
+                false => query.finds(n),
+            };
+            let names = self.catalog.iter().filter(|n| finds(n)).take(most).cloned();
             self.found = Some((self.listings, filter.to_string(), most, names.collect()));
         }
         self.found.as_ref().map_or(&[], |(_, _, _, names)| names)

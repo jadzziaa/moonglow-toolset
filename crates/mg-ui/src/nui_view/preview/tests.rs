@@ -38,6 +38,45 @@ fn numbers_in_text_are_the_client_s() {
     assert_eq!(text, "0.333333343267440795898437500000");
 }
 
+/// A pass's kept natural sizes are those measured afresh, for every control
+/// of a deep window and a list's cells given their row (which are not kept).
+#[test]
+fn kept_natural_sizes_are_those_measured_afresh() {
+    let mut s = Settings::default();
+    s.bindings.insert("w".into(), Binding { value: json!(70.0), ..Default::default() });
+    s.bindings.insert("rows".into(), Binding { value: json!([40.0, 90.0]), ..Default::default() });
+    let leaf = |i: usize| match i % 4 {
+        0 => json!({"type": "button", "width": {"bind": "w"}}),
+        1 => json!({"type": "label", "padding": 3.0}),
+        2 => json!({"type": "options", "elements": ["a", "b"]}),
+        _ => json!({"type": "spacer", "width": {"bind": "rows"}, "height": 12.0}),
+    };
+    let rows: Vec<Value> = (0..6)
+        .map(
+            |r| json!({"type": "row", "children": (0..5).map(|i| leaf(r + i)).collect::<Vec<_>>()}),
+        )
+        .collect();
+    let root = json!({"type": "col", "children": [
+        {"type": "col", "children": rows},
+        {"type": "row", "margin": 6.0, "children": [{"type": "col", "children": [leaf(0), leaf(3)]}]},
+    ]});
+    let kept = Naturals::default();
+    fn each(v: &Value, depth: usize, f: &mut dyn FnMut(&Value, usize)) {
+        f(v, depth);
+        for c in v["children"].as_array().into_iter().flatten() {
+            each(c, depth + 1, f);
+        }
+    }
+    // (The root first, so the children's sizes are taken from what it kept.)
+    each(&root, 0, &mut |v, depth| {
+        assert_eq!(natural(v, &s, None, depth, Some(&kept)), natural(v, &s, None, depth, None));
+        for row in [Some(0), Some(1)] {
+            assert_eq!(natural(v, &s, row, depth, Some(&kept)), natural(v, &s, row, depth, None));
+        }
+    });
+    assert!(kept.borrow().len() > 30);
+}
+
 /// The widest width after each child, in one pass from the end, is what
 /// looking at every later child for each gave.
 #[test]

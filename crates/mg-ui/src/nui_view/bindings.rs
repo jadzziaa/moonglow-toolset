@@ -4,7 +4,7 @@
 //! handler of a bind's changes ([`watch`]).
 use super::*;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Draft {
     name: String,
     value: Value,
@@ -127,7 +127,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                 let rows = row_count(doc, &path, settings);
                 ui.push_id((&path, &key), |ui| {
                 let draft_id = ui.make_persistent_id("property-bind-draft");
-                let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
+                // (Taken out for the frame and put back, not copied: one
+                // value a row, up to 10,000.)
+                let mut draft = ui.ctx().data_mut(|d| d.remove_temp::<Draft>(draft_id));
                 let mut chosen = bound.clone().unwrap_or_default();
                 // Checked only while the list is used (open, or with the keys).
                 let choices = || -> Vec<String> {
@@ -248,10 +250,21 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         fields::value(ui, &mut draft.value, 0);
                         // (Its name by the rule New Bind and Rename have.)
                         let named = workflow::new_bind_name(&draft.name, &settings.bindings);
-                        let now = stamp(&draft.value);
-                        let fits = match draft.fits {
-                            Some((at, fits)) if at == now => fits,
-                            _ => compatible(doc, &path, &key, settings, &draft.value),
+                        // (A frame with no input changes no field: the
+                        // value, one a row, is not stamped again then.)
+                        let still = ui.input(|i| i.events.is_empty());
+                        let (now, fits) = match draft.fits {
+                            Some(asked) if still => asked,
+                            asked => {
+                                let now = stamp(&draft.value);
+                                match asked {
+                                    Some((at, fits)) if at == now => (now, fits),
+                                    _ => (
+                                        now,
+                                        compatible(doc, &path, &key, settings, &draft.value),
+                                    ),
+                                }
+                            }
                         };
                         draft.fits = Some((now, fits));
                         let error = match named {

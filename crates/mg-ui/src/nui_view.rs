@@ -237,6 +237,17 @@ pub(crate) fn chosen(state: &State) -> String {
     state.selected.clone()
 }
 
+/// The control at `path` selected in a designer as a link selects one, as
+/// the next frame starts (`Moonglow::nui_choose`).
+pub(crate) fn choose(state: &mut State, path: &str) {
+    state.select_next = Some(path.to_owned());
+}
+
+/// Whether a designer's canvas is in Interact (`Moonglow::nui_interacts`).
+pub(crate) fn interacts(state: &State) -> bool {
+    state.preview_interactive
+}
+
 /// The controls chosen together in a designer (`Moonglow::nui_chosen_many`).
 pub(crate) fn chosen_many(state: &State) -> Vec<String> {
     state.selected_many.iter().cloned().collect()

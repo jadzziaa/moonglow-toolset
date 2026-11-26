@@ -3520,6 +3520,21 @@ impl Moonglow {
         self.nui_views.get(key).map(nui_view::chosen)
     }
 
+    /// Selects the control at `path` (a JSON pointer) in NUI window `key`'s
+    /// designer, as a problem's link does: as the next frame starts, on the
+    /// Design page. For the timing (`nui_perf`).
+    #[doc(hidden)]
+    pub fn nui_choose(&mut self, key: &ResKey, path: &str) {
+        nui_view::choose(self.nui_views.entry(*key).or_default(), path);
+    }
+
+    /// Whether NUI window `key`'s designer is in Interact. For the timing
+    /// (`nui_perf`).
+    #[doc(hidden)]
+    pub fn nui_interacts(&self, key: &ResKey) -> bool {
+        self.nui_views.get(key).is_some_and(nui_view::interacts)
+    }
+
     /// The controls chosen together in NUI window `key`'s designer, by
     /// path (for the tests: M4's U19 review).
     #[doc(hidden)]

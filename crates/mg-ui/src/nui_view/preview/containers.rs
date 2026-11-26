@@ -217,7 +217,21 @@ impl Renderer<'_> {
         if ty == "group" {
             ui.set_clip_rect(inner.intersect(old_clip));
         }
+        // Past what is in sight (below it in a column, right of it in a
+        // row), nothing more is drawn (`draw_node` draws nothing out of
+        // the clip), so the rest are not laid out, unless where they go is
+        // asked for (`mg nui layout`): a group's column of 1,000 rows laid
+        // every one out each frame.
+        let clip = ui.clip_rect();
+        let past = |cursor: egui::Pos2| match ty {
+            "col" => cursor.y > clip.bottom(),
+            "row" => cursor.x > clip.right(),
+            _ => false,
+        };
         for (i, child) in children.iter().enumerate() {
+            if past(cursor) && !self.assets.recording() {
+                break;
+            }
             let mut size = sizes[i];
             if ty == "row" && fills_width(child, s, row) {
                 size.x = share;

@@ -485,17 +485,24 @@ pub(super) fn bindings_in(
                 // (The bind chosen in the Bindings panel's table, brought
                 // into sight and opened: M4's U19.)
                 let reveal = state.bind_reveal && state.bind_chosen.as_deref() == Some(&name);
-                let shown = egui::CollapsingHeader::new(&name)
-                    .icon(mg_uikit::collapsing_icon)
-                    .id_salt(("bind", &name))
-                    .default_open(true)
-                    .open(reveal.then_some(true))
-                    .show(ui, |ui| {
-                        if let Some(to) = bind(ui, &name, used, doc, s, state) {
-                            renamed = Some(to);
-                        }
-                    });
-                if reveal {
+                let mut header = |ui: &mut Ui| {
+                    egui::CollapsingHeader::new(&name)
+                        .icon(mg_uikit::collapsing_icon)
+                        .id_salt(("bind", &name))
+                        .default_open(true)
+                        .open(reveal.then_some(true))
+                        .show(ui, |ui| bind(ui, &name, used, doc, s, state))
+                };
+                // (Those out of sight not laid out: a window of 60 binds.
+                // The one to bring into sight is drawn, wherever it is.)
+                let shown = match reveal {
+                    true => Some(header(ui)),
+                    false => widgets::in_sight(ui, ("bind-room", &name), header),
+                };
+                if let Some(to) = shown.as_ref().and_then(|s| s.body_returned.clone()).flatten() {
+                    renamed = Some(to);
+                }
+                if let Some(shown) = shown.filter(|_| reveal) {
                     shown.header_response.scroll_to_me(Some(egui::Align::TOP));
                     state.bind_reveal = false;
                 }
@@ -1186,7 +1193,8 @@ mod tests {
     /// A list tried at its real size: its row arrays are drawn to a count
     /// in the forms (Properties' Initial value, Row data), the rest said
     /// and left to Binding JSON, and nothing of them is changed by being
-    /// shown. Every row's header was laid out, every frame.
+    /// shown. Every row's header was laid out, every frame; now only those
+    /// in sight are, the rest given their room.
     #[test]
     fn a_list_of_thousands_of_rows_is_drawn_to_a_count() {
         let rows: Vec<Value> = (0..5_000).map(|i| json!(format!("Row text {i}"))).collect();
@@ -1211,12 +1219,16 @@ mod tests {
         // (Properties shows the bind once, in Property Binding: the
         // property's own row is its bind's chip since M4's U19.)
         let forms = 1;
-        assert_eq!(headers(&h, "Item "), forms * fields::MOST_ITEMS, "each form to its count");
+        let items = headers(&h, "Item ");
+        assert!((forms..forms * fields::MOST_ITEMS).contains(&items), "{items} items in sight");
         let said = h.query_all_by_label("And 4800 more items: edit them in Binding JSON.");
         assert_eq!(said.count(), forms);
         h.state_mut().state.selected = "/root".into();
         h.run();
-        assert_eq!(headers(&h, "Row "), fields::MOST_ITEMS);
+        // (The first frame has no sizes yet: it lays out every row once.)
+        h.run_steps(2);
+        let rows = headers(&h, "Row ");
+        assert!((1..fields::MOST_ITEMS).contains(&rows), "{rows} rows in sight");
         h.get_by_label("And 4800 more rows: edit them in Binding JSON.");
         assert_eq!(h.state().settings.bindings["names"].value, before);
     }
