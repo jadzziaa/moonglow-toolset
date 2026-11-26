@@ -629,6 +629,12 @@ pub struct AreaView {
     /// selection and the kinds shown stay as they were (made again every
     /// frame of a drag, which poses what it moves).
     boxes_kept: std::cell::RefCell<Option<(BoxesKey, std::sync::Arc<[egui::Shape]>)>>,
+    /// The turning rings' lines on screen, kept for the view and the
+    /// rings they were made for (`handles::selection`).
+    #[allow(clippy::type_complexity)]
+    rings_kept: std::cell::RefCell<
+        Option<(OverlayKey, Vec<TurnRing>, std::sync::Arc<Vec<handles::RingLines>>)>,
+    >,
     /// How many times those boxes have been made (the tests' count of
     /// kept ones).
     pub box_builds: std::cell::Cell<u64>,
@@ -1343,6 +1349,7 @@ impl AreaView {
             object_walk_mesh: None,
             overlay_builds: [0; 2],
             boxes_kept: Default::default(),
+            rings_kept: Default::default(),
             previewed_kept: None,
             box_builds: Default::default(),
             sound_ranges_kept: None,
@@ -2163,6 +2170,18 @@ impl AreaView {
     }
 
     fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
+        // (Nowhere near the square the ring lies in, as it shows on screen:
+        // passed over without its segments, each ring of 5,000 selected
+        // looked at every frame.)
+        let r = ring.radius;
+        let corners = [(-r, -r), (r, -r), (r, r), (-r, r)]
+            .map(|(x, y)| self.screen_pos(ring.pivot + Vec3::new(x, y, 0.0)));
+        if corners.iter().all(Option::is_some) {
+            let square = egui::Rect::from_points(&corners.map(Option::unwrap));
+            if !square.expand(RING_REACH).contains(pos) {
+                return false;
+            }
+        }
         self.on_line(&|k| ring.segment(k), pos)
     }
 

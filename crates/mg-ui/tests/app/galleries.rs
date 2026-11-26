@@ -650,6 +650,69 @@ fn a_whole_item_s_icons_take_the_room_of_its_base_item_s() {
     assert_eq!(from_tower, from_ring, "a medium item's rows, from a shield's ({tower})");
 }
 
+/// A whole item's icons scrolled through: in sight in their order, line by
+/// line, and every one of them reached (those out of sight are given
+/// their room one by one, at the first icon's size): a medium
+/// miscellaneous item's.
+#[test]
+fn a_whole_item_s_icons_keep_their_places_scrolled_through() {
+    let Some((mut h, key)) = blueprint_harness("nw_it_mring001", "icons_kept", ResType::UTI) else {
+        return;
+    };
+    page(&mut h, "Appearance");
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Base item",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "BaseItem".into(),
+            value: Some(mg_gff::Value::Int(29)),
+        }],
+    )));
+    settle(&mut h);
+    // (Each icon in sight, by number, and where it stands.)
+    let icons = |h: &Harness<'_, Moonglow>| -> Vec<(u16, egui::Rect)> {
+        let mut v: Vec<(u16, egui::Rect)> = h
+            .query_all_by_label_contains("Appearance ")
+            .filter_map(|n| {
+                let label = n.accesskit_node().label()?;
+                let number = label.strip_prefix("Appearance ")?.parse().ok()?;
+                Some((number, n.rect()))
+            })
+            .collect();
+        v.sort_by_key(|(n, _)| *n);
+        v.dedup_by_key(|(n, _)| *n);
+        v
+    };
+    let first = icons(&h);
+    assert!(first.len() > 10, "the icons in sight: {}", first.len());
+    let at = first[0].1.center();
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..60 {
+        let shown = icons(&h);
+        // (In their order, line by line: each after the one before, on its
+        // line or under it.)
+        for w in shown.windows(2) {
+            let ((a, ra), (b, rb)) = (w[0], w[1]);
+            let next_line = rb.top() > ra.center().y;
+            assert!(next_line || rb.left() > ra.right(), "icon {b} {rb:?} after {a} {ra:?}");
+        }
+        seen.extend(shown.iter().map(|(n, _)| *n));
+        h.hover_at(at);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -29.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        settle(&mut h);
+    }
+    let all: Vec<u16> = seen.iter().copied().collect();
+    let (least, most) = (all[0], *all.last().unwrap());
+    assert_eq!(all.len(), all.iter().filter(|n| (least..=most).contains(n)).count());
+    assert!(all.len() > 100, "every icon reached: {} seen", all.len());
+}
+
 /// A palette of a few of the game's placeables (a chest, a barrel, a
 /// pyre): their Tags are in their files.
 fn game_things() -> Palette {
