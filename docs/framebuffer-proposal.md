@@ -3,7 +3,7 @@ type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
 description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:43:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -204,9 +204,9 @@ two client comparisons; clippy (the hand-run targets too) and fmt.
 
 **Still open**: step 5 (Direct3D 12 and Metal
 in CI; the new pass reads a multisampled depth texture and renders to
-`R32Float`); whether the client copies again after the water (a
-see-through mesh or a particle over water sees the copy of the solid
-meshes only); `sample_framebuffer`'s late drawing.
+`R32Float`). Whether the client copies again, and what its copies hold,
+was read on 2026-11-26 (below): the copy now comes after the
+see-through meshes, and `sample_framebuffer` meshes are drawn after it.
 
 ## Built: step 4, soft particles (2026-10-27)
 
@@ -276,6 +276,77 @@ fade in either. The whole picture: 7.33 of 255 from the client's without,
 The copy and the fade: 0.1 ms where particles are the only reader, up to
 0.35 ms in the area view turning; nothing measurable in TDoD's woods,
 whose water makes the copy anyway. The processor's time is unchanged.
+
+## Built: the copy after the see-through meshes (2026-11-26)
+
+**What the client's copies hold**, read with `copies::reading_copy_order`
+(`crates/mg-corpus-tests/tests/client_render/copies.rs`): two pools of
+`ttr01_water01` in the reference room, the west one solid, the east one
+with `transparencyhint 1`, and cards standing through both (solid,
+alpha-blended, a standard DXT5, `transparencyhint 1`, a material's
+`sample_framebuffer`); beside them, cards whose program paints half
+their copy over red (`MG_COPY_ORDER=color`, `depth`, `particles`):
+
+- the water's copy is made **once a frame, after the see-through
+  meshes** and before the water and the `sample_framebuffer` meshes:
+  both pools show the alpha, DXT5 and hinted cards behind them, in
+  color and in the depth the water reads (a card in the pool shortens
+  its depth to it), and the `sample_framebuffer` card is not in it;
+- a **solid or `transparency 1` card** reading `texFBColor` reads the
+  **frame before's finished picture**: painting half its copy over
+  red, it grows redder frame by frame, and shows the green of an
+  additive card drawn after it;
+- a **soft see-through mesh** (a DXT5 of alpha 0.5 texels with
+  `transparencyhint 1`, `MG_COPY_ORDER=front`) standing in front of a
+  pool hides the water behind it, as though it wrote its depth (the
+  green a patched `fswater` paints, 39 of 255 there, 255 beside); a
+  32-bit TGA of alpha 0.5 texels is drawn opaque;
+- **particles** read a depth copy without the water (a 4.5 m particle
+  through the pool ends at the water's surface without fading).
+
+**Moonglow** made its copy at the first see-through draw, so the water
+showed only the solid meshes behind it (a glass wall behind water: 324
+of 324 water pixels without its red, in the render test). Now a
+see-through game draw that reads the copy (shiny water with
+`transparencyhint`, a `sample_framebuffer` mesh) is "late": the late
+draws sort after the other see-through meshes' solid parts, and the
+copy is made at the first late draw or soft part. The soft parts stay
+after the water, not writing depth: not in the copy, and laid over
+water behind them (green 132 where the client's is 39). Drawing them
+before the copy (tried: the render test's soft wall then shows in the
+water) laid the water over a soft card in front of it (green 255), the
+client's way needing the soft parts' depth; left in the [deferred
+list](deferred.md). Test
+`the_water_s_copy_holds_the_see_through_meshes_behind_it`
+(`crates/mg-render/tests/render.rs`), solid and hinted water.
+
+**A second pair of copies for the frame before** is not built: no
+program the game or The Domains of Dread draws reads the copy from a
+solid or `transparency 1` mesh (the stock readers are `fswater` and
+`fsparticle`; none of TDoD's 37 programs reads it, §1), and the pair
+would cost a color and an `R32Float` depth texture the size of each
+view (4 bytes a pixel each, resolved to one sample: 40 MB at
+3440×1440, 6 MB at 1024×768), kept for every open
+view: at 3440×1440 a sixth more than what a view at 4x (Options › Area
+› Anti-aliasing) holds now (about 240 MB: the multisampled picture,
+depth and shadow mask, the resolved picture and the copies), half as
+much again as one with it off (about 85 MB); and a copy every frame
+whether anything reads it or not. A
+picture drawn once (a thumbnail, a blueprint preview) has no frame
+before to give. The difference is filed as Settled in the [deferred
+list](deferred.md).
+
+**What it costs**: nothing beyond the runs' spread but one row left unresolved (`frame_perf`'s
+`game_shaders_frames_at_144`, base b21be998 and this change alternated
+three times each, the machine at a load of 28 to 54; the GPU's quickest
+tenth at 3000×1250, Shaders on, lowest / median of the three). The water
+area: overview at 4x 2.24 / 2.28 ms before, 2.26 / 2.36 after; turned
+2.30 / 2.35, 2.21 / 2.30; close 4.49 / 4.54, 4.43 / 4.66 (spreads 0.05
+to 0.24). TDoD's woods: overview at 4x 6.35 / 6.37, 6.51 / 6.87
+(spreads 0.60 and 0.45: the median 0.5 ms up, the lowest 0.16, not
+settled at this load); turned 9.66 / 9.93, 9.43 / 9.80; close 3.47 /
+3.48, 3.40 / 3.44. Memory:
+none more (the copies are the ones the targets had).
 
 ## 1. What reads the framebuffer
 

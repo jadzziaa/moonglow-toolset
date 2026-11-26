@@ -5391,6 +5391,173 @@ void main ()
     }
 }
 
+/// The water's copy holds the see-through meshes behind it, as the
+/// client's does (`reading_copy_order` in `mg-corpus-tests`' `client_render`:
+/// a card of alpha texels, a standard DXT5, `transparencyhint 1` and an
+/// MTR's `transparency 1` through a pool all show in the copy `fswater`
+/// reads; The Domains of Dread's fountain, a standard DXT5 and so drawn
+/// see-through, showed its basin's floor through the water only so): a
+/// wall of a texture with a transparent texel (see-through, drawn in two
+/// parts) behind an authored `fswater` painting the copy at its own pixel
+/// is found there, not the background, with 4x MSAA and without. And a
+/// see-through mesh that reads the copy itself (shiny water with
+/// `transparencyhint`) is drawn after it, as the solid water is.
+#[test]
+fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    // (Red, one texel of 64 transparent: see-through, its solid part red.)
+    let mut data = [255u8, 0, 0, 255].repeat(64);
+    data[3] = 0;
+    assets
+        .textures
+        .insert("glass".into(), mg_image::Rgba { width: 8, height: 8, data }.into_texture(true));
+    assets.opaque("pool", [0, 0, 255]);
+    assets.txis.insert("pool".into(), txi("bumpmaptexture shinywater\n"));
+    assets.shaders.insert(
+        "vswater".into(),
+        "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\nattribute vec4 vPos;\n\
+         void main ()\n{\n    gl_Position = m_proj * (m_mv * vPos);\n}\n"
+            .into(),
+    );
+    assets.shaders.insert(
+        "fswater".into(),
+        "#define SHADER_TYPE 2\nuniform vec3 pixelParams;\nuniform sampler2D texFBColor;\n\
+         void main ()\n{\n    gl_FragColor = vec4(texture2D(texFBColor, gl_FragCoord.xy * \
+         pixelParams.xy).rgb, 1.0);\n}\n"
+            .into(),
+    );
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let wall = standing_quad(&gpu, "glass", Vec3::new(0.0, 0.0, 1.0), 2.0);
+    let water = standing_quad(&gpu, "pool", Vec3::new(0.0, -5.0, 1.0), 0.6);
+    // (The same with `transparencyhint 1`, as ttr01's water tiles.)
+    let hinted = {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("pool".into());
+            m.transparency_hint = 1;
+        }
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+        let t = Mat4::from_translation(Vec3::new(0.0, -5.0, 1.0))
+            * Mat4::from_rotation_x(90f32.to_radians())
+            * Mat4::from_scale(Vec3::splat(0.6));
+        Instance::new(model, t)
+    };
+    let dir = mg_testkit::scratch_dir("render-water-copy-see-through");
+    for samples in sample_counts(&gpu) {
+        for (name, water) in [("solid", water.clone()), ("hinted", hinted.clone())] {
+            let scene = |with_water: bool| Scene {
+                instances: std::iter::once(wall.clone())
+                    .chain(with_water.then(|| water.clone()))
+                    .collect(),
+                background: [0.0, 0.0, 0.0],
+                ..Default::default()
+            };
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+            r.game_shaders = true;
+            let behind = r.render_image(&gpu, &assets, &scene(false), &camera, 64, 64);
+            r.game_water = false;
+            let owned = r.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+            r.game_water = true;
+            let img = r.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+            save(&img, &dir.join(format!("water_{name}_{samples}x.png")));
+            assert_eq!(r.game_shader_failures(), &[], "{name}");
+            let pool: Vec<(u32, u32)> = (0..64)
+                .flat_map(|y| (0..64).map(move |x| (x, y)))
+                .filter(|&(x, y)| owned.pixel(x, y) != behind.pixel(x, y))
+                .collect();
+            let red = pool.iter().filter(|&&(x, y)| behind.pixel(x, y)[0] > 200).count();
+            assert!(red > 100, "{name}: {red} of {} water pixels before the red wall", pool.len());
+            let wrong = pool
+                .iter()
+                .filter(|&&(x, y)| {
+                    let (a, b) = (img.pixel(x, y), behind.pixel(x, y));
+                    (0..3).any(|i| a[i].abs_diff(b[i]) > 8)
+                })
+                .count();
+            assert!(wrong <= 4, "{name}, {samples}x: {wrong} of {} water pixels", pool.len());
+        }
+    }
+}
+
+/// Shiny water whose texture is a DDS with the rippling procedure: the
+/// game's `fswater` reads its picture whole (its alpha the water's
+/// clarity), where Moonglow's own water (the Shaders switch off, or the
+/// game's water off) draws it in the procedure's flat gray, as it did
+/// before `fswater` was given the picture: the same pixels as a texture
+/// that is that gray.
+#[test]
+fn moonglow_s_own_water_draws_a_lost_ripple_in_its_gray() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    let water = "bumpmaptexture shinywater\nproceduretype arturo\ndistort 1\n";
+    // (A blue DDS, and the procedure's gray as a texture of its own.)
+    let blue = mg_image::Rgba { width: 8, height: 8, data: [0, 0, 255, 200].repeat(64) };
+    let dds = mg_image::encode::compress(&blue, mg_image::Format::Bc3, true, false);
+    assets.textures.insert("pool".into(), dds);
+    assets.txis.insert("pool".into(), txi(water));
+    let g = 72u8;
+    let gray = mg_image::Rgba { width: 4, height: 4, data: [g, g, g, 255].repeat(16) };
+    assets.textures.insert("grayp".into(), gray.into_texture(false));
+    assets.txis.insert("grayp".into(), txi(water));
+    // (`fswater` paints its texture's picture.)
+    assets.shaders.insert(
+        "vswater".into(),
+        "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\nattribute vec4 vPos;\n\
+         void main ()\n{\n    gl_Position = m_proj * (m_mv * vPos);\n}\n"
+            .into(),
+    );
+    assets.shaders.insert(
+        "fswater".into(),
+        "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\n\
+         void main ()\n{\n    gl_FragColor = vec4(texture2D(texUnit0, vec2(0.5)).rgb, 1.0);\n}\n"
+            .into(),
+    );
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = |texture: &str| Scene {
+        instances: vec![standing_quad(&gpu, texture, Vec3::new(0.0, 0.0, 1.0), 3.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let dir = mg_testkit::scratch_dir("render-water-lost-ripple");
+    let draw = |shaders: bool, game_water: bool, texture: &str| {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = shaders;
+        r.game_water = game_water;
+        let img = r.render_image(&gpu, &assets, &scene(texture), &camera, 64, 64);
+        assert_eq!(r.game_shader_failures(), &[], "{texture}");
+        let name = format!("{texture}_{}_{}.png", u8::from(shaders), u8::from(game_water));
+        save(&img, &dir.join(name));
+        img
+    };
+    for (shaders, game_water) in [(false, true), (true, false)] {
+        let (pool, gray) = (draw(shaders, game_water, "pool"), draw(shaders, game_water, "grayp"));
+        let differ = (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| (0..3).any(|i| pool.pixel(x, y)[i].abs_diff(gray.pixel(x, y)[i]) > 2))
+            .count();
+        assert_eq!(differ, 0, "Shaders {shaders}, game water {game_water}: drawn not as the gray");
+    }
+    // The game's `fswater` reads the picture: blue in the middle.
+    let game = draw(true, true, "pool");
+    let p = game.pixel(32, 32);
+    assert!(p[2] > 150 && p[0] < 40, "fswater's picture: {p:?}");
+}
+
 /// Soft particles (`docs/framebuffer-proposal.md`, step 4): a particle
 /// standing half under the floor, drawn by an authored `fsparticle` that
 /// shows the game's fade (`sqr(clamp((sceneDepth − its depth) ·
