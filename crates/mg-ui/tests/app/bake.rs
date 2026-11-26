@@ -609,3 +609,118 @@ fn the_walkmesh_overlays_are_kept_until_what_they_show_changes() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 1)];
     again(&mut h, "an armoire selected", false);
 }
+
+/// The boxes of the objects selected are made once and kept while nothing
+/// they show changes (frames at rest, the pointer moving over the view:
+/// 5,000 selected took 3 ms a frame to make them), and made again when the
+/// camera moves, the area is edited or the selection changes, and in every
+/// frame of a drag (which poses what it moves); kept boxes draw as those
+/// just made (pixel for pixel).
+#[test]
+fn the_selection_s_boxes_are_kept_until_what_they_show_changes() {
+    let Some((mut h, area, _, _)) = bake_harness("boxes-kept", None) else { return };
+    let out = mg_testkit::output_dir("ui-boxes-kept");
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        let model = view.model.as_ref().unwrap();
+        view.selection = (model.objects.iter())
+            .filter(|o| o.kind == ObjectKind::Placeable)
+            .map(|o| (o.kind, o.index))
+            .collect();
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.pitch, o.distance) = (Vec3::new(20.0, 18.0, 0.0), 1.0, 22.0);
+    }
+    let selected = h.state().area_views[&area].selection.clone();
+    assert!(selected.len() > 1, "the placeables selected: {selected:?}");
+    settle(&mut h);
+    let builds = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].box_builds.get();
+    // (The picture at one clock: the area's animations as they were.)
+    let picture = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().area_views.get_mut(&area).unwrap().set_clock(10.0);
+        h.run_steps(1);
+        h.render().expect("render")
+    };
+    let made = builds(&h);
+    assert!(made > 0, "drawn");
+    let fresh = picture(&mut h);
+    for _ in 0..6 {
+        picture(&mut h);
+    }
+    let kept = picture(&mut h);
+    assert_eq!(builds(&h), made, "at rest");
+    fresh.save(out.join("made.png")).unwrap();
+    kept.save(out.join("kept.png")).unwrap();
+    assert!(fresh.as_raw() == kept.as_raw(), "kept boxes draw as those made");
+    // The pointer moving over the view: kept.
+    let middle = h.state().area_views[&area].rect.center();
+    for k in 0..4 {
+        h.hover_at(middle + egui::vec2(12.0 * k as f32, 6.0));
+        h.run_steps(1);
+    }
+    assert_eq!(builds(&h), made, "the pointer moving");
+    let again = |h: &mut Harness<'_, Moonglow>, what: &str| {
+        let was = builds(h);
+        settle(h);
+        h.run_steps(2);
+        assert!(builds(h) > was, "{what}: made again");
+        let at_rest = builds(h);
+        h.run_steps(4);
+        assert_eq!(builds(h), at_rest, "{what}: then kept");
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw += 0.2;
+    again(&mut h, "the camera turned");
+    let git = ResKey::new(area, ResType::GIT);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 1),
+        label: "X".into(),
+        value: Some(mg_gff::Value::Float(25.0)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Move", vec![edit])));
+    again(&mut h, "an armoire moved");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = selected[1..].to_vec();
+    again(&mut h, "one let go of");
+    // Merchant signs (which stores draw as a sign or an arrow, and their
+    // boxes): made again either way.
+    h.state_mut().settings.merchant_signs ^= true;
+    again(&mut h, "Merchant signs switched");
+    h.state_mut().settings.merchant_signs ^= true;
+    again(&mut h, "Merchant signs switched back");
+    // A drag of the selection: made again each frame it moves them.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = selected.clone();
+    settle(&mut h);
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().unwrap();
+    let first = model.objects.iter().position(|o| (o.kind, o.index) == selected[0]).unwrap();
+    let grip = view.move_grip(first).expect("a place to hold the first by");
+    h.hover_at(grip);
+    h.run_steps(1);
+    press(&h, grip, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    // (The drag begins with the first move, posing them from the next.)
+    h.hover_at(grip + egui::vec2(12.0, 0.0));
+    h.run_steps(1);
+    let was = builds(&h);
+    for k in 2..=5 {
+        h.hover_at(grip + egui::vec2(12.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    assert!(builds(&h) >= was + 4, "made in every frame of the drag ({was} -> {})", builds(&h));
+    press(&h, grip + egui::vec2(60.0, 0.0), false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let undo = h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
+    assert_eq!(undo.as_deref(), Some("Move"), "the drag moved them");
+    // Adjust Location open on them, X changed: made again as it changes,
+    // kept while it rests.
+    let adjust = |h: &mut Harness<'_, Moonglow>, x: f32| {
+        let mut a = mg_ui::area_tools::adjust(&h.state().area_views[&area]).expect("Adjust");
+        (a.position.x, a.changed[0]) = (x, true);
+        h.state_mut().adjust = Some(a);
+    };
+    adjust(&mut h, 30.0);
+    again(&mut h, "Adjust Location's X");
+    adjust(&mut h, 32.0);
+    again(&mut h, "Adjust Location's X again");
+    h.state_mut().adjust = None;
+    again(&mut h, "Adjust Location closed");
+}

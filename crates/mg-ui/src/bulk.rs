@@ -51,6 +51,10 @@ pub struct UpdateDraft {
     /// Which listing it is (counted across the window's life): the rows
     /// shown of it are kept for it and the area chosen.
     listing: u64,
+    /// The ticked rows of the area chosen, counted for it as the window
+    /// last changed a tick (`None` once it changes one): not counted
+    /// each frame of 30,000 listed.
+    ticked: Option<(Option<ResRef>, usize)>,
 }
 
 impl UpdateDraft {
@@ -162,8 +166,15 @@ impl Moonglow {
             areas.into_iter().map(|a| (a, ws.rewrites(&ResKey::new(a, ResType::GIT)))).collect();
         static LISTINGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let listing = LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.update_draft =
-            Some(UpdateDraft { blueprints, only: None, shown, objects, listed_at, listing });
+        self.update_draft = Some(UpdateDraft {
+            blueprints,
+            only: None,
+            shown,
+            objects,
+            listed_at,
+            listing,
+            ticked: None,
+        });
     }
 
     /// Opens Update Instances for every blueprint of the module (Edit ›
@@ -301,9 +312,11 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             ui.horizontal(|ui| {
                 if ui.small_button("All").clicked() {
                     draft.objects.iter_mut().for_each(|o| o.on = true);
+                    draft.ticked = None;
                 }
                 if ui.small_button("None").clicked() {
                     draft.objects.iter_mut().for_each(|o| o.on = false);
+                    draft.ticked = None;
                 }
             });
             let only = draft.only;
@@ -331,10 +344,19 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 for &i in &shown[range] {
                     let o = &mut draft.objects[i];
-                    ui.check_box(&mut o.on, &o.label);
+                    if ui.check_box(&mut o.on, &o.label).changed() {
+                        draft.ticked = None;
+                    }
                 }
             });
-            let n = shown.iter().filter(|&&i| draft.objects[i].on).count();
+            let n = match draft.ticked {
+                Some((was, n)) if was == only => n,
+                _ => {
+                    let n = shown.iter().filter(|&&i| draft.objects[i].on).count();
+                    draft.ticked = Some((only, n));
+                    n
+                }
+            };
             let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
             if stale {
                 ui.colored_label(ui.visuals().warn_fg_color, format!("{UPDATE_STALE}."));

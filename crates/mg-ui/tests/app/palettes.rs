@@ -1352,6 +1352,12 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     let labels: Vec<&str> = draft.objects.iter().map(|o| o.label.as_str()).collect();
     assert_eq!(labels.len(), 2, "{labels:?}");
     assert!(labels.iter().any(|l| l.ends_with("(mg_trig_b)")), "{labels:?}");
+    // The count follows None and All (kept between the ticks' changes).
+    h.get_by_label("None").click();
+    h.run();
+    assert!(h.query_by_label("Update 0").is_some_and(|b| b.accesskit_node().is_disabled()));
+    h.get_by_label("All").click();
+    h.run();
     h.get_by_label("Update 2").click();
     h.run();
     let after = triggers(&mut h);

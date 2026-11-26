@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:53:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:54:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -223,15 +223,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   world_perf's content doctor, fixed: V6, V10, V12), and gave views to
   the five largest costs that grew with the module (D20, D23, B22, A18,
   N16; [the log](log.md), 10 November). These have no view yet:
-  - the area editor: every object selected and dragged, and so with
-    Adjust Location or the context menu open (A16); Paint at radius 25
-    m and density 50, the pointer still (A17); Update Instances with
-    30,000 listed (A18's rest: Edit Areas Together with 3,000 areas has
-    its view since M4's U29, `frame_perf::edit_areas_together_3000`);
-    2,000 placeables with the Position menu open (A20); a light placed
-    with 30,000 more rows in placeables.2da (A21); a 2,000-tile set's
-    Tiles page, its last tile chosen (A22); a hill tileset's 32 by 32
-    area all selected (A24);
   - the blueprint editors: the Instances window of 100 creatures on its
     Inventory page (B20); Setup Area Transition in a module of hundreds
     of areas (B21); the Creature Wizard's appearance page and a
@@ -278,7 +269,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     saved with a large module open.
   Each is a view to build in its timing test, timed before and after
   its fix's commit: left as beyond what the reviewer's run was asked
-  (at most eight new views, the largest costs). (M) (the review of
+  (at most eight new views, the largest costs). The area editor's have
+  theirs since 25 November (`frame_perf::area_editor_at_scale`, [the
+  log](log.md)); what they leave, each beyond a local change: with 5,000
+  placeables selected, the Properties panel, 2.2 to 2.9 ms a frame (its
+  form of all of them 1.4 to 1.8, `follow::window_id` for each object
+  0.6), and 0.4 to 0.7 ms more at rest after a drag and its undo than
+  before it (not found); in a drag their boxes, made anew each frame as the drag
+  poses them (3 ms; kept at rest); every tile of a hilly area selected,
+  its outlines put on screen each frame the camera turns (0.8 to 1.1
+  ms); and the Position menu's walkmesh items, untimed, since the
+  scratch module has no `[bake]` (a project with one would time them).
+  (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories
 

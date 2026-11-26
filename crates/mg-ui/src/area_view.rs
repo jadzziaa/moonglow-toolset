@@ -545,6 +545,14 @@ pub struct AreaView {
     /// frame). And how many were laid (for tests).
     outlines: std::cell::RefCell<std::collections::HashMap<[u32; 3], std::sync::Arc<Vec<Vec3>>>>,
     outlines_laid: std::cell::Cell<u64>,
+    /// The selected tiles' outlines on screen as last drawn, and what for:
+    /// kept while the camera, the view's rect, the area and the tiles
+    /// selected stay as they were (`tile_select::overlay`; every tile of a
+    /// hilly area selected, 0.6 ms a frame at rest). And how many times
+    /// they were made (for tests).
+    pub(crate) tile_lines_kept:
+        std::cell::RefCell<Option<(TileLinesKey, std::sync::Arc<[egui::Shape]>)>>,
+    pub tile_lines_made: std::cell::Cell<u64>,
     /// The model with a drag, Q and E's turning or Adjust Location
     /// applied to what they move, as the last frame drew it, and which of
     /// its objects were posed: kept from frame to frame, those objects
@@ -616,6 +624,23 @@ pub struct AreaView {
     /// How many times the ground's and the objects' walkmesh overlays
     /// have been made (the tests' count of a kept one).
     pub overlay_builds: [u64; 2],
+    /// The boxes of the objects selected or marked as last drawn, and what
+    /// for: kept while the camera, the view's rect, the area, the
+    /// selection and the kinds shown stay as they were (made again every
+    /// frame of a drag, which poses what it moves).
+    boxes_kept: std::cell::RefCell<Option<(BoxesKey, std::sync::Arc<[egui::Shape]>)>>,
+    /// How many times those boxes have been made (the tests' count of
+    /// kept ones).
+    pub box_builds: std::cell::Cell<u64>,
+    /// What Adjust Location shows of its values, worked out for them and
+    /// the model as it was (its revision and the overlays' generation):
+    /// not worked out each frame of 5,000 chosen.
+    #[allow(clippy::type_complexity)]
+    previewed_kept: Option<(
+        (Option<u64>, u64),
+        crate::area_tools::AdjustLocation,
+        crate::area_tools::Previewed,
+    )>,
     /// Sound Ranges' sounds as last read from the GIT, and the
     /// workspace's revision and the selection they were read at: read
     /// again only when either changes ([`sound_ranges_of`]).
@@ -857,6 +882,9 @@ struct Drawn {
     background: Option<[u8; 3]>,
     merchant_signs: bool,
     follows: bool,
+    /// Where Adjust Location shows the objects it changes, before OK or
+    /// Apply (none while it is closed).
+    adjusted: crate::area_tools::Previewed,
     /// Opaque stamp of the current Paint brush ghosts (`0` when none).
     paint_stamp: u64,
     /// The Shaders switch.
@@ -1281,6 +1309,8 @@ impl AreaView {
             lifts: Default::default(),
             outlines: Default::default(),
             outlines_laid: Default::default(),
+            tile_lines_kept: Default::default(),
+            tile_lines_made: Default::default(),
             posed: None,
             reading: None,
             textures_drawn: 0,
@@ -1306,6 +1336,9 @@ impl AreaView {
             walk_mesh: None,
             object_walk_mesh: None,
             overlay_builds: [0; 2],
+            boxes_kept: Default::default(),
+            previewed_kept: None,
+            box_builds: Default::default(),
             sound_ranges_kept: None,
             sound_rings: Vec::new(),
             tile_mode: false,
@@ -2856,6 +2889,8 @@ fn preview_variables(app: &mut Moonglow, view: &mut AreaView) {
         scene.update_objects(&vp.gpu, &game, model, &read);
     }
     view.drawn = None;
+    // (Their models changed with no edit: the boxes kept are made again.)
+    view.overlay_generation += 1;
     view.var_previewed = (wanted, revision);
 }
 
@@ -3867,14 +3902,24 @@ fn viewport(
     // Adjust Location's values, shown as they are changed.
     let adjusting = (app.adjust.as_ref().filter(|a| a.area == view.area))
         .zip(view.model.as_ref())
-        .map(|(a, model)| crate::area_tools::previewed(a, &model.objects))
+        .map(|(a, model)| {
+            let at = (view.revision, view.overlay_generation);
+            match &view.previewed_kept {
+                Some((was, kept, shown)) if *was == at && kept == a => shown.clone(),
+                _ => {
+                    let shown = crate::area_tools::previewed(a, &model.objects);
+                    view.previewed_kept = Some((at, a.clone(), shown.clone()));
+                    shown
+                }
+            }
+        })
         .unwrap_or_default();
     // What follows the pointer is drawn every frame it is there (and once
-    // more when it is gone).
+    // more when it is gone). (Adjust Location's values are the picture's
+    // key instead: drawn again as they change, kept while they rest. Its
+    // window open on 5,000 objects drew them all every frame.)
     let follows = view.drag.is_some()
         || view.key_turn.is_some()
-        || !adjusting.0.is_empty()
-        || !adjusting.1.is_empty()
         || !ghost_instances.is_empty()
         || !preview_instances.is_empty()
         || !hidden.is_empty();
@@ -3913,6 +3958,7 @@ fn viewport(
         background: app.settings.area_background,
         merchant_signs,
         follows,
+        adjusted: adjusting.clone(),
         paint_stamp,
         shaders,
         high_shadows,
@@ -3936,16 +3982,20 @@ fn viewport(
 
     // The scene, with the drag (or Adjust Location) applied to what it
     // moves.
-    let mut poses = adjusting.0;
-    poses.extend(view.dragged());
-    let mut visuals = adjusting.1;
-    visuals.extend(view.tilted());
-    visuals.extend(view.scaled());
+    let (dragged, tilted, scaled) = (view.dragged(), view.tilted(), view.scaled());
     let spawn = match view.drag {
         Some(Drag::FaceSpawn { object, point, facing, .. }) => Some((object, point, Err(facing))),
         Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
         _ => None,
     };
+    let kept_poses = (dragged.is_empty() && tilted.is_empty() && scaled.is_empty())
+        .then(|| spawn.is_none().then(|| adjusting.clone()))
+        .flatten();
+    let mut poses = adjusting.0;
+    poses.extend(dragged);
+    let mut visuals = adjusting.1;
+    visuals.extend(tilted);
+    visuals.extend(scaled);
     let paint_instances = if !kept && !painted.is_empty() {
         let scene = view.scene.as_mut().expect("checked above");
         let mut out = Vec::new();
@@ -4076,6 +4126,7 @@ fn viewport(
         door_arrows: !app.settings.no_door_arrows,
         ghost_box,
         paste_boxes,
+        kept_poses,
     };
     // The start location where it is being dragged to.
     let start = match view.drag {
@@ -4324,7 +4375,7 @@ pub(crate) fn beside(points: &[Pos2], rect: Rect) -> bool {
 /// and near plane), the view's rect and the area as read
 /// ([`AreaView::overlay_generation`]). The same again: the mesh is kept.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct OverlayKey {
+pub(crate) struct OverlayKey {
     matrix: glam::Mat4,
     near: f32,
     rect: Rect,
@@ -4332,7 +4383,7 @@ struct OverlayKey {
 }
 
 impl OverlayKey {
-    fn of(view: &AreaView) -> Option<OverlayKey> {
+    pub(crate) fn of(view: &AreaView) -> Option<OverlayKey> {
         let to_screen = view.projector()?;
         Some(OverlayKey {
             matrix: to_screen.matrix,
@@ -4341,6 +4392,33 @@ impl OverlayKey {
             generation: view.overlay_generation,
         })
     }
+}
+
+/// What the selected tiles' outlines were made for: as [`OverlayKey`],
+/// and the workspace's revision the area was read at and the tiles.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TileLinesKey {
+    pub(crate) at: OverlayKey,
+    pub(crate) revision: Option<u64>,
+    pub(crate) tiles: Vec<(u32, u32)>,
+}
+
+/// What the boxes of the objects selected or marked were made for: as
+/// [`OverlayKey`], and the workspace's revision the area was read at, the
+/// selection, the kinds shown, the boxes' two colors and where Adjust
+/// Location shows what it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct BoxesKey {
+    at: OverlayKey,
+    revision: Option<u64>,
+    selection: Vec<(ObjectKind, usize)>,
+    show: [bool; 9],
+    colors: (Color32, Color32),
+    /// Whether a merchant's sign stands for it (which objects draw, and
+    /// their bounds).
+    merchant_signs: Option<bool>,
+    /// Where Adjust Location shows the objects it changes.
+    poses: crate::area_tools::Previewed,
 }
 
 /// What the objects' walkmesh overlay was made for: as [`OverlayKey`],
@@ -4872,6 +4950,10 @@ struct Marks {
     answers: bool,
     /// The start location as a press takes it (on the ground under it).
     press_start: Option<(Vec3, f32)>,
+    /// Where Adjust Location shows the objects it changes, where nothing
+    /// else poses them (none at all while it is closed): the boxes kept
+    /// while it rests. `None` while a drag, a key or a handle poses them.
+    kept_poses: Option<crate::area_tools::Previewed>,
 }
 
 /// The width of a selected outline drawn in its own color (an
@@ -4929,6 +5011,27 @@ fn overlays(
     };
     let scene = view.scene.as_ref();
     let chosen = view.selected_set();
+    // (The boxes kept from a frame before, where what they show is as it
+    // was: 5,000 objects selected, their boxes took 3 ms a frame at rest.
+    // Not while a drag, a key or a handle poses the objects it moves.)
+    let boxes_key = OverlayKey::of(view).zip(marks.kept_poses.as_ref()).map(|(at, _)| BoxesKey {
+        at,
+        revision: view.revision,
+        selection: Vec::new(),
+        show: view.show,
+        colors: (colors.edge, colors.turn.0),
+        merchant_signs: view.scene.as_ref().map(|s| s.merchant_signs),
+        poses: Default::default(),
+    });
+    let kept_boxes = boxes_key.as_ref().and_then(|key| {
+        let kept = view.boxes_kept.borrow();
+        let (was, shapes) = kept.as_ref()?;
+        let same = (was.at, was.revision, was.show, was.colors, was.merchant_signs)
+            == (key.at, key.revision, key.show, key.colors, key.merchant_signs)
+            && was.selection == view.selection
+            && Some(&was.poses) == marks.kept_poses.as_ref();
+        same.then(|| shapes.clone())
+    });
     // (The boxes' edges, painted together after the objects are gone
     // through: the selected ones' dark edges, then their lines, over the
     // markers'.)
@@ -5032,7 +5135,6 @@ fn overlays(
             }
             continue;
         }
-        let transform = o.model_transform();
         // Doors: a cyan arrow along their facing (Options › Area).
         if marks.door_arrows && o.kind == ObjectKind::Door {
             let ahead = Vec3::new(o.facing().cos(), o.facing().sin(), 0.0);
@@ -5098,7 +5200,7 @@ fn overlays(
             }
         }
         let marker = !in_scene;
-        if marker || selected {
+        if (marker || selected) && kept_boxes.is_none() {
             let (min, max) = match scene {
                 Some(s) => s.bounds(shown, i),
                 None => mg_area::pick::marker_bounds(o.kind),
@@ -5109,7 +5211,8 @@ fn overlays(
                 ObjectKind::Store => Color32::from_rgb(120, 220, 120),
                 _ => Color32::from_rgb(230, 70, 70),
             };
-            let edges = box_edges(transform, min, max).filter_map(|(a, b)| segment(a, b));
+            let (t, eye) = (o.model_transform(), camera.as_ref().zip(to_screen.as_ref()));
+            let edges = box_edges_on_screen(eye, t, min, max, segment).into_iter().flatten();
             if selected {
                 // (Thin, over a dark edge: the handles lead.)
                 let (dark, lines) = handles::box_lines(edges, &colors);
@@ -5121,16 +5224,26 @@ fn overlays(
             }
         }
     }
-    boxes.extend(selected_edges);
-    boxes.extend(selected_lines);
-    // (Painted together: one at a time, each of thousands took the
-    // window's lock; and past some eighty boxes as one mesh.)
-    if boxes.len() > BOXES_MESHED {
-        painter.add(egui::Shape::mesh(lines_mesh(&boxes)));
-    } else {
-        let lines = boxes.into_iter();
-        painter.extend(lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }));
-    }
+    let shapes = kept_boxes.unwrap_or_else(|| {
+        boxes.extend(selected_edges);
+        boxes.extend(selected_lines);
+        // (Painted together: one at a time, each of thousands took the
+        // window's lock; and past some eighty boxes as one mesh.)
+        let shapes: std::sync::Arc<[egui::Shape]> = if boxes.len() > BOXES_MESHED {
+            std::sync::Arc::new([egui::Shape::mesh(lines_mesh(&boxes))])
+        } else {
+            let lines = boxes.into_iter();
+            lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }).collect()
+        };
+        if let (Some(mut key), Some(poses)) = (boxes_key, &marks.kept_poses) {
+            key.selection.clone_from(&view.selection);
+            key.poses.clone_from(poses);
+            *view.boxes_kept.borrow_mut() = Some((key, shapes.clone()));
+        }
+        view.box_builds.set(view.box_builds.get() + 1);
+        shapes
+    });
+    painter.extend(shapes.iter().cloned());
     if view.pasting
         && let Some(clip) = clip
         && let Some(at) = hover.and_then(|p| view.area_point(p))
@@ -6661,9 +6774,49 @@ fn fan(mesh: &mut egui::Mesh, points: &[Pos2], color: Color32) {
 /// The twelve edges of the box `min`–`max` placed by `t`.
 fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3, Vec3)> {
     let c = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
-    [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
-        .into_iter()
-        .map(move |(a, b)| (c[a], c[b]))
+    BOX_EDGES.into_iter().map(move |(a, b)| (c[a], c[b]))
+}
+
+/// A box's edges by its corners (`mg_render::box_corners`).
+const BOX_EDGES: [(usize, usize); 12] = [
+    (0, 1),
+    (1, 3),
+    (3, 2),
+    (2, 0),
+    (4, 5),
+    (5, 7),
+    (7, 6),
+    (6, 4),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+];
+
+/// The edges of the box `min` to `max` posed by `t` on screen, as
+/// `segment` puts each (cut where it passes behind the eye): where all
+/// eight corners are in front of the near plane (`eye`: the camera and
+/// what puts points on screen), the corners put on screen once rather
+/// than each edge's two ends (the boxes of thousands selected were
+/// worked out anew each frame of a drag).
+fn box_edges_on_screen(
+    eye: Option<(&Camera, &Projector)>,
+    t: glam::Mat4,
+    min: Vec3,
+    max: Vec3,
+    segment: impl Fn(Vec3, Vec3) -> Option<[Pos2; 2]>,
+) -> [Option<[Pos2; 2]>; 12] {
+    let c = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
+    if let Some((camera, to_screen)) = eye
+        && c.iter().all(|p| mg_area::pick::depth(camera, *p) - camera.near >= 0.0)
+    {
+        let on = c.map(|p| to_screen.at(p));
+        if on.iter().all(Option::is_some) {
+            let on = on.map(Option::unwrap_or_default);
+            return BOX_EDGES.map(|(a, b)| Some([on[a], on[b]]));
+        }
+    }
+    BOX_EDGES.map(|(a, b)| segment(c[a], c[b]))
 }
 
 /// The farthest the game's camera stands from the player (metres; the
@@ -7921,12 +8074,15 @@ fn editing_items(
         .on_hover_text("Drop to Ground, Drop onto Object, Random Facing");
     });
     // Placeables: static (part of the scenery; the game gives those no
-    // visual transform, so they don't tilt) or dynamic.
+    // visual transform, so they don't tilt) or dynamic. (The selection
+    // looked up as a set: 5,000 selected, each object looked for in the
+    // list took 2.8 ms a frame while the menu was open.)
+    let chosen = view.selected_set();
     let placeables: Vec<(usize, bool, bool)> = view.model.as_ref().map_or_else(Vec::new, |m| {
         m.objects
             .iter()
             .filter(|o| o.kind == ObjectKind::Placeable)
-            .filter(|o| view.selection.contains(&(o.kind, o.index)))
+            .filter(|o| chosen.contains(&(o.kind, o.index)))
             .map(|o| (o.index, o.is_static, o.visual.is_some()))
             .collect()
     });
@@ -8093,16 +8249,25 @@ fn editing_items(
     // the selected ones given another color.
     let lights = stock_lights(app);
     if !lights.is_empty() {
-        let chosen: Vec<(ObjectKind, usize)> = view
-            .selection
-            .iter()
-            .copied()
-            .filter(|&(k, i)| {
-                let at = view.object_at(k, i);
-                at.zip(view.scene.as_ref().zip(view.model.as_ref()))
-                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some_and(|l| l.stock))
-            })
-            .collect();
+        // The game's lights selected, and those Moonglow made: each
+        // offered only where every object selected is one, so gone through
+        // until one is neither (5,000 placeables selected were each looked
+        // at twice every frame the menu was open).
+        let (mut chosen, mut made): (Vec<(ObjectKind, usize)>, Vec<_>) = (Vec::new(), Vec::new());
+        for &(k, i) in &view.selection {
+            let at = view.object_at(k, i);
+            let light = at
+                .zip(view.scene.as_ref().zip(view.model.as_ref()))
+                .and_then(|(i, (s, m))| s.bare_light(m, i));
+            match light {
+                Some(l) if l.stock => chosen.push((k, i)),
+                Some(_) => made.push((k, i)),
+                None => {
+                    (chosen, made) = (Vec::new(), Vec::new());
+                    break;
+                }
+            }
+        }
         let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
             mg_uikit::menu_button(ui, "Add Light Here", |ui| {
@@ -8156,16 +8321,6 @@ fn editing_items(
             );
         }
         // Lights Moonglow made, selected: other settings (another row).
-        let made: Vec<(ObjectKind, usize)> = view
-            .selection
-            .iter()
-            .copied()
-            .filter(|&(k, i)| {
-                let at = view.object_at(k, i);
-                at.zip(view.scene.as_ref().zip(view.model.as_ref()))
-                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some_and(|l| !l.stock))
-            })
-            .collect();
         if custom
             && !made.is_empty()
             && made.len() == view.selection.len()
@@ -9603,5 +9758,49 @@ mod tests {
         // as the game shows a player 20 m from its camera.
         let far = view_fog(city, 60.0);
         assert_eq!((far.start, far.end, far.color), (35.0, 85.0, city.color));
+    }
+
+    /// A box's edges on screen are where each edge cut at the near plane
+    /// would put them (`AreaView::screen_segment`), its corners put on
+    /// screen once where all are in front of the eye or each edge cut where
+    /// not.
+    #[test]
+    fn box_edges_are_put_on_screen_as_segments_are() {
+        let mut view = AreaView::new(ResRef::EMPTY);
+        view.rect = Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(800.0, 500.0));
+        let orbit =
+            Orbit { target: Vec3::new(50.0, 50.0, 0.0), yaw: 0.7, pitch: 0.2, distance: 12.0 };
+        view.orbit = Some(orbit);
+        let camera = view.camera().unwrap();
+        let to_screen = view.projector().unwrap();
+        let mut seed = 9u64;
+        let mut next = || {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            (seed >> 40) as f32 / (1u64 << 24) as f32
+        };
+        let (mut whole, mut cut) = (0, 0);
+        for _ in 0..2000 {
+            let at = camera.eye + Vec3::new(next() - 0.5, next() - 0.5, next() - 0.5) * 60.0;
+            let t = glam::Mat4::from_rotation_translation(
+                glam::Quat::from_rotation_z(next() * 6.0),
+                at,
+            );
+            let (min, max) = (-Vec3::splat(next() * 3.0), Vec3::splat(next() * 3.0 + 0.1));
+            let segment = |a: Vec3, b: Vec3| view.screen_segment(a, b);
+            let edges = box_edges_on_screen(Some((&camera, &to_screen)), t, min, max, segment);
+            let each: Vec<_> = box_edges(t, min, max).map(|(a, b)| segment(a, b)).collect();
+            assert_eq!(&edges[..], &each[..], "{t:?} {min:?} {max:?}");
+            let corners = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
+            match corners
+                .iter()
+                .filter(|p| mg_area::pick::depth(&camera, **p) >= camera.near)
+                .count()
+            {
+                8 => whole += 1,
+                0 => {}
+                _ => cut += 1,
+            }
+        }
+        assert!(whole > 100 && cut > 20, "both ways tried: {whole} whole, {cut} cut");
     }
 }
