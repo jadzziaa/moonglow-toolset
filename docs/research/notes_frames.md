@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart (25 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -20,6 +20,9 @@ sources:
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
     title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+  - id: texmem
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'frames_at_144 (FRAME_VIEW=area, FRAME_DETAIL, FRAME_MEMORY, FRAME_UNCOMPRESSED, FRAME_SAMPLES) on area092 and TDoD''s woods, v2.13.3 and v3.0.0 built beside develop, with and without compression and the fix (25 November 2026)'
   - id: volumes-apart
     resource: crates/mg-ui/tests/frame_perf.rs
     title: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
@@ -627,6 +630,86 @@ R10): the 238.5 MiB left are the module's own first area's view
 (aquarium001, its tab still open), the one view the renderer still
 keeps something for.
 
+## Textures compressed as read, the opening's wait and anti-aliasing (25 November 2026)
+
+Three of the performance audit's leftovers, read with `frame_perf`
+(release, the RX 9070 XT unless named; another session's UI tests
+loaded the machine to 9 to 18 throughout, so single runs scatter and the
+lowest of each set is the one to compare)[^texmem].
+
+**TGA and PLT textures compressed as they are read.** The encoder
+(`mg_image::encode`) took 72 ms a megapixel for BC1 and 80 to 192 for
+BC3 on one thread. Its quick effort (one refit, no raw-ends candidate;
+the alpha's six-step mode only for blocks that hold 0 or 255) halves
+that, and block rows on rayon's threads bring it to 4.0 to 4.7 ms a
+megapixel for BC1 and 5.6 to 5.8 for BC3. The quick effort's error is
+within 1.5 times the best's (`the_quick_effort_stays_near_the_best`).
+Area092 (Tyrants of the Moonsea, `FRAME_MEMORY=1`) reads about 142
+textures, of which 9 TGAs become BC1, 4 BC3 and 24 colored PLT copies
+BC3 (a 900² sky took 19 ms on one thread, a 512² robe 12.8): its
+textures go from 30.5 to 17.0 MiB, the RGBA8 part from 16.7 to 0.3 MiB.
+TDoD's woods have no TGA large enough (16 small RGBA8 textures of 968.9
+MiB, the rest DDS) and are unchanged. What is compressed: a texture read
+as RGBA8 into a material's first slot (a picture, a PLT's colored copy,
+a cutout or see-through texture by its alpha: BC1 when every texel is
+opaque, else BC3), with both sides multiples of 4 and the smaller at
+least 64 (`texture::COMPRESSED_FROM`). Not: the normal, specular and
+roughness maps of slots 1 and up (both areas read none as RGBA8, and the
+encoder makes neither BC4 nor BC5), procedural textures (TXI
+`proceduretype`), and the UI's pictures (egui's, not the renderer's).
+A device without `TEXTURE_COMPRESSION_BC` keeps RGBA8. The reading is
+on the renderer's reader threads already, so nothing new went
+off-thread, and the opening did not get longer for it (below). Shots of
+area092 and area026 (`FRAME_SHOTS=1`) with and without differ less
+than two runs of one build do, but for area026's floor close up (mean
+0.18 of 255, a faint green in the glow).
+
+**The opening's extra 50 ms.** `FRAME_VIEW=area FRAME_DETAIL=1`,
+area092 with the Shaders off, the old tags built from `git archive`
+with their own target folders and the same timing patched in (three
+runs each; shown after, then whole after):
+
+| Build | Shown | Whole |
+|---|---|---|
+| v2.13.3 | 75 to 82 ms | 102 to 110 ms |
+| v3.0.0 | 83 ms | 174 to 175 ms |
+| develop, RGBA8 | | 175 to 177 ms |
+| develop, compressed | | 174 to 183 ms |
+| fixed, RGBA8 (4 runs) | | 107, 114, 124, 154 ms |
+| fixed, compressed (4 runs) | | 120, 124, 132, 195 ms |
+
+Every texture was read long before the last one showed: after the
+area was first shown, the picture was drawn again only at the
+animation's 40 ms steps, which two waits of about 45 ms each took.
+v2.13.3 drew it within a frame. Ruled out: the harness's frame time
+(v2.13.3 with 1/144 still 103 to 113 ms) and the test's drag (175
+without it). A bisection over develop's merges named "wave 5d: editors
+and bulk editing", which touched neither the renderer nor the area
+view; one merge before it gave 110 and 156 ms in its two runs, so the
+step was there before, by timing. The fix: the view draws again as soon
+as every texture asked for is read and some were missing from the last
+picture (`Renderer::textures_still_read`; the model viewer too).
+Test `an_area_is_drawn_again_as_soon_as_its_textures_are_read` fails
+without it. The two columns with and without compression are within the
+runs' spread; area026 is whole after about 34 ms.
+
+**Anti-aliasing** (Options' Anti-aliasing, `FRAME_SAMPLES`), area092
+turning at 3440×1400, idle machine (GPU time of a frame, the view's
+memory; the Radeon 610M the integrated GPU, two runs):
+
+| Samples | RX 9070 XT | allocated | 610M | allocated |
+|---|---|---|---|---|
+| 1 (Off) | 2.44 ms | 210 MiB | 27.0 ms | 274 MiB |
+| 2 | 2.89 ms | 292 MiB | 29.2 ms | 380 MiB |
+| 4 | 2.88 ms | 403 MiB | 30.4 ms | 494 MiB |
+
+At 4× the color target holds 108.8 MiB and the depth and stencil 110.7;
+at 2× 54.5 and 55.4; at 1× the depth 27.8 and no color target or
+resolve. Off saves about 192 MiB a view and a tenth of the integrated
+GPU's frame (15% of the discrete one's). 2× is offered only where every
+target's format takes it (`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`;
+without it wgpu allows 1 and 4).
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -652,5 +735,6 @@ In short:
 [^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
 [^area084-again]: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
 [^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
+[^texmem]: frames_at_144 (FRAME_VIEW=area, FRAME_DETAIL, FRAME_MEMORY, FRAME_UNCOMPRESSED, FRAME_SAMPLES) on area092 and TDoD's woods, v2.13.3 and v3.0.0 built beside develop, with and without compression and the fix (25 November 2026)
 [^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

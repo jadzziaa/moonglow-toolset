@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
 ---
 
 # Options
@@ -172,7 +172,12 @@ again from its file.
   are mostly 512 pixels or less. Textures not drawn for a while (those
   of areas closed, of pictures scrolled past) are let go of once they
   take more than a gigabyte (a quarter of one on an integrated GPU),
-  and read again when drawn again.
+  and read again when drawn again. Textures stored uncompressed (TGA
+  pictures and the PLTs' colored copies, 64 pixels or more) are
+  compressed as they are read, as the game's DDS textures already are,
+  in a quarter to an eighth of the memory: Tyrants of the Moonsea's
+  area092 takes 17 MB of textures instead of 30. Normal, specular and
+  roughness maps are kept as stored.
 - **Area view resolution**: for a GPU that draws the areas slowly (an
   integrated one). **Full** (the default) draws the area views' pictures
   at every pixel of the screen; **75%** or **50%** at that share of them
@@ -182,6 +187,14 @@ again from its file.
   integrated GPU of a Ryzen 9 9950X, Tyrants of the Moonsea's largest
   area turning took 80 ms a picture at Full, 45 at 75% and 20 at 50%,
   and the view's targets a quarter of the memory at 50%.
+- **Anti-aliasing**: for a slow GPU, or one with little memory.
+  **4×** (the default) smooths the edges of the 3D views (the area
+  views, the model viewer and the previews) with four samples a pixel;
+  **2×** with two, and **Off** not at all. Only what the GPU can draw is
+  offered (OpenGL draws Off only). On Tyrants of the Moonsea's area092
+  at 3440×1400, Off took 192 MB less a view than 4× and a tenth less
+  time a picture on the integrated GPU of a Ryzen 9 9950X (27 ms
+  against 30); 2× sits between them.
 - **Keep animating behind other windows** (off by default): the area
   views and the model viewer go on playing their animations while
   another program's window has the focus, for watching an area on one

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T02:13:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -186,21 +186,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
-  - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
-    saves about a tenth of an integrated GPU's picture and 107 MB of
-    targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
-    is made anew on a change. (M)
-  - **TGA and PLT textures are uncompressed** (RGBA8: Tyrants of the
-    Moonsea's 70 of 96 MB of textures). Compressing them on the CPU as
-    they are read would take a quarter to an eighth of that, at a cost
-    in reading time (the encoder is there since 2026-11-10,
-    `mg_image::encode::compress`; what it costs a module's load is not
-    measured). (M)
   - **The animation step could follow what a picture costs:** a slow GPU
     stepping less often while the window is in front, measured with the
     GPU's timestamps (not on every backend). (M)
-  - **An area's opening to its last texture** is about 50 ms longer since
-    3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
 - **Small slowdowns the timing run of 10 November did not trace:**
   against the review's figures of 9 November (one run each; these the
   lowest of three, beyond their spread), `frame_perf`'s area092 turned,
