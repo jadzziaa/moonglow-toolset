@@ -206,8 +206,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   somewhere), and `box_of` is a plain loop. The plan takes 0.09 ms and
   the frame no longer waits (temporary timers, load 15 to 22); the idle
   line, develop and the fix alternated four rounds at load 15 to 16:
-  1.37 to 1.65 ms against 1.16 to 1.33. Left: the confirmation on a
-  quiet machine, and the two later steps. The review saw it as waiting
+  1.37 to 1.65 ms against 1.16 to 1.33. Confirmed on a quiet machine
+  (26 November, load 2.8 to 4.8, six rounds of the four alternated):
+  the idle line 0.84 ms before b4da2984, 1.21 on develop, 1.04 to 1.06
+  with the fix (spread 0.02 to 0.03). The fix gives back 0.17 of the
+  0.37 between 3.18.1's base and develop. Left: the small step between
+  992ed8d2 and 27a4050c, and the shell's. The review saw it as waiting
   rather than work. The rest of the old entry is settled: area092
   is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
   taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
@@ -219,7 +223,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   their shapes' tessellation, nothing drawn twice or for nothing: left,
   since under the line would mean taking parts of the shell away
   (Interface's, 26 November). (S, waits on a calm machine: load under 5
-  to confirm the fix and time the small step) (the review of
+  to time the small step) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
