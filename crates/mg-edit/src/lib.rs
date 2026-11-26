@@ -11,6 +11,7 @@ use mg_module::{Module, ModuleError};
 use mg_resman::ResKey;
 use thiserror::Error;
 
+pub mod diff;
 pub mod fix;
 pub mod found;
 pub mod lists;

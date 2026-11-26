@@ -32,6 +32,7 @@ pub mod journal;
 pub mod lighting;
 pub mod lights;
 pub mod locks;
+pub mod merge;
 pub mod minimap;
 pub mod models;
 pub mod nasher;

@@ -563,11 +563,15 @@ enum Cmd {
     /// module.ifo, a blueprint, a conversation), both made from BASE: a
     /// value one side changed is taken, the same change on both is one,
     /// and two different changes are a conflict, each named by its path
-    /// (the merge fails and nothing is written, unless --prefer takes a
-    /// side). Lists merge by item: an area's placed objects by object
-    /// (added by both: both kept), the area list as a union, variables by
-    /// name and type, feats, classes, spells, haks and journal entries by
-    /// what they are; other lists by place. Each file is a GFF, nasher's JSON,
+    /// (the merge fails and OURS is left as it was, unless --prefer takes
+    /// a side; the edits that make OURS the merge, theirs' side of each
+    /// conflict among them, are written beside the file, --path's or
+    /// OURS's, as NAME.conflicts, for `mg apply`). Lists merge by item: an
+    /// area's placed objects by object (added by both: both kept), the
+    /// area list as a union, variables by name and type, feats, classes,
+    /// spells, haks and journal entries by what they are, a conversation's
+    /// lines both sides added both kept (theirs numbered after ours); other
+    /// lists by place. Each file is a GFF, nasher's JSON,
     /// or NWNT of one, told by its contents. The merge is written over OURS (or -o),
     /// in OURS's form, and a merge that is OURS leaves the file as it was:
     /// git's merge driver (`mg merge-gff %O %A %B --path %P`; the manual's

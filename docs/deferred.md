@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:53:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:30:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -82,21 +82,27 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## nasher projects
 
-- **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
-  has the rules):
-  - **Conversations** merge their entry and reply lists by place, and the
-    links name nodes by number: two builders adding nodes to one
-    conversation conflict, where renumbering one side's new nodes (and
-    the links to them: `RepliesList`, `EntriesList` and `StartingList`
-    `Index`) would keep both; a node deleted on one side renumbers every
-    node after it, so matching by place pairs the wrong nodes too, and
-    nodes would first need matching by what they are. (M)
-  - **On a conflict nothing is written** and git leaves ours in the file;
-    there is no file of the conflicts to edit, and no way to take one
-    side for one conflict and the other for the next but `-o` from
-    git's stages. A conflict file (the edits each side wants, for `mg
-    apply`) or a Moonglow window would. (M)
-  (The Domains of Dread's builder proposal, C9)
+- **`mg merge-gff`: a conversation's lines deleted, moved or renumbered
+  on one side** (the [manual](manual/03-modules.md#merging-in-git) has
+  the rules). Lines both sides added are both kept, theirs numbered after
+  ours (`mg_module::merge`, 2026-11-26), and a conflict writes the
+  edits for `mg apply` beside the file. But a side that deleted a line
+  (which renumbers every line after it), moved one under another line,
+  or has its lines in another order is told apart (fewer lines, a link
+  that owned its line gone, a line of the base found at another number
+  by `Renumbering::by_lines`) and, with a side that changed lines too,
+  is one conflict of all the lines (`/(lines)`), one side's whole.
+  Matching lines by what they are (text, speaker, the lines above;
+  a line both sides changed is what `by_lines` can't find) would merge
+  those as well. Aurora numbers a conversation's lines anew whenever it
+  saves one, so a conversation edited in Aurora on both sides is that
+  conflict whenever both change lines. What the guard can't tell from an
+  edit: the last line of a list deleted and another added under the same
+  line at the same place, taken for that line changed (nothing in the
+  file says otherwise), and coincidences like it. (M) (beyond what was
+  asked: the work of 2026-11-26 was the lines both sides added and the
+  conflict file; deletion was kept filed) (The Domains of Dread's builder
+  proposal, C9)
 
 ## Test loop
 

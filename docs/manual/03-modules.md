@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:23:00Z }
 ---
 
 # Modules
@@ -686,9 +686,29 @@ with it.
   kept; where they overlap is not looked at), a store's panes by pane,
   an encounter's creatures by blueprint, an item's properties by
   property and subtype, a creature's special abilities by spell.
-- **Every other list** (tiles, skills, conversation nodes) is merged by
-  place: an item is its number in the list, and two items added at one
-  place are a conflict.
+- **A conversation's lines** (NPC entries and PC replies) are numbered by
+  their place in their list, and its links name them by number.
+  Moonglow's Conversation Editor adds a line at the end of its list, so
+  two builders who add lines to one conversation both keep theirs: their
+  lines are numbered after yours, and their links with them (links to a
+  line owned elsewhere too). A line's links merge link by link, a link
+  being the line it leads to; lines both changed merge field by field;
+  the word count both changed is the sum of the two changes. A side that
+  deleted a line (which renumbers every line after it), moved a line
+  under another, or numbered the lines in another order has lines at
+  numbers that were other lines': merged by number with a side that
+  changed lines too, a change would land on the wrong line. That is one
+  **conflict** of all the lines, `CONFLICT /(lines): EntryList 3,
+  ReplyList 4, StartingList 1 -> ours EntryList 3, ReplyList 3,
+  StartingList 1, theirs …`, settled with one side's lines whole
+  (`--prefer`); what isn't lines (the end scripts, the delays) merges
+  as ever. A side that deleted lines merges with one that changed none.
+  Aurora numbers a conversation's lines anew each time it saves one, so
+  a line added there renumbers others, and merging it with another
+  builder's lines is that conflict.
+- **Every other list** (tiles, skills) is merged by place: an item is
+  its number in the list, and two items added at one place are a
+  conflict.
 - A list only one side changed is that side's list as it is, order and
   all. Where both changed one of those merged item by item, the order
   one side gave the base's items is kept, and each side's new items go
@@ -707,12 +727,52 @@ runs the driver at the repository's top); `--project DIR` names the
 project where it is somewhere else. A merge that equals your file leaves
 it untouched, byte for byte; one that equals theirs is their file.
 
-**On a conflict** the command exits with an error and writes nothing.
-It prints each conflict with its path, for example `CONFLICT
+**On a conflict** the command exits with an error and leaves your file
+as it was. It prints each conflict with its path, for example `CONFLICT
 /Placeable List[plc_chest "CHEST" at 10, 4.5]/Tag: "CHEST" -> ours
 "RED", theirs "BLUE"`. Git then marks the file as unmerged and leaves
-your version in it. To settle it, take one side's for every conflict in
-that file from git's three copies:
+your version in it.
+
+Beside it the command writes a **conflict file**, the file's name with
+`.conflicts` added (`src/area1.git.json.conflicts`; not `.json`, so
+that a nasher project doesn't take it for a resource): the edits that
+make your version the merge, in the form `mg apply` reads ([Edit
+files](11-command-line.md#setting-fields-and-edit-files)). First
+come their changes that conflict with nothing, then their side of each
+conflict, and each edit says which in its `note`:
+
+```json
+{ "version": 1, "label": "Merge area1.git: theirs' changes, and theirs' side of 1 conflicts",
+  "edits": [
+    { "op": "insert_item", "resource": "area1.git", "list": "/Placeable List",
+      "index": 2, "item": { "__struct_id": 9, "Tag": { "type": "cexostring", "value": "RUG" } },
+      "note": "merged: theirs' change, which conflicts with nothing (keep it)" },
+    { "op": "set_field", "resource": "area1.git", "field": "/Placeable List[0]/Tag",
+      "value": { "type": "cexostring", "value": "BLUE" },
+      "note": "conflict 1 of 1, theirs' side: /Placeable List[plc_chest \"CHEST\" at 10, 4.5]/Tag (ours \"RED\", theirs \"BLUE\"); take this out to keep ours'" }
+  ] }
+```
+
+Applied as it is, it takes their side of every conflict. To keep yours
+of one, take that conflict's edits out of the file (each conflict's
+edits are its own: take out any of them, keep the rest in their order).
+Then apply it to the project (the folder with `nasher.cfg`) or the
+module folder, and tell git the file is merged:
+
+```sh
+mg apply . src/area1.git.json.conflicts
+git add src/area1.git.json
+rm src/area1.git.json.conflicts
+```
+
+"Ours" and "theirs" are git's: in a `git merge` or `git pull`, ours
+is the branch you are on and theirs the one merged into it; in a `git
+rebase`, ours is the branch you rebase onto and theirs your own
+commits. With `--json`, `conflict_file` names the file and each
+conflict's `edits` lists its edits by their place in it (0 first).
+
+Or take one side's for every conflict in that file from git's three
+copies:
 
 ```sh
 git show :1:src/area1.git.json > base.json

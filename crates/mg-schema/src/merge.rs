@@ -20,12 +20,18 @@
 //! | an encounter's `CreatureList` | the creature (`ResRef`; one listed twice, in order) |
 //! | an item's `PropertiesList` | the property and its subtype (`PropertyName`, `Subtype`) |
 //! | a creature's `SpecAbilityList` | the ability (`Spell`; one listed twice, in order) |
-//! | any other list (tiles, skills, conversation nodes) | its place in the list |
+//! | a conversation's links (`StartingList`, a line's `RepliesList` or `EntriesList`) | the line it leads to (`Index`, and for a line's `IsChild`: a link to a line owned elsewhere is another link) |
+//! | any other list (tiles, skills, a conversation's lines) | its place in the list |
+//!
+//! A conversation's lines are numbered by their place, and the links name
+//! them by number: `mg_module::merge` numbers the lines one side added
+//! after the other's before this merge, and keeps a side that deleted lines
+//! from being merged by place with one that changed them.
 
 use mg_gff::Gff;
 pub use mg_gff::merge::{Conflict, ListRule, Merged, Prefer};
 
-use crate::{fac, git, ifo, jrl, utc, ute, uti, utm};
+use crate::{dlg, fac, git, ifo, jrl, utc, ute, uti, utm};
 
 /// What an item of the list `label` is, in a file of type `file_type`
 /// (`"GIT"`, `"IFO"`...), for a list that is in no item of another (an
@@ -62,6 +68,13 @@ pub fn list_rule_in(file_type: &str, inside: Option<&str>, label: &str) -> ListR
         ("JRL", l) if l == jrl::CATEGORIES.label => ListRule::ByKey(&["Tag"]),
         ("JRL", l) if l == jrl::categories::ENTRY_LIST.label => ListRule::ByKey(&["ID"]),
         ("FAC", l) if l == fac::REP_LIST.label => ListRule::ByKey(&["FactionID1", "FactionID2"]),
+        ("DLG", l) if l == dlg::STARTING_LIST.label => ListRule::ByKey(&["Index"]),
+        ("DLG", l)
+            if l == dlg::entry_list::REPLIES_LIST.label
+                || l == dlg::reply_list::ENTRIES_LIST.label =>
+        {
+            ListRule::ByKey(&["Index", "IsChild"])
+        }
         (_, l) if l == utc::FEAT_LIST.label => ListRule::ByKey(&["Feat"]),
         (_, l) if l == utc::CLASS_LIST.label => ListRule::ByKey(&["Class"]),
         (_, l) if l == utc::EQUIP_ITEM_LIST.label => ListRule::ByStructId,
@@ -84,6 +97,17 @@ pub fn list_rule_in(file_type: &str, inside: Option<&str>, label: &str) -> ListR
 /// its items are ([`list_rule`]).
 pub fn merge(base: &Gff, ours: &Gff, theirs: &Gff, prefer: Prefer) -> Merged {
     mg_gff::merge::merge(base, ours, theirs, prefer, &list_rule_in)
+}
+
+/// [`merge`], each conflict taking the side `choose` gives for its number
+/// ([`mg_gff::merge::merge_choosing`]).
+pub fn merge_choosing(
+    base: &Gff,
+    ours: &Gff,
+    theirs: &Gff,
+    choose: &dyn Fn(usize) -> Prefer,
+) -> Merged {
+    mg_gff::merge::merge_choosing(base, ours, theirs, choose, &list_rule_in)
 }
 
 #[cfg(test)]
@@ -246,6 +270,12 @@ mod tests {
         assert_eq!(list_rule("UTC", "Equip_ItemList"), ListRule::ByStructId);
         assert_eq!(list_rule("JRL", "EntryList"), ListRule::ByKey(&["ID"]));
         assert_eq!(list_rule("DLG", "EntryList"), ListRule::ByIndex);
+        assert_eq!(list_rule("DLG", "StartingList"), ListRule::ByKey(&["Index"]));
+        assert_eq!(
+            list_rule_in("DLG", Some("EntryList"), "RepliesList"),
+            ListRule::ByKey(&["Index", "IsChild"])
+        );
+        assert_eq!(list_rule("DLG", "EntriesList"), ListRule::ByKey(&["Index", "IsChild"]));
         assert_eq!(list_rule("ARE", "Tile_List"), ListRule::ByIndex);
     }
 }
