@@ -117,6 +117,8 @@ fn kind(name: &str) -> Kind {
 fn reading_soft_depth() {
     let kind_name = std::env::var("MG_SOFT_KIND").unwrap_or_else(|_| "hint".into());
     let k = kind(&kind_name);
+    // (A run's own folder: `MG_SOFT_TAG` is added to its name.)
+    let tag = std::env::var("MG_SOFT_TAG").map(|t| format!("_{t}")).unwrap_or_default();
     let base = base_game();
     let water_fs = program(&base, "fswater");
     let water_fs = patched(
@@ -238,9 +240,17 @@ fn reading_soft_depth() {
     let overrides: Vec<(&str, Vec<u8>)> =
         overrides.iter().map(|(f, d)| (f.as_str(), d.clone())).collect();
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
-    let mut r = Reading::new(&format!("soft_{kind_name}"), "ttr01", light, &overrides);
+    let mut r = Reading::new(&format!("soft_{kind_name}{tag}"), "ttr01", light, &overrides);
     r.are.root.set("SkyBox", Value::Byte(1));
     r.place(first, [20.0, 28.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
-    let (dir, _) = r.shoot_beside(INVISIBLE, &with_skybox(SETTINGS), &|_| {});
+    // (`MG_SOFT_GRASS=1`: the client's grass grown too, as Moonglow's view
+    // grows it, over and around the decals.)
+    let mut settings = with_skybox(SETTINGS);
+    if std::env::var_os("MG_SOFT_GRASS").is_some() {
+        settings =
+            settings.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
+        assert!(settings.contains("mode = 2"), "the grass's setting");
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, &settings, &|_| {});
     eprintln!("{}", dir.display());
 }

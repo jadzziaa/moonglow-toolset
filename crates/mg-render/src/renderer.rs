@@ -446,8 +446,8 @@ struct Draw<'a> {
     receives: bool,
     /// A see-through draw of the game's that reads the framebuffer's copy
     /// (shiny water with `transparencyhint`, a material's
-    /// `sample_framebuffer`): after the copy, which is made after the
-    /// other see-through meshes' solid parts.
+    /// `sample_framebuffer`), both its parts: after the copy, which is
+    /// made after the other see-through meshes, their soft parts too.
     late: bool,
 }
 
@@ -1469,9 +1469,11 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(
-                        !sky && !matches!(pass, Pass::Additive | Pass::Fringe),
-                    ),
+                    // (A see-through mesh's soft part lays its depth too, as
+                    // the client's does: what is drawn after it behind it,
+                    // shiny water, particles, the same mesh's farther
+                    // faces, is hidden: `soft::reading_soft_depth`.)
+                    depth_write_enabled: Some(!sky && pass != Pass::Additive),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: if matches!(pass, Pass::Additive | Pass::Fringe) {
@@ -3502,16 +3504,19 @@ impl Renderer {
         let mut keys = std::mem::take(&mut self.sort_keys);
         keys.clear();
         keys.extend(draws.iter().enumerate().map(|(i, d)| {
-            // (The see-through draws that read the framebuffer's copy: after
-            // it, and so after the other see-through meshes' solid parts.)
+            // (The see-through draws that read the framebuffer's copy, both
+            // their parts: after it, and so after the other see-through
+            // meshes, their soft parts too, which hide the water behind
+            // them as the client's do.)
             let rank: u64 = match d.pass {
                 Pass::Sky => 0,
                 Pass::SkyFade => 1,
                 Pass::Opaque => 2,
-                Pass::Blend if d.late => 4,
+                Pass::Blend if d.late => 5,
+                Pass::Fringe if d.late => 6,
                 Pass::Blend => 3,
-                Pass::Fringe => 5,
-                Pass::Additive => 6,
+                Pass::Fringe => 4,
+                Pass::Additive => 7,
             };
             let key = if matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
                 // (What the shadows fall on first.)
@@ -4186,10 +4191,10 @@ impl Renderer {
                     game_drawn = true;
                     own_lost = true;
                 }
-                // (The framebuffer's copy after the see-through meshes'
-                // solid parts, as the client's water reads it: before what
-                // reads it, the soft parts and what is added.)
-                let past_copy = d.late || matches!(d.pass, Pass::Fringe | Pass::Additive);
+                // (The framebuffer's copy after the see-through meshes, as
+                // the client's water reads it: before what reads it and
+                // what is added.)
+                let past_copy = d.late || d.pass == Pass::Additive;
                 if !copied && past_copy {
                     drop(pass);
                     pass = Self::copy_framebuffer(

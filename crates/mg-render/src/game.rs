@@ -1099,7 +1099,8 @@ pub(crate) enum GamePass {
     /// written, the fragments below [`crate::renderer::SOLID_ALPHA`]
     /// discarded.
     Solid,
-    /// The rest of it: blended over everything solid, hiding nothing.
+    /// The rest of it: blended over everything solid, its depth written
+    /// (as the client writes a soft texel's: `soft::reading_soft_depth`).
     Fringe,
     /// A mesh of mesh `alpha` under 1, whole: blended, its depth written,
     /// in its model's order (as the client draws it).
@@ -1171,6 +1172,7 @@ impl GamePass {
             self,
             GamePass::Opaque
                 | GamePass::Solid
+                | GamePass::Fringe
                 | GamePass::Ordered
                 | GamePass::Particles(B::PunchThrough)
         )
@@ -3556,18 +3558,19 @@ mod tests {
         assert_eq!(GamePass::Opaque.write_mask(), wgpu::ColorWrites::COLOR);
     }
 
-    /// The meshes drawn over the solid scene without laying their depth
-    /// (additive, a see-through mesh's soft part) are drawn nearer the eye
-    /// by the same bias as Moonglow's own shader draws them, so that one
-    /// lying on a mesh drawn by the other shader doesn't fight with it; a
-    /// pass that lays its depth has none.
+    /// The meshes drawn over the solid scene (additive, a see-through
+    /// mesh's soft part) are drawn nearer the eye by the same bias as
+    /// Moonglow's own shader draws them, so that one lying on a mesh drawn
+    /// by the other shader doesn't fight with it; the additive ones lay no
+    /// depth, the soft part lays its own (as the client's soft texels do);
+    /// the other passes that lay their depth have no bias.
     #[test]
     fn overlays_are_biased_towards_the_eye_as_moonglow_s_own() {
         use crate::particles::ParticleBlend as B;
         let bias = crate::renderer::OVERLAY_DEPTH_BIAS;
         assert!(bias.constant < 0 && bias.slope_scale < 0.0, "towards the eye: {bias:?}");
         for pass in [GamePass::Additive, GamePass::Fringe] {
-            assert!(!pass.depth_write(), "{pass:?}");
+            assert_eq!(pass.depth_write(), pass == GamePass::Fringe, "{pass:?}");
             assert_eq!(pass.depth_bias(), bias, "{pass:?}");
         }
         for pass in [GamePass::Opaque, GamePass::Solid, GamePass::Particles(B::PunchThrough)] {
