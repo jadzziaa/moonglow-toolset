@@ -263,7 +263,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   The editors' have theirs since 26 November
   (`frame_perf::editors_at_scale`, [the log](log.md)); what they leave,
   timed again at the final commit, three runs each, each view against
-  its rest (the line 70 µs). Truly quiet (26 November 03:23 to 03:35,
+  its rest (the line 70 µs). Truly quiet (26 November 03:22 to 03:24,
   the load 3 to 5, the encoding job paused): `spells.2da` at its full
   width +58 to +82 µs over the same rows cut to the 26 columns in sight
   (at the line; the cells out of sight sideways are one place a run
@@ -286,7 +286,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   November (`nui_perf::the_creator_at_scale`, `NUI_VIEW` picks its
   groups, and `editor_perf::scripts_at_scale`, `EDITOR_VIEW`; [the
   log](log.md)), timed truly quiet at their final commit (26 November
-  03:23 to 03:35, the load 3 to 5; three runs). What they leave, beyond
+  03:22 to 03:24, the load 3 to 5; three runs). What they leave, beyond
   a local change: the column of 1,000 rows +826 to +867 µs (about 1.4
   ms a frame; +5.0 to +18.2 ms before, loaded): each frame still
   measures the whole window for the group's scroll extent and walks it
