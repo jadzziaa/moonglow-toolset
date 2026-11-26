@@ -318,6 +318,8 @@ enum Own {
     Mvp,
     M,
     Normal,
+    Texture,
+    Skinmesh,
     Ambient,
     Diffuse,
     Emissive,
@@ -333,6 +335,8 @@ impl Own {
             Key::Mvp if mat4 => Own::Mvp,
             Key::M if mat4 => Own::M,
             Key::Normal if mat4 => Own::Normal,
+            Key::TextureMatrix if mat4 => Own::Texture,
+            Key::Skinmesh if m.count.is_none() && m.ty == ValueType::Int => Own::Skinmesh,
             Key::MaterialAmbient if vec4 => Own::Ambient,
             Key::MaterialDiffuse if vec4 => Own::Diffuse,
             Key::MaterialEmissive if vec4 => Own::Emissive,
@@ -354,6 +358,8 @@ fn fill_own(own: &[(Own, Member, Key)], f: &FrameValues, d: &DrawValues<'_>, out
                 let normal = model_view().inverse().transpose();
                 put_floats(out, m.offset, &normal.to_cols_array());
             }
+            Own::Texture => put_floats(out, m.offset, &d.texture_matrix.to_cols_array()),
+            Own::Skinmesh => put(out, m.offset, i32::from(!d.bones.is_empty()).to_le_bytes()),
             Own::Ambient => put_floats(out, m.offset, &d.ambient),
             Own::Diffuse => put_floats(out, m.offset, &d.diffuse),
             Own::Emissive => put_floats(out, m.offset, &d.emissive),
@@ -3840,6 +3846,7 @@ uniform mat4 m_mvp;
 uniform mat4 m_m;
 uniform mat4 m_normal;
 uniform mat3 m_normal3;
+uniform mat4 m_texture;
 uniform vec4 materialFrontAmbient;
 uniform vec4 materialFrontDiffuse;
 uniform vec3 materialFrontEmissive;
@@ -3851,14 +3858,23 @@ void main ()
 {
     vec4 c = materialFrontAmbient + materialFrontDiffuse + globalColor + bboxMin;
     c.xyz += materialFrontEmissive + m_normal3 * vec3(float(skinmesh));
-    gl_Position = m_mv * m_mvp * m_m * m_normal * vPos + c;
+    gl_Position = m_mv * m_mvp * m_m * m_normal * m_texture * vPos + c;
 }
 "#;
         let src: BTreeMap<String, String> = [("vs_own".to_string(), vs.to_string())].into();
         let p = mg_shader::compile("vs_own", Stage::Vertex, &Preamble::default(), &src).unwrap();
         let plan = Plan::new(&p.reflection.uniforms[0]);
         let kinds: Vec<Own> = plan.own.iter().map(|(o, _, _)| *o).collect();
-        for kind in [Own::Mv, Own::Mvp, Own::M, Own::Normal, Own::Ambient, Own::Diffuse] {
+        for kind in [
+            Own::Mv,
+            Own::Mvp,
+            Own::M,
+            Own::Normal,
+            Own::Texture,
+            Own::Skinmesh,
+            Own::Ambient,
+            Own::Diffuse,
+        ] {
             assert!(kinds.contains(&kind), "{kind:?} in {kinds:?}");
         }
         // (A vec3, a mat3: as any member.)
@@ -3884,15 +3900,26 @@ void main ()
             diffuse: [0.4, 0.5, 0.6, 0.7],
             emissive: [0.8, 0.9, 1.0, 1.0],
             bbox: (Vec3::splat(-1.0), Vec3::splat(2.0)),
+            texture_matrix: Mat4::from_scale_rotation_translation(
+                Vec3::new(2.0, 0.5, 1.0),
+                glam::Quat::from_rotation_z(0.3),
+                Vec3::new(0.25, 0.5, 0.0),
+            ),
             ..Default::default()
         };
         let own: Vec<(Member, Key)> =
             plan.own.iter().map(|(_, m, k)| (m.clone(), k.clone())).collect();
-        let (mut quick, mut each) = (vec![0u8; plan.size as usize], vec![0u8; plan.size as usize]);
-        fill_own(&plan.own, &f, &d, &mut quick);
-        fill_members(&own, &f, &d, &mut each);
-        assert_eq!(quick, each);
-        assert!(quick.iter().any(|&b| b != 0));
+        // (Without bones and with: `skinmesh` 0 and 1.)
+        let bones = [Mat4::IDENTITY.to_cols_array_2d()];
+        let skinned = DrawValues { bones: &bones, params: d.params, ..d };
+        for d in [&d, &skinned] {
+            let size = plan.size as usize;
+            let (mut quick, mut each) = (vec![0u8; size], vec![0u8; size]);
+            fill_own(&plan.own, &f, d, &mut quick);
+            fill_members(&own, &f, d, &mut each);
+            assert_eq!(quick, each);
+            assert!(quick.iter().any(|&b| b != 0));
+        }
     }
 
     fn f32_at(b: &[u8], at: u32) -> f32 {
