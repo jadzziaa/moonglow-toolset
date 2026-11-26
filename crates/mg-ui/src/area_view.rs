@@ -852,6 +852,16 @@ pub struct AreaView {
     drawn: Option<(Drawn, f32)>,
     /// How many times the picture has been drawn.
     pub pictures: u64,
+    /// The boxes of the objects selected or marked as last made
+    /// ([`object_boxes`]), and what for: kept while nothing they show
+    /// changes (made each frame something poses the objects).
+    boxes_kept: Option<(BoxesKey, PictureBoxes)>,
+    /// How many times those boxes have been made (the tests' count of
+    /// kept ones).
+    pub box_builds: u64,
+    /// How many times the posed copy of the model has been made anew
+    /// (`posed`: kept from frame to frame of a drag; the tests' count).
+    pub posed_builds: u64,
     /// The watch on what the GPU draws of it ([`mg_render::watch`]).
     pub watching: Watching,
     /// How many textures read apart the picture was drawn with
@@ -893,7 +903,37 @@ struct Drawn {
     sound_ranges: std::sync::Arc<Vec<SoundRange>>,
     /// The boxes of the objects selected or marked, as posed
     /// ([`object_boxes`]).
-    boxes: Vec<mg_render::BoxCopy>,
+    boxes: PictureBoxes,
+}
+
+/// The boxes a picture is drawn with ([`object_boxes`]), shared with the
+/// list kept: the same list is the same at once (a pointer), at rest with
+/// 5,000 selected, and one made anew is compared by its boxes.
+#[derive(Debug, Clone, Default)]
+struct PictureBoxes(std::sync::Arc<[mg_render::BoxCopy]>);
+
+impl PartialEq for PictureBoxes {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0) || self.0[..] == other.0[..]
+    }
+}
+
+/// What the boxes of the objects selected or marked were made for: the
+/// workspace's revision the area was read at and the overlays' generation
+/// (a variable's preview), the selection, the kinds shown, the boxes'
+/// two colors, the picture's pixels a point, whether a merchant's sign
+/// stands for a store (which objects draw, and their bounds) and where
+/// Adjust Location shows the objects it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct BoxesKey {
+    revision: Option<u64>,
+    generation: u64,
+    selection: Vec<(ObjectKind, usize)>,
+    show: [bool; 9],
+    colors: (Color32, Color32),
+    ppp: f32,
+    merchant_signs: bool,
+    adjusted: crate::area_tools::Previewed,
 }
 
 /// A positional sound's distances as Sound Ranges draws them in the
@@ -1235,7 +1275,7 @@ impl AreaView {
     /// The boxes its last picture was drawn with (`mg_render::Scene::boxes`):
     /// for the tests.
     pub fn picture_boxes(&self) -> &[mg_render::BoxCopy] {
-        self.drawn.as_ref().map_or(&[], |(d, _)| &d.boxes)
+        self.drawn.as_ref().map_or(&[], |(d, _)| &d.boxes.0)
     }
 
     /// Object `i` (its place in the model's objects) as the last frame
@@ -1441,6 +1481,9 @@ impl AreaView {
             targets: None,
             drawn: None,
             pictures: 0,
+            boxes_kept: None,
+            box_builds: 0,
+            posed_builds: 0,
             watching: Watching::default(),
             time: 0.0,
             last_frame: None,
@@ -3998,7 +4041,7 @@ fn viewport(
         shaders,
         high_shadows,
         sound_ranges: sound_ranges.clone(),
-        boxes: Vec::new(),
+        boxes: PictureBoxes::default(),
     };
     // The scene, with the drag (or Adjust Location) applied to what it
     // moves.
@@ -4008,6 +4051,12 @@ fn viewport(
         Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
         _ => None,
     };
+    // (Where nothing but Adjust Location poses the objects: their boxes
+    // kept while its values rest. Not while a drag, a key or a handle
+    // poses what it moves.)
+    let kept_poses = (dragged.is_empty() && tilted.is_empty() && scaled.is_empty())
+        .then(|| spawn.is_none().then(|| adjusting.clone()))
+        .flatten();
     let mut poses = adjusting.0;
     poses.extend(dragged);
     let mut visuals = adjusting.1;
@@ -4020,6 +4069,9 @@ fn viewport(
     if poses.is_empty() && visuals.is_empty() && spawn.is_none() {
         copy = None;
     } else {
+        if copy.is_none() {
+            view.posed_builds += 1;
+        }
         let (posed, last) = copy.get_or_insert_with(|| (model.clone(), Vec::new()));
         pose_kept(&mut posed.objects, last, &model.objects, &poses, &visuals, spawn);
     }
@@ -4029,10 +4081,47 @@ fn viewport(
     // over the view took egui milliseconds a frame), and part of what
     // the picture is drawn from, so that it is drawn again as they
     // change. (A width in points is so many of the picture's pixels.)
+    // Kept while what they show stays as it was: 5,000 selected took 70
+    // to 110 us a frame to make at rest.
     {
         let scene = view.scene.as_ref().expect("checked above");
         let colors = handles::Colors::of(&mg_uikit::tokens(ui.ctx()));
-        from.boxes = object_boxes(scene, shown, &view.selection, view.show, &colors, ppp);
+        let same = |key: &BoxesKey| {
+            let adjusted = kept_poses.as_ref();
+            (key.revision, key.generation, key.show, key.colors, key.ppp, key.merchant_signs)
+                == (
+                    view.revision,
+                    view.overlay_generation,
+                    view.show,
+                    (colors.edge, colors.turn.0),
+                    ppp,
+                    scene.merchant_signs,
+                )
+                && key.selection == view.selection
+                && adjusted == Some(&key.adjusted)
+        };
+        from.boxes = match &view.boxes_kept {
+            Some((key, boxes)) if same(key) => boxes.clone(),
+            _ => {
+                let made = object_boxes(scene, shown, &view.selection, view.show, &colors, ppp);
+                let boxes = PictureBoxes(made.into());
+                view.box_builds += 1;
+                view.boxes_kept = kept_poses.clone().map(|adjusted| {
+                    let key = BoxesKey {
+                        revision: view.revision,
+                        generation: view.overlay_generation,
+                        selection: view.selection.clone(),
+                        show: view.show,
+                        colors: (colors.edge, colors.turn.0),
+                        ppp,
+                        merchant_signs: scene.merchant_signs,
+                        adjusted,
+                    };
+                    (key, boxes.clone())
+                });
+                boxes
+            }
+        };
     }
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     // (Every texture the picture waited for read: drawn again now, not at
@@ -4073,7 +4162,7 @@ fn viewport(
         let scene = view.scene.as_ref().expect("checked above");
         let mut frame = scene.scene_hiding(shown, &settings, &hidden);
         frame.environment.clock = clock;
-        frame.boxes.clone_from(&from.boxes);
+        frame.boxes = from.boxes.0.to_vec();
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
@@ -5026,7 +5115,8 @@ fn marker_color(kind: ObjectKind) -> Color32 {
 /// marker's in its kind's color 1.5 points wide, those of `selection` in
 /// the selection's color, thin over a dark edge, as the handles have
 /// them (`colors`); drawn after the markers' (their lines over them).
-/// `ppp`: so many of the picture's pixels a point.
+/// `ppp`: so many of the picture's pixels a point; every line at least
+/// a pixel wide, the dark edge two wider than the line.
 fn object_boxes(
     scene: &AreaScene,
     shown: &AreaModel,
@@ -5035,12 +5125,18 @@ fn object_boxes(
     colors: &handles::Colors,
     ppp: f32,
 ) -> Vec<mg_render::BoxCopy> {
+    // (At least a pixel of the picture wide: under one the renderer draws
+    // a pixel that much fainter, and at a lower Area view resolution the
+    // boxes faded. The owner's ruling of 26 November.)
     let stroke = |s: Stroke| {
         let color = s.color.to_srgba_unmultiplied().map(|c| f32::from(c) / 255.0);
-        mg_render::BoxStroke { width: s.width * ppp, color }
+        mg_render::BoxStroke { width: (s.width * ppp).max(1.0), color }
     };
     let (edge, line) = handles::box_strokes(colors);
-    let (edge, line) = (stroke(edge), stroke(line));
+    let (mut edge, line) = (stroke(edge), stroke(line));
+    // (The dark edge a pixel wider than the line on each side, however
+    // small the picture: it shows either side of it.)
+    edge.width = edge.width.max(line.width + 2.0);
     let chosen = chosen_of(selection);
     let (mut markers, mut selected) = (Vec::new(), Vec::with_capacity(selection.len()));
     for (i, o) in shown.objects.iter().enumerate() {
@@ -5122,12 +5218,6 @@ fn overlays(
     };
     let scene = view.scene.as_ref();
     let chosen = chosen_of(&view.selection);
-    // (Without a scene, the boxes over the view, their edges painted
-    // together after the objects are gone through: the selected ones'
-    // dark edges, then their lines, over the markers'. With one, they
-    // are drawn in the picture: `object_boxes`.)
-    let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
-    let (mut selected_edges, mut selected_lines) = (Vec::new(), Vec::new());
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
@@ -5290,30 +5380,6 @@ fn overlays(
                 }
             }
         }
-        if scene.is_none() && has_box(o.kind, selected, false) {
-            let (min, max) = mg_area::pick::marker_bounds(o.kind);
-            let (t, eye) = (o.model_transform(), camera.as_ref().zip(to_screen.as_ref()));
-            let edges = box_edges_on_screen(eye, t, min, max, segment).into_iter().flatten();
-            if selected {
-                // (Thin, over a dark edge: the handles lead.)
-                let (dark, lines) = handles::box_lines(edges, &colors);
-                selected_edges.extend(dark);
-                selected_lines.extend(lines);
-            } else {
-                let stroke = Stroke::new(1.5, marker_color(o.kind));
-                boxes.extend(edges.map(|points| (points, stroke)));
-            }
-        }
-    }
-    boxes.extend(selected_edges);
-    boxes.extend(selected_lines);
-    // (Painted together: one at a time, each of thousands took the
-    // window's lock; and past some eighty boxes as one mesh.)
-    if boxes.len() > BOXES_MESHED {
-        painter.add(egui::Shape::mesh(lines_mesh(&boxes)));
-    } else {
-        let lines = boxes.into_iter();
-        painter.extend(lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }));
     }
     if view.pasting
         && let Some(clip) = clip
@@ -6863,32 +6929,6 @@ const BOX_EDGES: [(usize, usize); 12] = [
     (2, 6),
     (3, 7),
 ];
-
-/// The edges of the box `min` to `max` posed by `t` on screen, as
-/// `segment` puts each (cut where it passes behind the eye): where all
-/// eight corners are in front of the near plane (`eye`: the camera and
-/// what puts points on screen), the corners put on screen once rather
-/// than each edge's two ends (the boxes of thousands selected were
-/// worked out anew each frame of a drag).
-fn box_edges_on_screen(
-    eye: Option<(&Camera, &Projector)>,
-    t: glam::Mat4,
-    min: Vec3,
-    max: Vec3,
-    segment: impl Fn(Vec3, Vec3) -> Option<[Pos2; 2]>,
-) -> [Option<[Pos2; 2]>; 12] {
-    let c = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
-    if let Some((camera, to_screen)) = eye
-        && c.iter().all(|p| mg_area::pick::depth(camera, *p) - camera.near >= 0.0)
-    {
-        let on = c.map(|p| to_screen.at(p));
-        if on.iter().all(Option::is_some) {
-            let on = on.map(Option::unwrap_or_default);
-            return BOX_EDGES.map(|(a, b)| Some([on[a], on[b]]));
-        }
-    }
-    BOX_EDGES.map(|(a, b)| segment(c[a], c[b]))
-}
 
 /// The farthest the game's camera stands from the player (metres; the
 /// camera as a player enters, NWScript's SetCameraFacing): the view's fog
@@ -9829,49 +9869,5 @@ mod tests {
         // as the game shows a player 20 m from its camera.
         let far = view_fog(city, 60.0);
         assert_eq!((far.start, far.end, far.color), (35.0, 85.0, city.color));
-    }
-
-    /// A box's edges on screen are where each edge cut at the near plane
-    /// would put them (`AreaView::screen_segment`), its corners put on
-    /// screen once where all are in front of the eye or each edge cut where
-    /// not.
-    #[test]
-    fn box_edges_are_put_on_screen_as_segments_are() {
-        let mut view = AreaView::new(ResRef::EMPTY);
-        view.rect = Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(800.0, 500.0));
-        let orbit =
-            Orbit { target: Vec3::new(50.0, 50.0, 0.0), yaw: 0.7, pitch: 0.2, distance: 12.0 };
-        view.orbit = Some(orbit);
-        let camera = view.camera().unwrap();
-        let to_screen = view.projector().unwrap();
-        let mut seed = 9u64;
-        let mut next = || {
-            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            (seed >> 40) as f32 / (1u64 << 24) as f32
-        };
-        let (mut whole, mut cut) = (0, 0);
-        for _ in 0..2000 {
-            let at = camera.eye + Vec3::new(next() - 0.5, next() - 0.5, next() - 0.5) * 60.0;
-            let t = glam::Mat4::from_rotation_translation(
-                glam::Quat::from_rotation_z(next() * 6.0),
-                at,
-            );
-            let (min, max) = (-Vec3::splat(next() * 3.0), Vec3::splat(next() * 3.0 + 0.1));
-            let segment = |a: Vec3, b: Vec3| view.screen_segment(a, b);
-            let edges = box_edges_on_screen(Some((&camera, &to_screen)), t, min, max, segment);
-            let each: Vec<_> = box_edges(t, min, max).map(|(a, b)| segment(a, b)).collect();
-            assert_eq!(&edges[..], &each[..], "{t:?} {min:?} {max:?}");
-            let corners = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
-            match corners
-                .iter()
-                .filter(|p| mg_area::pick::depth(&camera, **p) >= camera.near)
-                .count()
-            {
-                8 => whole += 1,
-                0 => {}
-                _ => cut += 1,
-            }
-        }
-        assert!(whole > 100 && cut > 20, "both ways tried: {whole} whole, {cut} cut");
     }
 }

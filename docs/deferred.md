@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:18:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:04:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -300,6 +300,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   screen while the view and the rings stand, not yet timed quietly),
   and 0.4 to 0.7 ms more at rest after a drag and its undo than before
   it (measured before these changes, cause not found, not timed again);
+  since the boxes are drawn in the picture and their list kept, all
+  5,000 selected at rest are −0.01 to +0.14 ms over one (develop's
+  +0.49 to +0.64 in the same three rounds, 26 November, load 3 to 19);
   in a drag +2.1 to +2.3 ms (from +8.3, then +3.3 to +3.5; 26 November,
   the load 10 to 15, three rounds alternated with develop's +3.5 to
   +5.5): the boxes are drawn in the picture now (`Scene::boxes`, 5,000

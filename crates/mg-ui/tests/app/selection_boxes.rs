@@ -293,6 +293,10 @@ fn the_boxes_follow_a_drag_in_the_same_frame() {
     h.hover_at(grip + egui::vec2(12.0, 0.0));
     h.run_steps(1);
     let mut was = h.state().area_views[&area].shown_object(first).unwrap().position;
+    let (posed, builds) = {
+        let view = &h.state().area_views[&area];
+        (view.posed_builds, view.box_builds)
+    };
     for k in 2..=6 {
         let pictures = h.state().area_views[&area].pictures;
         h.hover_at(grip + egui::vec2(12.0 * k as f32, 0.0));
@@ -306,6 +310,12 @@ fn the_boxes_follow_a_drag_in_the_same_frame() {
             assert!(drawn_box(&h, area, i), "step {k}: object {i}'s box where it is");
         }
     }
+    // (The boxes made each frame the drag poses them; the posed copy of
+    // the model made as the drag first poses them, then kept from frame
+    // to frame, posed again.)
+    let view = &h.state().area_views[&area];
+    assert!(view.box_builds >= builds + 5, "made each frame: {builds} -> {}", view.box_builds);
+    assert_eq!(view.posed_builds, posed + 1, "the posed copy made once, then kept");
     press(&h, grip + egui::vec2(72.0, 0.0), false, egui::Modifiers::NONE);
     h.run_steps(3);
     let undo = h.state().ws.as_ref().and_then(|w| w.can_undo().map(str::to_owned));
@@ -314,4 +324,104 @@ fn the_boxes_follow_a_drag_in_the_same_frame() {
     for &i in &chests {
         assert!(drawn_box(&h, area, i), "object {i}'s box where it was put");
     }
+}
+
+/// The boxes' list is made once and kept while nothing it shows changes
+/// (5,000 selected took 70 to 110 us a frame to make at rest), and made
+/// again when the selection changes, an object is moved and the
+/// picture's pixels a point change (Area view resolution).
+#[test]
+fn the_boxes_are_made_again_only_when_what_they_show_changes() {
+    let Some((mut h, area)) = boxes_harness("boxes-kept") else { return };
+    look(&mut h, area, CHESTS + Vec3::X * 3.0, 12.0, 0.8);
+    let builds = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].box_builds;
+    let at_rest = builds(&h);
+    assert!(at_rest > 0, "made");
+    for k in 0..4 {
+        h.hover_at(h.state().area_views[&area].rect.center() + egui::vec2(9.0 * k as f32, 4.0));
+        h.run_steps(1);
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().set_clock(3.0);
+    h.run_steps(2);
+    assert_eq!(builds(&h), at_rest, "kept at rest, the pointer moving, the picture drawn again");
+    let again = |h: &mut Harness<'_, Moonglow>, what: &str| {
+        let was = builds(h);
+        settle(h);
+        assert!(builds(h) > was, "{what}: made again");
+        let made = builds(h);
+        h.run_steps(4);
+        assert_eq!(builds(h), made, "{what}: then kept");
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.pop();
+    again(&mut h, "one let go of");
+    let git = ResKey::new(area, ResType::GIT);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 2),
+        label: "X".into(),
+        value: Some(mg_gff::Value::Float(27.5)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Move", vec![edit])));
+    again(&mut h, "a chest moved");
+    h.state_mut().settings.area_resolution = Some(50);
+    again(&mut h, "Area view resolution 50");
+}
+
+/// Across a row of the picture at `at` (pixels), the strongest pixel of
+/// the selection's color (`line`) and how dark it is either side within
+/// four pixels, against the ground eight to twelve away: (how near the
+/// line's color the strongest is, 0 to 1; the darkest left, right and
+/// the ground's brightness).
+fn across(img: &image::RgbaImage, (x, y): (u32, u32), line: [u8; 3]) -> (f32, f32, f32, f32) {
+    let bright = |px: u32| {
+        let p = img.get_pixel(px, y);
+        (0..3).map(|c| f32::from(p[c])).sum::<f32>() / 3.0
+    };
+    let near = |px: u32| {
+        let p = img.get_pixel(px, y);
+        let off: f32 = (0..3).map(|c| (f32::from(p[c]) - f32::from(line[c])).abs()).sum();
+        1.0 - off / (3.0 * 255.0)
+    };
+    let peak = (x - 6..=x + 6).max_by(|a, b| near(*a).total_cmp(&near(*b))).unwrap();
+    let darkest = |r: std::ops::RangeInclusive<u32>| r.map(bright).fold(f32::MAX, f32::min);
+    let ground = (8..=12).flat_map(|d| [bright(peak - d), bright(peak + d)]).sum::<f32>() / 10.0;
+    (near(peak), darkest(peak - 4..=peak - 1), darkest(peak + 1..=peak + 4), ground)
+}
+
+/// At Area view resolution 50 (a point half a pixel of the picture) a
+/// box's line is still a whole pixel at full strength, its color as at
+/// full resolution, and a selected box's dark edge shows either side of
+/// it (the owner's ruling of 26 November: not faded).
+#[test]
+fn at_half_resolution_the_boxes_are_at_full_strength_with_their_edge() {
+    let Some((mut h, area)) = boxes_harness("boxes-half") else { return };
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().unwrap();
+    let chest = (model.objects.iter())
+        .position(|o| o.kind == ObjectKind::Placeable && o.position.distance(CHESTS) < 0.1)
+        .unwrap();
+    let turn = mg_uikit::tokens(&h.ctx).handle_turn;
+    let line = [turn.r(), turn.g(), turn.b()];
+    let mut seen = Vec::new();
+    for share in [None, Some(50)] {
+        h.state_mut().settings.area_resolution = share;
+        look(&mut h, area, CHESTS, 6.0, 0.8);
+        let picture = view_picture(&mut h, area);
+        let at = on_edge(&h, area, chest);
+        let name = format!("half-{}.png", share.unwrap_or(100));
+        close_up(
+            &h,
+            area,
+            &picture,
+            copy_of(&h, area, chest).transform_point3(Vec3::new(0.0, 0.0, 0.75)),
+        )
+        .save(mg_testkit::output_dir("ui-selection-boxes").join(name))
+        .unwrap();
+        let measured = across(&picture, at, line);
+        eprintln!("{share:?}: {measured:?}");
+        seen.push(measured);
+    }
+    let [(full, ..), (half, left, right, ground)] = seen[..] else { unreachable!() };
+    assert!(half > full - 0.08, "at full strength: {half} (full resolution {full})");
+    assert!(left < ground * 0.7 && right < ground * 0.7, "the edge either side: {seen:?}");
 }
