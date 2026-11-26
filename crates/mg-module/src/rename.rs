@@ -103,6 +103,10 @@ pub struct UsageIndex {
     seen: std::collections::HashMap<ResKey, Read>,
     /// How many resources the last [`refresh`](Self::refresh) read.
     pub read: usize,
+    /// How many areas' GITs have an object of each tag of its own, made
+    /// when [`links_into`](Self::links_into) first asks after a change
+    /// to what the index holds (Delete's question asks it for each area).
+    tag_areas: std::sync::OnceLock<std::collections::HashMap<Vec<u8>, u32>>,
 }
 
 /// What one resource holds that a question may ask for.
@@ -423,7 +427,11 @@ impl UsageIndex {
         keep: &dyn Fn(&ResKey) -> bool,
     ) -> bool {
         use rayon::prelude::*;
+        let held = self.seen.len();
         self.seen.retain(|k, _| module.contains(k) && keep(k));
+        if self.seen.len() != held {
+            self.tag_areas = Default::default();
+        }
         let mut changed = Vec::new();
         for key in module.keys().filter(|k| keep(k)) {
             let Some(data) = module.shared(key) else { continue };
@@ -443,6 +451,9 @@ impl UsageIndex {
             }
         }
         self.read = changed.len();
+        if !changed.is_empty() {
+            self.tag_areas = Default::default();
+        }
         let read: Vec<(ResKey, Read)> =
             changed.into_par_iter().map(|(key, data)| (key, Read::of(key, data))).collect();
         self.seen.extend(read);
@@ -464,14 +475,22 @@ impl UsageIndex {
             .map(|(_, tag)| &tag[..])
             .collect();
         // (A tag another area's object has too: a transition to it still
-        // goes there. The other areas' tags are walked once, not once for
-        // each tag of this one.)
-        let others = (self.seen.iter())
-            .filter(|(k, _)| k.restype == ResType::GIT && k.resref != area)
-            .flat_map(|(_, r)| r.tags.iter().filter(|(path, _)| own(path)));
-        for (_, tag) in others {
-            tags.remove(&tag[..]);
-        }
+        // goes there. Each tag's areas are counted once for the index, not
+        // walked for each area asked of.)
+        let areas = self.tag_areas.get_or_init(|| {
+            let mut count: std::collections::HashMap<Vec<u8>, u32> = Default::default();
+            for (_, r) in self.seen.iter().filter(|(k, _)| k.restype == ResType::GIT) {
+                let own_tags: std::collections::HashSet<&[u8]> = (r.tags.iter())
+                    .filter(|(path, tag)| own(path) && !tag.is_empty())
+                    .map(|(_, tag)| &tag[..])
+                    .collect();
+                for tag in own_tags {
+                    *count.entry(tag.to_vec()).or_default() += 1;
+                }
+            }
+            count
+        });
+        tags.retain(|tag| areas.get(*tag).is_none_or(|n| *n <= 1));
         if tags.is_empty() {
             return Vec::new();
         }
@@ -1747,6 +1766,18 @@ mod tests {
             index.links_into(rr("keep")).into_iter().map(|u| u.path.to_string()).collect();
         assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
         assert!(index.links_into(rr("outside")).is_empty(), "OUT_1, OUT_2: nothing leads there");
+        // A third area with a guard of its own, then gone again: the
+        // count of each tag's areas follows what the index holds.
+        let mut third = Gff::new(*b"GIT ");
+        third.root.set("Door List", Value::List(vec![door(b"GUARD", b"")]));
+        m.set_gff(key("third", ResType::GIT), &third).unwrap();
+        index.refresh(&m);
+        assert!(index.links_into(rr("keep")).is_empty(), "GATE and GUARD: both elsewhere too");
+        m.remove(&key("third", ResType::GIT));
+        index.refresh(&m);
+        let paths: Vec<String> =
+            index.links_into(rr("keep")).into_iter().map(|u| u.path.to_string()).collect();
+        assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
     }
 
     /// A window reads only a few resources where it asks: past that, it

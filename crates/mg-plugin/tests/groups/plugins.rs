@@ -14,3 +14,5 @@ mod package;
 mod plugins;
 #[path = "../project.rs"]
 mod project;
+#[path = "../timing.rs"]
+mod timing;

@@ -36,6 +36,7 @@
 //! Options › Area › Anti-aliasing Off (or 2×). (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
+mod render_views;
 #[allow(dead_code)]
 mod world;
 

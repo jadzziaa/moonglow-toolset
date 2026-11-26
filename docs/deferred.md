@@ -221,21 +221,54 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   but where the builder's rebuilt haks changed what is drawn, and
   world_perf's content doctor, fixed: V6, V10, V12), and gave views to
   the five largest costs that grew with the module (D20, D23, B22, A18,
-  N16; [the log](log.md), 10 November). These have no view yet:
-  - (Engine and Rendering's) the renderer: a model view drawn beside
-    the area, `FRAME_DETAIL=1` (R9); an animated cloaked NPC out of the
-    map's region (R15); an interior with a flame on every tile (R16); a TDoD area of
-    tinted placeables (R22); texture memory and area opening with DDS
-    heads and many colored NPCs (R12, R13);
-  - (the command line's / Verify's) Verify, the plugins and the
-    models: a second Find with haks and game, Delete's question and Rename in a large module (V15 to V17); a
-    panel with `refresh = "selection"` over a large selection (C3), a
-    plugin check of many fixes in Verify Module (C4); `mg haks --usage`
-    on a module of many part-based creatures (M17); opening a large
-    nasher project (P19).
-  Each is a view to build in its timing test, timed before and after
-  its fix's commit: left as beyond what the reviewer's run was asked
-  (at most eight new views, the largest costs). The area editor's have
+  N16; [the log](log.md), 10 November). The renderer's six (R9, R12,
+  R13, R15, R16, R22) have theirs since 26 November
+  (`frame_perf::render_views::renderer_fixes_at_scale`, [the
+  log](log.md)); what they leave, each an area's draw alone: 2,000 of
+  The Domains of Dread's placeables tinted in 50 colorways encode 0.6
+  to 0.8 ms more than untinted, as much before R22's fix as after (its
+  lookup was not this cost; their 288 more draws, each colorway of a
+  model batched apart, are about a third by the average time a draw
+  takes, the rest not found): under a millisecond, and the area's draw
+  of 2,000 placeables (5.8 to 7.6 ms encoded) is "The largest areas in
+  full view"'s cost, so left; and a second view drawn through a large
+  area's renderer between its frames still costs the area's encoding
+  0.20 to 0.43 ms more than the same view drawn through a renderer of
+  its own (develop, three runs at a load of 10 to 17; the shadow map is
+  drawn again in neither): something of a view's still redone that R9's
+  fix did not keep, not found within the 5.4.0 release's time for these
+  views (finding it is a profile of the renderer's own caches), under a
+  millisecond, so left.
+  The command line's and Verify's (V15 to V17, C3, C4, M17, P19) were timed on 26 November
+  (`mg-module`'s `tests/timing.rs`, `mg-plugin`'s `tests/timing.rs`, `apps/mg`'s
+  `tests/timing.rs`; three alternating rounds at load 10 to 30, the lowest, the
+  median, the highest of nine runs, [the log](log.md)). All held; what is
+  left, each with its reason: a second Find with the haks and the game
+  over 45,000 blueprints (V15) 1,952 / 2,169 / 3,731 ms before, 54 / 77 / 112
+  after, 29 / 36 / 41 with the sort's rank looked up once; the rest
+  (the layers' key lists walked and sorted again at each Find, about 25 ms)
+  is a cache of the wanted list by the game's generation and the module's
+  revision, a design of its own (beyond a local change). Delete's question
+  of 20 areas in 5,000 (V16) 29.8 / 39.0 / 58.7 s before, 0.65 / 0.70 / 1.05
+  s after, 0.35 s the first time and 0.14 to 0.17 s after with the tag
+  counts kept per index; the rest is the index's walk for the transitions
+  (7 ms an area, over the line; beyond a local change: a map of the
+  transitions by their destination tag, made with the index). Rename of a
+  script in 5,000 areas (V17) 21.4 / 23.1 / 40.1 ms before, 5.6 / 6.6 /
+  11.1 after (the module's copy and the 255 references' rewrite, at the
+  line). A panel over 500 selected objects (C3) 389 / 411 / 564 ms before
+  (it ran out of time), 3.5 / 4.3 / 6.8 after; 1,024 tiles 13.4 to 2.7 ms.
+  A check of 2,000 fixes over 10,000 resources (C4) 1,752 / 2,262 / 3,114
+  ms before, 61 / 90 / 92 after (a job's thread, not a frame).
+  `mg haks --usage` of 20,000 creatures and 10,000 scripts (M17) 3.1 / 3.3 /
+  4.6 s before, 1.4 / 1.5 / 2.8 after, against 0.94 / 1.0 / 1.4 and 0.82 /
+  0.85 / 1.3 for a small module (the process's own cost): +2.2 s to +0.6
+  s (a command, no frame). Opening a project of 30,000 sources (P19) 272 /
+  289 / 522 ms before, 230 / 239 / 255 after, its walk for the files left
+  out 117 / 118 / 214, then 69 / 71 / 78 (what is left is the folder's own
+  walk). Quiet-machine confirmation of all: waits on a calm machine
+  (load under 5).
+  The area editor's have
   theirs since 25 November (`frame_perf::area_editor_at_scale`, [the
   log](log.md)); what they leave, timed in a quiet slot (26 November
   07:10, the load 3 to 4, three runs): with 5,000 placeables selected,

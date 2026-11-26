@@ -70,6 +70,8 @@ mod sounds;
 mod test_cmd;
 #[path = "../texture.rs"]
 mod texture;
+#[path = "../timing.rs"]
+mod timing;
 #[path = "../tlk_alloc.rs"]
 mod tlk_alloc;
 #[path = "../tlk_io.rs"]
