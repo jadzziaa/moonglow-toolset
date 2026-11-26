@@ -2268,9 +2268,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 }
             }
             if by_name && named {
-                // (By the name drawn: tags and extensions leave the order.)
+                // (By the name drawn: tags and extensions leave the order.
+                // A space it begins with is kept, as Aurora sorts: builders
+                // put one there to have an area listed first, #54.)
                 let shown = |k: &ResKey| match read.get(k) {
-                    Some((Some(n), _)) => n.trim().to_string(),
+                    Some((Some(n), _)) => n.trim_end().to_string(),
                     _ => k.resref.to_string(),
                 };
                 keys.sort_by_cached_key(|k| (mg_core::text::sort_key(&shown(k)), *k));

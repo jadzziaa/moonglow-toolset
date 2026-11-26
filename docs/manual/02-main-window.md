@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-25T21:44:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T13:05:50Z }
 ---
 
 # The main window
@@ -535,7 +535,8 @@ Options › General › List areas and blueprints by name**, areas and
 blueprints are listed by their names instead (in the names' order,
 case and accents aside, so `Árboles` stands beside `arboles`, as
 polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка` beside
-`елка`; one without a name keeps its ResRef), areas' tabs are titled by name, the
+`елка`; a space a name begins with is kept, as in Aurora, so a name
+written with one is listed first; one without a name keeps its ResRef), areas' tabs are titled by name, the
 filter finds either, and the pointer resting on a
 row shows its name, its file's name with its extension, and its tag
 where tags are shown.

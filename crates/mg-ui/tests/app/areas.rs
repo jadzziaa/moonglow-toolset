@@ -1486,3 +1486,38 @@ fn a_module_folder_saved_with_nothing_changed_is_as_it_was() {
         .collect();
     assert!(changed.is_empty(), "rewritten though nothing changed: {changed:?}");
 }
+
+/// Edit Areas Together lists the areas as the Module panel does, a space
+/// a name begins with kept, as Aurora sorts them (#54): " Zeta Keep"
+/// before "Apple Inn".
+#[test]
+fn areas_together_keeps_a_leading_space_in_its_order() {
+    let dir = mg_testkit::scratch_dir("ui-areas-leading-space");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    for (name, title) in [("keep", " Zeta Keep"), ("inn", "Apple Inn")] {
+        let mut are = Gff::new(*b"ARE ");
+        let title = LocString::from_text(Language::ENGLISH, Gender::Male, title);
+        are.root.set("Name", mg_gff::Value::LocString(title));
+        m.set(ResKey::parse(name, ResType::ARE).unwrap(), are.to_bytes().unwrap());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.area_names = true;
+    app.area_set_dir = Some(dir.join("area-sets"));
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run();
+    at_rest(&mut h, "the Holding box", &|h| h.get_by_value("Anything").rect());
+    // (The section's rows: in the Right Dock, right of the module tree's.)
+    let row = |h: &Harness<'_, Moonglow>, name: &str| {
+        (h.get_all_by_label_contains(name).map(|n| n.rect()))
+            .max_by(|a, b| a.left().total_cmp(&b.left()))
+            .unwrap()
+    };
+    assert!(row(&h, "Zeta Keep").top() < row(&h, "Apple Inn").top(), "the leading space first");
+}
