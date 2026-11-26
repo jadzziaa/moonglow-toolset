@@ -124,7 +124,8 @@ fn half(data: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
 /// surface, where BC's 4×4 blocks would show.
 pub const COMPRESSED_FROM: u32 = 64;
 
-/// A texture read as RGBA8 (a TGA, a PLT in its colors) compressed for a
+/// A texture read as RGBA8 (a TGA; the renderer keeps a PLT's colored
+/// copies, a particle's and an additive one as they are) compressed for a
 /// 3D view as it is read: BC3 where its alpha is used (a texel under 255:
 /// cut-outs and see-through textures keep their alpha, the cut's 0 and
 /// 255 exact), BC1 where it isn't; with the encoder's quick effort, as

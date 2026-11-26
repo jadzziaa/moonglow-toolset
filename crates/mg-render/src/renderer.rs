@@ -857,7 +857,10 @@ fn load_texture(
     let ripple = ripple_of(&t.texture, &t.txi);
     // (A picture read as RGBA compressed, but where the rippling
     // procedure takes it: a compressed texture is a DDS to it.)
-    let compressed = (role.compressed(t.txi.blending()) && !t.txi.arturo())
+    // (A name in colors is a PLT's colored copy: only a PLT is asked for
+    // so, `Assets::takes_colors`.)
+    let plt = crate::assets::split_colors(name).1.is_some();
+    let compressed = (role.compressed(t.txi.blending(), plt) && !t.txi.arturo())
         .then(|| crate::texture::compressed(gpu, &t.texture, t.txi.mipmap()))
         .flatten();
     let uploaded = GpuTexture::try_upload(
@@ -917,8 +920,16 @@ impl Role {
     /// flare's dark rim (`fxpa_lensflare`, gray on black) drew green
     /// specks over area026's floor around its glow. Particles' pictures
     /// are small (64 to 128 pixels).
-    fn compressed(self, blending: mg_image::txi::Blending) -> bool {
-        self == Role::Picture && blending != mg_image::txi::Blending::Additive
+    ///
+    /// Nor a PLT's colored copy (`plt`): its layers (skin, cloth,
+    /// leather, metal…) are colored apart, so unrelated colors meet in
+    /// sharp edges inside a 4×4 block, which BC's two colors a block
+    /// can't hold: on armor dyed as builders dye it, the compressed copies
+    /// softened the plates' edges and dulled the metal trim and rivets
+    /// (`look_plt_creatures`), errors of up to 72 of 255 in the picture.
+    /// A copy is made for each object's colors, so it saves less anyway.
+    fn compressed(self, blending: mg_image::txi::Blending, plt: bool) -> bool {
+        self == Role::Picture && blending != mg_image::txi::Blending::Additive && !plt
     }
 }
 
@@ -4599,27 +4610,30 @@ mod tests {
 
     /// Only a picture drawn over what is behind it is compressed: not a
     /// particle's, nor one a TXI adds (`blending additive`), where BC1's
-    /// tints on dark grays add up layer on layer; nor a map.
+    /// tints on dark grays add up layer on layer; nor a PLT's colored
+    /// copy, whose layers' edges BC blurs; nor a map.
     #[test]
     fn only_pictures_drawn_over_what_is_behind_are_compressed() {
         use super::Role;
         use mg_image::txi::Blending::{Additive, Default, Punchthrough};
-        for (role, blending, compressed) in [
-            (Role::Picture, Default, true),
-            (Role::Picture, Punchthrough, true),
-            (Role::Picture, Additive, false),
-            (Role::Particle, Default, false),
-            (Role::Particle, Additive, false),
-            (Role::Map, Default, false),
+        for (role, blending, plt, compressed) in [
+            (Role::Picture, Default, false, true),
+            (Role::Picture, Punchthrough, false, true),
+            (Role::Picture, Additive, false, false),
+            (Role::Picture, Default, true, false),
+            (Role::Particle, Default, false, false),
+            (Role::Particle, Additive, false, false),
+            (Role::Map, Default, false, false),
         ] {
-            assert_eq!(role.compressed(blending), compressed, "{role:?} {blending:?}");
+            assert_eq!(role.compressed(blending, plt), compressed, "{role:?} {blending:?} {plt}");
         }
     }
 
     /// Pictures read as RGBA, of each kind, as `load_texture` reads them
     /// with the compression on and off: whatever their format on the GPU
     /// (BC1 opaque, BC3 with alpha used, RGBA8 small, a map, a particle's,
-    /// an additive one or the rippling procedure's), what is known of their alpha (see-through,
+    /// an additive one, a PLT's colored copy or the rippling procedure's),
+    /// what is known of their alpha (see-through,
     /// cut) is the same, and their texels within BC's error.
     #[test]
     fn a_texture_compressed_as_it_is_read_keeps_what_is_known_of_it() {
@@ -4659,9 +4673,10 @@ mod tests {
                     "additive" => (false, "blending additive\n"),
                     _ => (true, ""),
                 };
-                let base = match name {
+                // (A name in colors: a PLT's colored copy.)
+                let base = match crate::assets::split_colors(name).0 {
                     "ripple" | "additive" => "opaque32",
-                    _ => name,
+                    base => base,
                 };
                 let texture = picture(base)?.into_texture(has_alpha);
                 Some(crate::LoadedTexture {
@@ -4690,6 +4705,7 @@ mod tests {
             ("ripple", Role::Picture, Rgba8Unorm),
             ("opaque32", Role::Particle, Rgba8Unorm),
             ("additive", Role::Picture, Rgba8Unorm),
+            ("opaque32#1,2,3,4,5,6,7,8,9,10", Role::Picture, Rgba8Unorm),
         ] {
             let (on, off) = (read(name, role, true), read(name, role, false));
             let want = if bc { want } else { Rgba8Unorm };
