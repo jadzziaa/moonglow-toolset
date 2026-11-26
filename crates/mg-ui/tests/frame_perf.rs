@@ -5621,3 +5621,866 @@ fn link_dir(from: &std::path::Path, to: &std::path::Path) {
         }
     }
 }
+
+/// The worst of the first `count` frames a click, a key or an opening
+/// lands in, the pointer doing `pointer`: a line against the budget.
+fn landed(
+    h: &mut App<'_>,
+    lines: &mut Vec<String>,
+    what: &str,
+    pointer: Pointer,
+    count: usize,
+) -> Duration {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let f = frames(h, screen, pointer, count, |_, _| {});
+    let worst = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).max().unwrap();
+    let verdict = if worst > BUDGET { "over the budget" } else { "within the budget" };
+    let line = format!("{what}: its worst frame {:.2} ms, {verdict}", ms(worst));
+    println!("  {line}");
+    lines.push(line);
+    worst
+}
+
+/// [`against`] for a view whose rest is in another window (a module of
+/// another size open): each taken over its own window's control (the
+/// window with nothing open), so that what the two modules cost apart
+/// from the view is left out. `rest` and `it` are (the view, the control).
+fn against_controlled(
+    lines: &mut Vec<String>,
+    what: &str,
+    rest: (Option<Duration>, Option<Duration>),
+    it: (Option<Duration>, Option<Duration>),
+) {
+    let (Some(rest), Some(rest_control), Some(it), Some(it_control)) = (rest.0, rest.1, it.0, it.1)
+    else {
+        return;
+    };
+    let micros = |d: Duration| d.as_secs_f64() * 1e6;
+    let by = (micros(it) - micros(it_control)) - (micros(rest) - micros(rest_control));
+    let verdict = if by > micros(UI_LINE) { "find" } else { "within" };
+    let line = format!(
+        "{what}: ui {:.3} ms over its control {:.3}, the small module's {:.3} over {:.3}: \
+         {by:+.0} µs, {verdict}",
+        ms(it),
+        ms(it_control),
+        ms(rest),
+        ms(rest_control)
+    );
+    println!("  {line}");
+    lines.push(line);
+}
+
+/// What [`editors_project`] made: a module folder with its project's
+/// files (a claims table of its areas, a talk map, described variables)
+/// and its own custom talk table in the scratch user folder.
+struct EditorsProject {
+    path: std::path::PathBuf,
+    /// Its areas.
+    areas: usize,
+    /// An area of many placeables (3,000 of `plc_armoire`; 20 in the small
+    /// project), and one of 20.
+    placed: ResRef,
+    few: ResRef,
+    placed_count: usize,
+    /// A conversation of lines "The road, line 00000." at its root.
+    talk: ResKey,
+    talk_lines: usize,
+    /// A creature blueprint (the game's `nw_bandit001`): its Basic page.
+    creature: ResKey,
+    /// The lines of its custom talk table and of its talk map.
+    tlk_lines: usize,
+    map_lines: usize,
+    /// The talk map's file.
+    map: std::path::PathBuf,
+}
+
+/// The project [`editors_at_scale`] times in: `large`, a copy of the
+/// persistent world's module (`world/mod.rs`) grown to 1,400 areas, with
+/// an area of 3,000 placeables, a conversation of 20,000 lines, a custom
+/// talk table of 50,000 lines and a talk map of 20,000; else a new module
+/// of four areas, 20 placeables, 20 lines, a table of 100 and a map of
+/// 20, the world's haks named by both (the same game data). Each has a
+/// claims table of every area (every other claimed by `cd`; the builder is
+/// `ab`) and two variables described as rows of `racialtypes.2da` and two
+/// of `placeables.2da`.
+fn editors_project(
+    game: &mg_rules::GameData,
+    world: &std::path::Path,
+    dir: &std::path::Path,
+    user: &std::path::Path,
+    large: bool,
+) -> EditorsProject {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    use mg_module::new::{AreaSpec, add_area_of, new_module};
+    let mut rng = fastrand::Rng::with_seed(24);
+    let w = mg_module::Module::open(world).unwrap();
+    let mut m = match large {
+        true => w,
+        false => {
+            let mut m = new_module(game, "Editors, small", &mut rng).unwrap();
+            let haks = w.info().unwrap().root.list("Mod_HakList").unwrap_or(&[]).to_vec();
+            let mut info = m.info().unwrap();
+            info.root.set("Mod_HakList", Value::List(haks));
+            m.set_info(&info).unwrap();
+            m
+        }
+    };
+    let (total, placed_count, talk_lines, tlk_lines, map_lines) = match large {
+        true => (1_400, 3_000, 20_000, 50_000, 20_000),
+        false => (4, 20, 20, 100, 20),
+    };
+    let ttr01 = ResRef::from_str("ttr01").unwrap();
+    let set = game.resman.get_named("ttr01", ResType::SET).unwrap();
+    let set = mg_set::Tileset::parse(&set, game.codepage()).unwrap();
+    let spec = |name: &str, side: u32| AreaSpec {
+        name: name.into(),
+        tileset: ttr01,
+        width: side,
+        height: side,
+    };
+    let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let placed = add_area_of(&mut m, game, &spec("A Placed Many", 8), &set, &mut rng).unwrap();
+    place(&mut m, game, &bp.root, placed, placed_count, 80.0, &mut rng);
+    let few = add_area_of(&mut m, game, &spec("A Placed Few", 8), &set, &mut rng).unwrap();
+    place(&mut m, game, &bp.root, few, 20, 80.0, &mut rng);
+    let had = m.areas().unwrap().len();
+    for n in had..total {
+        add_area_of(&mut m, game, &spec(&format!("Filler {n:04}"), 2), &set, &mut rng).unwrap();
+    }
+    // The conversation.
+    let talk = ResKey::parse("mg_talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    for i in 0..talk_lines {
+        add_node(&mut g, Parent::Root, &format!("The road, line {i:05}."));
+    }
+    m.set_gff(talk, &g).unwrap();
+    // The creature.
+    let creature = ResKey::parse("mg_crea", ResType::UTC).unwrap();
+    let mut c = Gff::read(&game.resman.get_named("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    c.root.set("TemplateResRef", Value::resref(creature.resref));
+    m.set_gff(creature, &c).unwrap();
+    // The custom talk table, in the user folder's `tlk`.
+    let tlk = if large { "mg_big" } else { "mg_small" };
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", Value::String(tlk.as_bytes().to_vec()));
+    m.set_info(&info).unwrap();
+    let mut t = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    t.entries = (0..tlk_lines)
+        .map(|i| mg_tlk::TlkEntry {
+            flags: mg_tlk::FLAG_TEXT,
+            text: format!("Line {i} of the custom table").into_bytes(),
+            ..Default::default()
+        })
+        .collect();
+    std::fs::write(user.join("tlk").join(format!("{tlk}.tlk")), t.to_bytes().unwrap()).unwrap();
+    let path = dir.join(if large { "large" } else { "small" });
+    m.save_as(&ModuleLocation::Folder(path.clone())).unwrap();
+    let areas = m.areas().unwrap();
+    // The project's files.
+    let mut claims =
+        String::from("2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n");
+    for (i, a) in areas.iter().enumerate() {
+        let (who, status) = if i % 2 == 0 { ("cd", "claimed") } else { ("****", "****") };
+        claims += &format!("{i}   {a:<16} {who:<8} {status:<8} 2026-10-20  ****\n");
+    }
+    std::fs::write(path.join("claims.2da"), claims).unwrap();
+    std::fs::write(
+        path.join("moonglow.toml"),
+        "[claims]\nfile = \"claims.2da\"\n\n[talk]\nlines = \"0-99999\"\nmap = \"tlk-map.json\"\n",
+    )
+    .unwrap();
+    let map = path.join("tlk-map.json");
+    write_map(&map, map_lines);
+    let mut variables = String::new();
+    for (name, table) in [("mg_race", "racialtypes"), ("mg_look", "placeables")] {
+        for name in [name.to_string(), format!("{name}_too")] {
+            variables += &format!(
+                "[{name}]\ntype = \"int\"\non = [\"placeable\"]\ntable = \"{table}\"\n\
+                 help = \"A row of {table}.2da\"\n\n"
+            );
+        }
+    }
+    std::fs::write(path.join("variables.toml"), variables).unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&path, Some("ab")).unwrap();
+    EditorsProject {
+        path,
+        areas: areas.len(),
+        placed,
+        few,
+        placed_count,
+        talk,
+        talk_lines,
+        creature,
+        tlk_lines,
+        map_lines,
+        map,
+    }
+}
+
+/// A talk map (`mg tlk-alloc`'s) of `lines` keys, a line each from 0.
+fn write_map(path: &std::path::Path, lines: usize) {
+    let map = mg_module::tlk_alloc::Map {
+        lines: (0..lines).map(|i| (format!("mg.line.{i:05}"), i as u32)).collect(),
+        retired: Default::default(),
+    };
+    std::fs::write(path, map.to_json()).unwrap();
+}
+
+/// What [`module_views`] timed.
+#[derive(Default)]
+struct ModuleTimed {
+    control: Option<Duration>,
+    claims: Option<Duration>,
+    save: Option<Duration>,
+    typed: Option<Duration>,
+}
+
+/// The views timed in both projects of [`editors_at_scale`], the small and
+/// the large: the window with nothing open (the control), the Claims Table
+/// of every area, the frames a hak's save lands in (a copy of the game's
+/// `id_resources.hak`, a file added), and those a name typed into the talk
+/// table lands in (a creature blueprint's First Name, on its Basic page).
+fn module_views(
+    h: &mut App<'_>,
+    r: &mut Report,
+    lines: &mut Vec<String>,
+    p: &EditorsProject,
+    when: &str,
+    hak: &std::path::Path,
+) -> ModuleTimed {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let control =
+        timed(h, r, &format!("editors, nothing open, {when}"), "pointer", screen, Pointer::Moves);
+    let mut out = ModuleTimed { control, ..Default::default() };
+    // D24: the Claims Table.
+    let name = "Claims Table";
+    if editors_wanted(r, name) {
+        menu(h, "Edit", "Claims Table…");
+        h.run_steps(5);
+        assert_eq!(
+            h.state().bottom_dock_shows(),
+            Some(mg_ui::Panel::ClaimsTable),
+            "{name} not shown ({when})"
+        );
+        assert!(
+            h.query_by_label_contains("claims.2da: whose each area is").is_some(),
+            "{name}: not its table ({when})"
+        );
+        let what = format!("{name} of {} areas, {when}", p.areas);
+        out.claims = timed(h, r, &what, "pointer", screen, Pointer::Moves);
+        click(h, "Close Report");
+        h.run_steps(3);
+    }
+    // The last pass's item 17: a hak saved with the module open.
+    let name = "hak saved";
+    if editors_wanted(r, name) {
+        let id = mg_ui::hak_view::open_at(h.state_mut(), hak).expect("the hak");
+        let t = Tab::Hak(id);
+        let extra = hak.with_file_name("mg_extra.mdl");
+        std::fs::write(&extra, b"extra").unwrap();
+        h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().hak.add_files(&[extra]);
+        h.run_steps(5);
+        let rect = rect_of(h.state(), &t).expect("the hak's tab");
+        let button = h
+            .query_all_by_label("Save")
+            .map(|n| n.rect())
+            .find(|b| rect.contains(b.center()))
+            .expect("the hak editor's Save")
+            .center();
+        let resources = h.state().ws.as_ref().map_or(0, |ws| ws.module.len());
+        let what = format!("{name}, the click, {when} ({resources} resources)");
+        let click = landed(h, lines, &what, Pointer::Clicks(button), 4);
+        // (Then the frames until it is written and taken as saved, and a
+        // few after.)
+        let (begun, mut worst, mut count, mut after) = (Instant::now(), Duration::ZERO, 0, 0);
+        while after < 4 {
+            let f = frames(h, screen, Pointer::Away, 1, |_, _| {});
+            worst = worst.max(f.ui[0] + f.tessellate[0]);
+            count += 1;
+            after += usize::from(!h.state().busy());
+            assert!(begun.elapsed() < Duration::from_secs(120), "{name}: not saved ({when})");
+        }
+        let verdict = if worst > BUDGET { "over the budget" } else { "within the budget" };
+        let line = format!(
+            "{name}, the frames until it is saved, {when}: {count}, the worst {:.2} ms, {verdict}",
+            ms(worst)
+        );
+        println!("  {line}");
+        lines.push(line);
+        out.save = Some(click.max(worst));
+        h.run_steps(3);
+        let failed = h.state().log.entries.iter().any(|(_, m)| m.contains("Could not save"));
+        assert!(!failed, "{name}: {:?}", h.state().log.entries);
+        close(h, &t);
+    }
+    // D27: a name typed into the talk table.
+    let name = "typed line";
+    if editors_wanted(r, name) {
+        out.typed =
+            Some(typed_commit(h, lines, p, &format!("{name}, {when}"), ("Bandit", "Typed In")));
+    }
+    out
+}
+
+/// `FRAME_VIEW`'s pick, for [`editors_at_scale`]'s groups.
+fn editors_wanted(r: &Report, what: &str) -> bool {
+    r.only.as_ref().is_none_or(|o| what.contains(o.as_str()) || o.starts_with(what))
+}
+
+/// The creature blueprint's First Name (`from`) typed anew (`text`) and let go
+/// (Enter), on its Basic page: the worst of the frames that lands in. The
+/// window's Options › Language says whether the text goes into the talk
+/// table.
+fn typed_commit(
+    h: &mut App<'_>,
+    lines: &mut Vec<String>,
+    p: &EditorsProject,
+    what: &str,
+    (from, text): (&str, &'static str),
+) -> Duration {
+    use mg_edit::GffPath;
+    let t = Tab::Blueprint(p.creature);
+    h.state_mut().blueprint_pages.insert((p.creature, GffPath::root()), "Basic");
+    open(h, t.clone());
+    h.run_steps(5);
+    let first = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(from)
+    };
+    h.query(egui_kittest::kittest::by().predicate(first))
+        .unwrap_or_else(|| panic!("{what}: no field of {from:?}"))
+        .click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(1);
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(2);
+    let away = egui::pos2(screen_size().x - 20.0, screen_size().y - 20.0);
+    let worst = landed(h, lines, what, Pointer::Keys(away, egui::Key::Enter, 1_000), 8);
+    h.run_steps(5);
+    assert!(h.query_all_by_value(text).next().is_some(), "{what}: the name not set");
+    close(h, &t);
+    worst
+}
+
+/// The review of November 2026's editor findings at the sizes they name
+/// (the deferred list's "performance fixes without a timing view": D20's,
+/// D21, D23's rest, D24, D25, D27, D29, S20 and the last pass's item 17),
+/// each against the same view at a small size, timed just before it, in a
+/// project made from the persistent world's module (`editors_project`:
+/// 1,400 areas, the world's haks): `spells.2da` in the 2DA editor at the
+/// window's full width, its copy under another name (no description) at
+/// full width against the copy cut to the columns in sight (D20);
+/// `placeables.2da`'s ModelName chosen with Choose Model open against
+/// closed, over the haks' models, and a described table of 20,000 rows
+/// whose `PREREQFEAT1` names a row of itself, a cell of it chosen against
+/// one of its Label (D21); Advanced Search with every one of the world's
+/// variables ticked, with a plugin whose command is for them against
+/// without (D23); a conversation's Search finding 20,000 lines against 10
+/// (and the click of Find), Build Module's 20,000 results in Problems
+/// against 20, an area's Placeable List of 3,000 opened in the raw fields
+/// view against 20 (D24); Module Properties › Custom Content with a talk
+/// map of 20,000 lines against 20 (D25); the read-only viewer on
+/// `nwscript.nss` against a short script (D29); the Variables window with
+/// a variable of `placeables.2da`'s rows against one of `racialtypes.2da`,
+/// its list closed and open (S20, item 17); the module tree with the area
+/// of 3,000 opened out against the area of 20 (item 17). In both
+/// projects, the large and a small one (`module_views`): the Claims Table
+/// (1,400 areas against 4, each over its window's control), the click
+/// that saves a hak (item 17) and a name typed into the custom talk table
+/// (50,000 lines against 100; in the large also with the text kept in the
+/// field, D27), the frames they land in held to the budget.
+/// `FRAME_VIEW=<part of a name>` picks a group ("2DA editor", "Advanced
+/// Search", "Claims Table", "conversation's Search", "Build Module", "raw
+/// fields", "Custom Content", "read-only viewer", "Variables window",
+/// "module tree", "hak saved", "typed line").
+#[test]
+#[ignore]
+fn editors_at_scale() {
+    use mg_edit::GffPath;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let Some(w) = world::world(&root) else { return };
+    let dir = mg_testkit::scratch_dir("frame-perf-editors");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    link_dir(&w.user.join("hak"), &user.join("hak"));
+    let begun = Instant::now();
+    let (small, large) = {
+        let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+        (
+            editors_project(&game, &w.module, &dir, &user, false),
+            editors_project(&game, &w.module, &dir, &user, true),
+        )
+    };
+    println!("the editors at scale: the projects made in {:.1?}", begun.elapsed());
+    let haks = dir.join("haks");
+    std::fs::create_dir_all(&haks).unwrap();
+    let hak = haks.join("mg_save.hak");
+    std::fs::copy(root.join("data/hk/id_resources.hak"), &hak).unwrap();
+    let mut r = Report::new();
+    let mut lines = Vec::new();
+    println!("the editors at scale: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user.clone()), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.set_render_state(rs.clone());
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.settings.no_last_area = true;
+    app.settings.talk_typed = true;
+    app.open_module(&small.path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    // (Pictures read apart, as the desktop app reads them.)
+    h.state_mut().background_jobs = true;
+    fold_palette(&mut h);
+    close(&mut h, &Tab::ModuleProperties);
+    close_areas(&mut h);
+    h.run_steps(5);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let corner = egui::pos2(screen.right() - 20.0, screen.bottom() - 20.0);
+
+    // The small project's views, then the large's.
+    let few = module_views(&mut h, &mut r, &mut lines, &small, "the small module", &hak);
+    h.state_mut().open_module(&large.path);
+    h.run_steps(5);
+    close(&mut h, &Tab::ModuleProperties);
+    close_areas(&mut h);
+    h.run_steps(5);
+    let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap().len();
+    assert_eq!(areas, large.areas, "the large module's areas");
+    let control = timed(
+        &mut h,
+        &mut r,
+        "editors, nothing open, the large module",
+        "pointer",
+        screen,
+        Pointer::Moves,
+    );
+
+    // D20's rest: spells.2da at the window's width.
+    let name = "2DA editor";
+    if editors_wanted(&r, name) {
+        let tables = dir.join("tables");
+        std::fs::create_dir_all(&tables).unwrap();
+        let game = h.state().game.clone().unwrap();
+        let cp = game.codepage();
+        let spells = game.table("spells").unwrap();
+        let open_table = |h: &mut App<'_>, path: &std::path::Path| -> (u32, Tab) {
+            let id = mg_ui::table_view::open_path(h.state_mut(), path).expect("the table");
+            h.run_steps(5);
+            (id, Tab::Table(id))
+        };
+        std::fs::write(tables.join("spells.2da"), spells.to_bytes(cp).unwrap()).unwrap();
+        let (_, t) = open_table(&mut h, &tables.join("spells.2da"));
+        let rect = rect_of(h.state(), &t).expect("the table's tab");
+        let columns = spells.columns().to_vec();
+        let what = format!("{name}, spells.2da ({} columns, {} rows)", columns.len(), spells.len());
+        timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves);
+        // The columns in sight: their heads in the tab, beside the first's.
+        let head = h
+            .query_all_by_label(&columns[0])
+            .map(|n| n.rect())
+            .find(|b| rect.contains(b.center()))
+            .expect("the first column's head");
+        let in_sight = columns
+            .iter()
+            .take_while(|c| {
+                h.query_all_by_label(c).any(|n| {
+                    let b = n.rect();
+                    (b.center().y - head.center().y).abs() < 3.0 && b.left() < rect.right()
+                })
+            })
+            .count();
+        println!("  ({name}: {in_sight} of spells.2da's {} columns in sight)", columns.len());
+        assert!(in_sight > 3 && in_sight < columns.len(), "{name}: {in_sight} columns in sight");
+        close(&mut h, &t);
+        // The same under another name (no description, no game copy):
+        // cut to the columns in sight, then whole.
+        let mut cut = (*spells).clone();
+        while cut.columns().len() > in_sight {
+            cut.remove_column(cut.columns().len() - 1);
+        }
+        std::fs::write(tables.join("mg_cut.2da"), cut.to_bytes(cp).unwrap()).unwrap();
+        std::fs::write(tables.join("mg_wide.2da"), spells.to_bytes(cp).unwrap()).unwrap();
+        let mut took = Vec::new();
+        for (file, what) in [
+            ("mg_cut.2da", format!("its {in_sight} columns in sight")),
+            ("mg_wide.2da", format!("all {} columns", columns.len())),
+        ] {
+            let (_, t) = open_table(&mut h, &tables.join(file));
+            let rect = rect_of(h.state(), &t).expect("the table's tab");
+            let what = format!("{name}, spells.2da's rows as {file}, {what}");
+            took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
+            close(&mut h, &t);
+        }
+        against(&mut lines, &format!("{name}, spells.2da at the full width"), took[0], took[1]);
+
+        // D21: Choose Model open over the haks' models.
+        let placeables = game.table("placeables").unwrap();
+        std::fs::write(tables.join("placeables.2da"), placeables.to_bytes(cp).unwrap()).unwrap();
+        let (id, t) = open_table(&mut h, &tables.join("placeables.2da"));
+        let model = placeables.column("ModelName").expect("ModelName");
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, model);
+        // (The Cell panel shown, loudly: the Right Dock may be folded.)
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Cell));
+        h.run_steps(5);
+        assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Cell), "{name}: no Cell panel");
+        assert!(h.query_by_label("Choose Model…").is_some(), "{name}: no Choose Model…");
+        let what = format!("{name}, placeables.2da's ModelName chosen ({} rows)", placeables.len());
+        let rest = timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves);
+        click(&mut h, "Choose Model…");
+        h.run_steps(5);
+        // (Its list: the first of the models by name, in the Right Dock,
+        // those in sight laid out.)
+        let dock = h.state().right_dock_rect().expect("the Right Dock");
+        let listed = h
+            .query_all_by(|n| n.label().is_some())
+            .filter(|n| dock.contains(n.rect().center()))
+            .skip_while(|n| n.accesskit_node().label().as_deref() != Some("Choose Model…"))
+            .count();
+        assert!(listed > 8, "{name}: Choose Model's list not shown ({listed})");
+        let models = game.resman.list(ResType::MDL).len();
+        let of = format!("{models} models");
+        let what = format!("{name}, Choose Model open ({of})");
+        let it = timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves);
+        against(&mut lines, &what, rest, it);
+        click(&mut h, "Choose Model…");
+        close(&mut h, &t);
+
+        // D21: a described table whose Row column names its own rows.
+        let own = dir.join("described");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::write(own.join("nasher.cfg"), "").unwrap();
+        let mut text = String::from("2DA V2.0\n\n  Label PREREQFEAT1 Other\n");
+        let rows = 20_000;
+        for i in 0..rows {
+            text += &format!("{i} Feat_{i} {} {i}\n", (i * 7) % rows);
+        }
+        std::fs::write(own.join("myfeat.2da"), text).unwrap();
+        std::fs::write(
+            own.join("myfeat.2da.toml"),
+            "[columns.PREREQFEAT1]\nkind = \"row\"\ntable = \"myfeat\"\n",
+        )
+        .unwrap();
+        let (id, t) = open_table(&mut h, &own.join("myfeat.2da"));
+        let begun = Instant::now();
+        let described = |h: &App<'_>| {
+            let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
+            doc.description().is_some_and(|d| d.column("PREREQFEAT1").is_some())
+        };
+        while !described(&h) {
+            h.run_steps(1);
+            assert!(begun.elapsed() < Duration::from_secs(60), "{name}: myfeat.2da not described");
+        }
+        let mut took = Vec::new();
+        for (column, what) in [(0, "its Label"), (1, "its PREREQFEAT1, a row of itself")] {
+            h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, column);
+            h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Cell));
+            h.run_steps(5);
+            assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Cell), "{name}: no Cell");
+            let what = format!("{name}, a described table of {rows} rows, a cell of {what}");
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+        }
+        let what = format!("{name}, a described table of {rows} rows, a cell naming its own row");
+        against(&mut lines, &what, took[0], took[1]);
+        close(&mut h, &t);
+    }
+
+    // D23's rest: Advanced Search with a plugin's command for the hits.
+    let name = "Advanced Search";
+    if editors_wanted(&r, name) {
+        use mg_ui::search::{AdvancedSearch, Condition, Kind};
+        let mut d = AdvancedSearch {
+            first: Condition { kind: Kind::Variable, name: "*".into(), ..Default::default() },
+            // (Placed objects' alone: a plugin's command is offered for the
+            // ticked hits only where each is something a command takes,
+            // which the module's and the areas' own variables are not.)
+            placed: Some(true),
+            ..Default::default()
+        };
+        h.state_mut().advanced_search(&mut d);
+        let found = d.hits.len();
+        assert!(found > 1_000, "{name}: {found} hits");
+        d.ticked = vec![true; found];
+        h.state_mut().advanced_search = d;
+        open(&mut h, Tab::AdvancedSearch);
+        h.run_steps(5);
+        let rect = rect_of(h.state(), &Tab::AdvancedSearch).expect("Advanced Search's tab");
+        let what = format!("{name}, {found} placed objects' variables ticked");
+        let rest = timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves);
+        let plugins = dir.join("plugins");
+        let plugin = plugins.join("each");
+        std::fs::create_dir_all(&plugin).unwrap();
+        std::fs::write(
+            plugin.join("plugin.cfg"),
+            "[plugin]\nid = \"test.each\"\nname = \"Each\"\nversion = \"1\"\napi = \"0.5\"\n\
+             license = \"MIT\"\n\n[command]\nid = \"each\"\ntitle = \"Each Kind\"\nfor = \"area, \
+             dlg, nss, jui, jrl, fac, creature, door, encounter, item, placeable, sound, store, \
+             trigger, waypoint\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("main.luau"),
+            "local mg = require(\"@moonglow\")\nmg.command(\"each\", function(ctx) end)\n",
+        )
+        .unwrap();
+        h.state_mut().plugin_dir = Some(plugins);
+        h.state_mut().load_plugins();
+        h.state_mut().enable_plugin("test.each", true);
+        h.run_steps(5);
+        let what = format!(
+            "{name}, {found} placed objects' variables ticked, a plugin's command for them"
+        );
+        let it = timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves);
+        against(&mut lines, &what, rest, it);
+        // (The command offered on a ticked hit: its menu.)
+        let hit = h
+            .query_all_by_label_contains(" › ")
+            .map(|n| n.rect())
+            .find(|b| rect.contains(b.center()))
+            .expect("a hit's row");
+        h.hover_at(hit.center());
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: hit.center(),
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("Each Kind").is_some(),
+            "{name}: the plugin's command not offered"
+        );
+        close_menu(&mut h);
+        h.state_mut().enable_plugin("test.each", false);
+        close(&mut h, &Tab::AdvancedSearch);
+    }
+
+    // D24: a conversation's Search.
+    let name = "conversation's Search";
+    if editors_wanted(&r, name) {
+        let t = Tab::Dialog(large.talk);
+        open(&mut h, t.clone());
+        h.run_steps(5);
+        h.state_mut().show_conversation_search(large.talk);
+        h.run_steps(3);
+        let mut took = Vec::new();
+        for (find, n) in [("line 0001", 10), ("road", large.talk_lines)] {
+            {
+                let view = h.state_mut().dialog_views.get_mut(&large.talk).unwrap();
+                view.search.find = find.into();
+                view.search.all_files = false;
+            }
+            h.run_steps(2);
+            let button = h.query_all_by_label("Find").last().expect("Find").rect().center();
+            let what = format!("{name}, the click of Find ({n} found)");
+            landed(&mut h, &mut lines, &what, Pointer::Clicks(button), 4);
+            h.run_steps(3);
+            let results = h.state().dialog_views[&large.talk].search.results.len();
+            assert_eq!(results, n, "{name}: found for {find:?}");
+            let what = format!("{name}, {n} found");
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+        }
+        against(&mut lines, &format!("{name}, {} found", large.talk_lines), took[0], took[1]);
+        close(&mut h, &t);
+    }
+
+    // D24: Build Module's results, in Problems.
+    let name = "Build Module";
+    if editors_wanted(&r, name) {
+        use mg_ui::problems::{Go, Problem, Source};
+        let made = |n: usize| -> Vec<Problem> {
+            (0..n)
+                .map(|i| {
+                    let key = ResKey::parse(&format!("mg_unused{i:05}"), ResType::NSS).unwrap();
+                    let mut p = Problem::new(
+                        mg_module::doctor::Severity::Warning,
+                        format!("mg_unused{i:05}.nss"),
+                        "Unused: nothing in the module runs this script".into(),
+                        Some(Go::Resource(key)),
+                    );
+                    p.unused = Some(mg_module::verify::Unused { key, script: None });
+                    p
+                })
+                .collect()
+        };
+        let mut took = Vec::new();
+        for n in [20, 20_000] {
+            h.state_mut().problems.replace(Source::Build, made(n), None);
+            h.state_mut().problems.select(Some((Source::Build, 0)));
+            h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Problems));
+            h.run_steps(5);
+            assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems));
+            let what = format!("{name}'s {n} results in Problems, one chosen");
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+        }
+        against(&mut lines, &format!("{name}'s 20000 results in Problems"), took[0], took[1]);
+        h.state_mut().problems.remove(&Source::Build);
+        h.run_steps(3);
+    }
+
+    // D24: an area's Placeable List in the raw fields view.
+    let name = "raw fields";
+    if editors_wanted(&r, name) {
+        let mut took = Vec::new();
+        for (area, n) in [(large.few, 20), (large.placed, large.placed_count)] {
+            let t = Tab::Gff(ResKey::new(area, ResType::GIT));
+            open(&mut h, t.clone());
+            h.run_steps(5);
+            click(&mut h, &format!("{n} items"));
+            h.run_steps(3);
+            assert!(h.query_by_label_contains("[0] struct").is_some(), "{name}: the list not open");
+            let rect = rect_of(h.state(), &t).expect("the fields' tab");
+            let what = format!("{name} view, an area's Placeable List of {n} opened");
+            took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
+            close(&mut h, &t);
+        }
+        let what =
+            format!("{name} view, an area's Placeable List of {} opened", large.placed_count);
+        against(&mut lines, &what, took[0], took[1]);
+    }
+
+    // D25: Module Properties › Custom Content with a talk map.
+    let name = "Custom Content";
+    if editors_wanted(&r, name) {
+        open(&mut h, Tab::ModuleProperties);
+        h.run_steps(3);
+        click(&mut h, "Custom Content");
+        h.run_steps(5);
+        let mut took = Vec::new();
+        for n in [20, large.map_lines] {
+            write_map(&large.map, n);
+            h.run_steps(5);
+            assert!(h.query_by_label_contains("Next: line").is_some(), "{name}: no room said");
+            let what = format!(
+                "Module Properties › {name}, a talk map of {n} lines ({} in the table)",
+                large.tlk_lines
+            );
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+        }
+        let what = format!("Module Properties › {name}, a talk map of {} lines", large.map_lines);
+        against(&mut lines, &what, took[0], took[1]);
+        close(&mut h, &Tab::ModuleProperties);
+    }
+
+    // D29: the read-only viewer on nwscript.nss.
+    let name = "read-only viewer";
+    if editors_wanted(&r, name) {
+        let mut took = Vec::new();
+        let mut whats = Vec::new();
+        for script in ["nw_c2_default1", "nwscript"] {
+            let key = ResKey::parse(script, ResType::NSS).unwrap();
+            let lines_of = {
+                let game = h.state().game.as_deref().unwrap();
+                let data = game.resman.get(&key).expect("the game's script");
+                data.iter().filter(|b| **b == b'\n').count()
+            };
+            let t = Tab::Resource(key);
+            open(&mut h, t.clone());
+            h.run_steps(10);
+            let rect = rect_of(h.state(), &t).expect("the viewer's tab");
+            let what = format!("{name}, {script}.nss ({lines_of} lines)");
+            took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
+            whats.push(what);
+            close(&mut h, &t);
+        }
+        against(&mut lines, &whats[1], took[0], took[1]);
+    }
+
+    // S20 and item 17: the Variables window on a variable of a table's rows.
+    let name = "Variables window";
+    if editors_wanted(&r, name) {
+        use mg_ui::widgets::{FieldTarget, VarRow, VarTableEdit};
+        let git = ResKey::new(large.placed, ResType::GIT);
+        let path = GffPath::root().item("Placeable List", 0);
+        let (mut closed, mut opened, mut whats) = (Vec::new(), Vec::new(), Vec::new());
+        for (var, table) in [("mg_race", "racialtypes"), ("mg_look", "placeables")] {
+            let rows = h.state().game.as_deref().unwrap().table(table).map_or(0, |t| t.len());
+            let mut edit = VarTableEdit::new(FieldTarget::new(git, path.clone(), "VarTable"), &[]);
+            edit.rows = vec![VarRow::new(var, 1, "5"), VarRow::new(&format!("{var}_too"), 1, "")];
+            h.state_mut().var_edit = Some(edit);
+            h.run_steps(5);
+            let what = format!("{name}, a variable of {table}.2da's {rows} rows");
+            closed.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+            let choose = h.query_all_by_value("(choose)").next().expect("the second row's values");
+            choose.click();
+            h.run_steps(3);
+            let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == egui::accesskit::Role::TextInput && n.placeholder() == Some("Filter")
+            };
+            let shown = h.query_all(egui_kittest::kittest::by().predicate(filter)).next().is_some();
+            assert!(shown, "{name}: the values' list not open ({table})");
+            let what = format!("{what}, its list open");
+            opened.push(timed(&mut h, &mut r, &what, "still", screen, Pointer::Rests(corner)));
+            whats.push(what);
+            h.key_press(egui::Key::Escape);
+            h.run_steps(3);
+            h.state_mut().var_edit = None;
+            h.run_steps(3);
+        }
+        let what = format!("{name}, a variable of placeables.2da's rows");
+        against(&mut lines, &what, closed[0], closed[1]);
+        against(&mut lines, &whats[1], opened[0], opened[1]);
+    }
+
+    // Item 17: the module tree with an area opened out.
+    let name = "module tree";
+    if editors_wanted(&r, name) {
+        let mut took = Vec::new();
+        for (area, n) in [(large.few, 20), (large.placed, large.placed_count)] {
+            let arrow = format!("Placed Objects in {area}");
+            click(&mut h, &arrow);
+            h.run_steps(5);
+            let kind = format!("Placeables ({n})");
+            click(&mut h, &kind);
+            h.run_steps(5);
+            // (Its placeables in sight in the tree, under the area's row:
+            // a row out of sight costs nothing.)
+            let tree = h.get_by_label("Module Tree Rows").rect();
+            let rows = h
+                .query_all_by_label("Armoire")
+                .filter(|n| tree.contains(n.rect().center()))
+                .count();
+            assert!(rows >= 20, "{name}: {rows} of the area's placeables in sight");
+            let what =
+                format!("{name}, an area of {n} placeables opened out ({rows} rows in sight)");
+            took.push(timed(&mut h, &mut r, &what, "pointer", screen, Pointer::Moves));
+            // (Closed again: the next area's rows where these were.)
+            click(&mut h, &arrow);
+            h.run_steps(5);
+        }
+        let what = format!("{name}, an area of {} placeables opened out", large.placed_count);
+        against(&mut lines, &what, took[0], took[1]);
+    }
+
+    let many = module_views(&mut h, &mut r, &mut lines, &large, "the large module", &hak);
+    // D27: the same name typed with the text kept in the field (Options ›
+    // Language's switch off), against into the table.
+    let name = "typed line";
+    if editors_wanted(&r, name) {
+        h.state_mut().settings.talk_typed = false;
+        let what = format!("{name}, the large module, the text kept in the field");
+        typed_commit(&mut h, &mut lines, &large, &what, ("Typed In", "Typed Kept"));
+        h.state_mut().settings.talk_typed = true;
+    }
+    against_controlled(
+        &mut lines,
+        &format!("Claims Table of {} areas", large.areas),
+        (few.claims, few.control),
+        (many.claims, many.control),
+    );
+    let _ = control;
+    println!(
+        "against their resting views (the line {} µs):\n  {}",
+        UI_LINE.as_micros(),
+        lines.join("\n  ")
+    );
+    r.end();
+}

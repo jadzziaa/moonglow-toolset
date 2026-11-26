@@ -250,7 +250,7 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        self.start_job_on(title.into(), true, false, work, finish);
+        self.start_job_on(title.into(), true, false, true, work, finish);
     }
 
     /// [`start_job`](Self::start_job) for work that needs no module (a
@@ -261,7 +261,7 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        self.start_job_on(title.into(), false, false, work, finish);
+        self.start_job_on(title.into(), false, false, true, work, finish);
     }
 
     /// [`start_job_anywhere`](Self::start_job_anywhere) for work that
@@ -277,7 +277,22 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        self.start_job_on(title.into(), false, true, work, finish);
+        self.start_job_on(title.into(), false, true, true, work, finish);
+    }
+
+    /// [`start_job_to_its_end`](Self::start_job_to_its_end) for work that
+    /// reads neither the module nor the game data (a hak written out):
+    /// given neither, the module's layer of the game data is not made
+    /// again for it. Made again, it forgot every list made from the game
+    /// data, and a hak's Save with a large module and its editors open
+    /// took frames of 9 to 18 ms.
+    pub(crate) fn start_job_apart<T: Send + 'static>(
+        &mut self,
+        title: impl Into<String>,
+        work: impl FnOnce(&Context) -> T + Send + 'static,
+        finish: impl FnOnce(&mut Moonglow, T) + 'static,
+    ) {
+        self.start_job_on(title.into(), false, true, false, work, finish);
     }
 
     fn start_job_on<T: Send + 'static>(
@@ -285,6 +300,7 @@ impl Moonglow {
         title: String,
         needs_module: bool,
         to_its_end: bool,
+        reads_game: bool,
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
@@ -302,7 +318,9 @@ impl Moonglow {
         }
         // The module's layer of the game data as the module is now (which
         // changes the game data: before the job shares it).
-        self.refresh_module_layer();
+        if reads_game {
+            self.refresh_module_layer();
+        }
         // (A job that needs no module is given none: a hak's save copied
         // the whole module open beside it, unread.)
         let ws = self.ws.as_mut().filter(|_| needs_module);
@@ -320,7 +338,8 @@ impl Moonglow {
         };
         crate::trace::note(format!("job starts: {title}"));
         let progress = Arc::new(Progress::default());
-        let context = Context { module, game: self.game.clone(), progress: progress.clone() };
+        let game = self.game.clone().filter(|_| reads_game);
+        let context = Context { module, game, progress: progress.clone() };
         // (The context, and its share of the game data, is dropped when
         // the work returns: before `finish` may change the game data.)
         let thread =
@@ -634,6 +653,43 @@ mod tests {
         app.actions.push(crate::Action::Close);
         app.run_actions();
         assert!(app.ws.is_none());
+    }
+
+    /// A job apart (a hak's save) is given neither the module nor the game
+    /// data, and the module's layer is not made again for it: the lists
+    /// made from the game data are kept. Another job has the layer made
+    /// again, as the module is now, and the game data with it.
+    #[test]
+    fn a_job_apart_leaves_the_game_data_as_it_is() {
+        let mut app = app("ui-job-apart");
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        app.game = Some(Arc::new(game));
+        app.refresh_module_layer();
+        let generation = |app: &Moonglow| app.game.as_ref().unwrap().generation();
+        let before = generation(&app);
+        app.start_job_apart(
+            "Save Hak",
+            |job| (job.game.is_none(), job.module.is_empty()),
+            |app, (no_game, no_module)| {
+                assert!(no_game && no_module, "given nothing");
+                app.log.info("written");
+            },
+        );
+        until_done(&mut app);
+        assert!(logged(&app, Level::Info, "written"));
+        assert_eq!(generation(&app), before, "the game data as it was");
+        app.start_job_anywhere(
+            "Find",
+            |job| job.game.is_some(),
+            |app, game| {
+                assert!(game, "given the game data");
+                app.log.info("found");
+            },
+        );
+        until_done(&mut app);
+        assert!(logged(&app, Level::Info, "found"));
+        assert_ne!(generation(&app), before, "the module's layer made again");
     }
 
     #[test]

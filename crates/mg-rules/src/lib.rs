@@ -145,6 +145,89 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
+/// The custom talk-table lines a kept list read as it was made, sorted:
+/// what [`GameData::update_custom_tlk`] keeps it by.
+pub(crate) type Lines = Box<[u32]>;
+
+/// A kept list and the custom talk-table lines it read.
+type Kept<T> = (Arc<Vec<T>>, Lines);
+
+thread_local! {
+    /// The custom talk-table lines read so far while a kept list is made
+    /// ([`reading_lines`]), none while none is.
+    static LINES_READ: std::cell::RefCell<Option<Vec<u32>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Notes custom talk-table lines as read, for the list being made, if one is.
+pub(crate) fn note_lines(lines: &[u32]) {
+    if lines.is_empty() {
+        return;
+    }
+    LINES_READ.with(|read| {
+        if let Some(read) = read.borrow_mut().as_mut() {
+            read.extend_from_slice(lines);
+        }
+    });
+}
+
+/// Makes a list to keep, with the custom talk-table lines it read (a
+/// line read and not there counts too: added, it names the row). Those
+/// are noted for a list being made around it as well (the list by name
+/// is made from the one in the table's order).
+pub(crate) fn reading_lines<T>(make: impl FnOnce() -> T) -> (T, Lines) {
+    let outer = LINES_READ.with(|read| read.borrow_mut().replace(Vec::new()));
+    let made = make();
+    let mut lines = LINES_READ
+        .with(|read| std::mem::replace(&mut *read.borrow_mut(), outer))
+        .unwrap_or_default();
+    lines.sort_unstable();
+    lines.dedup();
+    note_lines(&lines);
+    (made, lines.into_boxed_slice())
+}
+
+/// The lines of `mine` that differ from `theirs`'s, as far as both go:
+/// looked through on several threads where there are many (a world's
+/// table of 50,000 lines took 4.8 ms on one, its lines' texts each read
+/// from memory).
+fn differing(mine: &[mg_tlk::TlkEntry], theirs: &[mg_tlk::TlkEntry]) -> Vec<u32> {
+    const ALONE: usize = 4_096;
+    let len = mine.len().min(theirs.len());
+    let of = |from: usize, to: usize| -> Vec<u32> {
+        (from..to).filter(|&l| mine[l] != theirs[l]).map(|l| l as u32).collect()
+    };
+    if len < 2 * ALONE {
+        return of(0, len);
+    }
+    // (Asked only then: it reads the system's files.)
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
+    if threads < 2 {
+        return of(0, len);
+    }
+    let step = len.div_ceil(threads);
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = (0..len)
+            .step_by(step)
+            .map(|from| scope.spawn(move || of(from, (from + step).min(len))))
+            .collect();
+        parts.into_iter().flat_map(|p| p.join().expect("a comparison panicked")).collect()
+    })
+}
+
+/// The custom talk-table lines that changed: those listed, and every one
+/// from `from` on (where the table grew or shrank).
+struct Changed {
+    lines: Vec<u32>,
+    from: u32,
+}
+
+impl Changed {
+    fn names_any(&self, lines: &[u32]) -> bool {
+        lines.last().is_some_and(|&last| last >= self.from)
+            || lines.iter().any(|l| self.lines.binary_search(l).is_ok())
+    }
+}
+
 /// An appearance list's kind of object, its length and a hash of its rows
 /// (each row's number and name: `appearance::rows_hash`).
 type MarkedKey = (ObjectKind, usize, u64);
@@ -171,7 +254,7 @@ pub struct GameData {
     tables: RwLock<HashMap<ResRef, Looked>>,
     /// The choice lists made so far ([`choice_list`](Self::choice_list)),
     /// by table and the two columns' places in it.
-    choices: RwLock<HashMap<ChoiceKey, Arc<Vec<Choice>>>>,
+    choices: RwLock<HashMap<ChoiceKey, Kept<Choice>>>,
     /// Appearance lists with their rows of no model marked
     /// ([`appearance_choices`](Self::appearance_choices)), by the kind of
     /// object and the list they were made from.
@@ -184,7 +267,7 @@ pub struct GameData {
     /// rows, by the table and by which of them and in what order; and the
     /// property types of each itemprops.2da column.
     named: RwLock<HashMap<String, Vec<items::NamedList>>>,
-    property_types: RwLock<HashMap<i32, Arc<Vec<items::PropertyType>>>>,
+    property_types: RwLock<HashMap<i32, Kept<items::PropertyType>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -330,8 +413,10 @@ impl GameData {
     /// that differ are copied (and those past its end added, those past
     /// `tlk`'s taken off), where setting it anew copied every line's text
     /// and sound for each text typed, 50,000 of them to change one. What
-    /// is made from its strings is forgotten if any line differed, as
-    /// [`set_custom_tlk`](Self::set_custom_tlk) forgets it. With no custom
+    /// is made from its strings is forgotten where it read a line that
+    /// differed (one typed text made the Creature editor's pages name
+    /// every list again, 11 ms), as [`set_custom_tlk`](Self::set_custom_tlk)
+    /// forgets all of it. With no custom
     /// table yet, or one of another language, `tlk` is copied whole.
     /// Whether anything changed.
     pub fn update_custom_tlk(&mut self, tlk: &Tlk) -> bool {
@@ -339,25 +424,32 @@ impl GameData {
             self.set_custom_tlk(Some(tlk.clone()));
             return true;
         };
-        let mut changed = own.entries.len() != tlk.entries.len();
-        own.entries.truncate(tlk.entries.len());
-        for (mine, theirs) in own.entries.iter_mut().zip(&tlk.entries) {
-            if mine != theirs {
-                mine.clone_from(theirs);
-                changed = true;
-            }
+        let (old, new) = (own.entries.len(), tlk.entries.len());
+        let from = if old == new { u32::MAX } else { old.min(new) as u32 };
+        own.entries.truncate(new);
+        let lines = differing(&own.entries, &tlk.entries);
+        for &line in &lines {
+            own.entries[line as usize].clone_from(&tlk.entries[line as usize]);
         }
-        let had = own.entries.len();
-        own.entries.extend_from_slice(&tlk.entries[had..]);
-        if changed {
-            // (The lists name rows by its strings.)
-            self.choices.get_mut().expect("choice cache poisoned").clear();
-            self.marked.get_mut().expect("marked cache poisoned").clear();
-            self.named.get_mut().expect("named cache poisoned").clear();
-            self.property_types.get_mut().expect("property type cache poisoned").clear();
-            self.revision.fetch_add(1, Ordering::Relaxed);
+        own.entries.extend_from_slice(&tlk.entries[old.min(new)..]);
+        let changed = Changed { lines, from };
+        if changed.lines.is_empty() && old == new {
+            return false;
         }
-        changed
+        // (The lists name rows by its strings: those that read a line that
+        // changed are made again. A list marked by appearance is kept by
+        // its texts, so a list made again is another's.)
+        let kept = |lines: &Lines| !changed.names_any(lines);
+        self.choices.get_mut().expect("choice cache poisoned").retain(|_, (_, l)| kept(l));
+        self.property_types
+            .get_mut()
+            .expect("property type cache poisoned")
+            .retain(|_, (_, l)| kept(l));
+        for lists in self.named.get_mut().expect("named cache poisoned").values_mut() {
+            lists.retain(|(_, _, l)| kept(l));
+        }
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        true
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -460,7 +552,12 @@ impl GameData {
         if strref.is_none() {
             return None;
         }
-        let tlk = if strref.is_custom() { self.custom_tlk.as_ref()? } else { &self.tlk };
+        let tlk = if strref.is_custom() {
+            note_lines(&[strref.index()]);
+            self.custom_tlk.as_ref()?
+        } else {
+            &self.tlk
+        };
         tlk.text_in(strref, self.codepage())
     }
 
@@ -534,20 +631,23 @@ impl GameData {
         let label_col = cols.label.and_then(|c| t.column(c));
         let resref = ResRef::from_str(table).map_err(|_| RulesError::BadName(table.into()))?;
         let key = (resref, name_col, label_col);
-        if let Some(made) = self.choices.read().expect("choice cache poisoned").get(&key) {
+        if let Some((made, lines)) = self.choices.read().expect("choice cache poisoned").get(&key) {
+            note_lines(lines);
             return Ok(made.clone());
         }
         // A name written out in the table, for a row without a talk-table
         // string (ambientmusic.2da's `DisplayName`, for custom music).
         let display_col = t.column(DISPLAY_NAME);
-        let out: Vec<Choice> = (0..t.len())
-            .filter_map(|row| {
-                let text = self.named_row(&t, row, name_col, display_col, label_col)?;
-                Some(Choice { row, text })
-            })
-            .collect();
+        let (out, lines) = reading_lines(|| {
+            (0..t.len())
+                .filter_map(|row| {
+                    let text = self.named_row(&t, row, name_col, display_col, label_col)?;
+                    Some(Choice { row, text })
+                })
+                .collect::<Vec<Choice>>()
+        });
         let out = Arc::new(out);
-        self.choices.write().expect("choice cache poisoned").insert(key, out.clone());
+        self.choices.write().expect("choice cache poisoned").insert(key, (out.clone(), lines));
         Ok(out)
     }
 }
@@ -876,5 +976,70 @@ mod tests {
         gd.set_custom_tlk(None);
         assert!(gd.update_custom_tlk(&theirs));
         assert_eq!(texts(&gd), ["Longsword", "Axe", "Typed since"]);
+    }
+
+    /// A line of the custom talk table changed, added or taken off makes
+    /// again only the lists that read it (or asked for it and found
+    /// nothing): a list of none of its lines is kept, as is one of other
+    /// lines, and a list made inside another counts for that one too.
+    #[test]
+    fn only_the_lists_that_read_a_changed_line_are_made_again() {
+        let mut gd = data();
+        let named = ChoiceColumns { name: Some("name"), label: Some("label") };
+        let labels = ChoiceColumns { name: None, label: Some("label") };
+        let mut theirs = gd.custom_tlk().unwrap().clone();
+        let (by_name, by_label) =
+            (gd.choice_list("things", named).unwrap(), gd.choice_list("things", labels).unwrap());
+        // A line added after the one the list reads: both kept.
+        theirs.entries.push(TlkEntry::text("Added"));
+        assert!(gd.update_custom_tlk(&theirs));
+        assert!(Arc::ptr_eq(&by_name, &gd.choice_list("things", named).unwrap()));
+        assert!(Arc::ptr_eq(&by_label, &gd.choice_list("things", labels).unwrap()));
+        // The line it reads typed over: that list made again, with it.
+        theirs.entries[0] = TlkEntry::text("Typed");
+        assert!(gd.update_custom_tlk(&theirs));
+        let again = gd.choice_list("things", named).unwrap();
+        assert!(!Arc::ptr_eq(&by_name, &again));
+        assert_eq!(again[2].text, "Typed");
+        assert!(Arc::ptr_eq(&by_label, &gd.choice_list("things", labels).unwrap()));
+        // A list made inside another: its lines are the outer one's too,
+        // kept or made.
+        let line = |n: u32| StrRef::custom(n);
+        let ((_, inner), outer) = reading_lines(|| {
+            gd.string(line(1));
+            reading_lines(|| gd.choice_list("things", named).unwrap())
+        });
+        assert_eq!(*inner, [0]);
+        assert_eq!(*outer, [0, 1]);
+        // A line asked for and not there yet, then added: made again.
+        let ((), asked) = reading_lines(|| assert_eq!(gd.string(line(5)), None));
+        assert_eq!(*asked, [5]);
+        let changed = Changed { lines: vec![], from: 2 };
+        assert!(changed.names_any(&asked));
+        assert!(!changed.names_any(&[0, 1]));
+        // Lines taken off the end: a list of the lines left is kept.
+        theirs.entries.truncate(1);
+        assert!(gd.update_custom_tlk(&theirs));
+        assert!(Arc::ptr_eq(&again, &gd.choice_list("things", named).unwrap()));
+    }
+
+    /// The lines that differ, of a table looked through on several threads
+    /// as of one on one: every one, in order, the first and the last too.
+    #[test]
+    fn the_lines_that_differ_are_found_in_a_long_table_as_in_a_short_one() {
+        for len in [10, 50_001] {
+            let mine: Vec<TlkEntry> =
+                (0..len).map(|n| TlkEntry::text(format!("Line {n}"))).collect();
+            let mut theirs = mine.clone();
+            let changed = [0, 1, len / 3, len / 2 + 1, len - 1];
+            for &n in &changed {
+                theirs[n].text.push(b'!');
+            }
+            theirs.push(TlkEntry::text("Past the end"));
+            let found = differing(&mine, &theirs);
+            let mut want: Vec<u32> = changed.iter().map(|&n| n as u32).collect();
+            want.dedup();
+            assert_eq!(found, want, "{len} lines");
+        }
     }
 }

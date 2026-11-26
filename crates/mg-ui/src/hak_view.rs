@@ -941,7 +941,7 @@ pub(crate) fn save_then(app: &mut Moonglow, id: u32, ask: bool, then: Then) {
         }
     };
     let total = saving.size();
-    app.start_job_to_its_end(
+    app.start_job_apart(
         SAVE_JOB,
         move |cx| saving.write(&mut |done| written(&cx.progress, done, total)),
         move |app, saved| {

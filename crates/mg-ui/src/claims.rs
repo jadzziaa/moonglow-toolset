@@ -96,6 +96,12 @@ fn whose(p: &ProjectFile) -> ClaimsNow {
     (p.claim_table.clone(), p.claims.clone(), p.user.builder_code.clone())
 }
 
+/// Whether the claims are still `was`, compared where they are: copied
+/// each frame to compare, a world's table of 1,400 areas cost 0.1 ms.
+fn still_whose(p: &ProjectFile, was: &ClaimsNow) -> bool {
+    p.claim_table == was.0 && p.claims == was.1 && p.user.builder_code == was.2
+}
+
 /// A change to protected areas, held until the builder answers.
 #[derive(Debug, Clone)]
 pub(crate) struct ProtectedAsk {
@@ -658,13 +664,13 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
 fn listing(app: &mut Moonglow) -> Option<std::sync::Arc<Vec<mg_module::claims::Listed>>> {
     let p = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())?;
     let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
-    let by = whose(p);
     if let Some((was, was_ws, _, listed)) = &app.claims.listed
-        && *was == by
+        && still_whose(p, was)
         && *was_ws == ws_key
     {
         return Some(listed.clone());
     }
+    let by = whose(p);
     let areas: Vec<ResRef> = (app.ws.as_ref())
         .map(|ws| ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect())
         .unwrap_or_default();
