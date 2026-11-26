@@ -593,14 +593,12 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
         // (The layers' names looked through once for both types, each
         // ResRef sorted and made a name once: listed type by type, a
         // world's 135,000 textures took 36 ms.)
-        let mut refs: Vec<mg_core::ResRef> = (game.resman.layers().iter())
-            .flat_map(|l| l.container.keys())
-            .filter(|k| k.restype == ResType::DDS || k.restype == ResType::TGA)
-            .map(|k| k.resref.to_lowercase())
-            .collect();
-        refs.sort_unstable();
-        refs.dedup();
-        let names: Vec<String> = refs.iter().map(|r| r.to_string()).collect();
+        let names = sorted_names(
+            (game.resman.layers().iter())
+                .flat_map(|l| l.container.keys())
+                .filter(|k| k.restype == ResType::DDS || k.restype == ResType::TGA)
+                .map(|k| k.resref),
+        );
         Arc::new(Textures::of(names, &icon_prefixes(&game)))
     });
     let own_sig: (usize, u64) = match &app.ws {
@@ -646,6 +644,32 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     )
 }
 
+/// The names of `refs`, lowercase, each once, in order of their bytes.
+/// (Each as one number, its lowercase bytes padded with zeros, big end
+/// first: sorted as the bytes are, shorter first. By ResRef's own order,
+/// which folds both names at each comparison, Select Texture's sort took
+/// 19 ms of a 27 ms opening.)
+fn sorted_names(refs: impl Iterator<Item = mg_core::ResRef>) -> Vec<String> {
+    let mut keys: Vec<u128> = refs
+        .map(|r| {
+            let mut bytes = [0; mg_core::ResRef::MAX_LEN];
+            let name = r.as_bytes();
+            bytes[..name.len()].copy_from_slice(name);
+            bytes.make_ascii_lowercase();
+            u128::from_be_bytes(bytes)
+        })
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    (keys.iter())
+        .map(|k| {
+            let bytes = k.to_be_bytes();
+            let len = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+            mg_core::ResRef::from_bytes(&bytes[..len]).unwrap_or_default().to_string()
+        })
+        .collect()
+}
+
 fn open_gallery(f: &mut Form<'_>, ui: &Ui, entry: Option<usize>, old: String, current: String) {
     let textures = texture_names(f.app, ui);
     let chosen = (!current.is_empty()).then(|| current.to_ascii_lowercase());
@@ -669,15 +693,38 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     // and the switch: 60,000 names were searched every frame.)
     let shown_for = (state.filter.clone(), state.interface);
     let shown = super::kept_for(ui.ctx(), id.with("shown"), &textures, &shown_for, || {
-        let listed = textures.names.iter().zip(&textures.interface).enumerate();
         // (The names are lowercase, folded as they are when ASCII: folded
         // again for each, 135,000 took 7 ms a letter typed.)
         let finds = |n: &str| match n.is_ascii() {
             true => needle.is_empty() || needle.finds_folded(n),
             false => needle.finds(n),
         };
-        let shown = listed.filter(|(_, (n, i))| (state.interface || !**i) && finds(n));
-        Arc::new(shown.map(|(at, _)| at as u32).collect::<Vec<u32>>())
+        let wanted = |i: u32| {
+            let i = i as usize;
+            (state.interface || !textures.interface[i]) && finds(&textures.names[i])
+        };
+        let len = textures.names.len();
+        if needle.is_empty() {
+            return Arc::new((0..len as u32).filter(|&i| wanted(i)).collect::<Vec<u32>>());
+        }
+        // (A key typed looks among what the filter before it found, not
+        // among every name: 6.4 ms a letter at 135,000 textures.)
+        let narrowing_id = id.with("narrowing");
+        type Kept = (Arc<Textures>, bool, crate::narrowing::Narrowing);
+        let kept = ui.data(|d| d.get_temp::<Kept>(narrowing_id));
+        let mut narrowing = match kept {
+            Some((of, interface, n))
+                if Arc::ptr_eq(&of, &textures) && interface == state.interface =>
+            {
+                n
+            }
+            _ => Default::default(),
+        };
+        let shown = narrowing.find(needle.clone(), len, wanted);
+        ui.data_mut(|d| {
+            d.insert_temp::<Kept>(narrowing_id, (textures.clone(), state.interface, narrowing))
+        });
+        shown
     });
     let name_at = |i: u32| &textures.names[i as usize];
     registered(ui, id);
@@ -1073,6 +1120,20 @@ const TEXTURE_ROW: f32 = 560.0;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The textures' names, sorted as numbers, are in the order ResRef's
+    /// own sort gives the lowercase names, each once, the shorter of two
+    /// alike first, a full 16 letters too.
+    #[test]
+    fn texture_names_sorted_as_numbers_are_in_the_names_order() {
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        let given = ["tno01_wall", "TNO01_Wall", "a", "ab", "a_b", "zzzzzzzzzzzzzzzz", "Ab", "a1"];
+        let mut expected: Vec<ResRef> = given.iter().map(|s| r(s).to_lowercase()).collect();
+        expected.sort();
+        expected.dedup();
+        let expected: Vec<String> = expected.iter().map(ToString::to_string).collect();
+        assert_eq!(sorted_names(given.iter().map(|s| r(s))), expected);
+    }
 
     /// A pick is given to the entry of the texture it was made for, not to
     /// whatever is at that entry's place by OK (the review's B11: with A

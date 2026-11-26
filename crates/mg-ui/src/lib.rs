@@ -53,6 +53,7 @@ mod model_textures;
 pub mod model_view;
 pub mod module_folder;
 pub mod module_props;
+mod narrowing;
 mod nui_view;
 /// The NUI designer's header and panels' names (M4's U18), for the tests
 /// and plugins that find its controls.

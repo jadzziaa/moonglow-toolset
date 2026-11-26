@@ -570,21 +570,39 @@ impl Moonglow {
     }
 }
 
-/// Whether a portrait has a picture to show, in the module or the game
-/// (portraits.2da lists some the game has no pictures for: `matron`,
-/// `tm_tnobrl3_`).
-pub(crate) fn has_portrait(game: &GameData, ws: Option<&mg_edit::Workspace>, base: &str) -> bool {
-    ['m', 's', 'l', 'h', 't'].into_iter().any(|size| {
-        let Ok(name) = ResRef::from_str(&format!("po_{}{size}", base.to_ascii_lowercase())) else {
-            return false;
+/// The portraits' pictures there are, in the module or the game, by name
+/// (lowercase): found in one pass over the layers' names. (A row's five
+/// sizes looked for in every layer, 32,000 rows took Select Portrait's
+/// opening 19 ms.)
+pub(crate) struct Portraits(std::collections::HashSet<ResRef>);
+
+impl Portraits {
+    pub(crate) fn of(game: &GameData, ws: Option<&mg_edit::Workspace>) -> Portraits {
+        let texture = |k: &ResKey| k.restype == ResType::DDS || k.restype == ResType::TGA;
+        let portrait = |k: &ResKey| {
+            let name = k.resref.as_bytes();
+            name.len() > 3 && name[..3].eq_ignore_ascii_case(b"po_")
         };
-        let module = ws.is_some_and(|ws| {
-            [ResType::DDS, ResType::TGA]
-                .into_iter()
-                .any(|t| ws.module.get(&ResKey::new(name, t)).is_some())
+        let game_keys = game.resman.layers().iter().flat_map(|l| l.container.keys());
+        let module_keys = ws.into_iter().flat_map(|ws| {
+            [ResType::DDS, ResType::TGA].into_iter().flat_map(|t| ws.module.keys_of(t).copied())
         });
-        module || game.resman.texture(name).is_some()
-    })
+        let names = game_keys
+            .chain(module_keys)
+            .filter(|k| texture(k) && portrait(k))
+            .map(|k| k.resref.to_lowercase())
+            .collect();
+        Portraits(names)
+    }
+
+    /// Whether a portrait has a picture to show (portraits.2da lists some
+    /// the game has no pictures for: `matron`, `tm_tnobrl3_`).
+    pub(crate) fn has(&self, base: &str) -> bool {
+        let base = base.to_ascii_lowercase();
+        ['m', 's', 'l', 'h', 't'].into_iter().any(|size| {
+            ResRef::from_str(&format!("po_{base}{size}")).is_ok_and(|name| self.0.contains(&name))
+        })
+    }
 }
 
 /// A portrait thumbnail's width in a grid of them (Select Portrait, the
@@ -964,6 +982,29 @@ mod tests {
         let next = frame(&ws);
         assert_eq!(next[0].data[0], 30, "the module's palette is read");
         assert!(Arc::ptr_eq(&next[1], &first[1]), "a palette nothing changed is kept");
+    }
+
+    /// A portrait has a picture where any of its sizes is a DDS or TGA in
+    /// the game or the module, whatever the case of its name; not where
+    /// only another type or another name is.
+    #[test]
+    fn a_portrait_has_a_picture_where_one_of_its_sizes_is_there() {
+        let key = |n: &str, t: ResType| ResKey::parse(n, t).unwrap();
+        let mut layer = mg_resman::MemContainer::new();
+        layer.insert(key("po_gamem", ResType::TGA), vec![0]);
+        layer.insert(key("PO_Upperh", ResType::DDS), vec![0]);
+        layer.insert(key("po_mdlm", ResType::MDL), vec![0]);
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "key:po", mg_resman::LayerClass::Key, layer);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut ws = Workspace::new(mg_module::Module::new());
+        let edit =
+            mg_edit::Edit::SetResource { key: key("po_ownl", ResType::TGA), data: Some(vec![0]) };
+        ws.apply(mg_edit::Command::new("Set", vec![edit])).unwrap();
+        let p = Portraits::of(&game, Some(&ws));
+        assert!(p.has("game") && p.has("Upper") && p.has("own"));
+        assert!(!p.has("mdl") && !p.has("matron"));
+        assert!(!Portraits::of(&game, None).has("own"), "the module's own only with it");
     }
 
     /// An item icon is drawn only where a TGA of its name is there, in any
