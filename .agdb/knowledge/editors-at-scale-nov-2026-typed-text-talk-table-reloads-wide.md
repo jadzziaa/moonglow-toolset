@@ -26,3 +26,5 @@ Found by frame_perf::editors_at_scale (FRAME_VIEW picks a group: "typed line", "
 - Left: the raw fields view's per-item open check (an id and egui memory lookup for each of 3,000 closed items, about 27 ns each); block-skipping needs to know which items are open without looking.
 
 Test-building traps: variables.toml takes `table = "placeables"` (not `rows =`); a plugin menu command is offered on Advanced Search hits only when every ticked hit has a plugin target (module/area variables have none: restrict to placed objects); the Right Dock starts folded, push Action::ShowPanel(Panel::Cell) before looking for Choose Model…; Advanced Search hits are Labels containing " › ", not links.
+
+Timed again on a quiet machine (2026-11-26 00:00, final commit): spells.2da at full width is still +194 to +330 µs over its cut rest (the loaded runs' +9 was noise); Choose Model +52 to +120 µs; raw fields +79 to +80; the hak save's frames 3.8 to 5.5 ms and the typed line 4.1 to 5.2 ms on the large module, within.

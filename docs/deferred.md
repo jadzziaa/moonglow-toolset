@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:37:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:59:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -272,19 +272,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   renderer change).
   The editors' have theirs since 26 November
   (`frame_perf::editors_at_scale`, [the log](log.md)); what they leave,
-  at a load of 11 to 17 (another program kept twelve cores busy
-  throughout; lowest of three runs, then the spread): the raw fields
-  view with an area's Placeable List of 3,000 opened, +75 (to 85) µs
-  over 20: each item out of sight is still asked whether it is open (an
-  id made and egui's memory looked up, 3,000 a frame), and passing them
+  timed again on a quiet machine at the final commit (26 November
+  00:00, the processors about 93% idle; three runs, each view against
+  its rest): `spells.2da` at its full width, +194 to +330 µs over the
+  same rows cut to the 26 columns in sight (the cells out of sight
+  sideways are one place a run since 26 November, which the loaded
+  runs had read as +9; the rest of the cost is in the 55 columns'
+  cells in sight and their headers, not taken apart yet); Choose Model
+  open over 82,856 models, +52 to +120 µs (its rows in sight alone are
+  laid out; what is left is around the line); the raw fields view
+  with an area's Placeable List of 3,000 opened, +79 to +80 µs over
+  20: each item out of sight is still asked whether it is open (an id
+  made and egui's memory looked up, 3,000 a frame), and passing them
   over in blocks needs to know which are open without asking, which
-  egui's memory can't say: left, beyond a local change. Waiting on a
-  quiet machine: the final commit timed again (its three runs, at a
-  load of 30 to 39, settled nothing), and with it a hak's Save with the
-  large module open, whose frames until it is saved were past the
-  budget at the loads seen (5.9 to 16.6 ms; 4.7 alone at a load of 6,
-  before its job was given nothing), and the typed line on the large
-  module (4.0, to 13.8 in a run's spike).
+  egui's memory can't say: left, beyond a local change. Within on the
+  quiet machine: a hak's Save with the large module open (the click
+  0.8 to 0.9 ms, its frames until saved 3.8 to 5.5 ms), the typed line
+  (2.5 to 3.6 ms on the small module, 4.1 to 5.2 on the large), the
+  Claims Table (+26 to +31 µs), the conversation's Search of 20,000
+  (+37 to +43 µs, Find's click 3.8 to 4.3 ms), Build Module's 20,000
+  (+11 to +22), Custom Content (−100 to +23), `nwscript.nss` (−2 to
+  +5), the Variables window (+2 to +61), the module tree (−32 to −28).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories
