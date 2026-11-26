@@ -2291,7 +2291,7 @@ impl Moonglow {
         // (A color being picked, as the windows asked in the frame before.)
         self.var_preview = std::mem::take(&mut self.var_preview_next);
         let female = self.settings.armor_on_woman;
-        self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
+        self.thumbnails.begin_frame(self.ws.as_ref(), female);
         images::forget_changed(
             &mut self.pictures,
             &mut self.palettes,

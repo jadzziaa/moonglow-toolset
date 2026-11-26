@@ -4993,25 +4993,36 @@ fn blueprint_editors_at_scale() {
             };
             app.actions.push(Action::Apply(Command::new("Edit the area's comment", vec![edit])));
         };
-        for (gallery, search) in [(false, ""), (true, ""), (false, "pw"), (true, "pw")] {
+        // Unsearched, a kind of few blueprints against the 8,000 items;
+        // searched, the items with a search that finds 100 against one
+        // that finds them all (as many rows drawn).
+        let items = kinds[1];
+        for (gallery, searched) in [(false, false), (true, false), (false, true), (true, true)] {
             h.state_mut().settings.palette_gallery = gallery;
             h.state_mut().settings.gallery_tile = gallery.then_some(64);
-            let how = match (gallery, search) {
-                (false, "") => "List".to_string(),
-                (true, "") => "Gallery".to_string(),
-                (g, s) => format!("{}, \"{s}\" searched", if g { "Gallery" } else { "List" }),
+            let shown = if gallery { "Gallery" } else { "List" };
+            let pair = match searched {
+                false => [(kinds[0], ""), (items, "")],
+                true => [(items, "pw_i000"), (items, "pw")],
             };
             let mut took = Vec::new();
             let mut edited = Vec::new();
-            for (kind, n) in kinds {
+            let mut whats = Vec::new();
+            for ((kind, n), search) in pair {
                 palette(&mut h, kind, true, search);
                 show_palette(&mut h);
                 h.run_steps(if gallery { 300 } else { 5 });
                 let rect = palette_rect(&h).expect("the palette");
-                let what = format!("{name} of {n} {}, {how}", kind.label().to_lowercase());
+                let what = match search {
+                    "" => format!("{name} of {n} {}, {shown}", kind.label().to_lowercase()),
+                    s => format!("{name} of {n} items, {shown}, \"{s}\" searched"),
+                };
                 took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
                 assert_eq!(h.state().palette.filter, search, "{what}: the search kept");
-                if !search.is_empty() {
+                if search == "pw_i000" {
+                    assert!(h.query_by_label("100 items").is_some(), "{what}: not 100 found");
+                }
+                if searched {
                     edited.push(timed_with(
                         &mut h,
                         &mut r,
@@ -5023,20 +5034,11 @@ fn blueprint_editors_at_scale() {
                     ));
                 }
                 fold_palette(&mut h);
+                whats.push(what);
             }
-            against(
-                &mut lines,
-                &format!("{name} of {} items, {how}", kinds[1].1),
-                took[0],
-                took[1],
-            );
+            against(&mut lines, &whats[1], took[0], took[1]);
             if let [small, large] = edited[..] {
-                against(
-                    &mut lines,
-                    &format!("{name} of {} items, {how}, an edit each frame", kinds[1].1),
-                    small,
-                    large,
-                );
+                against(&mut lines, &format!("{}, an edit each frame", whats[1]), small, large);
             }
         }
         h.state_mut().settings.palette_gallery = false;

@@ -2079,8 +2079,12 @@ pub struct Thumbnails {
     /// before the module last changed), in the order asked; the frames,
     /// counted (the kit's [`Pictures`](mg_uikit::pictures::Pictures)).
     pictures: mg_uikit::pictures::Pictures<Kept, Made>,
-    /// The module's revision in this frame.
+    /// The module's revision that the blueprints' looks were last found
+    /// at: moved on in a frame only by a change that may change a look
+    /// ([`Thumbnails::begin_frame`]).
     revision: Option<u64>,
+    /// The module's revision in the frame before.
+    seen: Option<u64>,
     /// Armor is shown on a woman in this frame (Options › General): an
     /// item blueprint's picture is hers.
     female: bool,
@@ -2186,11 +2190,40 @@ impl Thumbnails {
         self.pictures.get(&self.kept_as(key)).map(Made::id)
     }
 
-    /// A new frame, the module at `revision`, armor shown on a woman where
-    /// `female`.
-    pub(crate) fn begin_frame(&mut self, revision: Option<u64>, female: bool) {
+    /// A new frame, the module as `ws` has it, armor shown on a woman where
+    /// `female`. A change to the module that touched only what no picture
+    /// is made from (an area's objects, its properties, scripts and
+    /// conversations) leaves the pictures as they are: each shown was
+    /// looked at again after every change (a gallery in sight with an area
+    /// edited each frame, 2.5 ms a frame).
+    pub(crate) fn begin_frame(&mut self, ws: Option<&mg_edit::Workspace>, female: bool) {
         self.pictures.begin_frame();
-        self.revision = revision;
+        let now = ws.map(mg_edit::Workspace::revision);
+        if now != self.seen {
+            let lookless = |t: ResType| {
+                matches!(
+                    t,
+                    ResType::GIT
+                        | ResType::ARE
+                        | ResType::GIC
+                        | ResType::NSS
+                        | ResType::NCS
+                        | ResType::DLG
+                        | ResType::JRL
+                        | ResType::FAC
+                )
+            };
+            let looks_kept = match (ws, self.seen) {
+                (Some(ws), Some(seen)) => ws
+                    .touched_since(seen)
+                    .is_some_and(|t| t.iter().all(|t| lookless(t.key.restype))),
+                _ => false,
+            };
+            if !looks_kept {
+                self.revision = now;
+            }
+            self.seen = now;
+        }
         self.female = female;
     }
 
@@ -3239,6 +3272,41 @@ pub(crate) fn render_tile_from_above(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The blueprints' pictures are kept through a change to the module
+    /// that no picture is made from (an area's), and looked at again after
+    /// one to a blueprint, or another module.
+    #[test]
+    fn pictures_are_kept_through_an_area_s_edit() {
+        use mg_edit::{Command, Edit, GffPath, Workspace};
+        let mut m = mg_module::Module::new();
+        let area = ResKey::parse("field", ResType::ARE).unwrap();
+        let chest = ResKey::parse("chest", ResType::UTP).unwrap();
+        m.set_gff(area, &Gff::new(*b"ARE ")).unwrap();
+        m.set_gff(chest, &Gff::new(*b"UTP ")).unwrap();
+        let mut ws = Workspace::new(m);
+        let set = |key: ResKey| {
+            let value = Some(mg_gff::Value::String(b"x".to_vec()));
+            let edit =
+                Edit::SetField { key, path: GffPath::root(), label: "Comment".into(), value };
+            Command::new("Set", vec![edit])
+        };
+        let mut t = Thumbnails::default();
+        t.begin_frame(Some(&ws), false);
+        let first = t.revision;
+        assert_eq!(first, Some(ws.revision()));
+        ws.apply(set(area)).unwrap();
+        t.begin_frame(Some(&ws), false);
+        assert_eq!(t.revision, first, "an area's edit");
+        ws.apply(set(chest)).unwrap();
+        t.begin_frame(Some(&ws), false);
+        assert_eq!(t.revision, Some(ws.revision()), "a blueprint's edit");
+        let other = Workspace::new(mg_module::Module::new());
+        t.begin_frame(Some(&other), false);
+        assert_eq!(t.revision, Some(other.revision()), "another module");
+        t.begin_frame(None, false);
+        assert_eq!(t.revision, None, "none");
+    }
 
     /// Pictures scrolled past are not made before those in sight (the
     /// review's B25): a thousand asked for in one frame and ten others in
