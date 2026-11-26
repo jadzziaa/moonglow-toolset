@@ -3,7 +3,7 @@ type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
 description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:00:00Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -309,14 +309,17 @@ showed only the solid meshes behind it (a glass wall behind water: 324
 of 324 water pixels without its red, in the render test). Now a
 see-through game draw that reads the copy (shiny water with
 `transparencyhint`, a `sample_framebuffer` mesh) is "late": the late
-draws sort after the other see-through meshes' solid parts, and the
-copy is made at the first late draw or soft part. The soft parts stay
-after the water, not writing depth: not in the copy, and laid over
-water behind them (green 132 where the client's is 39). Drawing them
-before the copy (tried: the render test's soft wall then shows in the
-water) laid the water over a soft card in front of it (green 255), the
-client's way needing the soft parts' depth; left in the [deferred
-list](deferred.md). Test
+draws sort after the other see-through meshes' solid parts and, since
+the soft parts write their depth as the client's do (2026-11-26, [the
+findings](findings.md), "A see-through mesh's soft texels write their
+depth"), after the soft parts too: the copy is made at the first late
+draw or added mesh. The soft parts are then in the copy, and the water
+is not drawn behind a soft card in front of it, as in the client, with
+the Shaders switch on. (The
+order costs the woods' overview nothing measurable: a 1.8 ms first put
+on it was the GPU's two clock levels between runs, [the frames
+note](research/notes_frames.md), 26 November.) Tests
+`soft_texels_hide_the_water_behind_them` and
 `the_water_s_copy_holds_the_see_through_meshes_behind_it`
 (`crates/mg-render/tests/render.rs`), solid and hinted water.
 

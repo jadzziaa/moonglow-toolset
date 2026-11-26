@@ -5831,7 +5831,10 @@ void main ()
 /// parts) behind an authored `fswater` painting the copy at its own pixel
 /// is found there, not the background, with 4x MSAA and without. And a
 /// see-through mesh that reads the copy itself (shiny water with
-/// `transparencyhint`) is drawn after it, as the solid water is.
+/// `transparencyhint`) is drawn after it, as the solid water is. A wall
+/// of soft texels alone (its soft part, drawn after the shadows where it
+/// takes them) is in the copy too, and the water is drawn over it, not
+/// it over the water.
 #[test]
 fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
     let Some(gpu) = gpu() else { return };
@@ -5843,6 +5846,18 @@ fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
     assets
         .textures
         .insert("glass".into(), mg_image::Rgba { width: 8, height: 8, data }.into_texture(true));
+    // (Red, every texel half there: its soft part alone.)
+    let data = [255u8, 0, 0, 128].repeat(64);
+    assets
+        .textures
+        .insert("soft".into(), mg_image::Rgba { width: 8, height: 8, data }.into_texture(true));
+    // (The walls' program gives their texture's alpha, as the game's do.)
+    assets.shaders.insert(
+        "fslit".into(),
+        "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nvarying vec2 vUv;\n\
+         void main ()\n{\n    gl_FragColor = texture2D(texUnit0, vUv);\n}\n"
+            .into(),
+    );
     assets.opaque("pool", [0, 0, 255]);
     assets.txis.insert("pool".into(), txi("bumpmaptexture shinywater\n"));
     assets.shaders.insert(
@@ -5854,8 +5869,8 @@ fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
     assets.shaders.insert(
         "fswater".into(),
         "#define SHADER_TYPE 2\nuniform vec3 pixelParams;\nuniform sampler2D texFBColor;\n\
-         void main ()\n{\n    gl_FragColor = vec4(texture2D(texFBColor, gl_FragCoord.xy * \
-         pixelParams.xy).rgb, 1.0);\n}\n"
+         void main ()\n{\n    vec3 c = texture2D(texFBColor, gl_FragCoord.xy * pixelParams.xy).rgb;\n    \
+         gl_FragColor = vec4(c.r, 0.5, c.b, 1.0);\n}\n"
             .into(),
     );
     let camera = Camera {
@@ -5865,7 +5880,19 @@ fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
         near: 0.1,
         far: 100.0,
     };
-    let wall = standing_quad(&gpu, "glass", Vec3::new(0.0, 0.0, 1.0), 2.0);
+    let walls = [
+        ("", standing_quad(&gpu, "glass", Vec3::new(0.0, 0.0, 1.0), 2.0)),
+        ("_soft", standing_quad(&gpu, "soft", Vec3::new(0.0, 0.0, 1.0), 2.0)),
+        // (A soft wall the shadows fall on, as a tile's decal: its soft
+        // part drawn after the shadows are laid.)
+        (
+            "_soft_receiving",
+            Instance {
+                receives_shadows: true,
+                ..standing_quad(&gpu, "soft", Vec3::new(0.0, 0.0, 1.0), 2.0)
+            },
+        ),
+    ];
     let water = standing_quad(&gpu, "pool", Vec3::new(0.0, -5.0, 1.0), 0.6);
     // (The same with `transparencyhint 1`, as ttr01's water tiles.)
     let hinted = {
@@ -5882,12 +5909,17 @@ fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
     };
     let dir = mg_testkit::scratch_dir("render-water-copy-see-through");
     for samples in sample_counts(&gpu) {
-        for (name, water) in [("solid", water.clone()), ("hinted", hinted.clone())] {
+        for ((kind, wall), (water_kind, water)) in walls.iter().flat_map(|wall| {
+            [("solid", water.clone()), ("hinted", hinted.clone())].map(|w| (wall, w))
+        }) {
+            let name = format!("{water_kind}{kind}");
             let scene = |with_water: bool| Scene {
                 instances: std::iter::once(wall.clone())
                     .chain(with_water.then(|| water.clone()))
                     .collect(),
                 background: [0.0, 0.0, 0.0],
+                // (Shadows, cast by nothing, so that a wall takes them.)
+                shadows: Some(mg_render::SunShadows { opacity: 1.0, fade_limit: 45.0 }),
                 ..Default::default()
             };
             let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
@@ -5903,17 +5935,102 @@ fn the_water_s_copy_holds_the_see_through_meshes_behind_it() {
                 .flat_map(|y| (0..64).map(move |x| (x, y)))
                 .filter(|&(x, y)| owned.pixel(x, y) != behind.pixel(x, y))
                 .collect();
-            let red = pool.iter().filter(|&&(x, y)| behind.pixel(x, y)[0] > 200).count();
+            let red = pool.iter().filter(|&&(x, y)| behind.pixel(x, y)[0] > 100).count();
             assert!(red > 100, "{name}: {red} of {} water pixels before the red wall", pool.len());
             let wrong = pool
                 .iter()
                 .filter(|&&(x, y)| {
+                    // (The copy's red and blue, and the water's own green
+                    // on top: no soft part drawn over it after.)
                     let (a, b) = (img.pixel(x, y), behind.pixel(x, y));
-                    (0..3).any(|i| a[i].abs_diff(b[i]) > 8)
+                    a[0].abs_diff(b[0]) > 8 || a[2].abs_diff(b[2]) > 8 || a[1].abs_diff(128) > 8
                 })
                 .count();
             assert!(wrong <= 4, "{name}, {samples}x: {wrong} of {} water pixels", pool.len());
         }
+    }
+}
+
+/// A see-through mesh's soft texels lay their depth, as the client's do
+/// (`soft::reading_soft_depth` in `mg-corpus-tests`' `client_render`):
+/// shiny water behind a card of alpha 0.5, drawn by the game's `fswater`
+/// after the copy, is not drawn where the card is, and the picture there
+/// is the card's over what lies behind the water. (Moonglow's own water,
+/// the Shaders switch off, is drawn with the solid meshes, before the
+/// card: filed in `docs/deferred.md`.)
+#[test]
+fn soft_texels_hide_the_water_behind_them() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    let data = [255u8, 0, 0, 128].repeat(64);
+    assets
+        .textures
+        .insert("soft".into(), mg_image::Rgba { width: 8, height: 8, data }.into_texture(true));
+    assets.shaders.insert(
+        "fslit".into(),
+        "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nvarying vec2 vUv;\n\
+         void main ()\n{\n    gl_FragColor = texture2D(texUnit0, vUv);\n}\n"
+            .into(),
+    );
+    assets.opaque("pool", [0, 255, 0]);
+    assets.txis.insert("pool".into(), txi("bumpmaptexture shinywater\n"));
+    assets.shaders.insert(
+        "vswater".into(),
+        "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\nattribute vec4 vPos;\n\
+         void main ()\n{\n    gl_Position = m_proj * (m_mv * vPos);\n}\n"
+            .into(),
+    );
+    assets.shaders.insert(
+        "fswater".into(),
+        // (Green, reading the copy as the game's does: drawn after it.)
+        "#define SHADER_TYPE 2\nuniform sampler2D texFBColor;\n\
+         void main ()\n{\n    float c = texture2D(texFBColor, vec2(0.5)).r;\n    \
+         gl_FragColor = vec4(c * 0.0, 1.0, 0.0, 1.0);\n}\n"
+            .into(),
+    );
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let card = standing_quad(&gpu, "soft", Vec3::new(0.0, -7.0, 1.0), 0.4);
+    let water = standing_quad(&gpu, "pool", Vec3::new(0.0, -5.0, 1.0), 2.0);
+    let dir = mg_testkit::scratch_dir("render-soft-hides-water");
+    for samples in sample_counts(&gpu) {
+        let scene = |with_water: bool| Scene {
+            instances: std::iter::once(card.clone())
+                .chain(with_water.then(|| water.clone()))
+                .collect(),
+            background: [0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        r.game_shaders = true;
+        let alone = r.render_image(&gpu, &assets, &scene(false), &camera, 64, 64);
+        let img = r.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+        save(&img, &dir.join(format!("soft_{samples}x.png")));
+        assert_eq!(r.game_shader_failures(), &[]);
+        let card_px: Vec<(u32, u32)> = (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| alone.pixel(x, y)[0] > 60)
+            .collect();
+        assert!(card_px.len() > 20, "the card: {} pixels", card_px.len());
+        let water_px = (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| alone.pixel(x, y)[0] <= 60 && img.pixel(x, y)[1] > 60)
+            .count();
+        assert!(water_px > 100, "the water around it: {water_px} pixels");
+        let wrong = card_px
+            .iter()
+            .filter(|&&(x, y)| {
+                let (a, b) = (img.pixel(x, y), alone.pixel(x, y));
+                (0..3).any(|i| a[i].abs_diff(b[i]) > 8)
+            })
+            .count();
+        assert!(wrong <= 4, "{samples}x: {wrong} of {} card pixels show the water", card_px.len());
     }
 }
 
