@@ -1062,6 +1062,15 @@ fn a_group_of_thousands_draws_the_rows_in_sight_as_one_by_one() {
         let last = rows.last().unwrap().1;
         assert!(last + 2.0 * step > dock.bottom(), "page {page}: down to the foot: {last}");
     }
+    // At the tree's end, the group's last rows drawn one after another
+    // down to its last, a row apart: the space above them is theirs.
+    h.key_press(egui::Key::End);
+    settle(&mut h);
+    let rows: Vec<(usize, f32)> = (painted_colored(&h, dock).into_iter())
+        .filter_map(|(text, _, rect)| Some((text.strip_prefix("crowd")?.parse().ok()?, rect.top())))
+        .collect();
+    assert_eq!(rows.last().map(|r| r.0), Some(2999), "the last row at the end: {rows:?}");
+    assert!(rows.windows(2).all(|w| w[1].0 == w[0].0 + 1), "one after another: {rows:?}");
 }
 
 /// Tags beside names (M5's W1, the owner's ruling 8: dimmed): a

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T02:03:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T02:13:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -271,29 +271,30 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   scratch module has no `[bake]` (a project with one would time them).
   The blueprint editors' have theirs since 26 November
   (`frame_perf::blueprint_editors_at_scale`, [the log](log.md)); what
-  they leave: the first openings that list the install's resources,
-  each a walk of every layer's names that a per-type index in
-  `mg-resman` would shorten (beyond a local change): Select Texture's
-  first in a load order 26 to 30 ms (135,094 textures), Select
-  Portrait's 11 to 22 ms (each of 16,000 to 32,000 rows' pictures looked
-  for in every layer), an item's Appearance page of 999 icons 7 to 11
-  ms; a letter typed in Select Texture's Find 6.9 to 7.0 ms, at the
-  budget (every name searched in that frame); that page of 999 icons
-  155 to 168 µs over the same with 142 (each icon out of sight still
-  given its room one by one, in a wrapped layout that lines would pass
-  over whole); the Custom palette with 8,000 items found against 100,
-  -7 to +117 µs in List and -2 to +188 in Gallery, +82 to +224 with an
-  edit each frame (a header built each frame for every category holding
-  a find, in sight or not); the Instances window of 100 creatures +85
-  and +122 µs (Inventory, Feats) at a load of 8 and -1,129 to +617 at
-  12 to 17, its timers' remaining costs each under the line (Classes 20
-  µs); Setup Area Transition's click 4 to 6 ms at a load of 8, 7 to 10
-  at 15 to 17 (the 300 areas' doors, triggers and waypoints still read
-  in that frame); and the Appearance Gallery's pictures in sight, up to
-  5 to 11 ms a frame as they are made (a creature's picture drawn on the
-  window's thread at about 5 ms, past the 2 ms a frame gives pictures,
-  one drawn whatever it costs), its drag to the end 1.1 to 3.9 ms
-  (median, 17,100 to 30,000 rows) with worst frames of 10 to 18.
+  they leave, at a load of 4 to 5 (lowest of three runs, then the
+  spread): the first openings that list the install's resources, each
+  a walk of every layer's names that a per-type index in `mg-resman`
+  would shorten, beyond a local change: Select Texture's first in a load
+  order 27 ms (to 27.5; 135,094 textures), Select Portrait's 9.9 (to
+  12.4) with the install's portraits.2da and 18.8 (to 23.2) with 32,000
+  rows (likely each row's picture looked for in every layer), an item's
+  Appearance page of 999 icons 8.4 (to 8.9); a letter typed in Select
+  Texture's Find 6.4 (to 9.6) ms, at the budget (every name searched in
+  that frame); that page of 999 icons +145 (to 197) µs over the same
+  with 142 (likely each icon out of sight given its room one by one: a
+  layout by lines would change how the wrapped grid is laid out); the
+  Custom palette with 8,000 items found against 100, List +105 (to 108),
+  Gallery +150 (to 168) (likely a header built each frame for every
+  category holding a find, in sight or not: laying the palette's tree
+  out by rows is a change of its own); the Instances window of 100
+  creatures on its Feats page +90 (to 130) µs, its timers' remaining
+  costs each under the line (Classes 20 µs, the inventory's rows 40);
+  and the Appearance Gallery's drag to the end, its median 3.5 (to 4.6)
+  ms at 30,000 rows but worst frames of 10.4 to 14.0, and its pictures
+  in sight made in frames of up to 4.9 to 7.9 ms (a creature's picture
+  drawn on the window's thread at about 5 ms, past the 2 ms a frame
+  gives pictures, one drawn whatever it costs: drawing them apart is a
+  renderer change).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories

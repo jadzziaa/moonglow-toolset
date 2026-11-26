@@ -1341,6 +1341,28 @@ fn sample_of(ssf: &mg_ssf::Ssf) -> Option<ResRef> {
 mod tests {
     use super::*;
 
+    /// The skills whose ranks the others have another of: a rank left out
+    /// of a shorter list is 0, as the page reads it; one creature alone
+    /// differs in none.
+    #[test]
+    fn skills_differ_where_another_has_another_rank() {
+        let key = ResKey::parse("area", ResType::GIT).unwrap();
+        let creature = |i: usize, ranks: &[u8]| {
+            let list = ranks.iter().map(|&r| {
+                let mut e = Struct::new(0);
+                e.set("Rank", Value::Byte(r));
+                e
+            });
+            let mut s = Struct::new(0);
+            s.set("SkillList", Value::List(list.collect()));
+            lists::Target::new(key, GffPath::root().item("Creature List", i), s)
+        };
+        let targets = [creature(0, &[4, 0, 2]), creature(1, &[4, 1]), creature(2, &[4, 0, 2])];
+        assert_eq!(skills_differ(&targets, 4), [false, true, true, false]);
+        assert_eq!(skills_differ(&targets[..1], 3), [false, false, false]);
+        assert_eq!(skills_differ(&[], 2), [false, false]);
+    }
+
     /// A sound set's sample is named by its field up to the first NUL:
     /// bytes a tool left after it are not part of the name (the field
     /// taken whole named no sound, so the button played nothing).

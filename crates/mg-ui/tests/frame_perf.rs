@@ -4874,7 +4874,8 @@ fn blueprint_editors_at_scale() {
         let first = made.creatures[0].clone();
         for page in ["Inventory", "Feats"] {
             let mut took = Vec::new();
-            for n in [2, 100] {
+            // (The two timed again after the hundred: the noise of the run.)
+            for (i, n) in [2, 100, 2].into_iter().enumerate() {
                 let t = Tab::Instances {
                     objects: made.creatures[..n].iter().map(|p| (made.area, p.clone())).collect(),
                 };
@@ -4882,12 +4883,15 @@ fn blueprint_editors_at_scale() {
                 open(&mut h, t.clone());
                 h.run_steps(5);
                 let rect = rect_of(h.state(), &t).expect("the Instances window");
-                let what = format!("{name}, {n} on the {page} page");
+                let again = if i == 2 { ", again" } else { "" };
+                let what = format!("{name}, {n} on the {page} page{again}");
                 took.push(timed(&mut h, &mut r, &what, "pointer", rect, Pointer::Moves));
                 assert!(h.state().dock.find_tab(&t).is_some(), "{what}: the window closed");
                 close(&mut h, &t);
             }
             against(&mut lines, &format!("{name}, 100 on the {page} page"), took[0], took[1]);
+            let noise = format!("{name}, 2 on the {page} page timed again (the noise)");
+            against(&mut lines, &noise, took[0], took[2]);
         }
     }
 
