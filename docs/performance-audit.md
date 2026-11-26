@@ -184,14 +184,16 @@ say what each costs.
   Moonsea's 70 of 96 MB). Compressing them on the CPU as they are read
   would take a quarter to an eighth of that, at a cost in reading time
   and a new encoder (M). (Done 25 November: compressed to BC1 or BC3 as
-  read, area092's textures 30.5 to 17.0 MiB, the opening no longer.)
+  read, area092's textures 30.5 to 17.0 MiB for about 10 ms more of its
+  opening.)
 - **The animation step could follow what a picture costs** (a slow GPU
   stepping less often while the window is in front), measured with the
   GPU's timestamps (M; not on every backend).
 - **An area's opening** to its last texture is about 50 ms longer since
   3.0.0 (area092: 112 to 165 ms); not taken apart. (Taken apart 25
   November: the picture was drawn again only at the animation's 40 ms
-  steps once every texture was read; it now is at once, 107 to 124 ms.)
+  steps once every texture was read; it now is at once: median 111 ms
+  with RGBA8 textures, 122 compressed.)
 - **The model viewer playing an animation** asks for a frame at once,
   every frame, while the window has the focus (as the display refreshes:
   144 a second here); a step as the area view's would do (S). (Done

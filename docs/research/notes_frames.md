@@ -648,8 +648,8 @@ Area092 (Tyrants of the Moonsea, `FRAME_MEMORY=1`) reads about 142
 textures, of which 9 TGAs become BC1, 4 BC3 and 24 colored PLT copies
 BC3 (a 900² sky took 19 ms on one thread, a 512² robe 12.8): its
 textures go from 30.5 to 17.0 MiB, the RGBA8 part from 16.7 to 0.3 MiB.
-TDoD's woods have no TGA large enough (16 small RGBA8 textures of 968.9
-MiB, the rest DDS) and are unchanged. What is compressed: a texture read
+TDoD's woods are unchanged: of their 968.9 MiB of textures all but 16
+small RGBA8 ones are DDS, and none of those 16 is large enough. What is compressed: a texture read
 as RGBA8 into a material's first slot (a picture, a PLT's colored copy,
 a cutout or see-through texture by its alpha: BC1 when every texel is
 opaque, else BC3), with both sides multiples of 4 and the smaller at
@@ -659,7 +659,7 @@ encoder makes neither BC4 nor BC5), procedural textures (TXI
 `proceduretype`), and the UI's pictures (egui's, not the renderer's).
 A device without `TEXTURE_COMPRESSION_BC` keeps RGBA8. The reading is
 on the renderer's reader threads already, so nothing new went
-off-thread, and the opening did not get longer for it (below). Shots of
+off-thread; what it adds to the opening is below. Shots of
 area092 and area026 (`FRAME_SHOTS=1`) with and without differ less
 than two runs of one build do, but for area026's floor close up (mean
 0.18 of 255, a faint green in the glow).
@@ -675,8 +675,11 @@ runs each; shown after, then whole after):
 | v3.0.0 | 83 ms | 174 to 175 ms |
 | develop, RGBA8 | | 175 to 177 ms |
 | develop, compressed | | 174 to 183 ms |
-| fixed, RGBA8 (4 runs) | | 107, 114, 124, 154 ms |
-| fixed, compressed (4 runs) | | 120, 124, 132, 195 ms |
+| fixed, RGBA8 | 84 to 91 ms | 105 to 119 ms (median 111) |
+| fixed, compressed | 79 to 111 ms | 112 to 160 ms (median 122) |
+
+(The fixed build's rows: five runs of each, taken in turn, the machine
+at a load of 6 to 10.)
 
 Every texture was read long before the last one showed: after the
 area was first shown, the picture was drawn again only at the
@@ -688,14 +691,25 @@ and bulk editing", which touched neither the renderer nor the area
 view; one merge before it gave 110 and 156 ms in its two runs, so the
 step was there before, by timing. The fix: the view draws again as soon
 as every texture asked for is read and some were missing from the last
-picture (`Renderer::textures_still_read`; the model viewer too).
+picture (`Renderer::textures_still_read`). The model viewer reads its
+textures in the frame (only the area view reads them apart), so it never
+waited for them.
 Test `an_area_is_drawn_again_as_soon_as_its_textures_are_read` fails
-without it. The two columns with and without compression are within the
-runs' spread; area026 is whole after about 34 ms.
+without it. Compression costs the opening about 10 ms (the medians),
+the last textures' encoding on the reader threads; the frames are not
+longer for it (the longest 10.2 to 11.0 ms either way). It stays on: it
+is paid once an area, off the window's thread, for 13.5 MiB of
+area092's textures kept. Area026 is whole after 33 to 45 ms either way.
+TDoD's woods (`game_shaders_frames_at_144`, two runs each, after the
+fix) were whole after 549 to 555 ms with the Shaders on and 569 to 703
+with them off, against 545 to 560 before: their opening is the DDS
+textures' reading, which the step never held back.
 
 **Anti-aliasing** (Options' Anti-aliasing, `FRAME_SAMPLES`), area092
-turning at 3440×1400, idle machine (GPU time of a frame, the view's
-memory; the Radeon 610M the integrated GPU, two runs):
+at 3440×1400 (the GPU time of `frames_at_144`'s "turning idle" row,
+the camera turning with the pointer still; the memory allocated at its
+"overview" row; three runs on the RX 9070 XT, two on the Radeon 610M,
+the integrated GPU):
 
 | Samples | RX 9070 XT | allocated | 610M | allocated |
 |---|---|---|---|---|
