@@ -431,6 +431,11 @@ struct Draw<'a> {
     /// A solid draw the sun's shadows fall on: drawn before the others,
     /// the shadows laid between.
     receives: bool,
+    /// A see-through draw of the game's that reads the framebuffer's copy
+    /// (shiny water with `transparencyhint`, a material's
+    /// `sample_framebuffer`): after the copy, which is made after the
+    /// other see-through meshes' solid parts.
+    late: bool,
 }
 
 /// A mesh's pipeline of the game's programs, and a see-through one's
@@ -3022,9 +3027,9 @@ impl Renderer {
                             // shiny water through `fswater`, or whose material
                             // samples the framebuffer: after them, and after
                             // the shadows.)
-                            draw.late = copies.is_some()
-                                && (draw.pipeline.wants_fb || slots.late)
-                                && game_pass == crate::game::GamePass::Opaque;
+                            let reads_fb =
+                                copies.is_some() && (draw.pipeline.wants_fb || slots.late);
+                            draw.late = reads_fb && game_pass == crate::game::GamePass::Opaque;
                             draw.receives = receives
                                 && !draw.late
                                 && game_pass == crate::game::GamePass::Opaque;
@@ -3052,6 +3057,7 @@ impl Renderer {
                                         bounds,
                                         instance: instance as u32,
                                         receives: false,
+                                        late: false,
                                     });
                                 }
                                 Some(q) => {
@@ -3076,7 +3082,8 @@ impl Renderer {
                                         game_batch: batches.0,
                                         bounds,
                                         instance: instance as u32,
-                                        receives: soft_receives,
+                                        receives: soft_receives && !reads_fb,
+                                        late: reads_fb,
                                     };
                                     draws.push(draw);
                                     draws.push(Draw {
@@ -3200,6 +3207,7 @@ impl Renderer {
                         bounds,
                         instance: instance as u32,
                         receives: receives && pass == Pass::Opaque || soft_receives,
+                        late: false,
                     };
                     // A see-through mesh is drawn in two parts: what is solid
                     // of it, then the rest.
@@ -3278,13 +3286,16 @@ impl Renderer {
         let mut keys = std::mem::take(&mut self.sort_keys);
         keys.clear();
         keys.extend(draws.iter().enumerate().map(|(i, d)| {
+            // (The see-through draws that read the framebuffer's copy: after
+            // it, and so after the other see-through meshes' solid parts.)
             let rank: u64 = match d.pass {
                 Pass::Sky => 0,
                 Pass::SkyFade => 1,
                 Pass::Opaque => 2,
+                Pass::Blend if d.late => 4,
                 Pass::Blend => 3,
-                Pass::Fringe => 4,
-                Pass::Additive => 5,
+                Pass::Fringe => 5,
+                Pass::Additive => 6,
             };
             let key = if matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
                 // (What the shadows fall on first.)
@@ -3936,7 +3947,11 @@ impl Renderer {
                     game_drawn = true;
                     own_lost = true;
                 }
-                if !copied && past_solid {
+                // (The framebuffer's copy after the see-through meshes'
+                // solid parts, as the client's water reads it: before what
+                // reads it, the soft parts and what is added.)
+                let past_copy = d.late || matches!(d.pass, Pass::Fringe | Pass::Additive);
+                if !copied && past_copy {
                     drop(pass);
                     pass = Self::copy_framebuffer(
                         self.copier.as_ref(),
