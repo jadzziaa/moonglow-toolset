@@ -979,14 +979,19 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             ui.weak(refused_text(Refused::NoCurrentTag));
         }
         let showing = state.showing;
-        let here: Vec<usize> = (state.destinations.iter().enumerate())
-            .filter(|(_, d)| {
-                Some(d.area) == state.area
-                    && showing.is_none_or(|k| d.object.kind == k)
-                    && !state.editing.contains(&d.object)
-            })
-            .map(|(i, _)| i)
-            .collect();
+        // (Found once for the area and the kind shown, while the window is
+        // open: its objects edited are left out as it opened.)
+        let here_for = (state.area, showing);
+        let here = super::kept_for(ui.ctx(), pick_id.with("here"), &state.destinations, &here_for, || {
+            let here = (state.destinations.iter().enumerate())
+                .filter(|(_, d)| {
+                    Some(d.area) == state.area
+                        && showing.is_none_or(|k| d.object.kind == k)
+                        && !state.editing.contains(&d.object)
+                })
+                .map(|(i, _)| i);
+            std::sync::Arc::new(here.collect::<Vec<usize>>())
+        });
         let is = |d: &Destination, chosen: &Option<Placed>| *chosen == Some(d.object);
         // (The map smaller where the window is: the lines under it keep
         // their room.)
@@ -1016,7 +1021,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                         .filter(|x| dist(x) <= MARKER_REACH)
                         .min_by(|a, b| dist(a).total_cmp(&dist(b)))
                 });
-                for &idx in &here {
+                for &idx in here.iter() {
                     let d = &state.destinations[idx];
                     let at = map.to_map(rect, d.at);
                     let lit = is(d, &state.chosen) || near == Some(d);
