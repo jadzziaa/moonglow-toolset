@@ -289,6 +289,11 @@ pub struct Scene {
     /// each distance), its lines sent to the GPU once and only the copies
     /// each frame.
     pub line_shapes: Vec<LineShape>,
+    /// Boxes drawn over the whole picture, after everything else and
+    /// with no depth test (the area view's object and selection boxes):
+    /// the unit cube's edges sent to the GPU once and only the copies
+    /// each frame, every copy's edge under every copy's line.
+    pub boxes: Vec<BoxCopy>,
     /// Seconds, for what moves by itself: the game's water ripples, and
     /// the game's shaders' clock (`worldtimerTimeOfDay`,
     /// `sceneCurrentFrame`: wind-swayed grass, flowing water).
@@ -413,6 +418,45 @@ pub struct LineCopy {
     pub offset: Vec3,
     pub scale: f32,
     /// Gamma-space colour and alpha.
+    pub color: [f32; 4],
+}
+
+/// A box's twelve edges drawn over the picture ([`Scene::boxes`]): the
+/// unit cube, 0 to 1 on each axis, put where `transform` puts it, each
+/// edge a line `line.width` pixels wide over an optional darker `edge`.
+///
+/// The area view builds `transform` as the object's model transform
+/// times the box's own, from its least corner to its greatest:
+/// `model * Mat4::from_translation(min) * Mat4::from_scale(max - min)`.
+/// An object's plain box is a line alone (1.5 pixels in its kind's
+/// color, `edge: None`); a selected one a thin line over a wider dark
+/// edge, both centered on the box's edge.
+///
+/// An edge that passes behind the eye is cut at the near plane, and a box
+/// wholly behind it draws nothing. The lines are drawn in screen pixels
+/// whatever their distance, with a soft edge a pixel wide, as egui
+/// feathers its lines, and butt ends.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxCopy {
+    /// From the unit cube (0 to 1 on each axis) to the box as it is posed.
+    pub transform: Mat4,
+    /// The line along each of the box's edges.
+    pub line: BoxStroke,
+    /// The edge drawn under the line (and under every other copy's line),
+    /// as wide in all as its `width`: one pixel each side of a line two
+    /// narrower. `None`: the line alone.
+    pub edge: Option<BoxStroke>,
+}
+
+/// How a [`BoxCopy`]'s line or its edge is drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxStroke {
+    /// Its whole width, in the target's pixels, centered on the box's
+    /// edge. Under a pixel, it is drawn a pixel wide and that much fainter
+    /// (as egui draws a thin line); 0 or less draws nothing.
+    pub width: f32,
+    /// Gamma-space color and alpha (not premultiplied), as
+    /// [`LineCopy::color`].
     pub color: [f32; 4],
 }
 

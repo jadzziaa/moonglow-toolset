@@ -561,6 +561,12 @@ pub struct Renderer {
     line_copy_pipeline: wgpu::RenderPipeline,
     /// The frame's copies of its line shapes, shape after shape.
     line_copy_buffer: wgpu::Buffer,
+    /// The boxes' edges and lines ([`crate::Scene::boxes`]): the unit
+    /// cube's edges as quads (made once), and the frame's copies.
+    box_edge_pipeline: wgpu::RenderPipeline,
+    box_line_pipeline: wgpu::RenderPipeline,
+    box_cube: wgpu::Buffer,
+    box_buffer: wgpu::Buffer,
     /// What each view keeps from one of its frames to the next.
     views: crate::views::Views<ViewState>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
@@ -573,10 +579,11 @@ pub struct Renderer {
     /// number names there.
     draw_buffer: wgpu::Buffer,
     order_buffer: wgpu::Buffer,
-    frame_group: Option<wgpu::BindGroup>,
-    /// The shadows' mask the frame group binds (0: white) and the view
-    /// it is kept for.
-    frame_mask: (u64, Option<u64>),
+    /// The frame group's buffers' generation (the lights', bones', draws'
+    /// and their order's): one more each time one of them is made again,
+    /// larger, and every view's frame group ([`ViewState::frame_group`])
+    /// is made again on its buffers.
+    frame_buffers: u64,
     batcher: Batcher,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
@@ -631,6 +638,7 @@ pub struct Renderer {
     light_set: Vec<u32>,
     line_vertices: Vec<LineVertex>,
     line_copies: Vec<LineCopyRaw>,
+    box_copies: Vec<BoxRaw>,
     particle_draws: Vec<(ParticleBlend, u32, std::ops::Range<u32>, Option<usize>)>,
     particle_softness: Vec<f32>,
     /// The particles' materials, by their texture's name: a batch's is
@@ -667,6 +675,14 @@ struct ViewState {
     stencil: Option<crate::volume::StencilTarget>,
     /// The shadows' mask, while the view's frames lay shadows.
     mask: Option<crate::shadow::Mask>,
+    /// The frame's bind group (its uniforms, lights, bones, draws, their
+    /// order and the view's shadows' mask), with the buffers' generation
+    /// it was made on ([`Renderer::frame_buffers`]) and the mask's number
+    /// (0: white): kept for the view, as its mask is. (One for the
+    /// renderer, made again whenever another view's frame had come
+    /// between, cost a large area's frame drawn beside a model view a
+    /// fiftieth of a millisecond.)
+    frame_group: Option<(u64, u64, wgpu::BindGroup)>,
     /// The soft particles' bind group on the view's framebuffer copies
     /// (their number): one for the renderer, two views with soft particles
     /// in a frame made it again each.
@@ -687,6 +703,7 @@ impl ViewState {
     /// Lets go of the bind groups on the targets of the view the state was
     /// last drawn for.
     fn forget_groups(&mut self) {
+        self.frame_group = None;
         self.copy_group = None;
         self.sun_darken_group = None;
         self.lights_darken_group = None;
@@ -757,9 +774,17 @@ pub struct Drawn {
     /// The sun's shadow map was drawn in this frame: not where the view's
     /// map held the frame's casters as they are already.
     pub sun_map_drawn: bool,
+    /// The frame's bind group was made in this frame: not where the
+    /// view's own was kept from its frame before (another view's frames
+    /// between them leave it be), on the same buffers and mask.
+    pub frame_group_made: bool,
     /// The meshes whose lights were chosen anew: not as an earlier frame
     /// chose them for the same ball.
     pub lights_chosen: usize,
+    /// The boxes drawn ([`crate::Scene::boxes`]), and the draws they took:
+    /// one for their edges (where any has one) and one for their lines.
+    pub boxes: usize,
+    pub box_draws: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -786,6 +811,82 @@ impl LineCopyRaw {
         attributes: &wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4],
     };
 }
+
+/// A [`crate::BoxCopy`] as its draws read it (`line.wgsl`'s `BoxIn`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct BoxRaw {
+    transform: [[f32; 4]; 4],
+    line_color: [f32; 4],
+    edge_color: [f32; 4],
+    /// The line's width and the edge's, pixels (0: none).
+    widths: [f32; 2],
+}
+
+impl BoxRaw {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<BoxRaw>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4,
+            6 => Float32x4, 7 => Float32x4, 8 => Float32x2,
+        ],
+    };
+
+    fn of(b: &crate::BoxCopy) -> BoxRaw {
+        let edge = b.edge.unwrap_or(crate::BoxStroke { width: 0.0, color: [0.0; 4] });
+        BoxRaw {
+            transform: cols(b.transform),
+            line_color: b.line.color,
+            edge_color: edge.color,
+            widths: [b.line.width, edge.width],
+        }
+    }
+}
+
+/// The unit cube's edges as its corners' pairs (`box_corners`' order:
+/// bit 0 x, bit 1 y, bit 2 z).
+const CUBE_EDGES: [(usize, usize); 12] = [
+    (0, 1),
+    (1, 3),
+    (3, 2),
+    (2, 0),
+    (4, 5),
+    (5, 7),
+    (7, 6),
+    (6, 4),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+];
+
+/// The unit cube's edges, each a quad of two triangles: for each corner
+/// of a quad, the edge's two ends with which end the corner is at and its
+/// side (`line.wgsl`'s `BoxIn`'s `a` and `b`).
+fn box_cube_vertices() -> Vec<[[f32; 4]; 2]> {
+    let corner = |i: usize| [(i & 1) as f32, ((i >> 1) & 1) as f32, ((i >> 2) & 1) as f32];
+    let mut out = Vec::with_capacity(CUBE_EDGES.len() * 6);
+    for (a, b) in CUBE_EDGES {
+        let (a, b) = (corner(a), corner(b));
+        for (end, side) in
+            [(0.0, -1.0), (1.0, -1.0), (1.0, 1.0), (0.0, -1.0), (1.0, 1.0), (0.0, 1.0)]
+        {
+            out.push([[a[0], a[1], a[2], end], [b[0], b[1], b[2], side]]);
+        }
+    }
+    out
+}
+
+/// The unit cube's edges' quads' corners, as the boxes' draws read them.
+const BOX_CUBE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+    array_stride: 32,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
+};
+
+/// How many corners the unit cube's edges' quads have.
+const BOX_CUBE_CORNERS: u32 = 12 * 6;
 
 /// A shape's line ends, as its copies' draws read them.
 const SHAPE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -1569,6 +1670,52 @@ impl Renderer {
             "fs_plain",
             &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
         );
+        // The boxes: the lines' shader and blending, over everything (no
+        // depth test), each edge a quad of two triangles; their edges and
+        // their lines by two vertex entry points.
+        let box_pipeline_of = |label, entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&line_layout),
+                vertex: wgpu::VertexState {
+                    module: &line_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(BOX_CUBE_LAYOUT), Some(BoxRaw::LAYOUT)],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &line_shader,
+                    entry_point: Some("fs_box"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let box_edge_pipeline = box_pipeline_of("box edges", "vs_box_edge");
+        let box_line_pipeline = box_pipeline_of("box lines", "vs_box_line");
+        let box_cube = {
+            use wgpu::util::DeviceExt;
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("box cube"),
+                contents: bytemuck::cast_slice(&box_cube_vertices()),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        };
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -1649,6 +1796,10 @@ impl Renderer {
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_copy_pipeline,
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
+            box_edge_pipeline,
+            box_line_pipeline,
+            box_cube,
+            box_buffer: buffer("boxes", 1 << 12, wgpu::BufferUsages::VERTEX),
             views: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
@@ -1656,8 +1807,7 @@ impl Renderer {
             bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
             draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
             order_buffer: buffer("draw order", 4 * 64, wgpu::BufferUsages::STORAGE),
-            frame_group: None,
-            frame_mask: (0, None),
+            frame_buffers: 0,
             batcher: Batcher::default(),
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
@@ -1696,6 +1846,7 @@ impl Renderer {
             light_set: Vec::new(),
             line_vertices: Vec::new(),
             line_copies: Vec::new(),
+            box_copies: Vec::new(),
             particle_draws: Vec::new(),
             particle_softness: Vec::new(),
             particle_materials: HashMap::new(),
@@ -2646,7 +2797,7 @@ impl Renderer {
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
             light_params: {
                 let (max_inv, falloff) = attenuation_params();
-                [max_inv, falloff, 0.0, size.1 as f32]
+                [max_inv, falloff, size.0 as f32, size.1 as f32]
             },
             time: [scene.time, 0.0, 0.0, 0.0],
         };
@@ -2700,8 +2851,7 @@ impl Renderer {
                 color: l.color.extend(if l.ambient_only { -r2 } else { r2 }).to_array(),
             }
         }));
-        let mut frame_dirty = self.frame_group.is_none();
-        frame_dirty |= upload(
+        let mut frame_dirty = upload(
             gpu,
             &mut self.light_buffer,
             "lights",
@@ -3562,13 +3712,17 @@ impl Renderer {
             of: all_copies.map(|c| c.id),
         }));
         let mask_id = mask.map_or(0, |m| m.id);
-        frame_dirty |= self.frame_mask != (mask_id, all_copies.map(|c| c.id));
 
         // Bind groups.
+        // (The view's frame group, made again where a buffer it binds was,
+        // or its mask.)
         if frame_dirty {
-            self.frame_mask = (mask_id, all_copies.map(|c| c.id));
+            self.frame_buffers += 1;
+        }
+        let made_on = (self.frame_buffers, mask_id);
+        if kept_view.frame_group.as_ref().is_none_or(|(g, m, _)| (*g, *m) != made_on) {
             let mask_view = mask.map_or(&self.white.view, |m| &m.view);
-            self.frame_group = Some(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("frame"),
                 layout: &self.frame_layout,
                 entries: &[
@@ -3597,8 +3751,11 @@ impl Renderer {
                         resource: wgpu::BindingResource::TextureView(mask_view),
                     },
                 ],
-            }));
+            });
+            kept_view.frame_group = Some((made_on.0, made_on.1, group));
+            self.drawn.frame_group_made = true;
         }
+        let frame_group = kept_view.frame_group.as_ref().map(|(.., g)| g.clone());
 
         // Particles: punch-through, then blended by render order, then
         // additive; their textures bind like meshes'.
@@ -3768,6 +3925,22 @@ impl Renderer {
         // The line shapes: the lines of those not drawn last frame sent,
         // and every copy; each shape's copies drawn by one draw.
         let shapes = self.line_shapes(gpu, &scene.line_shapes, &mut kept_view.shapes);
+        // The boxes' copies (none sent where there are none), and whether
+        // any has an edge to draw under the lines.
+        let mut box_copies = std::mem::take(&mut self.box_copies);
+        box_copies.clear();
+        box_copies.extend(scene.boxes.iter().map(BoxRaw::of));
+        let box_edges = box_copies.iter().any(|b| b.widths[1] > 0.0);
+        if !box_copies.is_empty() {
+            upload(
+                gpu,
+                &mut self.box_buffer,
+                "boxes",
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                &box_copies,
+                0,
+            );
+        }
         // The game's shaders' blocks and bind groups (the solid draws sorted
         // above).
         // (Those after the framebuffer's copy, last.)
@@ -3869,7 +4042,7 @@ impl Renderer {
             }
         }
         {
-            let frame_group = self.frame_group.as_ref().expect("frame group built above");
+            let frame_group = frame_group.as_ref().expect("frame group built above");
             // (Cut for the framebuffer's copy: the multisampled picture is
             // resolved at the end of the second pass alone.)
             let first_resolve = if copying.is_some() { None } else { resolve };
@@ -4154,6 +4327,22 @@ impl Renderer {
                     pass.draw(0..shape.ends, copies.clone());
                 }
             }
+            // The boxes, over everything: every edge, then every line.
+            if !box_copies.is_empty() {
+                let copies = 0..box_copies.len() as u32;
+                pass.set_bind_group(0, &self.particle_frame, &[]);
+                pass.set_vertex_buffer(0, self.box_cube.slice(..));
+                pass.set_vertex_buffer(1, self.box_buffer.slice(..));
+                if box_edges {
+                    pass.set_pipeline(&self.box_edge_pipeline);
+                    pass.draw(0..BOX_CUBE_CORNERS, copies.clone());
+                    self.drawn.box_draws += 1;
+                }
+                pass.set_pipeline(&self.box_line_pipeline);
+                pass.draw(0..BOX_CUBE_CORNERS, copies);
+                self.drawn.box_draws += 1;
+                self.drawn.boxes = box_copies.len();
+            }
         }
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
@@ -4163,6 +4352,7 @@ impl Renderer {
         self.particle_draws = particle_draws;
         self.particle_softness = particle_softness;
         self.line_vertices = line_vertices;
+        self.box_copies = box_copies;
         kept_view.reach = reach_cache;
         self.views.put(view_key, kept_view);
     }
@@ -4183,13 +4373,10 @@ impl Renderer {
     }
 
     /// Lets go of the bind groups on the framebuffer copies numbered `id`.
+    /// (The view's frame group, which binds its mask, goes with what is
+    /// kept for the view.)
     fn forget_copies(&mut self, id: u64) {
         self.game.forget_framebuffer(id);
-        // (The frame group binds the view's mask: made again.)
-        if self.frame_mask.1 == Some(id) {
-            self.frame_group = None;
-            self.frame_mask = (0, None);
-        }
     }
 
     /// How many views have something kept for them, for tests.
