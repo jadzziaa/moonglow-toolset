@@ -231,9 +231,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and 0.4 to 0.7 ms more at rest after a drag and its undo than before
   it (measured before these changes, cause not found, not timed again);
   in a drag +3.3 to +3.5 ms (from +8.3), most of it their boxes' 480,000
-  vertices made anew each frame as the drag poses them (whether the
-  renderer should draw selection boxes is Engine and Rendering's
-  question, open); every tile of a hilly area selected, its outlines
+  vertices made anew each frame as the drag poses them (Engine and
+  Rendering's task: the renderer is to draw selection boxes instanced,
+  the hand-off in the area view's overlay code agreed with Interface
+  first); every tile of a hilly area selected, its outlines
   put on screen each frame the camera turns (0.8 to 1.1 ms); and the
   Position menu's walkmesh items, untimed, since the scratch module has
   no `[bake]` (a project with one would time them).
