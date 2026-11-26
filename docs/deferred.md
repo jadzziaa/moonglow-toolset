@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:52:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:22:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -238,14 +238,28 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   model batched apart, are about a third by the average time a draw
   takes, the rest not found): under a millisecond, and the area's draw
   of 2,000 placeables (5.8 to 7.6 ms encoded) is "The largest areas in
-  full view"'s cost, so left; and a second view drawn through a large
-  area's renderer between its frames still costs the area's encoding
-  0.20 to 0.43 ms more than the same view drawn through a renderer of
-  its own (develop, three runs at a load of 10 to 17; the shadow map is
-  drawn again in neither): something of a view's still redone that R9's
-  fix did not keep, not found within the 5.4.0 release's time for these
-  views (finding it is a profile of the renderer's own caches), under a
-  millisecond, so left.
+  full view"'s cost, so left (the views now print how often each arm's
+  draws bind another of the meshes' chunks, `Drawn::chunks`: R22's
+  arms did 2,296 and 3 times run after the other views, 95 and 15 alone,
+  so a part of that figure may be the chunks' as R9's was; timed alone
+  at a load of 22 to 25 the tinted arm was +0.05 to +0.20 ms). R9's
+  second view, drawn through the area's renderer, now costs what it
+  does through a renderer of its own (26 November, [the log](log.md));
+  what told them apart was where each arm's meshes lay in the meshes'
+  pool. What that showed is left: **the game's solid draws of one
+  material bind the buffers of each chunk their meshes lie in, as often
+  as they alternate**: a large area loaded first, into an empty pool
+  (its meshes spread over the small chunks made as the pool grows,
+  `pool.rs`), bound chunks' buffers 2,106 times a frame where the same
+  area loaded after two others (into the largest chunks) bound them 3
+  times, 0.27 ms more of wgpu's encoding (`CommandEncoder::finish`: the
+  buffers bound, and the driver's draws after a binding). Drawing them
+  by chunk within a
+  material would change the order of a material's draws, which
+  `game::sort` keeps as the meshes came so that coplanar meshes (a decal
+  on the ground) draw the same each run, and a chunk depends on what was
+  loaded before; placing an area's meshes together in the pool is a
+  design of its own. Deferred as beyond what was asked (R9's view).
   The command line's and Verify's (V15 to V17, C3, C4, M17, P19) were timed on 26 November
   (`mg-module`'s `tests/timing.rs`, `mg-plugin`'s `tests/timing.rs`, `apps/mg`'s
   `tests/timing.rs`; three alternating rounds at load 10 to 30, the lowest, the

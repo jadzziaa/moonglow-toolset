@@ -6784,6 +6784,100 @@ fn a_view_keeps_its_own_from_frame_to_frame() {
     assert_eq!(gpu.read_rgba(&other_targets.color).data, alone.data);
 }
 
+/// Each view keeps its own frame group (the bind group of the frame's
+/// uniforms, lights, draws and the view's shadows' mask): two views drawn
+/// in turn through one renderer make theirs once each, not at every
+/// frame (one for the renderer was made again whenever the other view
+/// had drawn between, R9 of the review of November 2026). A frame whose
+/// draws outgrow the buffers has every view's made again on the new
+/// ones, and each view's picture is what a renderer of its own draws.
+#[test]
+fn two_views_in_turn_keep_their_frame_groups() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let tile = colored_quad(&gpu, [0.8, 0.3, 0.2]);
+    // (`tiles` small colored squares over the ground: the draws' uniforms
+    // grow with them.)
+    let scene = |plate_at: f32, tiles: usize| Scene {
+        instances: [
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(plate.clone(), Mat4::from_translation(Vec3::new(plate_at, 0.0, 1.0))),
+        ]
+        .into_iter()
+        .chain((0..tiles).map(|i| {
+            let (x, y) = ((i % 64) as f32 / 16.0 - 2.0, (i / 64) as f32 / 16.0 - 2.0);
+            Instance::new(
+                tile.clone(),
+                Mat4::from_translation(Vec3::new(x, y, 0.01 + i as f32 * 1e-5))
+                    * Mat4::from_scale(Vec3::splat(0.02)),
+            )
+        }))
+        .collect(),
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let (area, other, larger) = (scene(0.0, 4), scene(2.0, 1), scene(-1.0, 4096));
+    let area_targets = Targets::new(&gpu, format, 4, 96, 64);
+    let other_targets = Targets::new(&gpu, format, 4, 48, 48);
+    // (Each view's picture through a renderer of its own.)
+    let alone = |s: &Scene, t: &Targets| {
+        let mut r = Renderer::new(&gpu, format, 4);
+        r.render_targets(&gpu, &NoAssets, s, &camera, t);
+        gpu.read_rgba(&t.color).data
+    };
+    let (area_alone, other_alone) = (alone(&area, &area_targets), alone(&other, &other_targets));
+    let larger_alone = alone(&larger, &other_targets);
+    let mut r = Renderer::new(&gpu, format, 4);
+    let mut made = Vec::new();
+    for _ in 0..3 {
+        for (s, t, want) in
+            [(&area, &area_targets, &area_alone), (&other, &other_targets, &other_alone)]
+        {
+            r.render_targets(&gpu, &NoAssets, s, &camera, t);
+            made.push(r.drawn.frame_group_made);
+            assert!(gpu.read_rgba(&t.color).data == *want, "as a renderer of its own draws it");
+        }
+    }
+    assert_eq!(made, [true, true, false, false, false, false], "each view's made once");
+    // The other view's draws outgrow the buffers: its group and the
+    // area's are made again on the new ones (a group kept on the old
+    // would draw the area with what they held).
+    r.render_targets(&gpu, &NoAssets, &larger, &camera, &other_targets);
+    assert!(r.drawn.frame_group_made, "made on the larger buffers");
+    assert!(gpu.read_rgba(&other_targets.color).data == larger_alone, "the larger as alone");
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert!(r.drawn.frame_group_made, "the area's made again on them");
+    assert!(gpu.read_rgba(&area_targets.color).data == area_alone, "the area as alone");
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert!(!r.drawn.frame_group_made, "and then kept");
+    // A view whose shadows go: its mask goes, and its group is made with
+    // white.
+    let unshadowed = Scene { shadows: None, ..scene(0.0, 4) };
+    r.render_targets(&gpu, &NoAssets, &unshadowed, &camera, &area_targets);
+    assert!(r.drawn.frame_group_made, "made again without the mask");
+    assert!(
+        gpu.read_rgba(&area_targets.color).data == alone(&unshadowed, &area_targets),
+        "the unshadowed area as alone"
+    );
+}
+
 /// A fifth view takes over the state of the view drawn longest ago, and
 /// draws as a renderer of its own draws it: the bind groups kept on the
 /// first view's targets (its depth, which the shadows' darkening reads)

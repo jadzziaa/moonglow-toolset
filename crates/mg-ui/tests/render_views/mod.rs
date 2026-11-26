@@ -14,7 +14,9 @@
 //! - R9: a second view (a two-tile area with a creature, as the model
 //!   viewer shows one, with its ground's shadow) drawn through the same
 //!   renderer between the frames of a large area with the sun's shadows,
-//!   seen from a camera that stays put.
+//!   seen from a camera that stays put; and the same second view drawn
+//!   through a renderer of its own, the measure of what sharing one
+//!   still costs.
 //! - R15: a large area with the sun's shadows, the camera at rest in one
 //!   corner, and an animated creature with a skin (the meshes a cloak's
 //!   are) at the far corner, out of the map's region.
@@ -40,6 +42,7 @@
 //! --ignored --nocapture renderer_fixes`.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use glam::Vec3;
@@ -158,11 +161,12 @@ fn area(
     model
 }
 
-/// What one area is drawn with: its model and scene, the camera, the
-/// targets and its particles' simulations.
+/// What one area is drawn with: its model and scene (which panes may
+/// share: [`Pane::sharing`]), the camera, the targets and its particles'
+/// simulations.
 struct Pane {
-    model: mg_area::AreaModel,
-    scene: mg_area::AreaScene,
+    model: Rc<mg_area::AreaModel>,
+    scene: Rc<mg_area::AreaScene>,
     view: mg_area::View,
     camera: Camera,
     targets: Targets,
@@ -185,7 +189,27 @@ impl Pane {
         view.creature_shadows = true;
         view.light_shadows = false;
         let targets = Targets::new(gpu, FORMAT, 4, size.0, size.1);
+        let (model, scene) = (Rc::new(model), Rc::new(scene));
         Pane { model, scene, view, camera, targets, sims: HashMap::new() }
+    }
+
+    /// A pane of its own (view, targets, particles) on `self`'s model and
+    /// scene: the same meshes, so that arms drawing them draw from the same
+    /// places in the meshes' pool (an area's scene made after another's
+    /// lies in other chunks, and its draws bind other chunks' buffers more
+    /// or less often: `Drawn::chunks`, which was 3 for one arm's area and
+    /// 2,106 for another's of the same tiles, the most of what told them
+    /// apart).
+    fn sharing(&self, gpu: &Gpu) -> Pane {
+        let (w, h) = (self.targets.color.width(), self.targets.color.height());
+        Pane {
+            model: self.model.clone(),
+            scene: self.scene.clone(),
+            view: self.view,
+            camera: self.camera,
+            targets: Targets::new(gpu, FORMAT, 4, w, h),
+            sims: HashMap::new(),
+        }
     }
 }
 
@@ -220,16 +244,21 @@ struct Times {
 }
 
 /// One arm of a view: a renderer, the area it times and, where `after`
-/// is given, a second view drawn through the same renderer after each of
-/// its frames (not timed).
+/// is given, a second view drawn after each of its frames (not timed):
+/// through the same renderer, or through `apart` where that is given.
 struct Arm {
     name: &'static str,
     renderer: Renderer,
     pane: Pane,
     after: Option<Pane>,
+    /// The second view's own renderer (`None`: the arm's).
+    apart: Option<Renderer>,
     t: Times,
     /// What its last frame drew.
     counts: String,
+    /// How often its last frame bound another chunk's buffers
+    /// (`Drawn::chunks`).
+    chunks: usize,
 }
 
 impl Arm {
@@ -259,9 +288,10 @@ impl Arm {
             self.t.gpu.push(t4 - t3);
         }
         let d = self.renderer.drawn;
+        self.chunks = d.chunks;
         self.counts = format!(
             "{} instances, {} lights, {} particles; {} meshes drawn in {} draws, {} of the \
-             game's, {} casting the sun's shadows",
+             game's, {} casting the sun's shadows; {} chunks' buffers bound",
             frame.instances.len(),
             frame.lights.len(),
             frame.particles.iter().map(|b| b.vertices.len() / 4).sum::<usize>(),
@@ -269,13 +299,15 @@ impl Arm {
             d.batches,
             d.game,
             d.sun_casters,
+            d.chunks,
         );
         if let Some(b) = self.after.as_mut() {
             b.view.time += dt;
             let mut frame = b.scene.scene(&b.model, &b.view);
             frame.particles =
                 b.scene.particles(&b.model, &b.view, &mut b.sims, dt, b.camera.view());
-            self.renderer.render_targets(gpu, &game.resman, &frame, &b.camera, &b.targets);
+            let r = self.apart.as_mut().unwrap_or(&mut self.renderer);
+            r.render_targets(gpu, &game.resman, &frame, &b.camera, &b.targets);
             wait(gpu);
         }
     }
@@ -303,8 +335,8 @@ impl Arm {
 }
 
 /// The arms' frames in turn (`count` each, the order swapped every other
-/// round), then a line for each and their difference (the first's less
-/// the second's).
+/// round), then a line for each and their differences (the first's less
+/// each other's).
 fn alternate(view: &str, gpu: &Gpu, game: &GameData, arms: &mut [Arm]) {
     for a in arms.iter_mut() {
         a.settle(gpu, game);
@@ -340,7 +372,18 @@ fn alternate(view: &str, gpu: &Gpu, game: &GameData, arms: &mut [Arm]) {
             println!("      GPU: {}", each(&t.gpu));
         }
     }
-    if let [a, b, ..] = arms {
+    // (Arms whose meshes lie otherwise in the pool's chunks bind chunks'
+    // buffers more or less often, which is a cost of its own: R9's arms
+    // differed by 0.27 ms for it alone, with 2,106 and 237.)
+    let chunks: Vec<usize> = arms.iter().map(|a| a.chunks).collect();
+    if chunks.iter().any(|&c| c != chunks[0]) {
+        println!(
+            "    (the arms bind chunks' buffers {chunks:?} times: their meshes lie apart in the \
+             pool, and the difference is partly that)"
+        );
+    }
+    let Some((a, rest)) = arms.split_first() else { return };
+    for b in rest {
         let d = |x: &[Duration], y: &[Duration], at: f64| ms(pick(x, at)) - ms(pick(y, at));
         println!(
             "    {:34} scene {:+5.2} ms, particles {:+5.2} ms, draws encoded {:+5.2} ms (on the \
@@ -439,22 +482,40 @@ fn second_view(gpu: &Gpu, game: &GameData) {
         area(game, "ttr01", 2, |_, _| {}, vec![("Creature List", vec![c])])
     };
     let near = camera(Vec3::new(10.0, 10.0, 1.0), 5.0, 0.4, 0.3);
+    // (One scene of each, which every arm draws: their meshes in the same
+    // chunks of the pool.)
+    let big = Pane::new(gpu, game, big(), at_rest, SIZE);
+    let small = Pane::new(gpu, game, small(), near, (700, 1000));
     let mut arms = [
         Arm {
-            name: "a second view between its frames",
+            name: "a second view through its renderer",
             renderer: renderer(gpu, true),
-            pane: Pane::new(gpu, game, big(), at_rest, SIZE),
-            after: Some(Pane::new(gpu, game, small(), near, (700, 1000))),
+            pane: big.sharing(gpu),
+            after: Some(small.sharing(gpu)),
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
+        },
+        Arm {
+            name: "a second view, a renderer its own",
+            renderer: renderer(gpu, true),
+            pane: big.sharing(gpu),
+            after: Some(small.sharing(gpu)),
+            apart: Some(renderer(gpu, true)),
+            t: Times::default(),
+            counts: String::new(),
+            chunks: 0,
         },
         Arm {
             name: "the area alone",
             renderer: renderer(gpu, true),
-            pane: Pane::new(gpu, game, big(), at_rest, SIZE),
+            pane: big,
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
     ];
     println!(
@@ -492,16 +553,20 @@ fn far_creature(gpu: &Gpu, game: &GameData) {
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(true), corner, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
         Arm {
             name: "no creature",
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(false), corner, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
     ];
     println!(
@@ -556,16 +621,20 @@ fn flames(gpu: &Gpu, game: &GameData) {
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(true), whole, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
         Arm {
             name: "no flames",
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(false), whole, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
     ];
     println!(
@@ -671,16 +740,20 @@ fn tints(gpu: &Gpu, game: &GameData) {
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(true), whole, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
         Arm {
             name: "untinted",
             renderer: renderer(gpu, true),
             pane: Pane::new(gpu, game, make(false), whole, SIZE),
             after: None,
+            apart: None,
             t: Times::default(),
             counts: String::new(),
+            chunks: 0,
         },
     ];
     println!(
