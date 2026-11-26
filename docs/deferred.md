@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T08:25:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T10:33:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -199,8 +199,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   waiting rather than work. The rest of the old entry is settled: area092
   is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
   taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
-  frames note](research/notes_frames.md) of 25 November says. (S, waits
-  on a calm machine: load under 5 for the bisect) (the review of
+  frames note](research/notes_frames.md) of 25 November says. The
+  bisect of 26 November (load 2.5 to 4) found three steps, the last
+  89e62b7f (M3's shell) +0.11 ms: profiled against 4.2.1 (abe3e024),
+  it is the shell's own chrome drawn each frame, three fifths widgets
+  (the Outliner beside the module tree, the Status Bar, the Top Bar's
+  Quick Open, the tree's guide lines and eye icons) and two fifths
+  their shapes' tessellation, nothing drawn twice or for nothing: left,
+  since under the line would mean taking parts of the shell away
+  (Interface's, 26 November). (S, waits on a calm machine: load under 5
+  for the bisect) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
@@ -286,19 +294,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   November (`nui_perf::the_creator_at_scale`, `NUI_VIEW` picks its
   groups, and `editor_perf::scripts_at_scale`, `EDITOR_VIEW`; [the
   log](log.md)), timed truly quiet at their final commit (26 November
-  03:22 to 03:24, the load 3 to 5; three runs). What they leave, beyond
-  a local change: the column of 1,000 rows +826 to +867 µs (about 1.4
-  ms a frame; +5.0 to +18.2 ms before, loaded): each frame still
-  measures the whole window for the group's scroll extent and walks it
-  for pictures and strings; the combo of 10,000 entries in Interact
-  +160 to +197 µs: Interact compares the window and its settings with
-  the session's twice a frame, besides those walks; Design of 511
-  controls eight deep +356 to +372 µs (+2.0 to +2.4 ms before, loaded;
-  the canvas drawing 239 more containers than the shallow window); a
-  key a frame in Choose Image's Find +1.34 to +1.61 ms, every one of
-  129,689 picture names searched for each key, under the budget. A
-  cache of the walks across frames needs a signal that the window
-  changed, which a window edited in place doesn't give. Within: two
+  03:22 to 03:24, the load 3 to 5; three runs), and the four that were
+  over the line timed again at batch 5's (05:15, the load 2; three
+  runs): the column of 1,000 rows +35 to +40 µs (+826 to +867 before),
+  the combo of 10,000 entries in Interact +3 to +11 (+160 to +197), a
+  key a frame in Choose Image's Find +10 to +15 (+1.34 to +1.61 ms):
+  the canvas keeps its layout, the pictures and strings the window
+  names and Interact's check of its session from one frame to the next
+  while the window is known unchanged (a quiet frame `end` found it
+  unchanged in), Find looks among what the filter before it found, and
+  a picture lingers 30 passes after it is last asked for. Left, for the
+  reason given: Design of 511 controls eight deep +157 to +164 µs
+  (+356 to +372 before): what is left is the 239 more containers drawn
+  than the shallow window, a third of it their properties looked up,
+  a sixth their hit areas and the rest their drawing; with no lookups
+  at all it would still be about +105, and under the line would mean
+  containers in sight without a hit area, which could not be clicked,
+  dragged or dropped on. Within: two
   Creator tabs side by side (+13 to +23), Split source as a picture's
   name is typed (−0 to +3), the Bindings page of 60 binds (+10 to +11),
   the list's cell of 5,000 rows (+17 to +23) and New Bind open on it
