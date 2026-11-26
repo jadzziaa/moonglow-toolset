@@ -94,7 +94,7 @@ fn probe_node(parent: &str, name: &str, at: [f32; 3], extra: &str) -> String {
 
 /// A model of a root dummy, `nodes` and the animations `anims` (ASCII,
 /// each a whole `newanim ... doneanim` block).
-fn model_with(name: &str, nodes: &[String], anims: &[String]) -> String {
+pub(super) fn model_with(name: &str, nodes: &[String], anims: &[String]) -> String {
     format!(
         "newmodel {name}\nsetsupermodel {name} NULL\nclassification Character\n\
          setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\n\
