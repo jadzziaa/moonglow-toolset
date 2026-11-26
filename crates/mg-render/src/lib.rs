@@ -34,7 +34,7 @@ pub use game::ShaderStats;
 pub use game::part as uniform_part;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};
-pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
+pub use gpu::{Gpu, OPTIONAL_FEATURES, SAMPLE_COUNTS, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use pool::MeshMemory;
 pub use reach::{Frustum, box_corners, box_of};

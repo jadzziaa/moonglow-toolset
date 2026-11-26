@@ -820,6 +820,7 @@ fn load_texture(
     assets: &dyn Assets,
     name: &str,
     palettes: &crate::Palettes,
+    role: Role,
 ) -> Option<TextureEntry> {
     if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
         let faces: Option<Vec<mg_image::Texture>> =
@@ -849,15 +850,29 @@ fn load_texture(
     if let Some(flat) = procedure_picture(&t.texture, &t.txi) {
         t.texture = flat;
     }
-    let uploaded = GpuTexture::try_upload(gpu, name, &t.texture, t.txi.mipmap());
-    let gpu = refused(name, uploaded)?;
+    // (What its alpha is, from the texture as read: compressed, its
+    // `alpha_mean` would say it.)
     let alpha = alpha_in(&t.texture);
+    let cut = t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0);
+    let ripple = ripple_of(&t.texture, &t.txi);
+    // (A picture read as RGBA compressed, but where the rippling
+    // procedure takes it: a compressed texture is a DDS to it.)
+    let compressed = (role == Role::Picture && !t.txi.arturo())
+        .then(|| crate::texture::compressed(gpu, &t.texture, t.txi.mipmap()))
+        .flatten();
+    let uploaded = GpuTexture::try_upload(
+        gpu,
+        name,
+        compressed.as_ref().unwrap_or(&t.texture),
+        t.txi.mipmap(),
+    );
+    let gpu = refused(name, uploaded)?;
     Some(TextureEntry {
         bytes: gpu.bytes(),
         used: Default::default(),
         cube: false,
         alpha,
-        cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
+        cut,
         gpu,
         blending: t.txi.blending(),
         // (Water reflects its `bumpyshinytexture`, as the game's shiny
@@ -869,9 +884,28 @@ fn load_texture(
             .map(str::to_ascii_lowercase),
         decal: t.txi.decal(),
         clamp: t.txi.clamp(),
-        ripple: ripple_of(&t.texture, &t.txi),
+        ripple,
         water: t.txi.water(),
     })
+}
+
+/// What a texture is read for: a picture, which may be compressed as it
+/// is read ([`crate::texture::compressed`]), or a material's map
+/// (normals, specularity, roughness, height, a custom shader's slots) or
+/// data a program reads (`solid_noise`), kept as stored: BC1's 565
+/// colors and blocks would bend normals and steps, and the encoder makes
+/// neither BC4 nor BC5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Picture,
+    Map,
+}
+
+impl Role {
+    /// The role of a material's slot: the first is its picture.
+    fn of_slot(slot: usize) -> Role {
+        if slot == 0 { Role::Picture } else { Role::Map }
+    }
 }
 
 /// The gray a DDS with the rippling procedure is drawn in, its picture
@@ -944,7 +978,7 @@ struct Waiting;
 /// they read, uploaded.
 struct TextureReader {
     assets: Arc<dyn Assets + Send + Sync>,
-    ask: std::sync::mpsc::Sender<String>,
+    ask: std::sync::mpsc::Sender<(String, Role)>,
     read: std::sync::mpsc::Receiver<(String, u64, Option<Arc<TextureEntry>>)>,
     /// The names asked for and not yet read.
     asked: std::collections::HashSet<String>,
@@ -977,7 +1011,7 @@ impl TextureReader {
         assets: Arc<dyn Assets + Send + Sync>,
         waker: Arc<std::sync::Mutex<Option<crate::game::Waker>>>,
     ) -> Option<TextureReader> {
-        let (ask, asked) = std::sync::mpsc::channel::<String>();
+        let (ask, asked) = std::sync::mpsc::channel::<(String, Role)>();
         let (give, read) = std::sync::mpsc::channel();
         let asked = Arc::new(std::sync::Mutex::new(asked));
         let eras = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -996,7 +1030,7 @@ impl TextureReader {
                             Ok(rx) => rx.recv(),
                             Err(_) => return,
                         };
-                        let Ok(name) = name else { return };
+                        let Ok((name, role)) = name else { return };
                         // (Made never to come back, in a test.)
                         if crate::guard::textures_stalled() {
                             continue;
@@ -1006,7 +1040,7 @@ impl TextureReader {
                         // (A texture that breaks what reads it is none, as
                         // a model that does is left out.)
                         let entry = crate::guard::guarded(&name, || {
-                            load_texture(&gpu, assets.as_ref(), &name, &kept).map(Arc::new)
+                            load_texture(&gpu, assets.as_ref(), &name, &kept, role).map(Arc::new)
                         })
                         .flatten();
                         if give.send((name, era, entry)).is_err() {
@@ -1902,9 +1936,13 @@ impl Renderer {
         if let Some(group) = self.materials.get(key) {
             return *group;
         }
-        let textures: Vec<Option<Arc<TextureEntry>>> =
-            key.0.iter().map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t))).collect();
-        let env = self.texture(gpu, assets, &key.1);
+        let textures: Vec<Option<Arc<TextureEntry>>> = key
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, n)| n.as_deref().and_then(|t| self.texture(gpu, assets, t, Role::of_slot(i))))
+            .collect();
+        let env = self.texture(gpu, assets, &key.1, Role::Picture);
         let sampler = self.sampler(gpu, key.2);
         let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
         let view = |i: usize| textures[i].as_ref().map_or(&white.view, |t| &t.gpu.view);
@@ -2114,7 +2152,7 @@ impl Renderer {
         let mut waiting = false;
         for (i, name) in names.iter().enumerate() {
             if let Some(name) = name {
-                match self.texture_read(gpu, assets, name) {
+                match self.texture_read(gpu, assets, name, Role::of_slot(i)) {
                     Ok(t) => read[i] = t,
                     Err(Waiting) => waiting = true,
                 }
@@ -2126,7 +2164,7 @@ impl Renderer {
             let area = scene_env.unwrap_or("chrome1").to_ascii_lowercase();
             let object = inst.env_map.as_deref().filter(|e| !e.eq_ignore_ascii_case("default"));
             for env in std::iter::once(area).chain(object.map(str::to_ascii_lowercase)) {
-                let _ = self.texture_read(gpu, assets, &env);
+                let _ = self.texture_read(gpu, assets, &env, Role::Picture);
             }
             return None;
         }
@@ -2174,14 +2212,17 @@ impl Renderer {
             has_alpha && !(env_mapped && slots.no_env && !see_through),
         );
         let env = env.unwrap_or_else(area).to_ascii_lowercase();
-        let env_cube = self.texture_read(gpu, assets, &env).ok()?.is_some_and(|t| t.cube);
+        let env_cube =
+            self.texture_read(gpu, assets, &env, Role::Picture).ok()?.is_some_and(|t| t.cube);
         let key: MaterialKey =
             (std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }), env, clamp);
         let hint = slots.normal_variant;
         let water = tex.as_ref().is_some_and(|t| t.water);
         let water_env = water.then(|| area().to_ascii_lowercase());
         let water_cube = match &water_env {
-            Some(env) => self.texture_read(gpu, assets, env).ok()?.is_some_and(|t| t.cube),
+            Some(env) => {
+                self.texture_read(gpu, assets, env, Role::Picture).ok()?.is_some_and(|t| t.cube)
+            }
             None => false,
         };
         let water_material = water_env.map(|env| {
@@ -2215,7 +2256,13 @@ impl Renderer {
         })
     }
 
-    fn texture(&mut self, gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<Arc<TextureEntry>> {
+    fn texture(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        name: &str,
+        role: Role,
+    ) -> Option<Arc<TextureEntry>> {
         let now = self.kept.now;
         let stamped = |t: &Option<Arc<TextureEntry>>| {
             if let Some(t) = t {
@@ -2230,7 +2277,7 @@ impl Renderer {
         // that read them apart.)
         let palettes = self.palettes.clone();
         let entry = crate::guard::guarded(name, || {
-            load_texture(gpu, assets, name, &palettes).map(Arc::new)
+            load_texture(gpu, assets, name, &palettes, role).map(Arc::new)
         });
         let entry = stamped(&entry.flatten());
         self.insert_texture(name.to_string(), entry.clone());
@@ -2245,6 +2292,7 @@ impl Renderer {
         gpu: &Gpu,
         assets: &dyn Assets,
         name: &str,
+        role: Role,
     ) -> Result<Option<Arc<TextureEntry>>, Waiting> {
         let now = self.kept.now;
         if let Some(t) = self.textures.get(name) {
@@ -2256,11 +2304,11 @@ impl Renderer {
         match &mut self.reader {
             Some(r) if self.textures_apart => {
                 if r.asked.insert(name.to_string()) {
-                    let _ = r.ask.send(name.to_string());
+                    let _ = r.ask.send((name.to_string(), role));
                 }
                 Err(Waiting)
             }
-            _ => Ok(self.texture(gpu, assets, name)),
+            _ => Ok(self.texture(gpu, assets, name, role)),
         }
     }
 
@@ -2320,6 +2368,16 @@ impl Renderer {
     #[doc(hidden)]
     pub fn hold_volumes(&mut self, held: bool) {
         self.volumes_held.store(held, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Takes the textures read apart since the last frame now, not at the
+    /// next frame drawn, and says how many asked for are still being
+    /// read: a view whose picture waits for textures draws it again at
+    /// once when none is, not at its animations' next step (which kept
+    /// an area's opening two steps, 80 ms, longer than its reading).
+    pub fn textures_still_read(&mut self) -> usize {
+        self.take_textures();
+        self.reader.as_ref().map_or(0, |r| r.asked.len())
     }
 
     /// Takes the textures read apart since the last frame.
@@ -3455,7 +3513,8 @@ impl Renderer {
         if self.textures_apart && self.reader.is_some() {
             let mut kept = Vec::with_capacity(batches.len());
             for b in batches {
-                let read = |r: &mut Self, t: &str| r.texture_read(gpu, assets, t).is_ok();
+                let read =
+                    |r: &mut Self, t: &str| r.texture_read(gpu, assets, t, Role::Picture).is_ok();
                 if b.texture.as_deref().is_none_or(|t| read(self, t)) && read(self, "chrome1") {
                     kept.push(b);
                 }
@@ -3532,7 +3591,7 @@ impl Renderer {
                 let textured = batches[k]
                     .texture
                     .as_deref()
-                    .is_some_and(|t| self.texture(gpu, assets, t).is_some());
+                    .is_some_and(|t| self.texture(gpu, assets, t, Role::Picture).is_some());
                 let mut bound = [false; 16];
                 bound[0] = textured;
                 let d = crate::game::DrawValues {
@@ -3637,7 +3696,7 @@ impl Renderer {
         if !game_draws.is_empty() || !game_blended.is_empty() {
             self.game.upload(gpu, &mut game_draws, &mut game_blended);
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
-            let noise = self.texture(gpu, assets, "solid_noise");
+            let noise = self.texture(gpu, assets, "solid_noise", Role::Map);
             let env_sampler = self.env_sampler.clone();
             // (Draws of one pipeline and material in a row: looked up once.)
             let mut last = None;
@@ -3653,9 +3712,12 @@ impl Renderer {
                 let textures: Vec<Option<Arc<TextureEntry>>> = key
                     .0
                     .iter()
-                    .map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t)))
+                    .enumerate()
+                    .map(|(i, n)| {
+                        n.as_deref().and_then(|t| self.texture(gpu, assets, t, Role::of_slot(i)))
+                    })
                     .collect();
-                let env = self.texture(gpu, assets, &key.1);
+                let env = self.texture(gpu, assets, &key.1, Role::Picture);
                 let sampler = self.sampler(gpu, key.2);
                 let (env_view, cube_view) = match &env {
                     Some(t) if t.cube => (&white.view, &t.gpu.view),
@@ -4111,6 +4173,12 @@ impl Renderer {
     }
 
     /// Draws a scene offscreen and reads it back (rows top first).
+    /// The samples a pixel it draws with: as asked, or as the device
+    /// gives them ([`Gpu::samples`]: one on OpenGL).
+    pub fn sample_count(&self) -> u32 {
+        self.sample_count
+    }
+
     pub fn render_image(
         &mut self,
         gpu: &Gpu,
@@ -4507,6 +4575,108 @@ mod tests {
             let over = c.eye.z - sky.z;
             assert!((over - game.eye.z).abs() < 1e-3, "{distance} m {pitch}°: {over} over the sky");
             assert!(sky.z > 50.0, "{distance} m {pitch}°: raised {}", sky.z);
+        }
+    }
+
+    /// Pictures read as RGBA, of each kind, as `load_texture` reads them
+    /// with the compression on and off: whatever their format on the GPU
+    /// (BC1 opaque, BC3 with alpha used, RGBA8 small, a map or the
+    /// rippling procedure's), what is known of their alpha (see-through,
+    /// cut) is the same, and their texels within BC's error.
+    #[test]
+    fn a_texture_compressed_as_it_is_read_keeps_what_is_known_of_it() {
+        use super::{Role, load_texture};
+        struct Pictures;
+        fn picture(name: &str) -> Option<mg_image::Rgba> {
+            let (w, h) = match name {
+                "small" => (32, 32),
+                "odd" => (66, 64),
+                _ => (128, 64),
+            };
+            let mut img = mg_image::Rgba::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    let a = match name {
+                        "cut" => {
+                            if (x / 8 + y / 8) % 2 == 0 {
+                                0
+                            } else {
+                                255
+                            }
+                        }
+                        "soft" => (x * 2) as u8,
+                        _ => 255,
+                    };
+                    let i = ((y * w + x) * 4) as usize;
+                    img.data[i..i + 4].copy_from_slice(&[(x * 2) as u8, (y * 4) as u8, 90, a]);
+                }
+            }
+            Some(img)
+        }
+        impl crate::Assets for Pictures {
+            fn texture(&self, name: &str) -> Option<crate::LoadedTexture> {
+                let (has_alpha, txi) = match name {
+                    "opaque24" => (false, ""),
+                    "ripple" => (true, "proceduretype arturo\ndistort 0\n"),
+                    _ => (true, ""),
+                };
+                let base = if name == "ripple" { "opaque32" } else { name };
+                let texture = picture(base)?.into_texture(has_alpha);
+                Some(crate::LoadedTexture {
+                    texture,
+                    txi: mg_image::txi::Txi::parse(txi.as_bytes()),
+                })
+            }
+        }
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let read = |name: &str, role: Role, on: bool| {
+            gpu.set_compress_read_textures(on);
+            let e = load_texture(&gpu, &Pictures, name, &Default::default(), role).unwrap();
+            gpu.set_compress_read_textures(true);
+            e
+        };
+        let bc = gpu.bc_textures();
+        use wgpu::TextureFormat::{Bc1RgbaUnorm, Bc3RgbaUnorm, Rgba8Unorm};
+        for (name, role, want) in [
+            ("opaque24", Role::Picture, Bc1RgbaUnorm),
+            ("opaque32", Role::Picture, Bc1RgbaUnorm),
+            ("cut", Role::Picture, Bc3RgbaUnorm),
+            ("soft", Role::Picture, Bc3RgbaUnorm),
+            ("small", Role::Picture, Rgba8Unorm),
+            ("odd", Role::Picture, Rgba8Unorm),
+            ("soft", Role::Map, Rgba8Unorm),
+            ("ripple", Role::Picture, Rgba8Unorm),
+        ] {
+            let (on, off) = (read(name, role, true), read(name, role, false));
+            let want = if bc { want } else { Rgba8Unorm };
+            assert_eq!(on.gpu.texture.format(), want, "{name} {role:?}");
+            assert_eq!(off.gpu.texture.format(), Rgba8Unorm, "{name} {role:?}: off");
+            assert_eq!((on.alpha, on.cut), (off.alpha, off.cut), "{name} {role:?}: its alpha");
+            assert_eq!(on.gpu.texture.mip_level_count(), off.gpu.texture.mip_level_count());
+            assert_eq!(on.gpu.texture.size(), off.gpu.texture.size(), "{name}");
+            if want == Bc1RgbaUnorm {
+                // (Its smallest levels take a whole block each.)
+                assert!(on.bytes * 7 < off.bytes, "{name}: an eighth: {} {}", on.bytes, off.bytes);
+            } else if want == Bc3RgbaUnorm {
+                assert!(on.bytes * 3 < off.bytes, "{name}: a quarter: {} {}", on.bytes, off.bytes);
+            }
+        }
+        assert_eq!(
+            (read("opaque24", Role::Picture, true).alpha, read("cut", Role::Picture, true).alpha),
+            (false, true)
+        );
+        assert!(read("soft", Role::Picture, true).alpha);
+        // A device without BC (some OpenGL and mobile ones): as read.
+        let plain = mg_testkit::gpu::open(|| {
+            let adapter = crate::headless_adapter()?;
+            let descriptor = wgpu::DeviceDescriptor::default();
+            let (device, queue) = pollster::block_on(adapter.request_device(&descriptor)).ok()?;
+            Some(crate::Gpu::new(device, queue))
+        });
+        if let Some(plain) = plain {
+            assert!(!plain.compresses_read_textures());
+            let e = load_texture(&plain, &Pictures, "cut", &Default::default(), Role::Picture);
+            assert_eq!(e.unwrap().gpu.texture.format(), Rgba8Unorm, "no BC: RGBA8");
         }
     }
 

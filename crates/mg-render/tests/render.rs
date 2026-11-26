@@ -25,6 +25,14 @@ fn gpu() -> Option<Gpu> {
     base.as_ref().map(|(d, q)| Gpu::new(d.clone(), q.clone()))
 }
 
+/// The samples a pixel the 3D views can be drawn with on the test's
+/// device (Options › Area › Anti-aliasing): one, two and four where the
+/// adapter takes them for every target.
+fn sample_counts(gpu: &Gpu) -> Vec<u32> {
+    let adapter = mg_render::headless_adapter().expect("the device's adapter");
+    gpu.sample_counts(&adapter, wgpu::TextureFormat::Rgba8Unorm)
+}
+
 struct Unfail;
 impl Drop for Unfail {
     fn drop(&mut self) {
@@ -1252,6 +1260,40 @@ fn a_solid_draw_leaves_the_picture_s_alpha() {
         assert!(sky[2] > 200 && sky[1] < 60, "{samples} samples: the sky {sky:?}");
         let see_through = image.data.as_chunks::<4>().0.iter().filter(|p| p[3] != 255).count();
         assert_eq!(see_through, 0, "{samples} samples: pixels whose alpha is not the clear's");
+    }
+}
+
+/// Anti-aliasing's counts: one always, four on every backend but OpenGL,
+/// two where the adapter takes it for each target (with its own format
+/// features, which the device asks for: `OPTIONAL_FEATURES`).
+#[test]
+fn the_sample_counts_offered_are_the_adapter_s() {
+    let Some(gpu) = gpu() else { return };
+    let counts = sample_counts(&gpu);
+    let _ = std::io::Write::write_fmt(
+        &mut std::io::stdout(),
+        format_args!("sample counts: {counts:?}\n"),
+    );
+    assert_eq!(counts.first(), Some(&1));
+    let backend = gpu.device.adapter_info().backend;
+    assert_eq!(counts.contains(&4), backend != wgpu::Backend::Gl, "{backend:?}: {counts:?}");
+    let adapter = mg_render::headless_adapter().unwrap();
+    let two = [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Depth32Float,
+        wgpu::TextureFormat::R8Unorm,
+    ]
+    .iter()
+    .all(|f| adapter.get_texture_format_features(*f).flags.sample_count_supported(2));
+    let specific =
+        gpu.device.features().contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
+    assert_eq!(
+        specific,
+        adapter.features().contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+        "asked for"
+    );
+    if !two || !specific || backend == wgpu::Backend::Gl {
+        assert!(!counts.contains(&2), "{counts:?}");
     }
 }
 
@@ -5181,7 +5223,7 @@ void main ()
         ..Default::default()
     };
     let dir = mg_testkit::scratch_dir("render-framebuffer");
-    for samples in [1, 4] {
+    for samples in sample_counts(&gpu) {
         let mut plain = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         plain.game_shaders = true;
         let behind = plain.render_image(&gpu, &assets, &scene(false), &camera, 64, 64);
@@ -5697,9 +5739,13 @@ void main ()
     let (firm_px, soft_px) = (44, 36);
     let (shade_x, sun_x) = (32, 52);
     for grass in [false, true] {
-        for (samples, volumes) in [(1, false), (4, false), (1, true), (4, true)] {
+        // (Each count Anti-aliasing offers: with one, no resolve.)
+        let counts = sample_counts(&gpu);
+        let runs = counts.iter().flat_map(|&n| [(n, false), (n, true)]);
+        for (samples, volumes) in runs {
             for shaders in [false, true] {
                 let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+                assert_eq!(r.sample_count(), samples);
                 (r.game_shaders, r.shadow_volumes) = (shaders, volumes);
                 let bare = r.render_image(&gpu, &assets, &scene(grass, None), &camera, 64, 64);
                 let half = r.render_image(&gpu, &assets, &scene(grass, Some(0.5)), &camera, 64, 64);
