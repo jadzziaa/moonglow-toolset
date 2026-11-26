@@ -566,13 +566,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the GPU (934 to 1,091 MHz), the woods turned 9.4 to 10.4 ms in the
   quickest tenth before against 9.7 to 12.0 after (+0.25 to +2.02,
   median +1.17, nine runs; the A/A -0.39 to +0.67), its median 11.6 to
-  11.9 against 17.4 to 17.7 in seven of the nine: the morning's figure,
-  a real cost at that clock (the old code on both sides of the A/A
-  stays at 11.0 to 11.8). Paced as the app paces its frames (1,110 to
-  1,405 MHz), +0.37 to +0.41 in the tenth and +0.3 to +0.5 in the
-  median (five runs; the A/A within 0.05), the overview +0.21 to +0.32
-  (six). Waiting on the owner: whether the change is taken with these
-  figures on record, given that the app draws at the second level.
+  11.9 against 17.4 to 17.7 in seven of the nine: the morning's figure.
+  Paced as the app but held near 780 MHz by a sleep, the same (17.3
+  and 17.6 against 11.7, the old code on both sides 11.7 to 11.8 at that
+  clock): a cost of the low clock, not of the pacing. Paced as the app
+  paces its frames (1,110 to 1,405 MHz), +0.37 to +0.41 in the tenth
+  and +0.3 to +0.5 in the median (five runs; the A/A within 0.05), the
+  overview +0.21 to +0.32 (six). Waiting on the owner: whether the
+  change is taken with these figures on record; the app paces its
+  frames as the quick runs did (inferred, not timed in the app).
   (2026-11-26)
 
 - **The frame budget of the game's shaders (M3 of [the shaders

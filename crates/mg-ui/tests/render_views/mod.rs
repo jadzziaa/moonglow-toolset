@@ -918,6 +918,7 @@ fn colored_npcs(gpu: &Gpu, game: &GameData, label: &str) {
         let from = load();
         let mut opened = Vec::new();
         let mut memory = None;
+        let clocks = mg_testkit::clocks::Clocks::start(crate::sclk_file(&gpu.device));
         for _ in 0..3 {
             let mut r = renderer(gpu, false);
             wait(gpu);
@@ -934,15 +935,17 @@ fn colored_npcs(gpu: &Gpu, game: &GameData, label: &str) {
             pane.view.time += 1.0 / FPS;
         }
         let (textures, bytes, meshes) = memory.unwrap_or_default();
+        let clocks = clocks.finish();
         let each: Vec<String> =
             opened.iter().map(|(w, c)| format!("{:.0} ({:.0})", ms(*w), ms(*c))).collect();
         println!(
             "  R12, R13, {what} (load {from} to {}): {plain} with a plain head; {textures} \
              textures kept, {:.1} MiB, {meshes} meshes drawn; the first frame {} ms (on the \
-             processor)",
+             processor); {}",
             load(),
             bytes as f64 / (1024.0 * 1024.0),
-            each.join(", ")
+            each.join(", "),
+            mg_testkit::clocks::said(&clocks)
         );
     }
 }

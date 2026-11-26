@@ -71,6 +71,11 @@ impl Clocks {
     /// Reads `file` (from [`sclk_file`]) until [`Clocks::finish`]; with
     /// none, reads nothing.
     pub fn start(file: Option<PathBuf>) -> Clocks {
+        Self::start_every(file, Self::EVERY)
+    }
+
+    /// [`Clocks::start`], reading every `every`.
+    pub fn start_every(file: Option<PathBuf>, every: Duration) -> Clocks {
         let started = Instant::now();
         let (stop, stopped) = channel::<()>();
         let thread = file.clone().map(|file| {
@@ -81,7 +86,7 @@ impl Clocks {
                     if let Some(mhz) = read(&file) {
                         seen.push((at, mhz));
                     }
-                    let rest = Self::EVERY.saturating_sub(started.elapsed() - at);
+                    let rest = every.saturating_sub(started.elapsed() - at);
                     if stopped.recv_timeout(rest) != Err(RecvTimeoutError::Timeout) {
                         return seen;
                     }
@@ -183,13 +188,23 @@ mod tests {
         assert_eq!(sclk_file_in(&drm, 0x8086, 0x1), None);
         assert_eq!(sclk_file_in(&drm.join("none"), 0x1002, 0x7550), None);
 
-        let clocks = Clocks::start(Some(file));
-        std::thread::sleep(Clocks::EVERY * 2 + Clocks::EVERY / 2);
-        let quick = Instant::now();
+        let every = Duration::from_millis(20);
+        let clocks = Clocks::start_every(Some(file.clone()), every);
+        std::thread::sleep(every * 5);
         let seen = clocks.finish().unwrap();
-        assert!(quick.elapsed() < Clocks::EVERY / 2, "stopped at once: {:?}", quick.elapsed());
         assert!(seen.len() >= 2 && seen.iter().all(|s| s.1 == 1321), "{seen:?}");
         assert!(said(&Some(seen)).starts_with("GPU clock 1321 MHz"));
+        // (Stopped at once, not at its next reading: what follows a view
+        // is not kept waiting.)
+        let clocks = Clocks::start_every(Some(file), Duration::from_secs(60));
+        std::thread::sleep(Duration::from_millis(50));
+        let quick = Instant::now();
+        assert_eq!(clocks.finish().unwrap().len(), 1);
+        assert!(
+            quick.elapsed() < Duration::from_secs(20),
+            "stopped at once: {:?}",
+            quick.elapsed()
+        );
         // (Finished at once, it still says the clock.)
         let file = sclk_file_in(&drm, 0x1002, 0x13c0);
         assert_eq!(Clocks::start(file).finish().unwrap()[0].1, 600);
