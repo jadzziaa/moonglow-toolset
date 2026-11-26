@@ -163,4 +163,16 @@ fn codegen_compiles_as_aurora_builds_it() {
     // Moonglow's: the script's own StartingConditional; none for the other two.
     assert!(m.get(&key("cg_cond")).is_some());
     assert!(m.get(&key("cg_inconly")).is_none() && m.get(&key("cg_usesc")).is_none());
+    // The owner's ruling of 2026-11-26: Moonglow's kept, and each script
+    // Aurora builds otherwise warned of, none else.
+    let warned: BTreeSet<String> = (results.iter())
+        .filter(|r| {
+            r.warnings.iter().any(|w| {
+                w.message.contains("has a main of its own")
+                    || w.message.contains("has no main or StartingConditional")
+            })
+        })
+        .map(|r| r.script.resref.to_lowercase().to_string())
+        .collect();
+    assert_eq!(warned, differ);
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T10:35:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
 ---
 
 # Scripts
@@ -476,6 +476,19 @@ always returns `OBJECT_INVALID`); one that returns a value where the
 declaration says `void` overwrites a variable of the script that calls
 it; one that returns another type stops the script where the value is
 used. Make the two agree to be rid of the warning.
+
+One way of writing compiles otherwise than in Aurora, on purpose: a
+script that includes a file with a `void main()` of its own. Aurora's
+Build compiles the include's `main` in place of the script. A
+condition (`int StartingConditional()`) becomes the include's `main`,
+which in the game always fails as a condition, and a script that is
+only the `#include` becomes it too (and a script with no entry point
+of its own, whose include has a `StartingConditional`, becomes that).
+Moonglow compiles what was written: the script's own entry point, and
+nothing for a script without one, which is an include. Each such script
+is warned of, in Compile All's log and by `mg compile`: the include's
+`main`, its line, and what Aurora makes of it. A module built in Aurora
+and then in Moonglow counts these scripts as changed.
 
 To compile with a program of your own instead (a newer build of the
 compiler, `nwnsc`), choose it in **Tools › Options › Script Editor ›
