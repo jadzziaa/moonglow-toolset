@@ -130,6 +130,10 @@ fn close_up(
     image::imageops::resize(&part, 3 * side as u32, 3 * side as u32, filter)
 }
 
+/// A picture: its name, where the camera looks, from how far, how far
+/// down, and the close-ups made of it (each its name and the point).
+type Shot<'a> = (&'a str, Vec3, f32, f32, &'a [(&'a str, Vec3)]);
+
 /// The pictures of each group, to look at (before and after a change of
 /// how the boxes are drawn): `target/test-output/ui-selection-boxes/`.
 #[test]
@@ -138,7 +142,7 @@ fn the_boxes_of_each_kind_drawn_in_the_picture() {
     let out = mg_testkit::output_dir("ui-selection-boxes");
     let near_trigger = TRIGGER + Vec3::X * 4.0;
     let near_encounter = ENCOUNTER + Vec3::X * 4.0;
-    let shots: [(&str, Vec3, f32, f32, &[(&str, Vec3)]); 6] = [
+    let shots: [Shot<'_>; 6] = [
         ("overview", Vec3::new(20.0, 20.0, 0.0), 50.0, 1.55, &[]),
         (
             "outlines",
@@ -238,6 +242,13 @@ fn the_boxes_of_the_selection_and_the_markers_are_drawn_in_the_picture() {
     assert_eq!(count(&h), (boxed + 1, boxed + 1), "the selection's and the marker's");
     assert!(drawn_box(&h, area, waypoint) && drawn_box(&h, area, lost), "each where it stands");
     let (waypoint_edge, lost_edge) = (on_edge(&h, area, waypoint), on_edge(&h, area, lost));
+    // At rest, the same boxes frame after frame, each a number (they are
+    // the picture's key: one unequal to itself would draw it again every
+    // frame).
+    let boxes = h.state().area_views[&area].picture_boxes().to_vec();
+    h.run_steps(4);
+    assert_eq!(h.state().area_views[&area].picture_boxes(), &boxes[..], "the same at rest");
+    assert!(boxes.iter().all(|c| c.transform.is_finite()), "each a number");
     // Let go of: the marker's alone.
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
     settle(&mut h);

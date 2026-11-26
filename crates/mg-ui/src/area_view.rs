@@ -5055,6 +5055,12 @@ fn object_boxes(
         let transform = o.model_transform()
             * glam::Mat4::from_translation(min)
             * glam::Mat4::from_scale(max - min);
+        // (Nowhere to draw one placed at no number, from a GIT's broken
+        // values: and a box unequal to itself would draw the picture
+        // again every frame, its key never the same.)
+        if !transform.is_finite() {
+            continue;
+        }
         if picked {
             selected.push(mg_render::BoxCopy { transform, line, edge: Some(edge) });
         } else {
