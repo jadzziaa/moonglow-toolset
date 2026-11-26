@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -366,24 +366,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   to +18), a plugin panel's choice of 2,000 options (+5 to +6).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
-## Blueprint editors and inventories
-
-- **Random item properties, what is left** (done: the Item Wizard's
-  Magical, Item Level and Item Quality, with rules fitted to 127 items
-  Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
-  Aurora's code: whether a later property's tier is drawn (one or two
-  below the first) or tried in order, and Low items' most worth (levels
-  1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
-  would need more of Aurora's items to settle; amulets, belts, boots,
-  bracers, cloaks and rings get the armor table, where Aurora may use
-  the helmet's (they differ in Weight Reduction only). All of it waits
-  on Aurora: a few hundred of its wizard items, made by driving its
-  wizard on the oracle (Low items at each level band; later properties'
-  tiers; an amulet, belt, boots, bracers, cloak and ring each at 16-20
-  Godly, whose Weight Reduction would tell the table), read against
-  `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
-  since 2026-10-30.) (a second builder's review, October 2026)
-
 ## Palettes
 
 - **A custom palette's names in the game, issue 13's other half** (a

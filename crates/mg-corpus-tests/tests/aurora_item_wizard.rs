@@ -31,13 +31,19 @@ fn tiers(gd: &GameData, table: &str, p: &ItemProperty) -> Vec<i32> {
 #[test]
 fn magical_items_are_made_as_aurora_s() {
     let root = corpus!();
-    let manifest = aurora_capture!("item-wizard/manifest.tsv");
-    let dir = manifest.parent().unwrap();
+    let manifests = [
+        aurora_capture!("item-wizard/manifest.tsv"),
+        aurora_capture!("item-wizard-2/manifest.tsv"),
+    ];
     let gd = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
-    let manifest = std::fs::read_to_string(&manifest).unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for line in manifest.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+    let lines = manifests.iter().flat_map(|m| {
+        let dir = m.parent().unwrap().to_path_buf();
+        let text = std::fs::read_to_string(m).unwrap();
+        text.lines().map(|l| (dir.clone(), l.to_string())).collect::<Vec<_>>()
+    });
+    for (dir, line) in lines.filter(|(_, l)| !l.starts_with('#') && !l.is_empty()) {
         let f: Vec<&str> = line.split('\t').collect();
         let (file, level, quality): (&str, u8, u8) =
             (f[0], f[1].parse().unwrap(), f[2].parse().unwrap());
@@ -95,6 +101,6 @@ fn magical_items_are_made_as_aurora_s() {
             failures.push(format!("{what}: worth {cost}, more than {cap}"));
         }
     }
-    assert!(checked >= 120, "{checked} items");
+    assert!(checked >= 300, "{checked} items");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

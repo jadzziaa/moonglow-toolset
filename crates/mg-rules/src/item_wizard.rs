@@ -11,10 +11,9 @@
 //! - level band `L` and quality `Q` make a step `3L + Q` (0 to 12); the
 //!   first property is of the tier that step reaches in the table,
 //!   `round(step × top tier / 12)`;
-//! - the next ones are one or two tiers lower (Low: two), each kept only
-//!   if the item's value stays within the most an item of that level is
-//!   worth (itemvalue.2da `MAXSINGLEITEMVALUE`): Low at most two
-//!   properties, the others as many as fit;
+//! - the next ones are one or two tiers lower, each kept only if the
+//!   item's value stays within the most an item of that level is worth
+//!   (itemvalue.2da `MAXSINGLEITEMVALUE`), up to four;
 //! - potions, scrolls, wands and trap kits get one; magic staves three
 //!   spells, of the tier and one below; rods up to three;
 //! - staves, rods and wands have 50 charges; scrolls and wands may be
@@ -67,10 +66,12 @@ fn table(column: i32) -> Option<(&'static str, Kind)> {
         3 => ("itmwizstaves", Kind::Staff),
         4 => ("itmwizrods", Kind::Rod),
         5 => ("itmwizammo", Kind::Other),
-        // Armor and shields; amulets, belts, boots, bracers, cloaks and
-        // rings too (the properties Aurora gives them are this table's).
-        6 | 16 => ("itmwizarmor", Kind::Other),
-        7 => ("itmwizhelmet", Kind::Other),
+        6 => ("itmwizarmor", Kind::Other),
+        // Helmets; amulets, belts, boots, bracers, cloaks and rings too:
+        // 48 of Aurora's at 6-10 Low drew the first property from the
+        // helmet's eight rows of tier 2, never the armor's ninth (Weight
+        // Reduction, which itemprops.2da allows them).
+        7 | 16 => ("itmwizhelmet", Kind::Other),
         8 => ("itmwizpotion", Kind::Single),
         9 => ("itmwizscroll", Kind::Single),
         10 => ("itmwizwands", Kind::Single),
@@ -177,13 +178,12 @@ impl ItemMagic {
     }
 
     /// The tiers the properties after the first are of: one or two
-    /// below it (Low: two); a staff's spells its own and one below.
+    /// below it; a staff's spells its own and one below.
     pub fn later_tiers(&self, level: u8, quality: u8) -> Vec<i32> {
         let first = self.tier(level, quality);
-        let below: &[i32] = match (self.kind, quality) {
-            (Kind::Single, _) => &[],
-            (Kind::Staff, _) => &[0, 1],
-            (Kind::Other, 0) => &[2],
+        let below: &[i32] = match self.kind {
+            Kind::Single => &[],
+            Kind::Staff => &[0, 1],
             _ => &[1, 2],
         };
         // (A staff's and a rod's spells are of the lowest tier at least.)
@@ -195,13 +195,13 @@ impl ItemMagic {
             .collect()
     }
 
-    /// The most properties it gets, the classes it is limited to aside.
-    pub fn most(&self, quality: u8) -> usize {
-        match (self.kind, quality) {
-            (Kind::Single, _) => 1,
-            (Kind::Staff | Kind::Rod, _) => 3,
-            (Kind::Other, 0) => 2,
-            (Kind::Other, _) => 4,
+    /// The most properties it gets, the classes it is limited to aside
+    /// (the same at every quality).
+    pub fn most(&self, _quality: u8) -> usize {
+        match self.kind {
+            Kind::Single => 1,
+            Kind::Staff | Kind::Rod => 3,
+            Kind::Other => 4,
         }
     }
 
@@ -298,12 +298,13 @@ fn class_limit(class: u16) -> ItemProperty {
 
 /// The most an item of a level band and quality may be worth: the
 /// itemvalue.2da `MAXSINGLEITEMVALUE` of a character level, Medium to
-/// Godly the third to fifth of the band, Low lower (levels 1, 5, 8 and
-/// 13, as Aurora's Low items stay within).
+/// Godly the third to fifth of the band, Low lower (levels 1, 5, 9 and
+/// 13, as 128 of Aurora's Low items stay within: up to 434, 4,863, 12,350
+/// and 32,430).
 pub fn most_worth(game: &GameData, level: u8, quality: u8) -> Option<u32> {
     let (level, quality) = (usize::from(level.min(3)), usize::from(quality.min(3)));
     let character = match quality {
-        0 => [1, 5, 8, 13][level],
+        0 => 4 * level + 1,
         q => 5 * level + q + 2,
     };
     let t = game.table("itemvalue").ok()?;
@@ -485,8 +486,15 @@ mod tests {
             })
             .collect();
         assert!(all.len() > 1, "{all:?}");
-        // Low: one property where nothing is two tiers lower.
+        // Low: one property where nothing is lower than the first.
         assert_eq!(sword.generate(&game, &item, 0, 0, 1).properties.len(), 1);
+        // 6-10 Low: the first of tier 1, then one a tier lower (Light or
+        // +1), as Aurora's Low items have.
+        assert_eq!(sword.later_tiers(1, 0), [0]);
+        for seed in 0..20 {
+            let m = sword.generate(&game, &item, 1, 0, seed);
+            assert_eq!(m.properties.len(), 2, "{m:?}");
+        }
         // A potion gets one; a torch none.
         let potion = ItemMagic::new(&game, 1).unwrap();
         let p = potion.generate(&game, &ItemValue { base_item: 1, ..item.clone() }, 3, 3, 1);
@@ -497,6 +505,7 @@ mod tests {
         assert_eq!(most_worth(&game, 0, 0), Some(1000));
         assert_eq!(most_worth(&game, 0, 1), Some(2500));
         assert_eq!(most_worth(&game, 0, 3), Some(5000));
+        assert_eq!(most_worth(&game, 1, 0), Some(5000), "Low at 6-10: level 5");
         assert_eq!(most_worth(&game, 3, 3), None, "a short table");
     }
 

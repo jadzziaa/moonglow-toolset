@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -143,17 +143,22 @@ Medium, High, Godly), and Next waits for both. The item gets random
 properties from the toolset's `itmwiz*.2da` (columns `Prop SubProp
 CostTable CostVal ParamTable Param Value`; `Value` is a tier, 0 to 8 for
 weapons and armor, 0 to 12 for potions, scrolls, wands and trap kits, 0
-to 15 for staves). 127 items Aurora made (27 base items: longswords
-three times at every level and quality, the rest at two to eleven of
-them) show:
+to 15 for staves). 354 items Aurora made show the rules: 127 of 27 base
+items (longswords three times at every level and quality, the rest at
+two to eleven of them), then 227 more (longswords twelve times at every
+level band's Low and six at every other quality from 6-10 up; armor at
+each band; amulets, belts, boots, bracers, cloaks, rings and helmets six
+times at 16-20 Godly, and the first six 48 times more at 6-10 Low):
 
 - **The table** follows baseitems.2da `PropColumn`: 0 melee, 1 ranged
   (also the unenchanted wand), 2 throw, 3 staves, 4 rods, 5 ammo, 6
   armor (and shields), 7 helmet, 8 potion, 9 scroll, 10 wands, 12 trap;
-  16 (amulets, belts, boots, bracers, cloaks, rings) gets the armor
-  or helmet table's properties (they differ in one row, the armor's
-  Weight Reduction, not drawn in the captures; Moonglow uses the armor
-  table). 11, 13–15 and 18–20 (thieves' tools, creature
+  16 (amulets, belts, boots, bracers, cloaks, rings) gets the helmet
+  table's properties. The two tables differ in one row, the armor's
+  Weight Reduction in tier 2, which itemprops.2da allows column 16: of
+  the 48 at 6-10 Low, whose first property is of tier 2, none drew it
+  (under the armor table one in nine would; all 48 missing it is a
+  chance of 0.4%). 11, 13–15 and 18–20 (thieves' tools, creature
   items, books and other unequippables, containers, healer's kits,
   torches) can't be made magical; 17 (gems) and 21 (gauntlets) can, and
   get no properties.
@@ -161,14 +166,17 @@ them) show:
   up), the step `3 × level + quality` (0 to 12), `top` the table's
   highest tier: 2L + {0,1,1,2} on the 9-tier tables, 3L + Q on the
   13-tier ones, 13 for a 16-20 Medium staff.
-- **The rest** are one or two tiers lower (Low: two lower only), as long
-  as the item's value stays within itemvalue.2da `MAXSINGLEITEMVALUE` at
-  character level 5L + Q + 2 (Medium to Godly: the band's third to fifth
-  level). Low items have at most two properties, and stay within the
-  values of levels 1, 5, 8 and 13 (fitted: 6-10's Low items cost up to
-  4234 and none took a third property under 4604; 11-15's and 16-20's
-  dropped a second worth more than 12000 and 35000). The first is kept
-  whatever it is worth (a 6-10 Low scroll costs 5403). No property is
+- **The rest** are one or two tiers lower, as long as the item's value
+  stays within itemvalue.2da `MAXSINGLEITEMVALUE` at character level
+  5L + Q + 2 (Medium to Godly: the band's third to fifth level), Low at
+  4L + 1 (levels 1, 5, 9 and 13: Low items cost up to 434, 4863, 12350
+  and 32430 at the four bands; an 11-15 Low armor of 12350 is past level
+  8's 12000, which an earlier fit took). Low items, like the others, take the rest one
+  or two tiers lower (a 6-10 Low armor's second is one lower) and more
+  than one of them (seven 6-10 Low longswords and armor have three).
+  The first is kept whatever it is worth (a 6-10 Low scroll costs
+  5403), and an expensive one (Regeneration) leaves a Medium to Godly
+  item with that one alone. No property is
   repeated (a +2 sword got no +1); one row's property may be in several
   tiers (Enhancement +1 is in three of the melee table's), weighting it.
   Up to four were seen (16-20 Godly throwing weapons and unenchanted
