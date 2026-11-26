@@ -20,6 +20,8 @@
 //! assert_eq!(two.columns, vec![vec![vec![P::Palette, P::Preview], vec![P::Properties]]]);
 //! ```
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use egui::{Pos2, Rect};
 use serde::{Deserialize, Serialize};
 
@@ -232,11 +234,16 @@ pub struct StackDrop<'a, P> {
 impl<P: Copy + PartialEq> StackDrop<'_, P> {
     /// Where `dragged` lands with the pointer at `pos`, and the rectangle
     /// to outline there ([`paint_drop_preview`]); none outside the pane or
-    /// over the section it is alone in.
+    /// over the section it is alone in. A pane with no sections takes it
+    /// anywhere, the whole pane outlined: its one section
+    /// ([`StackLayout::apply`] on an empty stack).
     pub fn target(&self, dragged: P, pos: Pos2) -> Option<(StackZone, Rect)> {
         let pane = self.pane;
         if !pane.contains(pos) {
             return None;
+        }
+        if self.sections.is_empty() {
+            return Some((StackZone::Into { col: 0, sec: 0 }, pane));
         }
         for b in self.sections {
             let bar = b.rect.with_max_y((b.rect.top() + self.bar_height).min(b.rect.bottom()));
@@ -389,8 +396,9 @@ pub fn stack_rects(column: Rect, heights: &[f32]) -> Vec<Rect> {
 
 /// A seam between stacked sections dragged ([`stack_seams`]): the line
 /// under section `index`, and every section's height with that one and
-/// the one under it changed (their sum kept, each at least
-/// [`SECTION_LEAST`] or half of it).
+/// the one under it changed (their sum kept, each at least its least,
+/// [`SECTION_LEAST`] unless [`stack_seams_least`] names its own, or
+/// half of the two).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeamDrag {
     pub index: usize,
@@ -405,6 +413,21 @@ pub struct SeamDrag {
 pub fn stack_seams(
     ui: &egui::Ui,
     rects: &[Rect],
+    salt: impl std::hash::Hash + std::fmt::Debug + Copy,
+    fixed: impl Fn(usize) -> bool,
+) -> Option<SeamDrag> {
+    stack_seams_least(ui, rects, &[], salt, fixed)
+}
+
+/// [`stack_seams`] with each section's own least height, from the top
+/// (`leasts`, as [`stack_heights`] takes them; [`SECTION_LEAST`] past
+/// their end): a seam's drag stops where either section beside it would
+/// be less (each least held to half of the two where they have not the
+/// room).
+pub fn stack_seams_least(
+    ui: &egui::Ui,
+    rects: &[Rect],
+    leasts: &[f32],
     salt: impl std::hash::Hash + std::fmt::Debug + Copy,
     fixed: impl Fn(usize) -> bool,
 ) -> Option<SeamDrag> {
@@ -423,15 +446,21 @@ pub fn stack_seams(
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
         let (Some(at), true) = (seam.interact_pointer_pos(), seam.dragged()) else { continue };
-        let pair = rects[i].height() + rects[i + 1].height();
-        let least = SECTION_LEAST.min(pair / 2.0);
-        let upper = (at.y - rects[i].top()).clamp(least, pair - least);
-        let mut heights: Vec<f32> = rects.iter().map(Rect::height).collect();
-        heights[i] = upper;
-        heights[i + 1] = pair - upper;
-        drag = Some(SeamDrag { index: i, heights });
+        drag = Some(seam_dragged(rects, leasts, i, at.y));
     }
     drag
+}
+
+/// The heights with the seam under section `index` of `rects` dragged to
+/// `y` ([`stack_seams_least`]).
+fn seam_dragged(rects: &[Rect], leasts: &[f32], index: usize, y: f32) -> SeamDrag {
+    let pair = rects[index].height() + rects[index + 1].height();
+    let least = |i: usize| leasts.get(i).copied().unwrap_or(SECTION_LEAST).min(pair / 2.0);
+    let upper = (y - rects[index].top()).clamp(least(index), pair - least(index + 1));
+    let mut heights: Vec<f32> = rects.iter().map(Rect::height).collect();
+    heights[index] = upper;
+    heights[index + 1] = pair - upper;
+    SeamDrag { index, heights }
 }
 
 /// The seam between two columns at `x` in `pane` (a drag alone, 3 points
@@ -507,6 +536,127 @@ impl KeptLayout {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// What an application keeps of its docks' arrangement, by the docks'
+/// and panels' names (a name a later version does not know is passed
+/// by): which dock a panel was moved to, the docks folded, the panel in
+/// front of each, the docks' sizes, each panel's height as its seam was
+/// dragged and the editor area's groups. Serialized with what is not kept
+/// left out. Dock names are lowercase: `left`, `right`, `right-2` (the
+/// wide layout's second right column) and `bottom`; a closed Bottom Dock
+/// counts as folded. The toolset keeps its own record (`DockLayout`, by
+/// editor kind: [`KeptLayout`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockRecord {
+    /// The record's version: an application that finds one newer than it
+    /// reads opens its default instead.
+    pub version: u32,
+    /// Panel to the dock it was moved to (one in its own dock: absent).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub docks: BTreeMap<String, String>,
+    /// The docks folded (or closed).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub folded: BTreeSet<String>,
+    /// Dock to the panel in front of it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fronts: BTreeMap<String, String>,
+    /// Named widths and heights, in points (`left`, `left-gallery`,
+    /// `right`, `right-wide`, `bottom`...: the application's names).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub sizes: BTreeMap<String, u16>,
+    /// Panel to its height in points, as its seam was dragged.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub seams: BTreeMap<String, u16>,
+    /// The editor area's groups, from the first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<EditorGroup>,
+}
+
+/// A group of the editor area's tabs ([`DockRecord::groups`]): its tabs'
+/// names in order, the one in front and its share of the area's width
+/// (1 where none is kept: the groups share it alike).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorGroup {
+    pub tabs: Vec<String>,
+    pub front: usize,
+    pub share: f32,
+}
+
+impl Default for EditorGroup {
+    fn default() -> Self {
+        EditorGroup { tabs: Vec::new(), front: 0, share: 1.0 }
+    }
+}
+
+impl DockRecord {
+    /// The dock `panel` was moved to, if it was.
+    pub fn dock_of(&self, panel: &str) -> Option<&str> {
+        self.docks.get(panel).map(String::as_str)
+    }
+
+    /// `panel` moved to `dock` (`None`: back to its own).
+    pub fn set_dock(&mut self, panel: &str, dock: Option<&str>) {
+        match dock {
+            Some(dock) => _ = self.docks.insert(panel.to_string(), dock.to_string()),
+            None => _ = self.docks.remove(panel),
+        }
+    }
+
+    /// Whether `dock` is folded (or closed).
+    pub fn is_folded(&self, dock: &str) -> bool {
+        self.folded.contains(dock)
+    }
+
+    /// `dock` folded or unfolded.
+    pub fn set_folded(&mut self, dock: &str, folded: bool) {
+        match folded {
+            true => _ = self.folded.insert(dock.to_string()),
+            false => _ = self.folded.remove(dock),
+        }
+    }
+
+    /// The panel kept in front of `dock`.
+    pub fn front(&self, dock: &str) -> Option<&str> {
+        self.fronts.get(dock).map(String::as_str)
+    }
+
+    /// `panel` chosen in front of `dock`.
+    pub fn set_front(&mut self, dock: &str, panel: &str) {
+        self.fronts.insert(dock.to_string(), panel.to_string());
+    }
+
+    /// The size kept as `name`, in points.
+    pub fn size(&self, name: &str) -> Option<f32> {
+        self.sizes.get(name).map(|s| f32::from(*s))
+    }
+
+    /// `points` kept as `name` (rounded, within a u16).
+    pub fn set_size(&mut self, name: &str, points: f32) {
+        self.sizes.insert(name.to_string(), points_kept(points));
+    }
+
+    /// `panel`'s height as its seam was dragged, in points.
+    pub fn seam(&self, panel: &str) -> Option<f32> {
+        self.seams.get(panel).map(|s| f32::from(*s))
+    }
+
+    /// `panel`'s height kept as a seam's drag made it ([`SeamDrag::heights`]).
+    pub fn keep_seam(&mut self, panel: &str, points: f32) {
+        self.seams.insert(panel.to_string(), points_kept(points));
+    }
+
+    /// Nothing kept but the version: the record can be left out.
+    pub fn is_empty(&self) -> bool {
+        *self == DockRecord { version: self.version, ..Default::default() }
+    }
+}
+
+/// Points kept as a whole number within a u16.
+fn points_kept(points: f32) -> u16 {
+    points.round().clamp(0.0, f32::from(u16::MAX)) as u16
 }
 
 /// `name` kept in front of section `index` of `fronts`, those before it
@@ -658,6 +808,48 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_stack_takes_a_drop_as_its_one_section() {
+        let pane = r(0.0, 0.0, 300.0, 600.0);
+        for new_columns in [false, true] {
+            let drop = StackDrop::<P> { pane, sections: &[], bar_height: 24.0, new_columns };
+            for pos in [pane.center(), pane.left_top() + egui::vec2(5.0, 5.0)] {
+                let (zone, preview) =
+                    drop.target(Properties, pos).expect("a drop on the empty stack");
+                assert_eq!(preview, pane);
+                let empty = StackLayout::<P>::default();
+                let rules = StackRules { all: &[], most_columns: 2, default: StackLayout::default };
+                assert_eq!(
+                    empty.apply(&rules, Properties, zone).columns,
+                    vec![vec![vec![Properties]]]
+                );
+            }
+            assert_eq!(drop.target(Properties, egui::pos2(400.0, 10.0)), None, "outside the pane");
+        }
+        let docks = DockDrop::new()
+            .dock(1, StackDrop::<P> { pane, sections: &[], bar_height: 24.0, new_columns: false });
+        assert_eq!(docks.target(Preview, pane.center()).map(|t| t.dock), Some(1));
+    }
+
+    /// A seam's drag stops at each section's own least, 80 where it names
+    /// none, half of the two where they have not the room; the first
+    /// section's 55% share kept to by the heights.
+    #[test]
+    fn a_seam_stops_at_each_section_s_own_least() {
+        let column = r(0.0, 0.0, 200.0, 601.0);
+        let rects = stack_rects(column, &stack_heights(600.0, &[0.55, 0.45], &[90.0, 120.0]));
+        assert_eq!(rects[0].height(), 330.0);
+        let leasts = [90.0, 120.0];
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 10.0).heights, [90.0, 510.0]);
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 590.0).heights, [480.0, 120.0]);
+        assert_eq!(seam_dragged(&rects, &[], 0, 10.0).heights, [80.0, 520.0]);
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 200.0).heights, [200.0, 400.0]);
+        let short = stack_rects(column, &[100.0, 60.0]);
+        assert_eq!(seam_dragged(&short, &leasts, 0, 0.0).heights, [80.0, 80.0]);
+        let three = stack_rects(column, &stack_heights(600.0, &[1.0, 1.0, 1.0], &[]));
+        assert_eq!(seam_dragged(&three, &[0.0, 0.0, 150.0], 1, 10.0).heights, [200.0, 0.0, 400.0]);
+    }
+
+    #[test]
     fn only_registered_docks_take_a_drop() {
         #[derive(Clone, Copy, Debug, PartialEq)]
         enum Dock {
@@ -771,6 +963,64 @@ mod tests {
         assert_eq!(kept.shares, [1000, 1000, 1000]);
         let json = serde_json::to_string(&KeptLayout { column: Some(340), ..Default::default() });
         assert_eq!(json.unwrap(), r#"{"column":340}"#);
+    }
+
+    #[test]
+    fn a_dock_record_keeps_every_part_and_leaves_out_what_is_not_kept() {
+        // (Every field of Moonglow Viewer's layout of M6 part D, as the
+        // viewer's migration maps them.)
+        let mut r = DockRecord { version: 1, ..Default::default() };
+        assert!(r.is_empty());
+        r.set_dock("log", Some("right"));
+        r.set_folded("left", true);
+        r.set_folded("right", true);
+        r.set_folded("bottom", true);
+        r.set_front("bottom", "effects");
+        r.set_front("right", "lighting");
+        for (name, points) in [
+            ("left", 333.0),
+            ("left-gallery", 440.0),
+            ("right", 352.4),
+            ("right-wide", 900.0),
+            ("bottom", 222.0),
+        ] {
+            r.set_size(name, points);
+        }
+        r.keep_seam("resources", 400.0);
+        r.groups = vec![
+            EditorGroup { tabs: vec!["view".into()], front: 0, share: 0.5 },
+            EditorGroup { tabs: vec!["texture".into(), "ascii".into()], front: 1, share: 0.5 },
+        ];
+        assert!(!r.is_empty());
+        assert_eq!(
+            (r.dock_of("log"), r.dock_of("view"), r.front("bottom"), r.front("left")),
+            (Some("right"), None, Some("effects"), None)
+        );
+        assert_eq!(
+            (r.size("right"), r.size("top"), r.seam("resources")),
+            (Some(352.0), None, Some(400.0))
+        );
+        assert!(r.is_folded("bottom") && !r.is_folded("right-2"));
+        let text = ron::to_string(&r).unwrap();
+        assert_eq!(ron::from_str::<DockRecord>(&text).unwrap(), r, "{text}");
+        let json = serde_json::to_string(&r).unwrap();
+        assert_eq!(serde_json::from_str::<DockRecord>(&json).unwrap(), r);
+        // (Undone: back to nothing kept; the version alone written.)
+        r.set_dock("log", None);
+        for dock in ["left", "right", "bottom"] {
+            r.set_folded(dock, false);
+        }
+        (r.fronts, r.sizes, r.seams, r.groups) = Default::default();
+        assert!(r.is_empty());
+        assert_eq!(ron::to_string(&r).unwrap(), "(version:1)");
+        // (Read without a version, a share or a front: 0, 1 and 0.)
+        let read: DockRecord = ron::from_str("(groups:[(tabs:[\"view\"])])").unwrap();
+        assert_eq!(read.version, 0);
+        assert_eq!(read.groups, [EditorGroup { tabs: vec!["view".into()], front: 0, share: 1.0 }]);
+        let mut big = DockRecord::default();
+        big.set_size("left", 1.0e9);
+        big.set_size("right", -5.0);
+        assert_eq!((big.size("left"), big.size("right")), (Some(65535.0), Some(0.0)));
     }
 
     #[test]

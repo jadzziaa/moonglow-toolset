@@ -3115,6 +3115,7 @@ dependencies = [
  "egui_dock",
  "egui_kittest",
  "mg-testkit",
+ "ron",
  "serde",
  "serde_json",
 ]

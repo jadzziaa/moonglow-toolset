@@ -28,6 +28,7 @@ serde_json.workspace = true
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-testkit.workspace = true
+ron.workspace = true
 serde_json.workspace = true
 
 [lints]
