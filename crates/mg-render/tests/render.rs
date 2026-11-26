@@ -6876,6 +6876,17 @@ fn two_views_in_turn_keep_their_frame_groups() {
         gpu.read_rgba(&area_targets.color).data == alone(&unshadowed, &area_targets),
         "the unshadowed area as alone"
     );
+    // A picture drawn without the targets' copies (`Renderer::render`):
+    // a view of its own too, its group kept from its frame before.
+    let plain = Targets::new(&gpu, format, 4, 64, 64);
+    let mut plain_made = Vec::new();
+    for s in [&area, &other, &area] {
+        let (view, resolve) = (plain.render_view(), plain.resolve_view());
+        r.render(&gpu, &NoAssets, s, &camera, view, resolve, &plain.depth, (64, 64));
+        plain_made.push(r.drawn.frame_group_made);
+        r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    }
+    assert_eq!(plain_made, [true, false, false], "made once without copies");
 }
 
 /// A fifth view takes over the state of the view drawn longest ago, and

@@ -242,17 +242,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   draws bind another of the meshes' chunks, `Drawn::chunks`: R22's
   arms did 2,296 and 3 times run after the other views, 95 and 15 alone,
   so a part of that figure may be the chunks' as R9's was; timed alone
-  at a load of 22 to 25 the tinted arm was +0.05 to +0.20 ms). R9's
+  at a load of 22 to 25 the tinted arm was -0.07 to +0.20 ms over four
+  runs, two with the arms made in the other order). R9's
   second view, drawn through the area's renderer, now costs what it
   does through a renderer of its own (26 November, [the log](log.md));
   what told them apart was where each arm's meshes lay in the meshes'
   pool. What that showed is left: **the game's solid draws of one
   material bind the buffers of each chunk their meshes lie in, as often
-  as they alternate**: a large area loaded first, into an empty pool
-  (its meshes spread over the small chunks made as the pool grows,
-  `pool.rs`), bound chunks' buffers 2,106 times a frame where the same
-  area loaded after two others (into the largest chunks) bound them 3
-  times, 0.27 ms more of wgpu's encoding (`CommandEncoder::finish`: the
+  as they alternate**: the same 24 by 24 tiles made three times in turn
+  bound chunks' buffers 2,106, 237 and 3 times a frame (185, 3 and 625
+  with another scene made before them: where an area's meshes go in the
+  pool, `pool.rs`, decides it), 2,106 against 3 being 0.27 ms more of
+  wgpu's encoding (`CommandEncoder::finish`: the
   buffers bound, and the driver's draws after a binding). Drawing them
   by chunk within a
   material would change the order of a material's draws, which
