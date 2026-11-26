@@ -87,14 +87,19 @@ fn shoot(
     put_creature(&mut r, "nw_bandit001", AT, facing, &[], &[(0x20, "nw_it_torch001")]);
     let body = if pause {
         format!(
-            "{INVISIBLE}\n    AssignCommand(GetObjectByTag(\"NW_BANDIT001\"), \
-             PlayAnimation(ANIMATION_LOOPING_PAUSE, 1.0, 600.0));"
+            "{INVISIBLE}\n    object bandit = GetObjectByTag(\"NW_BANDIT001\");\n    \
+             Log(\"MG_BANDIT \" + IntToString(GetIsObjectValid(bandit)));\n    \
+             AssignCommand(bandit, PlayAnimation(ANIMATION_LOOPING_PAUSE, 1.0, 600.0));"
         )
     } else {
         INVISIBLE.into()
     };
     let (dir, shot) = shoot_close(r, &body, SETTINGS, camera, &|_| {});
     print_log(&dir);
+    if pause {
+        let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap();
+        assert!(log.contains("MG_BANDIT 1"), "{run}: the script did not find the bandit");
+    }
     let kept = mg_testkit::test_output().join("torch_arm");
     std::fs::create_dir_all(&kept).unwrap();
     save_png(&shot, &kept.join(format!("{run}.png")));
@@ -180,8 +185,10 @@ fn turned(a: f64, b: f64) -> f64 {
 ///   from the animations' own keys (`pause1` with every node `torchl`
 ///   keys taken from `torchl`: [`mg_render::anim::pose_layers_scaled`],
 ///   the one rule under the previews, the area view and the viewer's
-///   stage) and seen through the same camera, within the same of the
-///   client's;
+///   stage) and seen through the same camera, within 16 pixels and 3
+///   degrees of the client's (the stick's middle as worked out is 5 to
+///   8 pixels below the one found in each view: the fist hides the
+///   stick's lower end, so what is seen of it has its middle higher);
 /// - and not where the rule the report supposed would put it (the
 ///   forearm and the hand from `torchl`, the upper arm left to the idle):
 ///   that stick is 100 pixels and more from the client's in every view.
@@ -239,10 +246,10 @@ fn torch_arm_held_as_the_client_holds_it() {
         let (n, middle, angle) = magenta(&client);
         assert!(n > 150, "{run}: the client's stick is not seen ({n} pixels)");
         eprintln!("{run}: the client's stick at {middle:.1?}, {angle:.1} degrees ({n} pixels)");
-        let mut held = |what: &str, at: [f64; 2], along: f64| {
+        let mut held = |what: &str, at: [f64; 2], along: f64, within: f64| {
             let (d, a) = (apart(at, middle), turned(along, angle));
             eprintln!("{run}: {what} at {at:.1?}, {along:.1} degrees: {d:.1} pixels, {a:.1} off");
-            if d > 10.0 || a > 3.0 {
+            if d > within || a > 3.0 {
                 failures.push(format!("{run}: {what} {d:.1} pixels, {a:.1} degrees off"));
             }
         };
@@ -254,10 +261,10 @@ fn torch_arm_held_as_the_client_holds_it() {
             }
             let (n, at, along) = magenta(&common::read_png(&path));
             assert!(n > 150, "{run}: {side}'s stick is not seen ({n} pixels)");
-            held(side, at, along);
+            held(side, at, along, 10.0);
         }
         let (at, along) = posed(ours);
-        held("the pose", at, along);
+        held("the pose", at, along, 16.0);
         let (at, along) = posed(supposed);
         let d = apart(at, middle);
         eprintln!("{run}: the supposed rule at {at:.1?}, {along:.1} degrees: {d:.1} pixels");
