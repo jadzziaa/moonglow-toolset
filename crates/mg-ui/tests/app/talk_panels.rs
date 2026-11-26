@@ -2440,3 +2440,42 @@ fn a_file_talk_table_across_a_module_switch() {
         assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "{other_file}: its tab gone");
     }
 }
+
+/// A talk table opened from its file has its file's time taken as it
+/// opens: the first Reload Resources after (a hak's save does one) looks
+/// at the time and reads the lines only where it moved. It read the whole
+/// table to see, 50,000 lines in a frame (the editors' timing view).
+#[test]
+fn a_talk_table_opened_is_read_again_only_where_its_file_s_time_moved() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-opened-stamps", 1600.0);
+    let file = mg_testkit::scratch_dir("ui-talk-opened-stamps-file").join("mg_other.tlk");
+    let write = |text: &str| {
+        let mut t =
+            Table::create("mg_other", file.parent().unwrap(), mg_core::Language::ENGLISH, false);
+        t.source = mg_module::talk::Source::File(file.clone());
+        let mut first = our_line(0);
+        first.text = text.into();
+        t.add_line(&first).unwrap();
+        t.save().unwrap();
+    };
+    write("As opened");
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![file.clone()], ..Default::default() });
+    h.state_mut().actions.push(mg_ui::Action::TalkFile(false));
+    settle(&mut h);
+    assert_eq!(line(&h, 0).text, "As opened");
+    let revision = h.state().talk.as_ref().unwrap().revision();
+    // Written over with its time as it was: the time alone is looked at.
+    let at = std::fs::metadata(&file).unwrap().modified().unwrap();
+    write("Written over");
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    h.state_mut().reload_resources(false);
+    settle(&mut h);
+    assert_eq!(line(&h, 0).text, "As opened", "not read: its time as it was");
+    assert_eq!(h.state().talk.as_ref().unwrap().revision(), revision);
+    // Its time moved: read again.
+    let later = at + std::time::Duration::from_secs(2);
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(later).unwrap();
+    h.state_mut().reload_resources(false);
+    settle(&mut h);
+    assert_eq!(line(&h, 0).text, "Written over", "read again");
+}

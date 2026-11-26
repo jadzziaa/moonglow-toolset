@@ -1199,6 +1199,62 @@ fn the_model_chooser_fits_the_right_dock() {
     }
 }
 
+/// Choose Model… lays out only the models in sight of its 200 (all 200
+/// were laid out each frame it was open), and one scrolled to at the
+/// list's end is chosen with a click: the cell is set to it.
+#[test]
+fn the_model_chooser_lays_out_the_models_in_sight() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-table-model-rows");
+    let file = dir.join("placeables.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label   ModelName\n0  Chest   plc_c01\n").unwrap();
+    let mut app = game_app(&root, None);
+    app.settings = Mode::Tabs.settings();
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    settle(&mut h);
+    select(&mut h, id, (0, 1));
+    h.get_by_label("Choose Model…").click();
+    settle(&mut h);
+    // (The 200 first of the game's models by name, as the list has them.)
+    let mut names: Vec<String> = (h.state().game.as_ref().unwrap().resman.layers().iter())
+        .flat_map(|l| l.container.keys().filter(|k| k.restype == ResType::MDL).map(|k| k.resref))
+        .map(|r| r.to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    names.truncate(200);
+    assert_eq!(names.len(), 200, "the install has hundreds of models");
+    let (first, last) = (&names[0], &names[199]);
+    assert!(h.query_by_label(first).is_some(), "the first in sight");
+    assert!(h.query_by_label(last).is_none(), "the last out of sight, not laid out");
+    let shown = names.iter().filter(|n| h.query_by_label(n.as_str()).is_some()).count();
+    assert!((5..60).contains(&shown), "the rows in sight alone: {shown}");
+    // Scrolled to its end: the last, chosen.
+    let at = h.get_by_label(first).rect().center();
+    h.hover_at(at);
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run();
+        if h.query_by_label(last).is_some() {
+            break;
+        }
+    }
+    settle(&mut h);
+    h.get_by_label(last).click();
+    settle(&mut h);
+    assert_eq!(cell(&h, id, (0, 1)).as_deref(), Some(last.as_str()));
+}
+
 /// The leaf `tab` is drawn in, its rectangle (its group's or its window's).
 fn pane_of(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Rect {
     let at = h.state().dock.find_tab(tab).expect("its tab");
