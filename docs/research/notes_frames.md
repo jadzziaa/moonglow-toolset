@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -637,7 +637,7 @@ Three of the performance audit's leftovers, read with `frame_perf`
 loaded the machine to 9 to 18 throughout, so single runs scatter and the
 lowest of each set is the one to compare)[^texmem].
 
-**TGA and PLT textures compressed as they are read.** The encoder
+**TGA textures compressed as they are read; PLTs kept.** The encoder
 (`mg_image::encode`) took 72 ms a megapixel for BC1 and 80 to 192 for
 BC3 on one thread. Its quick effort (one refit, no raw-ends candidate;
 the alpha's six-step mode only for blocks that hold 0 or 255) halves
@@ -645,18 +645,19 @@ that, and block rows on rayon's threads bring it to 4.0 to 4.7 ms a
 megapixel for BC1 and 5.6 to 5.8 for BC3. The quick effort's error is
 within 1.5 times the best's (`the_quick_effort_stays_near_the_best`).
 Area092 (Tyrants of the Moonsea, `FRAME_MEMORY=1`) reads about 142
-textures, of which 9 TGAs become BC1, 4 BC3 and 24 colored PLT copies
-BC3 (a 900² sky took 19 ms on one thread, a 512² robe 12.8): its
-textures go from 31.2 to 17.9 MiB, the RGBA8 part from 16.7 to 0.6 MiB.
+textures, of which 9 TGAs become BC1 and 4 BC3 (a 900² sky took 19 ms
+on one thread); its 24 colored PLT copies stay RGBA8 (below): its
+textures go from 31.2 to 21.2 MiB (17.9 with the PLTs compressed too).
 TDoD's woods are unchanged: of their 968.9 MiB of textures all but 16
 small RGBA8 ones are DDS, and none of those 16 is large enough. What is compressed: a texture read
-as RGBA8 into a material's first slot (a picture, a PLT's colored copy,
-a cutout or see-through texture by its alpha: BC1 when every texel is
-opaque, else BC3), with both sides multiples of 4 and the smaller at
+as RGBA8 into a material's first slot (a TGA picture, a cutout or
+see-through texture by its alpha: BC1 when every texel is opaque, else
+BC3), with both sides multiples of 4 and the smaller at
 least 64 (`texture::COMPRESSED_FROM`). Not: the normal, specular and
 roughness maps of slots 1 and up (both areas read none as RGBA8, and the
-encoder makes neither BC4 nor BC5), particles' pictures and those a TXI
-adds (`blending additive`; below), procedural textures (TXI
+encoder makes neither BC4 nor BC5), PLTs' colored copies, particles'
+pictures and those a TXI adds (`blending additive`; below for each),
+procedural textures (TXI
 `proceduretype`), and the UI's pictures (egui's, not the renderer's).
 A device without `TEXTURE_COMPRESSION_BC` keeps RGBA8. The reading is
 on the renderer's reader threads already, so nothing new went
@@ -686,6 +687,41 @@ of 255, as two uncompressed runs differ by 0.006. What it costs:
 area026's textures 4.6 to 4.9 MiB, area092's 17.7 to 17.9 (of 31.2
 uncompressed, on develop at 03340a65); area092's opening was whole
 after 111 to 129 ms in five runs (median 121) against 122 before it.
+
+PLTs' colored copies were compressed at first (BC3 or BC1), with the
+largest errors of all: `pmh0_chest*` copies up to 82 to 167 of 255 at a
+texel, a mean of up to 7.5. A PLT's layers (skin, hair, cloth, leather,
+metal, tattoos) are colored apart, so unrelated colors meet in sharp
+edges inside a 4×4 block, which BC's two colors a block can't hold. To
+see it, `look_plt_creatures` (mg-ui's `looks.rs`, ignored) stands eight
+humans of parts in a row, their armor and clothes dyed with colors far
+apart on each layer, and draws them close up on a device with BC (the
+UI tests' own device has none, so nothing is compressed in them). Two
+runs of each build match bit for bit; compressed against uncompressed,
+the crop differed by up to 72 of 255 (mean 0.33, 590 pixels greener),
+and at 4× the plates' edges were softened, the iridescent metal trim
+flattened and the rivets dulled; at 1× it is hard to see. The copies
+are now kept as stored (`Role::compressed`'s `plt`, a name in colors;
+the unit test's PLT row and the load test's colored copy), and the crop
+matches the uncompressed build's (one view; the other's 0.004 mean is a
+weapon's TGA). What it costs, `FRAME_AREAS` on the campaign's areas
+with the most creatures (one run each, the machine at a load of 13 to
+15; textures allocated after the area opened, MiB):
+
+| Area | Creatures | RGBA8 | PLTs kept | PLTs compressed |
+|---|---|---|---|---|
+| moonseabattle | 65 | 160.1 | 156.7 | 45.2 |
+| zhentkeepwar | 67 | 36.5 | 35.2 | 29.0 |
+| area089 | 55 | 28.1 | 22.1 | 19.4 |
+| area092 | | 31.2 | 21.2 | 17.9 |
+
+Moonseabattle's 933 textures are mostly PLT copies (its creatures in
+their own colors), so keeping them gives back nearly all of what
+compression saved there: 111.5 MiB. That is the price of the picture;
+the copies are as the game composes them, and a PLT compressed without
+the loss would need an encoder that keeps more colors a block (BC7),
+which Moonglow doesn't have. Area092's opening with them kept: whole
+after 113 to 126 ms in three runs.
 
 **The opening's extra 50 ms.** `FRAME_VIEW=area FRAME_DETAIL=1`,
 area092 with the Shaders off, the old tags built from `git archive`

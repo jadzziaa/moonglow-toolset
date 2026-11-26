@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1243,6 +1243,16 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **TGA textures compressed as read, PLT colored copies kept as RGBA8**
+  (closing the performance audit's "TGA and PLT textures are
+  uncompressed", 2026-11-25): a PLT's layers meet in sharp edges between
+  unrelated colors inside a 4×4 block, which BC blurs (up to 72 of 255
+  in a picture of dyed armor, the trim and rivets dulled at 4×); a copy
+  is made for each object's colors. The cost: an area of many creatures
+  keeps its PLTs' memory (moonseabattle 156.7 MiB of textures, 45.2
+  with them compressed). Compressing them without the loss would need a
+  BC7 encoder. ([the frames note](research/notes_frames.md))
 
 - **The previews' shadows: the model viewer's alone** (the owner's
   word, 2026-11-02): the model viewer's model casts the sun's shadow on
