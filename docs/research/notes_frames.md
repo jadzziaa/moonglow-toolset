@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:20:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -647,7 +647,7 @@ within 1.5 times the best's (`the_quick_effort_stays_near_the_best`).
 Area092 (Tyrants of the Moonsea, `FRAME_MEMORY=1`) reads about 142
 textures, of which 9 TGAs become BC1, 4 BC3 and 24 colored PLT copies
 BC3 (a 900² sky took 19 ms on one thread, a 512² robe 12.8): its
-textures go from 30.5 to 17.0 MiB, the RGBA8 part from 16.7 to 0.3 MiB.
+textures go from 31.2 to 17.9 MiB, the RGBA8 part from 16.7 to 0.6 MiB.
 TDoD's woods are unchanged: of their 968.9 MiB of textures all but 16
 small RGBA8 ones are DDS, and none of those 16 is large enough. What is compressed: a texture read
 as RGBA8 into a material's first slot (a picture, a PLT's colored copy,
@@ -655,14 +655,37 @@ a cutout or see-through texture by its alpha: BC1 when every texel is
 opaque, else BC3), with both sides multiples of 4 and the smaller at
 least 64 (`texture::COMPRESSED_FROM`). Not: the normal, specular and
 roughness maps of slots 1 and up (both areas read none as RGBA8, and the
-encoder makes neither BC4 nor BC5), procedural textures (TXI
+encoder makes neither BC4 nor BC5), particles' pictures and those a TXI
+adds (`blending additive`; below), procedural textures (TXI
 `proceduretype`), and the UI's pictures (egui's, not the renderer's).
 A device without `TEXTURE_COMPRESSION_BC` keeps RGBA8. The reading is
 on the renderer's reader threads already, so nothing new went
-off-thread; what it adds to the opening is below. Shots of
-area092 and area026 (`FRAME_SHOTS=1`) with and without differ less
-than two runs of one build do, but for area026's floor close up (mean
-0.18 of 255, a faint green in the glow).
+off-thread; what it adds to the opening is below.
+
+Shots of area092 and area026 (`FRAME_SHOTS=1`) with and without
+differed less than two runs of one build do, but for area026's floor
+close up: green and magenta blotches on the floor around a placeable's
+glow, the same in two runs of each build (the runs of one build match
+bit for bit there; the compressed build differs from the uncompressed
+by up to 38 of 255, 3,488 pixels of a 300×200 crop greener against red
+by more than 8). The glow is a particle emitter's, Lighten (added to
+what is behind), its picture `fxpa_lensflare`, a white flare in pure
+grays on black (64², compressed to BC1). Left uncompressed alone, the
+blotches go; the best effort (3,575 pixels) and BC3 (3,488: its color
+block is BC1's) keep them. The cause: BC1's 565 colors cannot hold a
+dark gray (5 bits of red and blue, 6 of green), so each texel of the
+flare's dark rim takes a tint of a few levels, and where many
+particles are added, layer on layer and scaled by their colors, the
+tints add up to blotches. So a particle's picture, and one a TXI adds,
+are kept as stored (`Role::compressed`; tests
+`only_pictures_drawn_over_what_is_behind_are_compressed` and the kinds
+of `a_texture_compressed_as_it_is_read_keeps_what_is_known_of_it`).
+After it, area026's crop matches the uncompressed build's in two runs,
+and the whole close view differs from it by a mean of 0.007 to 0.009
+of 255, as two uncompressed runs differ by 0.006. What it costs:
+area026's textures 4.6 to 4.9 MiB, area092's 17.7 to 17.9 (of 31.2
+uncompressed, on develop at 03340a65); area092's opening was whole
+after 111 to 129 ms in five runs (median 121) against 122 before it.
 
 **The opening's extra 50 ms.** `FRAME_VIEW=area FRAME_DETAIL=1`,
 area092 with the Shaders off, the old tags built from `git archive`
@@ -698,7 +721,7 @@ Test `an_area_is_drawn_again_as_soon_as_its_textures_are_read` fails
 without it. Compression costs the opening about 10 ms (the medians),
 the last textures' encoding on the reader threads; the frames are not
 longer for it (the longest 10.2 to 11.0 ms either way). It stays on: it
-is paid once an area, off the window's thread, for 13.5 MiB of
+is paid once an area, off the window's thread, for 13.3 MiB of
 area092's textures kept. Area026 is whole after 33 to 45 ms either way.
 TDoD's woods (`game_shaders_frames_at_144`, two runs each, after the
 fix) were whole after 549 to 555 ms with the Shaders on and 569 to 703

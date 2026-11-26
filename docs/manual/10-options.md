@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:20:00Z }
 ---
 
 # Options
@@ -176,8 +176,10 @@ again from its file.
   pictures and the PLTs' colored copies, 64 pixels or more) are
   compressed as they are read, as the game's DDS textures already are,
   in a quarter to an eighth of the memory: Tyrants of the Moonsea's
-  area092 takes 17 MB of textures instead of 30. Normal, specular and
-  roughness maps are kept as stored.
+  area092 takes 18 MB of textures instead of 31. Normal, specular and
+  roughness maps are kept as stored, and so are particles' pictures and
+  textures drawn added to what is behind them, where compression's
+  slight tints would add up to visible blotches.
 - **Area view resolution**: for a GPU that draws the areas slowly (an
   integrated one). **Full** (the default) draws the area views' pictures
   at every pixel of the screen; **75%** or **50%** at that share of them
