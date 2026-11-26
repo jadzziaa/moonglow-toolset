@@ -1506,6 +1506,37 @@ impl egui::TextBuffer for ResRefText<'_> {
     }
 }
 
+/// `add` drawn in a scope of its own (`id_salt`, as `Ui::push_id`), or,
+/// where the room it took when last drawn is out of sight, that room alone
+/// (as egui counts its ids, a scope is one space: those after it keep
+/// theirs): a long form's parts out of sight (a bind's, an array's item)
+/// are not laid out. The first frame draws every part, to learn its room,
+/// and a part in sight is drawn and measured again each frame, as is one
+/// holding the keyboard's focus (a field typed in and scrolled away keeps
+/// it, and commits as it loses it).
+pub(crate) fn in_sight<R>(
+    ui: &mut Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    let key = ui.id().with(("room-in-sight", &id_salt));
+    if let Some((size, focused)) = ui.data(|d| d.get_temp::<(egui::Vec2, bool)>(key)) {
+        let room = egui::Rect::from_min_size(ui.cursor().min, size);
+        if !focused && !ui.is_rect_visible(room) {
+            ui.allocate_space(size);
+            return None;
+        }
+    }
+    let shown = ui.push_id(id_salt, add);
+    let rect = shown.response.rect;
+    let focused = ui
+        .ctx()
+        .memory(egui::Memory::focused)
+        .is_some_and(|id| ui.ctx().read_response(id).is_some_and(|r| rect.contains_rect(r.rect)));
+    ui.data_mut(|d| d.insert_temp(key, (rect.size(), focused)));
+    Some(shown.inner)
+}
+
 /// A one-line field for typing a resref in `text` ([`ResRefText`]: at
 /// most 16 characters).
 pub(crate) fn resref_edit<'t>(text: &'t mut ResRefText<'_>) -> egui::TextEdit<'t> {
@@ -7166,6 +7197,65 @@ pub(crate) fn header_with_ok_cancel<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long column's parts out of sight are given the room they took and
+    /// not laid out, from the second frame: the column is as long, and the
+    /// ids after it are those it had with every part drawn. A part holding
+    /// the keyboard's focus is drawn wherever it is.
+    #[test]
+    fn parts_out_of_sight_keep_their_room_and_ids() {
+        let ctx = egui::Context::default();
+        let field = std::cell::Cell::new(None);
+        let frame = |cull: bool, sight: f32| {
+            let mut drawn = 0;
+            let mut held = false;
+            let mut after = None;
+            let mut length = 0.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.set_clip_rect(egui::Rect::from_min_size(
+                    ui.cursor().min,
+                    egui::vec2(400.0, sight),
+                ));
+                let top = ui.cursor().min.y;
+                for i in 0..500 {
+                    let add = |ui: &mut Ui| {
+                        drawn += 1;
+                        if i == 400 {
+                            let mut text = String::from("typed");
+                            let edit = ui.text_edit_singleline(&mut text);
+                            held |= edit.has_focus();
+                            field.set(Some(edit.id));
+                        } else {
+                            ui.label(format!("Part {i}"));
+                        }
+                    };
+                    if cull {
+                        in_sight(ui, i, add);
+                    } else {
+                        ui.push_id(i, add);
+                    }
+                }
+                length = ui.cursor().min.y - top;
+                after = Some(ui.next_auto_id());
+            });
+            out.textures_delta.clear();
+            (drawn, length, after, held)
+        };
+        let all = frame(false, 200.0);
+        assert_eq!(all.0, 500);
+        let first = frame(true, 200.0);
+        assert_eq!(first, all, "the first frame draws every part");
+        let (drawn, length, after, _) = frame(true, 200.0);
+        assert!((1..30).contains(&drawn), "{drawn} parts drawn");
+        assert_eq!((length, after), (all.1, all.2));
+        // A field typed in, in sight, then scrolled away.
+        ctx.memory_mut(|m| m.request_focus(field.get().unwrap()));
+        assert!(frame(true, 1e5).3);
+        let (focused, length, after, held) = frame(true, 200.0);
+        assert!(held, "the field keeps its focus");
+        assert_eq!(focused, drawn + 1, "the focused part drawn too");
+        assert_eq!((length, after), (all.1, all.2));
+    }
 
     /// A header's OK is its main action, filled `accent-fill` (the
     /// proposal's dialog pattern: the accent fill on the main button);

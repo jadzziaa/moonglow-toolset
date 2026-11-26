@@ -693,9 +693,11 @@ impl Stage<'_> {
                 ancestor_disabled: !flag(&v["accepts_input"], s, None, true),
                 context_prefix: self.context_prefix,
                 reach: None,
+                naturals: Naturals::default(),
             };
             if !flag(&v["collapsed"], s, None, false) {
-                let desired = renderer.scaled(natural(&v["root"], s, None, 0));
+                let desired =
+                    renderer.scaled(natural(&v["root"], s, None, 0, Some(&renderer.naturals)));
                 let mut root = inner;
                 // A column made only of Groups has no child width advice.
                 // Its padding alone must not collapse the entire canvas.

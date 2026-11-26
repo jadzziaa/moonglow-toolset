@@ -455,8 +455,9 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
         Value::Array(values) => {
             let mut remove = None;
             let all = values.len();
+            // (Those out of sight not laid out: a list's 200 rows.)
             for (i, item) in values.iter_mut().enumerate().take(MOST_ITEMS) {
-                ui.push_id(i, |ui| {
+                widgets::in_sight(ui, i, |ui| {
                     egui::CollapsingHeader::new(format!("Item {}", i + 1))
                         .icon(mg_uikit::collapsing_icon)
                         .default_open(values_simple(item))
@@ -631,34 +632,36 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
         let mut remove = None;
         let mut duplicate = None;
         for row in 0..count.min(MOST_ITEMS) {
-            egui::CollapsingHeader::new(format!("Row {}", row + 1))
-                .icon(mg_uikit::collapsing_icon)
-                .id_salt((selected, row))
-                .show(ui, |ui| {
-                    for name in &arrays {
-                        ui.push_id(name, |ui| {
-                            widgets::field_label(ui, name);
-                            let Some(a) =
-                                s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
-                            else {
-                                return;
-                            };
-                            if let Some(v) = a.get_mut(row) {
-                                value(ui, v, 0);
-                            } else if ui.small_button("Fill Missing Cell").clicked() {
-                                a.resize(row + 1, Value::Null);
+            widgets::in_sight(ui, ("row", row), |ui| {
+                egui::CollapsingHeader::new(format!("Row {}", row + 1))
+                    .icon(mg_uikit::collapsing_icon)
+                    .id_salt((selected, row))
+                    .show(ui, |ui| {
+                        for name in &arrays {
+                            ui.push_id(name, |ui| {
+                                widgets::field_label(ui, name);
+                                let Some(a) =
+                                    s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
+                                else {
+                                    return;
+                                };
+                                if let Some(v) = a.get_mut(row) {
+                                    value(ui, v, 0);
+                                } else if ui.small_button("Fill Missing Cell").clicked() {
+                                    a.resize(row + 1, Value::Null);
+                                }
+                            });
+                        }
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.small_button("Duplicate Row").clicked() {
+                                duplicate = Some(row);
+                            }
+                            if ui.small_button("Delete Row").clicked() {
+                                remove = Some(row);
                             }
                         });
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("Duplicate Row").clicked() {
-                            duplicate = Some(row);
-                        }
-                        if ui.small_button("Delete Row").clicked() {
-                            remove = Some(row);
-                        }
                     });
-                });
+            });
         }
         more(ui, count, "rows");
         let add = ui.add_enabled(!arrays.is_empty(), form::plus("Add Row")).clicked();

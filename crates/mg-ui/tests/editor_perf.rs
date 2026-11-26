@@ -4,7 +4,9 @@
 //! `cargo test --release -p mg-ui --test editor_perf -- --ignored --nocapture`
 //! (`EDITOR_FRAMES=<n>` times that many frames of each, for a profiler to
 //! sample, `EDITOR_ONLY=<part of a name>` only those, and `EDITOR_DETAIL=1`
-//! prints each frame's time).
+//! prints each frame's time); `scripts_at_scale` the review of November
+//! 2026's script editor findings at their sizes, each against its own rest
+//! (`EDITOR_VIEW=<part of a name>` picks them).
 
 use std::time::{Duration, Instant};
 
@@ -16,6 +18,9 @@ use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, ResKey};
 use mg_ui::{Moonglow, NoDialogs, Tab};
+
+#[allow(dead_code)]
+mod timing;
 
 /// A frame at 144 a second, for all the frame does on the CPU (as
 /// `frame_perf`'s).
@@ -631,4 +636,233 @@ fn editing_a_large_table() {
     assert!(app.tables.iter().any(|d| d.id == id));
     let _ = frames(&mut app, 5, false);
     println!("every StrRef a fault ({} rows): idle {:?}", t.len(), frames(&mut app, 20, false));
+}
+
+/// The script header's control `name`, through its More where it went
+/// there (as `tests/app`'s `script_tool`).
+fn script_tool<'t>(h: &'t mut Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let records = header::records(&h.ctx, mg_ui::SCRIPT_HEADER);
+    let rec = records.into_iter().next().expect("the script header");
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    static MORE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let more = MORE.get_or_init(|| header::more_name(mg_ui::SCRIPT_HEADER)).as_str();
+    if place == Some(Place::More) && h.query_by_label(more).is_none() {
+        h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label(header::MORE).click();
+        h.run_steps(3);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(more).get_by_label(name),
+        Some(Place::Row | Place::Icon) => h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label(name),
+        other => panic!("{name} in the script header: {other:?}"),
+    }
+}
+
+/// How many options the plugin panel's choices have: the most a choice
+/// may have (`MAX_CHOICES`), and two.
+const CHOICES: [usize; 2] = [2, 2_000];
+
+/// A plugin of two panels, `few` and `many`, each a choice of so many
+/// options ([`CHOICES`]), written to `dir`.
+fn choice_plugin(dir: &std::path::Path) {
+    let plugin = dir.join("choices");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let mut cfg = "[plugin]\nid = \"test.choices\"\nname = \"Choices\"\nversion = \"0.0.1\"\n\
+                   api = \"0.9\"\nlicense = \"GPL-3.0-or-later\"\n"
+        .to_owned();
+    let mut code = "local mg = require(\"@moonglow\")\n".to_owned();
+    for (id, n) in ["few", "many"].iter().zip(CHOICES) {
+        cfg += &format!("\n[panel]\nid = \"{id}\"\ntitle = \"Choice of {n}\"\n");
+        code += &format!(
+            "mg.panel(\"{id}\", function(ctx)\n\
+             local choices = {{}}\n\
+             for i = 1, {n} do choices[i] = \"Option \" .. i end\n\
+             return {{ {{ type = \"field\", kind = \"choice\", id = \"c\", label = \"Choice\", \
+             choices = choices, value = \"Option 1\" }} }}\n\
+             end)\n"
+        );
+    }
+    std::fs::write(plugin.join("plugin.cfg"), cfg).unwrap();
+    std::fs::write(plugin.join("main.luau"), code).unwrap();
+}
+
+/// The review of November 2026's script editor findings at the sizes they
+/// name (the deferred list's "performance fixes without a timing view"),
+/// each against the same view at a small size, timed in the same run, its
+/// rest timed twice for the noise, in a module of 8,000 scripts beside a
+/// copy of the game's `nwscript.nss` (a word at its first line and at its
+/// last): Search Results after Find In Files for a word on 56,000 of their
+/// lines (10,000 kept) against one on 100, more than are in sight (X8); Open Script with All
+/// Resources (the game's scripts and the 8,000), everything selected
+/// (Ctrl+A) against nothing (X10); the copy's last line with a completion
+/// list open against its first (X18); and a plugin's panel holding a
+/// choice of 2,000 options, closed, against one of two (X5).
+/// `EDITOR_VIEW=<part of a name>` picks the groups ("Search Results",
+/// "Open Script", "completion", "choice"), `EDITOR_FRAMES` the frames.
+#[test]
+#[ignore]
+fn scripts_at_scale() {
+    let root = mg_testkit::corpus!();
+    let mut v = timing::Views::new("EDITOR_VIEW", "EDITOR_FRAMES");
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let nwscript = game.resman.get_named("nwscript", ResType::NSS).unwrap().into_owned();
+    drop(game);
+    let dir = mg_testkit::scratch_dir("editor-perf-scripts");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let big = ResKey::parse("big", ResType::NSS).unwrap();
+    let mut text = b"int a = GetLoc\n".to_vec();
+    text.extend_from_slice(&nwscript);
+    text.extend_from_slice(b"\nint n = GetLoc");
+    m.set(big, text);
+    for i in 0..8_000 {
+        let key = ResKey::parse(&format!("mg_s_{i:04}"), ResType::NSS).unwrap();
+        let mut body: String = (0..7).map(|j| format!("// word {i} {j}\n")).collect();
+        if i % 80 == 0 {
+            body += "// rarely\n";
+        }
+        body += "void main() { }\n";
+        m.set(key, body.into_bytes());
+    }
+    let path = dir.join("perf.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let plugins = dir.join("plugins");
+    choice_plugin(&plugins);
+
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.open_module(&path);
+    app.plugin_dir = Some(plugins);
+    app.load_plugins();
+    app.enable_plugin("test.choices", true);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(big)));
+    let mut recorded = false;
+    let mut h = Harness::builder().with_size(SCREEN).build_ui_state(
+        move |ui, app: &mut Moonglow| {
+            // (The header's places, for its controls to be found.)
+            if !recorded {
+                recorded = true;
+                mg_uikit::header::record_headers(ui.ctx());
+            }
+            app.ui(ui);
+        },
+        app,
+    );
+    h.state_mut().background_jobs = true;
+    h.run_steps(10);
+
+    // X18: a completion list open at the first line, then at the last.
+    let name = "a completion list";
+    if v.wanted(name) {
+        let id = egui::Id::new(("script", big));
+        let chars = h.state().script_text(big).unwrap().chars().count();
+        let complete_at = |h: &mut Harness<'_, Moonglow>, at: usize| {
+            let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+            let c = egui::text::CCursor::new(at);
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(c)));
+            state.store(&h.ctx, id);
+            h.ctx.memory_mut(|m| m.request_focus(id));
+            h.state_mut().script_tools.completion = None;
+            h.run_steps(4);
+            // (Again until the script's names are read, on a thread.)
+            let begun = Instant::now();
+            while h.state().script_tools.completion.is_none() {
+                h.key_press(Key::F2);
+                h.run_steps(4);
+                assert!(begun.elapsed() < Duration::from_secs(60), "{name}: no list at {at}");
+            }
+        };
+        complete_at(&mut h, "int a = GetLoc".len());
+        let rest = v.rest(&mut h);
+        complete_at(&mut h, chars);
+        let what = format!("{name} at the last of {chars} characters (against the first line)");
+        v.against(&mut h, &what, rest, |_| Vec::new());
+        assert!(h.state().script_tools.completion.is_some(), "{name}: still open");
+        h.state_mut().script_tools.completion = None;
+        h.key_press(Key::Escape);
+        h.run_steps(4);
+    }
+
+    // X8: Search Results after Find In Files.
+    let name = "Search Results";
+    if v.wanted(name) {
+        let find_all = |h: &mut Harness<'_, Moonglow>, word: &str| {
+            let search = &mut h.state_mut().script_tools.search;
+            (search.open, search.script, search.in_files) = (true, Some(big), true);
+            search.find = word.into();
+            h.run_steps(3);
+            h.get_by_label("Find All").click();
+            h.run_steps(4);
+            h.state_mut().script_tools.search.open = false;
+            h.run_steps(6);
+            h.state().search_results.hits.len()
+        };
+        assert_eq!(find_all(&mut h, "rarely"), 100, "{name}: the rare word's lines");
+        let rest = v.rest(&mut h);
+        assert_eq!(find_all(&mut h, "word"), 10_000, "{name}: the common word's, cut");
+        // (A row: the script's name, then its line.)
+        let rows = h.query_all_by_label_contains("mg_s_").count();
+        assert!((1..400).contains(&rows), "{name}: {rows} rows in sight");
+        let what = format!("{name} of 10,000 lines kept of 56,000 found (against 100)");
+        v.against(&mut h, &what, rest, |_| Vec::new());
+    }
+
+    // X10: Open Script with All Resources, everything selected.
+    let name = "Open Script";
+    if v.wanted(name) {
+        script_tool(&mut h, "Open…").click();
+        h.run_steps(4);
+        h.get_by_label("All Resources").click();
+        h.run_steps(4);
+        let listed = h.state().script_tools.open_script.as_ref().unwrap().scripts.len();
+        assert!(listed > 12_000, "{name}: {listed} scripts");
+        let rest = v.rest(&mut h);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+        h.run_steps(4);
+        let selected = h.state().script_tools.open_script.as_ref().unwrap().selected.len();
+        assert!(selected > 12_000, "{name}: {selected} of {listed} selected");
+        let what = format!("{name}, All Resources, {selected} selected (against none)");
+        v.against(&mut h, &what, rest, |_| Vec::new());
+        h.key_press(Key::Escape);
+        h.run_steps(2);
+        h.key_press(Key::Escape);
+        h.run_steps(4);
+        assert!(h.state().script_tools.open_script.is_none(), "{name}: closed");
+    }
+
+    // X5: a plugin's panel with a choice of 2,000 options, closed.
+    let name = "a plugin panel's choice";
+    if v.wanted(name) {
+        let mut rests = Vec::new();
+        for (id, n) in ["few", "many"].iter().zip(CHOICES) {
+            let tab = Tab::PluginPanel { plugin: "test.choices".into(), panel: (*id).into() };
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            let begun = Instant::now();
+            // (Its field's label: the box shows its value.)
+            while h.query_all_by_label("Choice").next().is_none() {
+                h.run_steps(1);
+                assert!(begun.elapsed() < Duration::from_secs(60), "{name}: {id} not drawn");
+            }
+            h.run_steps(4);
+            match rests.pop() {
+                None => rests.push(v.rest(&mut h)),
+                Some(rest) => {
+                    let what = format!("{name} of {n} options, closed (against 2)");
+                    v.against(&mut h, &what, rest, |_| Vec::new());
+                }
+            }
+            let at = h.state().dock.find_tab(&tab).unwrap();
+            h.state_mut().dock.remove_tab(at);
+            h.run_steps(4);
+        }
+    }
+
+    println!(
+        "against their resting views (the line {} µs, the budget {:.2} ms):\n  {}",
+        timing::UI_LINE.as_micros(),
+        ms(timing::BUDGET),
+        v.lines.join("\n  ")
+    );
 }

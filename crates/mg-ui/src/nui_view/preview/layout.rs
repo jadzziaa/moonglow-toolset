@@ -1,7 +1,43 @@
 //! How much room a control asks for and gets: the client's layout, measured.
 use super::*;
 
-pub(super) fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usize) -> Vec2 {
+/// The natural sizes a pass of the canvas has worked out, by the control
+/// (where it is in memory: the window is not changed while it is drawn)
+/// and its depth. Each container asks for its children's, and each child's
+/// own children ask again, so without them a window was walked whole once
+/// for each level of it (a group's column of 1,000 rows, four times a frame).
+pub(super) type Naturals = std::cell::RefCell<std::collections::HashMap<(usize, usize), Vec2>>;
+
+/// A control's natural size (its own, or what its children ask for),
+/// kept in `kept` for the pass and taken from it.
+pub(super) fn natural(
+    node: &Value,
+    s: &Settings,
+    row: Option<usize>,
+    depth: usize,
+    kept: Option<&Naturals>,
+) -> Vec2 {
+    // (Not a list's row: a cell given its row's value is a copy made for
+    // the moment, whose place the next copy may take.)
+    let kept = kept.filter(|_| row.is_none());
+    let key = (std::ptr::from_ref(node) as usize, depth.min(33));
+    if let Some(size) = kept.and_then(|k| k.borrow().get(&key).copied()) {
+        return size;
+    }
+    let size = measure(node, s, row, depth, kept);
+    if let Some(k) = kept {
+        k.borrow_mut().insert(key, size);
+    }
+    size
+}
+
+fn measure(
+    node: &Value,
+    s: &Settings,
+    row: Option<usize>,
+    depth: usize,
+    kept: Option<&Naturals>,
+) -> Vec2 {
     if depth > 32 {
         return vec2(120.0, 30.0);
     }
@@ -14,7 +50,7 @@ pub(super) fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usi
         // size (stock nw_inc_nui). It occupies the available span instead.
         size = Vec2::ZERO;
     } else if let Some(children) = node["children"].as_array() {
-        let sizes: Vec<_> = children.iter().map(|c| natural(c, s, row, depth + 1)).collect();
+        let sizes: Vec<_> = children.iter().map(|c| natural(c, s, row, depth + 1, kept)).collect();
         let gap = children
             .iter()
             .take(children.len().saturating_sub(1))

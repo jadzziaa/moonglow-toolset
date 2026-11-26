@@ -22,6 +22,8 @@ pub(super) struct Renderer<'a> {
     /// row's path, and the right edge its last button without a width
     /// stretches to (`Renderer::children`).
     pub(super) reach: Option<(String, f32)>,
+    /// The controls' natural sizes worked out in this pass.
+    pub(super) naturals: Naturals,
 }
 
 /// A control being drawn: where, in which state and with what. The kinds'
@@ -225,7 +227,8 @@ impl Renderer<'_> {
     /// and each margin whole pixels apart.
     pub(super) fn cell(&self, node: &Value, row: Option<usize>, depth: usize) -> Vec2 {
         let extra = extra_margin(node, self.s, row);
-        let core = (natural(node, self.s, row, depth) - Vec2::splat(2.0 * extra)).max(Vec2::ZERO);
+        let core = natural(node, self.s, row, depth, Some(&self.naturals));
+        let core = (core - Vec2::splat(2.0 * extra)).max(Vec2::ZERO);
         self.scaled(core) + Vec2::splat(2.0 * self.margin_px(node, row))
     }
 

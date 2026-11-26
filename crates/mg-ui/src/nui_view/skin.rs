@@ -529,6 +529,16 @@ impl Assets {
     }
 }
 
+/// Whether `query` finds a picture's `name`. A name in lower case ASCII,
+/// as resource names are, is its own fold: no copy of each of the 100,000
+/// is made to look in.
+fn name_found(query: &mg_core::text::Needle, name: &str) -> bool {
+    match name.is_ascii() && !name.bytes().any(|b| b.is_ascii_uppercase()) {
+        true => query.is_empty() || query.finds_folded(name),
+        false => query.finds(name),
+    }
+}
+
 fn hash(v: impl Hash) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     v.hash(&mut h);
@@ -857,7 +867,7 @@ impl Assets {
             .is_some_and(|(at, f, n, _)| (*at, f.as_str(), *n) == (self.listings, filter, most));
         if !fresh {
             let query = mg_core::text::Needle::new(filter);
-            let names = self.catalog.iter().filter(|n| query.finds(n)).take(most).cloned();
+            let names = self.catalog.iter().filter(|n| name_found(&query, n)).take(most).cloned();
             self.found = Some((self.listings, filter.to_string(), most, names.collect()));
         }
         self.found.as_ref().map_or(&[], |(_, _, _, names)| names)
@@ -1216,6 +1226,20 @@ fn nine_slice(
 mod tests {
     use super::*;
     use mg_resman::{LayerClass, MemContainer};
+
+    /// A picture's name is found as a fold of it would be, whether it is
+    /// already in lower case or not.
+    #[test]
+    fn picture_names_are_found_as_their_folds() {
+        let names = ["gui_error", "GUI_Error", "ctl_btn_x", "", "über_gui", "ÜBER", "gui error"];
+        for filter in ["", "gui", "GUI_err", "error", "x", "über", "ÜB", " ", "zz", "gui_error_"]
+        {
+            let query = mg_core::text::Needle::new(filter);
+            for name in names {
+                assert_eq!(name_found(&query, name), query.finds(name), "{filter:?} in {name:?}");
+            }
+        }
+    }
 
     #[test]
     fn strref_preview_resolves_module_tlk_and_indexed_binds_without_mutating_source() {
