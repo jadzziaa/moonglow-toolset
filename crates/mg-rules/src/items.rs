@@ -640,7 +640,7 @@ pub(crate) struct NamedRows {
 }
 
 /// A list kept of a table's named rows: which of them, and the list.
-pub(crate) type NamedList = (NamedRows, Arc<Vec<crate::Choice>>);
+pub(crate) type NamedList = (NamedRows, Arc<Vec<crate::Choice>>, crate::Lines);
 
 impl GameData {
     /// An item property type.
@@ -680,17 +680,22 @@ impl GameData {
             .filter(|&c| c >= 0);
         let Some(column) = column else { return empty() };
         let cache = &self.property_types;
-        if let Some(made) = cache.read().expect("property type cache poisoned").get(&column) {
+        if let Some((made, lines)) =
+            cache.read().expect("property type cache poisoned").get(&column)
+        {
+            crate::note_lines(lines);
             return made.clone();
         }
         let Ok(props) = self.table("itemprops") else { return empty() };
-        let mut out: Vec<PropertyType> = (0..props.len())
-            .filter(|&row| props.cell(row, column as usize) == Some("1"))
-            .filter_map(|row| self.property_type(row as u16))
-            .collect();
+        let (mut out, lines) = crate::reading_lines(|| {
+            (0..props.len())
+                .filter(|&row| props.cell(row, column as usize) == Some("1"))
+                .filter_map(|row| self.property_type(row as u16))
+                .collect::<Vec<PropertyType>>()
+        });
         out.sort_by_key(|t| t.name.to_lowercase());
         let made = Arc::new(out);
-        cache.write().expect("property type cache poisoned").insert(column, made.clone());
+        cache.write().expect("property type cache poisoned").insert(column, (made.clone(), lines));
         made
     }
 
@@ -704,14 +709,17 @@ impl GameData {
     fn named_rows(&self, table: &str, rows: NamedRows) -> Arc<Vec<crate::Choice>> {
         let cache = &self.named;
         let kept = |lists: &Vec<NamedList>| {
-            lists.iter().find(|(r, _)| *r == rows).map(|(_, list)| list.clone())
+            let (_, list, lines) = lists.iter().find(|(r, _, _)| *r == rows)?;
+            crate::note_lines(lines);
+            Some(list.clone())
         };
         if let Some(made) = cache.read().expect("named cache poisoned").get(table).and_then(kept) {
             return made;
         }
-        let made = Arc::new(self.name_rows(table, rows));
+        let (made, lines) = crate::reading_lines(|| self.name_rows(table, rows));
+        let made = Arc::new(made);
         let mut cache = cache.write().expect("named cache poisoned");
-        cache.entry(table.to_string()).or_default().push((rows, made.clone()));
+        cache.entry(table.to_string()).or_default().push((rows, made.clone(), lines));
         made
     }
 

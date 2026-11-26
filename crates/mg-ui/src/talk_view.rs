@@ -448,8 +448,9 @@ fn open(app: &mut Moonglow, name: &str) {
     match Table::open(name, found, feminine) {
         Ok(t) => {
             let named_cache = std::mem::take(&mut app.talk_view.named_cache);
+            let stamps = Some(stamps_now(&t));
             app.talk = Some(t);
-            app.talk_view = TalkView { languages, named_cache, ..TalkView::default() };
+            app.talk_view = TalkView { languages, named_cache, stamps, ..TalkView::default() };
         }
         Err(e) => {
             app.log.error(format!("Talk table {name}: {e}"));
@@ -501,14 +502,30 @@ pub(crate) fn open_language(app: &mut Moonglow, path: &std::path::Path) {
     match read(path).and_then(|f| Table::open(&name, f, feminine)) {
         Ok(t) => {
             app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));
+            let stamps = Some(stamps_now(&t));
             app.talk = Some(t);
-            app.talk_view = TalkView { languages, ..TalkView::default() };
+            app.talk_view = TalkView { languages, stamps, ..TalkView::default() };
         }
         Err(e) => {
             app.log.error(format!("Talk table: {e}"));
             app.talk_view.languages = languages;
         }
     }
+}
+
+/// A table's files and their times now ([`TalkView::stamps`]): taken as
+/// it is opened, so that the first Reload Resources after (a hak's save
+/// does one) looks at the times, and reads the files only where they
+/// changed: it read them whole to see, 50,000 lines in a frame.
+fn stamps_now(t: &Table) -> Vec<(std::path::PathBuf, Option<std::time::SystemTime>)> {
+    std::iter::once(&t.source)
+        .chain(t.feminine.as_ref().map(|(s, _)| s))
+        .filter_map(|s| s.file().map(std::path::Path::to_path_buf))
+        .map(|p| {
+            let at = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
+            (p, at)
+        })
+        .collect()
 }
 
 /// The talk table open in the editor, read again from its files where
@@ -521,14 +538,7 @@ pub(crate) fn read_again(app: &mut Moonglow) {
         app.talk_view.stamps = None;
         return;
     };
-    let now: Vec<_> = std::iter::once(&t.source)
-        .chain(t.feminine.as_ref().map(|(s, _)| s))
-        .filter_map(|s| s.file().map(std::path::Path::to_path_buf))
-        .map(|p| {
-            let at = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
-            (p, at)
-        })
-        .collect();
+    let now = stamps_now(t);
     let was = app.talk_view.stamps.replace(now.clone());
     let same_files =
         was.as_ref().is_some_and(|w| w.iter().map(|(p, _)| p).eq(now.iter().map(|(p, _)| p)));
@@ -590,11 +600,7 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
             }
             // (Written here: not a change made outside, for `read_again`:
             // its files' times now are the ones known.)
-            let files = std::iter::once(&t.source).chain(t.feminine.as_ref().map(|(s, _)| s));
-            let stamps = (files.filter_map(|s| s.file()))
-                .map(|p| (p.to_path_buf(), std::fs::metadata(p).and_then(|m| m.modified()).ok()))
-                .collect();
-            app.talk_view.stamps = Some(stamps);
+            app.talk_view.stamps = Some(stamps_now(t));
             if in_module {
                 app.refresh_module_layer();
             }
@@ -1717,8 +1723,9 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
     match table {
         Ok(t) => {
             app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));
+            let stamps = Some(stamps_now(&t));
             app.talk = Some(t);
-            app.talk_view = TalkView { outside: true, ..Default::default() };
+            app.talk_view = TalkView { outside: true, stamps, ..Default::default() };
             // (Shown in the tab in place of the game's dialog.tlk too.)
             hide_game(app);
             app.actions.push(Action::OpenTab(Tab::TalkTable));

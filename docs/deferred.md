@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:59:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -211,15 +211,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   world_perf's content doctor, fixed: V6, V10, V12), and gave views to
   the five largest costs that grew with the module (D20, D23, B22, A18,
   N16; [the log](log.md), 10 November). These have no view yet:
-  - the editors: `spells.2da` at full width (D20's rest); Choose Model
-    open, and a described table whose `Row` column names itself (D21);
-    Advanced Search with a plugin menu command (D23's rest); the Claims
-    Table of 1,400 areas, a conversation's Search of 20,000 results,
-    Build Module with 20,000, an area's object list of 3,000 placeables
-    in the raw fields view (D24); Custom Content with a 20,000-line map
-    (D25); a typed line on a world-sized table (D27); `nwscript.nss`
-    read-only (D29); the Variables window on a variable with `rows =
-    "placeables"` (S20);
   - the NUI Creator and the script editor: two Creator tabs side by
     side, and Split source while a picture's name is typed (N3); a
     column of 1,000 rows (N12); a combo of 10,000 entries, closed
@@ -239,11 +230,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     panel with `refresh = "selection"` over a large selection (C3), a
     plugin check of many fixes in Verify Module (C4); `mg haks --usage`
     on a module of many part-based creatures (M17); opening a large
-    nasher project (P19);
-  - the review's last pass (its item 17): the Variables window on a
-    variable with a large
-    `rows` table, the module tree with an area opened out, and a hak
-    saved with a large module open.
+    nasher project (P19).
   Each is a view to build in its timing test, timed before and after
   its fix's commit: left as beyond what the reviewer's run was asked
   (at most eight new views, the largest costs). The area editor's have
@@ -283,6 +270,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   drawn on the window's thread at about 5 ms, past the 2 ms a frame
   gives pictures, one drawn whatever it costs: drawing them apart is a
   renderer change).
+  The editors' have theirs since 26 November
+  (`frame_perf::editors_at_scale`, [the log](log.md)); what they leave,
+  timed again on a quiet machine at the final commit (26 November
+  00:00, the processors about 93% idle; three runs, each view against
+  its rest): `spells.2da` at its full width, +194 to +330 µs over the
+  same rows cut to the 26 columns in sight (the cells out of sight
+  sideways are one place a run since 26 November, which the loaded
+  runs had read as +9; the rest of the cost is in the 55 columns'
+  cells in sight and their headers, not taken apart yet); Choose Model
+  open over 82,856 models, +52 to +120 µs (its rows in sight alone are
+  laid out; what is left is around the line); the raw fields view
+  with an area's Placeable List of 3,000 opened, +79 to +80 µs over
+  20: each item out of sight is still asked whether it is open (an id
+  made and egui's memory looked up, 3,000 a frame), and passing them
+  over in blocks needs to know which are open without asking, which
+  egui's memory can't say: left, beyond a local change. Within on the
+  quiet machine: a hak's Save with the large module open (the click
+  0.8 to 0.9 ms, its frames until saved 3.8 to 5.5 ms), the typed line
+  (2.5 to 3.6 ms on the small module, 4.1 to 5.2 on the large), the
+  Claims Table (+26 to +31 µs), the conversation's Search of 20,000
+  (+37 to +43 µs, Find's click 3.8 to 4.3 ms), Build Module's 20,000
+  (+11 to +22), Custom Content (−100 to +23), `nwscript.nss` (−2 to
+  +5), the Variables window (+2 to +61), the module tree (−32 to −28).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories

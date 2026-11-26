@@ -2673,6 +2673,26 @@ pub(crate) const FROM: &str = "<from>";
 /// beside it and the cells a layer changed marked; there a cell is
 /// selected, the keys move, Find narrows and Ctrl+C copies, and nothing
 /// is changed (a column hidden or its width aside).
+/// A run of a row's cells out of sight sideways, not yet passed over:
+/// their width and how many.
+#[derive(Default)]
+struct Unseen {
+    width: f32,
+    cells: usize,
+}
+
+impl Unseen {
+    /// Passes over the run in one place: the ids of two widgets for each
+    /// cell, as a cell out of sight took one by one.
+    fn pass(&mut self, ui: &mut Ui, height: f32) {
+        if self.cells > 0 {
+            ui.allocate_space(egui::vec2(self.width, height));
+            ui.skip_ahead_auto_ids(2 * self.cells - 1);
+        }
+        *self = Self::default();
+    }
+}
+
 pub(crate) fn grid_in(
     ui: &mut Ui,
     doc: &mut TableDoc,
@@ -3118,6 +3138,9 @@ pub(crate) fn grid_in(
                                 ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
                                     .add(egui::Label::new(text).truncate().selectable(false));
                             }
+                            // (The cells out of sight in a run, not yet
+                            // passed over.)
+                            let mut unseen = Unseen::default();
                             for (c, is_strref) in strref.iter().copied().enumerate() {
                                 let width = widths[c];
                                 if width == 0.0 {
@@ -3125,6 +3148,7 @@ pub(crate) fn grid_in(
                                 }
                                 let here = selected == Some((r, c));
                                 if here && let Some(text) = doc.typing.as_mut() {
+                                    unseen.pass(ui, row_height);
                                     let edit = mg_uikit::text_field(text)
                                         .id(egui::Id::new(("table-cell", id)))
                                         .font(egui::TextStyle::Monospace)
@@ -3156,16 +3180,19 @@ pub(crate) fn grid_in(
                                 // A cell scrolled out of sight sideways takes
                                 // its place and no more: no text made, nothing
                                 // looked up (spells.2da's 55 columns were all
-                                // laid out for every row shown). It counts as
-                                // many widgets as one drawn, so the ids of
-                                // those after it stay theirs.
+                                // laid out for every row shown), and a run of
+                                // them one place (each a widget of its own
+                                // cost 0.3 ms a frame). It counts as many
+                                // widgets as one drawn, so the ids of those
+                                // after it stay theirs.
                                 let size = egui::vec2(width, row_height);
-                                let place = egui::Rect::from_min_size(ui.cursor().min, size);
-                                if !ui.is_rect_visible(place) {
-                                    ui.allocate_exact_size(size, egui::Sense::hover());
-                                    ui.skip_ahead_auto_ids(1);
+                                let at = ui.cursor().min + egui::vec2(unseen.width, 0.0);
+                                if !ui.is_rect_visible(egui::Rect::from_min_size(at, size)) {
+                                    unseen.width += width;
+                                    unseen.cells += 1;
                                     continue;
                                 }
+                                unseen.pass(ui, row_height);
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = wrong_here.iter().find(|f| f.column == c);
                                 let (label, text, was_named) = cell_shows(
@@ -3275,6 +3302,7 @@ pub(crate) fn grid_in(
                                     begin = cell.double_clicked() && !read_only;
                                 }
                             }
+                            unseen.pass(ui, row_height);
                         });
                         let at = row.response.rect;
                         lines.row(at.left(), at.right(), at.bottom());
@@ -3868,9 +3896,10 @@ fn model_choice(
             .id_salt(find_id.with("list"))
             .max_height(240.0)
             .min_scrolled_height(200.0);
-        list.show(ui, |ui| {
-            mg_uikit::list_rows(ui);
-            for n in names {
+        // (The rows in sight alone: the 200 laid out each frame took
+        // 0.12 ms while it was open.)
+        mg_uikit::show_rows(list, ui, names.len(), |ui, range| {
+            for n in &names[range] {
                 let now = value.is_some_and(|v| v.eq_ignore_ascii_case(n));
                 if ui.selectable_label(now, n).clicked() {
                     *set = Some(Some(n.clone()));
