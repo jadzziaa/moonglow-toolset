@@ -42,8 +42,8 @@ const OPEN_IN_TAB_TIP: &str =
 pub(crate) enum Selected {
     /// Nothing (or the start location alone: `true`).
     Nothing(bool),
-    /// Objects of one kind, by their places in its list (one or more).
-    Objects(ObjectKind, Vec<usize>),
+    /// Objects of one kind: how many (one or more).
+    Objects(ObjectKind, usize),
     /// Objects of several kinds: how many, of how many kinds.
     Mixed(usize, usize),
 }
@@ -55,7 +55,7 @@ pub(crate) fn selected(app: &Moonglow, area: ResRef) -> Selected {
         return Selected::Nothing(view.start_selected);
     };
     if view.selection.iter().all(|(k, _)| *k == kind) {
-        return Selected::Objects(kind, view.selection.iter().map(|(_, i)| *i).collect());
+        return Selected::Objects(kind, view.selection.len());
     }
     let mut kinds: Vec<ObjectKind> = view.selection.iter().map(|(k, _)| *k).collect();
     kinds.sort_by_key(|k| k.index());
@@ -97,7 +97,7 @@ fn kind_name(kind: ObjectKind, count: usize) -> String {
 /// of several kinds, "none selected".
 pub(crate) fn detail(app: &Moonglow, editor: Option<&Tab>) -> String {
     match area_of(editor).map(|a| selected(app, a)) {
-        Some(Selected::Objects(kind, indices)) => kind_name(kind, indices.len()),
+        Some(Selected::Objects(kind, n)) => kind_name(kind, n),
         Some(Selected::Mixed(n, _)) => format!("{n} objects"),
         _ => "none selected".to_string(),
     }
@@ -113,9 +113,8 @@ pub(crate) fn nothing_selected(app: &Moonglow, editor: Option<&Tab>) -> bool {
 /// The tab of today's Properties window on `area`'s selection (one object,
 /// or several of one kind), if one is selected.
 fn window_of(app: &Moonglow, area: ResRef) -> Option<Tab> {
-    let Selected::Objects(kind, indices) = selected(app, area) else { return None };
-    let paths: Vec<GffPath> =
-        indices.iter().map(|i| GffPath::root().item(kind.list(), *i)).collect();
+    let Selected::Objects(..) = selected(app, area) else { return None };
+    let paths = paths_of(&app.area_views.get(&area)?.selection);
     Some(match paths.as_slice() {
         [one] => Tab::Instance { area, path: one.clone() },
         _ => Tab::instances(area, paths),
@@ -159,7 +158,7 @@ pub(crate) fn editable_selected(app: &Moonglow, editor: Option<&Tab>) -> bool {
 /// dock's fold button where that is there too): enabled while objects of
 /// one kind are selected. Whether it was clicked.
 pub(crate) fn open_in_tab_button(app: &Moonglow, ui: &mut Ui, editor: Option<&Tab>) -> bool {
-    let can = area_of(editor).is_some_and(|a| window_of(app, a).is_some());
+    let can = area_of(editor).is_some_and(|a| matches!(selected(app, a), Selected::Objects(..)));
     let button = mg_uikit::IconButton::new(mg_uikit::Icon::OpenInTab, OPEN_IN_TAB).icon_only(true);
     ui.add_enabled(can, button)
         .on_hover_text(OPEN_IN_TAB_TIP)
@@ -284,8 +283,8 @@ pub(crate) fn panel(
             app.settings.hide_properties = true;
         }
     }
-    let (kind, indices) = match selected(app, area) {
-        Selected::Objects(kind, indices) => (kind, indices),
+    let (kind, count) = match selected(app, area) {
+        Selected::Objects(kind, count) => (kind, count),
         Selected::Nothing(start) => {
             padded(ui, |ui| {
                 ui.weak(match start {
@@ -306,8 +305,7 @@ pub(crate) fn panel(
         }
     };
     let git = ResKey::new(area, ResType::GIT);
-    let paths: Vec<GffPath> =
-        indices.iter().map(|i| GffPath::root().item(kind.list(), *i)).collect();
+    let (paths, also, kept) = kept_paths(app, area);
     // (Their Properties window open: the fields are there, not twice.)
     if let Some(tab) = open_on(app, area, &paths) {
         let shown = padded(ui, |ui| {
@@ -356,16 +354,17 @@ pub(crate) fn panel(
     let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room).id_salt("page"));
     body.set_clip_rect(room.intersect(ui.clip_rect()));
     let path = paths[0].clone();
-    let also: crate::widgets::Also =
-        std::sync::Arc::new(paths[1..].iter().map(|p| (git, p.clone())).collect());
     let Some(root) = object_now(app, &path, git) else {
         body.weak("This object is no longer there.");
         return;
     };
     // (The one object's blueprint, place and facing under the page's
     // name, as the boards draw it.)
-    let readout = match indices.as_slice() {
-        [one] => readout(app, area, kind, *one),
+    let readout = match count {
+        1 => {
+            let first = app.area_views.get(&area).and_then(|v| v.selection.first().copied());
+            first.and_then(|(kind, index)| readout(app, area, kind, index))
+        }
         _ => None,
     };
     let (held, is_viewed) = crate::blueprint::looked_at(app, &git);
@@ -393,9 +392,13 @@ pub(crate) fn panel(
         all,
     };
     // (Its fields' ids follow their objects as a window's do, should an
-    // edit renumber them while one is typed in: `follow::window_id`.)
-    for p in &paths {
-        crate::blueprint::follow::window_id(app, area, p);
+    // edit renumber them while one is typed in: `follow::window_id`. Given
+    // as the selection changes; the window's id of the first tells whether
+    // they were let go since, as all are when the module changes.)
+    if !kept || !app.window_ids.contains_key(&(area, paths[0].clone())) {
+        for p in paths.iter() {
+            crate::blueprint::follow::window_id(app, area, p);
+        }
     }
     app.panel_form = true;
     crate::blueprint::form_ui(app, &mut body, shown);
@@ -412,6 +415,43 @@ pub(crate) fn panel(
         held.panel = true;
     }
     ui.advance_cursor_after_rect(whole);
+}
+
+/// The places of the objects selected in an area (`selection`), in its GIT.
+fn paths_of(selection: &[(ObjectKind, usize)]) -> Vec<GffPath> {
+    selection.iter().map(|(kind, i)| GffPath::root().item(kind.list(), *i)).collect()
+}
+
+/// The paths the panel last edited, and those beside the first as its form
+/// takes them, kept while the area's selection is the same: made anew each
+/// frame, 5,000 objects selected cost a frame 10,000 paths.
+pub(crate) struct PanelKept {
+    area: ResRef,
+    selection: Vec<(ObjectKind, usize)>,
+    paths: std::sync::Arc<Vec<GffPath>>,
+    also: crate::widgets::Also,
+}
+
+/// The paths of the objects selected in `area` (one kind, one or more), the
+/// others beside the first (`also`), and whether they were kept from the
+/// frame before.
+fn kept_paths(
+    app: &mut Moonglow,
+    area: ResRef,
+) -> (std::sync::Arc<Vec<GffPath>>, crate::widgets::Also, bool) {
+    let selection = app.area_views.get(&area).map_or(&[][..], |v| v.selection.as_slice());
+    if let Some(k) = app.panel_kept.as_ref().filter(|k| k.area == area && k.selection == selection)
+    {
+        return (k.paths.clone(), k.also.clone(), true);
+    }
+    let git = ResKey::new(area, ResType::GIT);
+    let paths = paths_of(selection);
+    let also: crate::widgets::Also =
+        std::sync::Arc::new(paths[1..].iter().map(|p| (git, p.clone())).collect());
+    let paths = std::sync::Arc::new(paths);
+    let selection = selection.to_vec();
+    app.panel_kept = Some(PanelKept { area, selection, paths: paths.clone(), also: also.clone() });
+    (paths, also, false)
 }
 
 /// Whether the Properties panel drawn by `host` stands every page on one

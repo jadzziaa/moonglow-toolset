@@ -240,6 +240,26 @@ fn several_of_one_type_edit_together() {
     }
 }
 
+/// The panel keeps the objects' places only while the selection is the
+/// same: a change typed after it changes goes to the new selection alone,
+/// and the same objects in another order are shown by their new first.
+#[test]
+fn the_panel_edits_what_is_selected_now() {
+    let Some((mut h, area)) = props_area("props-kept", MODES[0], 1600.0) else { return };
+    let (first, second) = ((ObjectKind::Placeable, 0), (ObjectKind::Placeable, 1));
+    select(&mut h, area, &[first, second]);
+    let before = placeables(&mut h, area);
+    retype(&mut h, &tag(&before[0]), "BOTH_OF_THEM");
+    select(&mut h, area, &[second]);
+    retype(&mut h, "BOTH_OF_THEM", "SECOND_ALONE");
+    let now = placeables(&mut h, area);
+    assert_eq!((tag(&now[0]), tag(&now[1])), ("BOTH_OF_THEM".into(), "SECOND_ALONE".into()));
+    select(&mut h, area, &[second, first]);
+    retype(&mut h, "SECOND_ALONE", "SECOND_FIRST");
+    let now = placeables(&mut h, area);
+    assert_eq!((tag(&now[0]), tag(&now[1])), ("SECOND_FIRST".into(), "SECOND_FIRST".into()));
+}
+
 /// Under 1400 the sections fold into one tab bar, Palette, Properties,
 /// Preview (Narrow), the palette's types a dropdown with Standard and
 /// Custom beside it and Expand All and Collapse All at the Group by

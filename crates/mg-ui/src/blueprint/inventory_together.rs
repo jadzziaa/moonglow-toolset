@@ -163,11 +163,6 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     let total = targets.len();
     let names = f.blueprint_names(BlueprintKind::Item);
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
-    // Every item blueprint any of them holds, in the first one's order.
-    let lists_of: Vec<Vec<&Struct>> = targets
-        .iter()
-        .map(|t| bags(t, holder).into_iter().flat_map(|(_, items)| items).collect())
-        .collect();
     let flags: &[(&'static str, &str)] = match holder {
         Holder::Creature => &ITEM_FLAGS,
         Holder::Store => &[("Infinite", "The store never runs out of it")],
@@ -179,6 +174,13 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
         &targets,
         &holder,
         || {
+            // Every item blueprint any of them holds, in the first one's
+            // order. (Gathered only to count anew: 5,000 placeables'
+            // lists gathered each frame took two thirds of the panel's.)
+            let lists_of: Vec<Vec<&Struct>> = targets
+                .iter()
+                .map(|t| bags(t, holder).into_iter().flat_map(|(_, items)| items).collect())
+                .collect();
             let labels: Vec<&str> = flags.iter().map(|(flag, _)| *flag).collect();
             std::sync::Arc::new(Holdings::of(&lists_of, &labels))
         },

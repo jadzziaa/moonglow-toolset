@@ -1204,6 +1204,8 @@ pub struct Moonglow {
     /// A Properties form is being drawn in the Properties panel: its ids
     /// are the panel's own (`blueprint::window_state_id`).
     pub(crate) panel_form: bool,
+    /// The Properties panel's paths, kept while its area's selection stays.
+    pub(crate) panel_kept: Option<crate::properties_panel::PanelKept>,
     /// The editors dragged out into windows too narrow for their right pane
     /// (`shell::window_panes`, the last frame's): a double click in such an
     /// area opens the Properties window, there being no panel to show; a
@@ -1996,6 +1998,7 @@ impl Moonglow {
             tile_props_focus: false,
             props_focus: false,
             panel_form: false,
+            panel_kept: None,
             panes_dropped: Default::default(),
             panel_pages: HashMap::new(),
             area_stats: None,
