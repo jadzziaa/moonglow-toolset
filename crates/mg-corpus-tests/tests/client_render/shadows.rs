@@ -1027,6 +1027,15 @@ fn see_through_regions(scene: &str) -> Vec<SeeThrough> {
 /// printed beside the plain ground's in the shadow on the same rows. In
 /// `target/test-output/client_reading_see_through_<water>/`: `beside.png`
 /// (the client, Fast and High with the game's shaders) and each picture.
+/// `MG_SEE_THROUGH_OVERRIDE=<folder>` puts its files in the `override` of
+/// both (a patched `fswater.shd`), the pictures named by the folder.
+///
+/// Read (2026-11-26) with `fswater` painting its values: under the shallow
+/// pool (53) the client's water reads its texture's alpha at the smallest
+/// level as 0.73 (186 of 255), Moonglow's as 1 (the rippling procedure's
+/// opaque gray), the depth under the water the same in both. Fixed (shiny
+/// water keeps its picture): the pool darkens by 0.264 against the
+/// client's 0.260 (was 0.002).
 #[test]
 #[ignore]
 fn shadows_on_see_through() {
@@ -1043,16 +1052,39 @@ fn shadows_on_see_through() {
         Some((h, y)) => format!("see_through_{water}_walls_{h}_{y}"),
         None => format!("see_through_{water}"),
     };
+    // (`MG_SEE_THROUGH_OVERRIDE=<folder>`: its files put in the scratch
+    // user directory's `override` too, for the client and Moonglow alike:
+    // a patched `fswater.shd` painting what it computes. The pictures are
+    // kept under the folder's name.)
+    let extra: Vec<(String, Vec<u8>)> = std::env::var_os("MG_SEE_THROUGH_OVERRIDE")
+        .map(|d| {
+            std::fs::read_dir(&d)
+                .expect("the override folder")
+                .flatten()
+                .map(|e| {
+                    (e.file_name().to_string_lossy().into_owned(), std::fs::read(e.path()).unwrap())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let name = match std::env::var_os("MG_SEE_THROUGH_OVERRIDE") {
+        Some(d) => format!(
+            "{name}_{}",
+            std::path::Path::new(&d).file_name().unwrap_or_default().to_string_lossy()
+        ),
+        None => name,
+    };
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let look = (90.0, 18.0, 50.0);
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let (table, first) = super::readings::placeables_with(&base, &[("mg_wall", 0)]);
-    let overrides: Vec<(&str, Vec<u8>)> = vec![
+    let mut overrides: Vec<(&str, Vec<u8>)> = vec![
         ("mg_wall.mdl", wall_model("mg_wall", (6.0, 0.6, wall_height)).into_bytes()),
         ("mgwhite.tga", super::white_tga()),
         ("placeables.2da", table.into_bytes()),
     ];
+    overrides.extend(extra.iter().map(|(f, d)| (f.as_str(), d.clone())));
     let mut pictures = Vec::new();
     let mut scene_of = None;
     for shadows in [true, false] {
