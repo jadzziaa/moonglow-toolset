@@ -3,7 +3,7 @@ type: Report
 title: The fixes of the review of November 2026
 description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of 9 and 10 November, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), every finding not fixed whole with what is left and why, those fixed on 10 November (four settled by the game client and Aurora, R4 by the owner''s decision, Z2 in part after the reviewer''s timing run, which also found and fixed a slowdown of the content doctor), the findings fixed with a choice for the owner or a check that could not be made here, the last pass''s 24 items seen on the way, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
 tags: [review, code-review, fixes, deferred]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T23:13:12Z }
 sources:
   - id: overview
     resource: overview.md
@@ -50,6 +50,38 @@ The counts: **fixed whole**, the finding's fix made and tested (by its
 part's fixer or the reviewer); **in part**, a part its fixer names as
 left or not done; **by another**, found already fixed by another
 finding's commit; **does not hold**; **left**, nothing changed.
+
+## Each fix's test at its fix's parent (26 November)
+
+The fixers' tests of the P, C and F parts (but P7, P16, P20, P21 and C7)
+were run at their fix commit's parent, with only the test brought in, and
+again at the fix (where every one passes), as the X and B parts were on
+10 November. At the parent:
+
+- **Fail for their finding's reason (27):** P3, P4, P5, P6, P9 (a stack
+  overflow), P11 to P15, C1, C2, C4, C6, C9, C12 to C14, C17 to C24, C26,
+  C28, and F9's timed test in mg-set.
+- **Never end (2):** C15's plugin whose code never returns hit the 1,800 s
+  cap; F2's counts were stopped at 147 s under an 8 GB cap.
+- **Cannot run there (14):** they call what their fix added: P2
+  (`scratch_file`), P8 (`first_chars`), P10 (`parse_events` on bytes), P17
+  (`write_replacing_with`), P19 (`Cover`), P22 (`Description::read`), C3,
+  C5, C8, C10 (`files_read`), C11 (the picture function's arguments), C16
+  (`CODEPAGES_READ`), C27 (`Settings::saved_text`), F8
+  (`CompressedBufError::TooLarge`; the old code would allocate the
+  header's 4 GiB), and F9's tests in mg-core (`mg_core::num`).
+- **Passed there, now sized to fail (4):** F13, F14 and F15's timed tests
+  were too small to show the old quadratic cost, and P18's test pins what
+  is imported, not its cost. F13 now merges 40,000 items a side (old code
+  15 to 20 s, new 0.2 s, bound 1.5 s); F14 indexes 2,000 functions (3.7 s
+  against 0.1 s, bound 500 ms); F15 completes over 7,000 constants and
+  50,000 function prototypes (5.7 s against 0.3 s, bound 400 ms: the
+  constants alone are still quadratic at the fix commit, in
+  `global_declaration`'s `name_in`, fixed later); and P18 has a timed test
+  beside it, `a_module_s_folder_is_listed_at_once`, 20,000 files and 200
+  twin names (10.1 s against 0.05 s, bound 1 s).
+- **No test (2):** P23 (doc comments) and C25 (a cost, timed with the
+  command line's views).
 
 ## By part
 
