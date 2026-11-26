@@ -434,50 +434,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
 
-- **The game's lit shaders drawn (M1 of [the shaders
-  proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
-  leaves out (the Shaders switch, on by default since M3; Moonglow
-  Viewer draws them since its 0.2.0). (from M1, 2026-10-21)
-  - The Domains of Dread's fountain is 10.6 of 255 from the client on
-    average with the Shaders switch on (the game's `fswater` with the
-    framebuffer's copies; 11.7 with Moonglow's own water; 13.7 with
-    Moonglow's own shader), with the area's fog or without. Not the
-    falling water's phase: compared at the client's own clock
-    (2026-11-02, `batch7_fountain_phase`: the debug `inc_standard`
-    showing each picture's `worldtimerTimeOfDay`, Moonglow drawn at it)
-    it is 10.57, 10.54 and 10.57, and 10.57, 10.53 and 10.56 half the
-    flow's 5-second cycle off (Moonglow's own pictures half a cycle
-    apart differ by under 1 there). What differs is the basin's water:
-    11 to 12 of 255 over it, its mean color within 2, the client showing
-    the basin's floor through the water, its pattern and all, where
-    Moonglow's surface is smooth. Not read: what the client's refraction
-    takes there (the copy's detail, what is drawn before the copy). The
-    same shows under the sun's shadows (2026-11-25,
-    `shadows_on_see_through` with `MG_SEE_THROUGH_WATER=53`: ttr01's
-    shallow pool): the client's water darkens by 0.26 where its ground
-    does by 0.39, its shadowed floor seen through it; Moonglow's by
-    0.002, Fast and High, either switch, its floor (darkened under the
-    water, as the client's) hidden. Deep water darkens by 0.002 in the
-    client and 0.000 in Moonglow. (S–M:
-    `fswater` over a patterned floor, the client's beside Moonglow's)
-
-- **Tier A of the game's shaders (M2 of [the shaders
-  proposal](shaders-proposal.md)):** what the Shaders switch leaves out
-  or unchecked. (from M2, 2026-10-21)
-  - **The framebuffer's copies** (`texFBColor`/`texFBDepth`, [the
-    framebuffer proposal](framebuffer-proposal.md)) are made after the
-    solid meshes only (a material's `sample_framebuffer` drawn late,
-    after the shadows, since 2026-10-30). Over water (read 2026-10-30,
-    `reading_framebuffer_copy_over_water`: cards painting the copy above
-    them): a `sample_framebuffer` mesh's copy holds no water in the
-    client, as Moonglow's; a solid or `transparency 1` mesh's holds the
-    water in the client (likely the frame before's last copy: the camera
-    was still), where Moonglow gives it the solid meshes' copy (and so a
-    soft particle over water fades against what lies under it). Giving
-    those the frame before's picture: a second pair of copies (30 to 40
-    MB at the area view's size), filled from the targets as the frame
-    begins where the frame before was of the same view; a picture drawn
-    once has no frame before. (S–M)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21) (An area's first look: since 2026-11-02 the pipelines a module's
@@ -696,8 +652,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   their solid and soft parts, take the shadows as the client's since
   2026-11-25: [the findings](findings.md), "Grass and a tile's
   see-through meshes take the shadows"; water takes none, as the
-  client's, but for a shallow pool's floor, the fountain's entry
-  above.)
+  client's, and a shallow pool shows the shadow on its floor through
+  the water, as the client's, since 2026-11-26.)
   (The sun's and moon's casters cast from the faces whose front faces
   the light only, as the client's, since 2026-11-02: [the
   findings](findings.md), "A face casts the sun's shadow from its front
@@ -1914,6 +1870,22 @@ is not taken for a new gap.
   one goes whole), so a plugin's strokes keep groups whole whatever the
   builder's option. (Settled 2026-10-29, when the window's freed strokes
   were checked in the engine.)
+- **A mesh reading the framebuffer's copy without `sample_framebuffer`
+  gets this frame's copy, not the frame before's picture:** in the
+  client a solid or `transparency 1` mesh whose program reads
+  `texFBColor` reads the frame before's finished picture (its additive
+  meshes in it: `reading_copy_order`, 2026-11-26), where Moonglow gives
+  it the copy the water reads, made after the see-through meshes' solid
+  parts. Not built: no program the game or The Domains of Dread draws
+  reads it so (shiny water and `sample_framebuffer` meshes read this
+  frame's copy, particles a depth copy without the water, as Moonglow's
+  do), and it would take a second pair of copies the size of the view
+  (40 MB at 3440×1440, 6 MB at 1024×768: a color and an `R32Float`
+  depth texture of 4 bytes a pixel each) for every view, a
+  copy a frame, and still nothing for a picture drawn once (a thumbnail,
+  a preview), which has no frame before. (Settled with the deferred
+  entries "The framebuffer's copies" and The Domains of Dread's
+  fountain, 2026-11-26.)
 - **What stays with Moonglow's own shader with the Shaders switch on:**
   the sky's fade, unlit markers, shiny water without the targets'
   framebuffer copies (thumbnails, previews), textures that only ripple

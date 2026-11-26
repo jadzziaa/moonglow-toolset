@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T22:19:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:40:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1993,7 +1993,15 @@ the hak's TGA of it isn't there.
   procedure whose picture is a DDS (compressed) is drawn flat gray
   (`renderer.rs`'s `procedure_picture`, its gray fitted so that the
   reading's cards draw 86 and 96 of 255 where the client's are 83 and
-  92).
+  92). Shiny water (`bumpmaptexture shinywater` in the TXI) keeps its
+  picture since 2026-11-26: the client draws The Domains of Dread's
+  fountain and ttr01's pools with their DDS whole, where the gray had
+  smoothed the basin's floor out of the water and made its clarity
+  (the smallest mip's alpha, which `fswater` reads) opaque, so a
+  shallow pool hid its shadowed floor (`client_render.rs`'s
+  `tdod_custom_shaders_look` with `MG_FOUNTAIN_OVERRIDE`, `shadows.rs`
+  with `MG_SEE_THROUGH_OVERRIDE`: the client's water painted by
+  patched `fswater` programs).
 - **Wiki:** missing.
 
 ### A DXT1's one-bit texels are opaque black
@@ -2272,11 +2280,45 @@ road 69% and 16%, its splotch 3% and 33%, its tree leaves 39% and 2%.
   0.40 (0.34 to 0.36 before), the road 0.42 as its ground 0.42 (0.01
   before), the crown 0.07 as the client's (0.01 before), the road under
   the tall wall 0.45 as its ground (0.00 before); Fast and High, either
-  Shaders switch. Water as the client's but for the shallow pool's
-  floor, which Moonglow's water hides ([deferred list](deferred.md),
-  the fountain's entry). Test
+  Shaders switch. Water as the client's, the shallow pool darkening by
+  0.264 with the Shaders switch on since 2026-11-26 (0.002 before, its
+  floor hidden by the rippling procedure's gray: [A DDS with a
+  rippling procedure loses its picture](#a-dds-with-a-rippling-procedure-loses-its-picture));
+  Moonglow's own water, with it off, still hides its floor. Test
   `grass_and_see_through_receivers_are_darkened_in_the_shadow`.
 - **Wiki:** "Model Shadows" says what casts; not what receives.
+
+### What the framebuffer's copies hold
+
+The client copies its picture and depth for the programs that read
+them (`texFBColor`, `texFBDepth`) once a frame, after the see-through
+meshes (alpha-blended cards, `transparencyhint 1`, a DXT5 with no
+`alphamean`) and before shiny water and `sample_framebuffer` meshes:
+the water shows those cards behind it, in color and in depth (a card
+standing in a pool shortens the depth the water reads to it). Which
+copy a mesh reads depends on how it is drawn, not on its program:
+
+- shiny water and a material's `sample_framebuffer` mesh read this
+  frame's copy;
+- a solid or `transparency 1` mesh whose program reads `texFBColor`
+  reads the frame before's finished picture, its additive meshes in it
+  (a card painting half its copy over red grows redder frame by frame
+  and shows the green of an additive card drawn after it);
+- particles read a depth copy without the water.
+
+- **Checked:** game client, `client_render/copies.rs`'s
+  `reading_copy_order` (`MG_COPY_ORDER=color`, `depth`, `particles`),
+  2026-11-26.
+- **Moonglow:** shiny water and `sample_framebuffer` meshes as the
+  client since 2026-11-26 (`renderer.rs`: their draws sort after the
+  other see-through meshes' solid parts, and the copy is made at the
+  first of them; test
+  `the_water_s_copy_holds_the_see_through_meshes_behind_it`), particles
+  as the client. A solid or `transparency 1` mesh reading the copy gets
+  this frame's copy, not the frame before's: no program the game or
+  The Domains of Dread draws reads it so ([deferred list](deferred.md),
+  Settled).
+- **Wiki:** missing.
 
 ### When the client shows an area transition
 

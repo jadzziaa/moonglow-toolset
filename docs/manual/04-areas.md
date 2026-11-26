@@ -159,8 +159,9 @@ then the shadows, the fog and how the scene is drawn.
     aren't drawn). They fall on the tiles and the static placeables, the
     grass and their see-through leaves and road decals included, as in
     the game. Water takes none of its own, as in the game, where a
-    shallow pool's floor shows them through the water: in Moonglow the
-    water hides its floor.
+    shallow pool's floor shows them through the water, as it does in
+    Moonglow with the Shaders switch on (with it off, Moonglow's own
+    water hides its floor).
   - **Creature shadows**: creatures, dynamic placeables and doors cast the
     sun's and moon's shadows too, posed as they stand, as the game's
     Creature Shadow Detail at Best has them (its default; at Fast or Off,
