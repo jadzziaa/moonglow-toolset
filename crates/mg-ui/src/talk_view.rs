@@ -836,7 +836,7 @@ pub const TALK_HEADER: &str = "Talk table header";
 
 /// Find's field's id.
 fn find_id(which: Which) -> egui::Id {
-    egui::Id::new(("talk-find", which))
+    egui::Id::unique(("talk-find", which))
 }
 
 /// The talk table's header (M4's U17, the Talk board's): Find and Go to;
@@ -878,7 +878,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, which: Which, s: &HeaderState) -> Ask
         let r = ui
             .add_enabled(s.open, field)
             .on_hover_text("A StrRef or a line's number, then Enter, to go to it");
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Go to"));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Go to"));
         if r.changed() {
             typed.set(true);
         }
@@ -1255,8 +1255,8 @@ fn notes(app: &mut Moonglow, ui: &mut Ui, which: Which) {
 pub fn take_keys(ctx: &egui::Context, which: Which) {
     crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Talk);
     ctx.data_mut(|d| {
-        d.insert_temp(egui::Id::new("talk-keys-of"), which);
-        d.insert_temp(egui::Id::new("talk-keys-focus"), which);
+        d.insert_temp(egui::Id::unique("talk-keys-of"), which);
+        d.insert_temp(egui::Id::unique("talk-keys-focus"), which);
     });
 }
 
@@ -1266,12 +1266,12 @@ pub fn take_keys(ctx: &egui::Context, which: Which) {
 #[doc(hidden)]
 pub fn keys_left_with(ctx: &egui::Context, which: Which) {
     crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Talk);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("talk-keys-of"), which));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("talk-keys-of"), which));
 }
 
 /// The talk table whose list was given the keys last.
 pub(crate) fn keys_of(ctx: &egui::Context) -> Option<Which> {
-    ctx.data(|d| d.get_temp(egui::Id::new("talk-keys-of")))
+    ctx.data(|d| d.get_temp(egui::Id::unique("talk-keys-of")))
 }
 
 /// Whether the list of `which` has the keys: they are a talk table's, its,
@@ -1288,7 +1288,7 @@ pub(crate) fn list_has_keys(app: &Moonglow, ctx: &egui::Context, which: Which) -
 /// Where the list was given the keys, its tab's pane is given the focus
 /// (its editor the active one).
 fn focus_asked(app: &mut Moonglow, ctx: &egui::Context, which: Which) {
-    let key = egui::Id::new("talk-keys-focus");
+    let key = egui::Id::unique("talk-keys-focus");
     if ctx.data(|d| d.get_temp::<Which>(key)) != Some(which) {
         return;
     }
@@ -1436,7 +1436,7 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
     v.selected = v.selected.filter(|&s| s < t.len());
     let tokens = mg_uikit::tokens(ui.ctx());
     let pitch = mg_uikit::row_metrics(ui).1;
-    let seen_id = egui::Id::new(("talk-rows-seen", which));
+    let seen_id = egui::Id::unique(("talk-rows-seen", which));
     let mut to_text = false;
     if has && !ui.ctx().egui_wants_keyboard_input() && !rows.is_empty() {
         use egui::Key;
@@ -1546,7 +1546,7 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
             // says both.)
             r.widget_info(|| {
                 let mut info = egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
+                    egui::Role::Button,
                     true,
                     v.selected == Some(row),
                     strref.to_string(),

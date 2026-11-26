@@ -334,7 +334,7 @@ impl Renderer<'_> {
         let painted_bounds = choices.iter().fold(rect, |bounds, item| bounds.union(*item));
         let response = ui.interact(
             if live { painted_bounds } else { rect },
-            ui.id().with(("canvas", source_path, row)),
+            ui.scope_id().with(("canvas", source_path, row)),
             if !editable {
                 Sense::hover()
             } else if !live || matches!(ty, "slider" | "sliderf") {
@@ -345,7 +345,7 @@ impl Renderer<'_> {
         );
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
+                egui::Role::Button,
                 true,
                 format!(
                     "{} {}{}",

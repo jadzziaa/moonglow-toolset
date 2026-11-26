@@ -92,7 +92,7 @@ impl Renderer<'_> {
                 // the wheel taken, so that what is under the popup does not
                 // scroll with it, and its bar clicked or dragged. Kept in
                 // points, as theirs: the same entries at another scale.
-                let scroll_id = ui.id().with("combo-scroll");
+                let scroll_id = ui.scope_id().with("combo-scroll");
                 let max = (full - size.y).max(0.0);
                 let kept = ui.data(|d| d.get_temp::<f32>(scroll_id)).unwrap_or(0.0);
                 let width = a.number("window.scrollbar_size_x", 18.0) * scale;
@@ -102,9 +102,9 @@ impl Renderer<'_> {
                     rect.right_bottom() - vec2(inset, inset),
                 );
                 let bar_response =
-                    ui.interact(strip, ui.id().with("combo-bar"), Sense::click_and_drag());
+                    ui.interact(strip, ui.scope_id().with("combo-bar"), Sense::click_and_drag());
                 bar_response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, "Scroll the list")
+                    egui::WidgetInfo::labeled(egui::Role::Slider, true, "Scroll the list")
                 });
                 let bar = Bar { strip, axis: 1, button: width, max };
                 let offset = scroll_by(ui, &bar_response, area.rect, &bar, kept * scale);
@@ -143,12 +143,10 @@ impl Renderer<'_> {
                     );
                     let pick = ui.interact(
                         item.intersect(rect),
-                        ui.id().with(("combo-entry", i)),
+                        ui.scope_id().with(("combo-entry", i)),
                         Sense::click(),
                     );
-                    pick.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, entry)
-                    });
+                    pick.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, entry));
                     if pick.clicked()
                         && let Some(id) =
                             val(&node["elements"], s, row).get(i).map(|e| e[1].clone())

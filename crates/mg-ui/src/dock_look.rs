@@ -44,7 +44,7 @@ impl Moonglow {
             let parts = mg_uikit::shell::doc_tab_parts(rect, look.title.width, look.modified);
             let mut state = None;
             if tab.closeable() && (active || hovered) && shown.contains_rect(parts.close) {
-                let id = egui::Id::new(("doc-tab-close", tab));
+                let id = egui::Id::unique(("doc-tab-close", tab));
                 let name = format!("Close {}", look.name);
                 let (r, drawn) =
                     mg_uikit::shell::doc_tab_close(ui, id, (layer, shown), parts.close, &name);

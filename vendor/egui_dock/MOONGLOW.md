@@ -1,6 +1,6 @@
 # egui_dock, patched for Moonglow
 
-egui_dock 0.21.1 as published on crates.io, with five additions, in
+egui_dock 0.22.0 as published on crates.io, with five additions, in
 `src/widgets/dock_area/mod.rs`, `src/widgets/dock_area/show/leaf.rs`,
 `src/widgets/dock_area/show/window_surface.rs`,
 `src/dock_state/window_state.rs` and `src/widgets/tab_viewer.rs` (and
@@ -82,6 +82,16 @@ order: Tab goes from the close all to the window's body.
 
 Why: the dialog pattern (U27) asks Tab to follow the reading order of
 every bar; this is the smallest change that does it in a window's bar.
+
+Ported from 0.21.1 to 0.22.0 (egui 0.37) as they were. Two things
+moved with egui_dock's own changes: a window is made with the frame's
+height too (`WindowState::create_window` takes `min_width` after it), and
+egui_dock now names its close all and collapse buttons
+(`Response::widget_info`, from `Translations::accessibility`) before
+`TabViewer::window_bar_button` is called, so a name the application
+gives there replaces egui_dock's; where it paints the close all, the
+call comes after that name and before egui_dock's own paint, as for the
+collapse.
 
 The root `Cargo.toml` patches it in (`[patch.crates-io]`) and leaves it out
 of the workspace. Drop it, and the patch, once egui_dock offers a per-surface

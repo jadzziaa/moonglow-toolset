@@ -119,6 +119,7 @@ fn the_appearance_gallery_comes_to_rest() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);
@@ -239,6 +240,7 @@ fn of_five_thousand_appearances_the_pictures_in_sight_are_asked_for() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -4000.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.step();
@@ -962,6 +964,7 @@ fn of_five_thousand_portraits_those_in_sight_are_asked_for() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -4000.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.step();
@@ -1300,6 +1303,7 @@ fn an_armor_s_torso_pictures_show_two_whole_rows() {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -60.0),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::NONE,
                     });
                     settle(h);
@@ -1325,6 +1329,7 @@ fn an_armor_s_torso_pictures_show_two_whole_rows() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, 4000.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             settle(&mut h);

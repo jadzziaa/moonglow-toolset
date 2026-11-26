@@ -20,7 +20,7 @@ use crate::script_view::{Palette, element};
 
 /// The id of what [`watch_fonts`] keeps.
 fn fonts_id() -> egui::Id {
-    egui::Id::new("script-layout-fonts")
+    egui::Id::unique("script-layout-fonts")
 }
 
 /// Counts the times egui made its fonts again (its font atlas full, or the
@@ -668,7 +668,7 @@ fn paint_mark_badges(
 pub(crate) fn name_gutter(gutter: &egui::Response, lines: usize) {
     gutter.widget_info(|| {
         let said = format!("Line numbers 1 to {}", lines.max(1));
-        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said)
+        egui::WidgetInfo::labeled(egui::Role::Label, true, &said)
     });
 }
 
@@ -1656,10 +1656,12 @@ pub(crate) fn code_edit(
             &ctx,
             id,
             final_cursor_range,
-            egui::accesskit::Role::MultilineTextInput,
             egui::emath::TSTransform::from_translation(text_origin.to_vec2()),
             &full,
         );
+        // (egui 0.37 takes the role from the widget's info, a text edit's
+        // `TextInput`: the editor is a multiline one.)
+        ctx.accesskit_node_builder(id, |b| b.set_role(egui::accesskit::Role::MultilineTextInput));
         describe_line(&response, cursor_line + 1, lines);
     }
 

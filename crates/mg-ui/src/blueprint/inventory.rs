@@ -480,7 +480,7 @@ pub(super) fn show_count(ctx: &egui::Context) {
     let Some(dragged) = egui::DragAndDrop::payload::<Dragged>(ctx) else { return };
     let n = dragged.count();
     let Some(at) = ctx.pointer_latest_pos().filter(|_| n > 1) else { return };
-    let id = egui::Id::new("inventory-carried-count");
+    let id = egui::Id::unique("inventory-carried-count");
     let pass = ctx.cumulative_pass_nr();
     if ctx.data(|d| d.get_temp::<u64>(id)) == Some(pass) {
         return;
@@ -553,7 +553,7 @@ pub(super) fn select_rows(ui: &Ui, id: egui::Id, len: usize, clicked: Option<usi
 
 /// Whose items a page's are: the document and the object in it.
 pub(super) fn owner(key: ResKey, path: &GffPath) -> egui::Id {
-    egui::Id::new(("inventory-of", key, path.to_string()))
+    egui::Id::unique(("inventory-of", key, path.to_string()))
 }
 
 /// The item dragged that is let go over `rect` this frame (taken: it is
@@ -722,7 +722,7 @@ pub(super) fn item_list(
         heights: Vec<f32>,
         guess: f32,
     }
-    let heights_id = egui::Id::new(("item-heights", key, path.to_string()));
+    let heights_id = egui::Id::unique(("item-heights", key, path.to_string()));
     let mut stored =
         ui.data(|d| d.get_temp::<std::sync::Arc<ItemHeights>>(heights_id)).unwrap_or_else(|| {
             std::sync::Arc::new(ItemHeights { heights: Vec::new(), guess: ICON_MAX.y / 2.0 + 4.0 })
@@ -1307,7 +1307,7 @@ mod tests {
         assert_eq!(taken, want.map(|(l, i, s)| (l.to_string(), i, s)));
         // The drag that began on the list's row 4 carries the three.
         let d = Dragged::Listed {
-            owner: egui::Id::new("o"),
+            owner: egui::Id::unique("o"),
             source,
             index: 4,
             resref: ResRef::EMPTY,
@@ -1317,8 +1317,8 @@ mod tests {
         assert_eq!((d.count(), d.lead()), (3, Some(("ItemList", 4))));
         assert_eq!(at(&d.carried()), at(&all));
         // Of its own list, not the list's rows alone: not a move within it.
-        assert_eq!(own_rows(&d, egui::Id::new("o")), None);
-        assert_eq!(own_rows(&d, egui::Id::new("other")), None);
+        assert_eq!(own_rows(&d, egui::Id::unique("o")), None);
+        assert_eq!(own_rows(&d, egui::Id::unique("other")), None);
         // Names.
         assert_eq!(adding_name("Add item", 1, false, true), "Add item");
         assert_eq!(adding_name("Add store item", 1, true, false), "Move item");

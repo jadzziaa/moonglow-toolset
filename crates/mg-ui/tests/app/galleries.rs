@@ -217,6 +217,7 @@ fn a_gallery_of_five_thousand_asks_for_the_pictures_in_sight_alone() {
             unit: egui::MouseWheelUnit::Page,
             delta: egui::vec2(0.0, -3.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         check(&mut h, "a fast wheel");
@@ -625,7 +626,7 @@ fn each_gallery_comes_to_rest() {
 #[test]
 fn a_whole_item_s_icons_take_the_room_of_its_base_item_s() {
     let row = |h: &Harness<'_, Moonglow>, key: ResKey| {
-        let id = egui::Id::new(("uti-icons", key, "ModelPart1")).with("cell");
+        let id = egui::Id::unique(("uti-icons", key, "ModelPart1")).with("cell");
         h.ctx.data(|d| d.get_temp::<(u64, egui::Vec2)>(id)).map(|(_, cell)| cell.y)
     };
     let made_medium = |name: &str, copy: &str| {
@@ -712,6 +713,7 @@ fn a_whole_item_s_icons_keep_their_places_scrolled_through() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -29.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         settle(&mut h);

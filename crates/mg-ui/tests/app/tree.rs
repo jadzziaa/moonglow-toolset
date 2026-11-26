@@ -3051,6 +3051,7 @@ fn the_module_tree_s_placed_objects_at_the_size_at_first() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         // (One step for the wheel's event.)

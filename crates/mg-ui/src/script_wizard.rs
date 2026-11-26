@@ -411,7 +411,7 @@ fn move_lists(
     selected: &mut Option<(u8, usize)>,
 ) {
     let filter_str = spec.filter.unwrap_or_default();
-    let cache_id = egui::Id::new(("wizard-move-lists", spec.id));
+    let cache_id = egui::Id::unique(("wizard-move-lists", spec.id));
     // (Keyed by the list's rows themselves, not its length alone: another
     // list as long (another 2DA's, a wizard of another kind) took the
     // rows of the one before: review D9.)
@@ -754,7 +754,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
                 crate::widgets::SearchField::new(
-                    egui::Id::new("script-wizard-feats"),
+                    egui::Id::unique("script-wizard-feats"),
                     &mut w.filter,
                 )
                 .hint("Find a feat")
@@ -931,7 +931,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                     ui.check_box(&mut w.xp_to_party, "To Party");
                 });
                 ui.vertical(|ui| {
-                    let id = egui::Id::new("wiz-give-item-pick");
+                    let id = egui::Id::unique("wiz-give-item-pick");
                     if let Some(r) = app.take_pick(id) {
                         w.entry = r.to_string();
                     }
@@ -1295,7 +1295,7 @@ mod tests {
                 move_lists(ui, spec, chosen, &mut selected);
             });
             { out }.textures_delta.clear();
-            let id = egui::Id::new(("wizard-move-lists", "feats"));
+            let id = egui::Id::unique(("wizard-move-lists", "feats"));
             let kept: CachedMoveLists = ctx.data(|d| d.get_temp(id)).unwrap();
             let names = |l: &[usize]| l.iter().map(|&i| all[i].name.clone()).collect::<Vec<_>>();
             (names(&kept.left), names(&kept.right))

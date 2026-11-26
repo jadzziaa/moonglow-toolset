@@ -114,7 +114,7 @@ pub(crate) fn components(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) 
     egui::Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 4 }).show(
         ui,
         |ui| {
-            let field = ui.id().with(("nui-palette-filter", o.key));
+            let field = ui.scope_id().with(("nui-palette-filter", o.key));
             let shown = widgets::SearchField::new(field, &mut state.search)
                 .name("Find a control")
                 .hint("Find a control…")
@@ -273,7 +273,7 @@ pub const OUTLINER_ACTIONS: &str = "Outliner Actions";
 
 /// Where an Element action chosen on a header waits for its panel's body.
 fn act_id(key: ResKey) -> egui::Id {
-    egui::Id::new(("nui-element-action", key))
+    egui::Id::unique(("nui-element-action", key))
 }
 
 /// An Element action, done as the frame ends.
@@ -367,7 +367,7 @@ pub(super) fn act(
 /// Where the Bindings panel's header's plus asks for Create Bind's dialog
 /// (M4's U19, the board's `+` on the Bindings header), for designer `key`.
 pub(crate) fn create_asked(key: ResKey) -> egui::Id {
-    egui::Id::new(("nui-create-bind", key))
+    egui::Id::unique(("nui-create-bind", key))
 }
 
 /// The Bindings panel's header's plus (the board's): Create Bind.
@@ -807,7 +807,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
     egui::Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }).show(
         ui,
         |ui| {
-            let field = ui.id().with(("nui-layers-filter", key));
+            let field = ui.scope_id().with(("nui-layers-filter", key));
             widgets::SearchField::new(field, &mut state.layer_search)
                 .name("Find a layer or ID")
                 .hint("Find a layer or ID…")
@@ -949,13 +949,13 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                         };
                         let resp = row_ui.interact(
                             at,
-                            row_ui.id().with("check-mark"),
+                            row_ui.scope_id().with("check-mark"),
                             egui::Sense::click(),
                         );
                         icon.paint(row_ui.painter(), at.shrink(2.0), color);
                         resp.widget_info(|| {
                             egui::WidgetInfo::labeled(
-                                egui::WidgetType::Button,
+                                egui::Role::Button,
                                 true,
                                 format!("{word}: {message}"),
                             )
@@ -978,7 +978,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                     let kind = words.rsplit_once(' ').map_or(words.as_str(), |w| w.0);
                     r.widget_info(|| {
                         egui::WidgetInfo::labeled(
-                            egui::WidgetType::Button,
+                            egui::Role::Button,
                             true,
                             format!("Draw layer {} · {kind}", index + 1),
                         )
@@ -989,7 +989,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                         }
                         structure::select(&mut state, path, false);
                         state.draw_item = Some((path.clone(), *index));
-                        let owner = egui::Id::new((key, path.as_str()));
+                        let owner = egui::Id::unique((key, path.as_str()));
                         ctx.data_mut(|d| d.insert_temp(draw::reveal_of(owner), *index));
                     }
                 }
@@ -1190,7 +1190,8 @@ fn keys(
             .collect();
         crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
     };
-    let typed = crate::tree::typed_row(ui, egui::Id::new(("nui-layers-typed", owner)), None, &seek);
+    let typed =
+        crate::tree::typed_row(ui, egui::Id::unique(("nui-layers-typed", owner)), None, &seek);
     if let Some(to) = to.or(typed) {
         let controls = get_controls();
         let path = path_of(controls, to);

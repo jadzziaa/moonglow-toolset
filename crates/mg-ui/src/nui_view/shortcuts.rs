@@ -14,7 +14,7 @@ struct Clipboard {
 }
 
 fn clipboard_id() -> egui::Id {
-    egui::Id::new("moonglow-nui-element-clipboard")
+    egui::Id::unique("moonglow-nui-element-clipboard")
 }
 
 pub(super) fn has_clipboard(ctx: &egui::Context) -> bool {

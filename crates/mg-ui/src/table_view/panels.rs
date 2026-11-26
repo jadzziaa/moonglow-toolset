@@ -99,7 +99,7 @@ pub(crate) fn commit_typed(doc: &mut TableDoc) {
 /// The Cell panel's Value field's id: its table's and its cell's, so that
 /// what is typed in one cell's field is never shown or set in another.
 fn value_id(table: u32, (row, column): (usize, usize)) -> egui::Id {
-    egui::Id::new(("table-cell-value", table, row, column))
+    egui::Id::unique(("table-cell-value", table, row, column))
 }
 
 /// What is typed in the Cell panel follows its cell where rows or columns
@@ -313,7 +313,7 @@ fn heading(ui: &mut Ui, name: &str, words: Option<&str>) {
         Some(words) => format!("{name} column: {words}"),
         None => format!("{name} column"),
     };
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
     let y = ui.cursor().top() + 1.0;
     let x = ui.max_rect().x_range();
     ui.painter().hline(x, y, egui::Stroke::new(1.0, t.line_soft));
@@ -330,7 +330,7 @@ fn choice_row(ui: &mut Ui, on: bool, radio: bool, name: &str, value: &str) -> eg
     // its own: its list is one, [`choice_list`].)
     let (rect, r) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::CLICK);
-    let kind = if radio { egui::WidgetType::RadioButton } else { egui::WidgetType::Checkbox };
+    let kind = if radio { egui::Role::RadioButton } else { egui::Role::CheckBox };
     r.widget_info(|| egui::WidgetInfo::selected(kind, ui.is_enabled(), on, name));
     if r.hovered() {
         ui.painter().rect_filled(rect, 2.0, t.hover_row);
@@ -472,7 +472,7 @@ fn choice_list(
     // (Its one stop of Tab, over its rows; a click on a row gives it the
     // keys, at that row.)
     let list = ui.interact(shown.inner_rect, id, egui::Sense::FOCUSABLE);
-    list.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Values"));
+    list.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, "Values"));
     if let Some(i) = shown.inner {
         cursor = i;
         chosen = Some(i);
@@ -572,7 +572,7 @@ fn cell_body(
             .desired_width(ui.available_width());
         ui.add(field).on_hover_text("The cell's value: Enter sets it, Escape lets it go")
     });
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Value"));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Value"));
     let doc = &mut app.tables[at];
     if response.changed() {
         let since = doc.edit.changes();
@@ -619,7 +619,7 @@ fn cell_body(
             let rows: Vec<(String, String, bool)> = (flags.iter())
                 .map(|(n, val, v)| (n.to_string(), val.to_string(), bits & v == *v))
                 .collect();
-            let list = egui::Id::new(("table-choices", id, column));
+            let list = egui::Id::unique(("table-choices", id, column));
             if let Some(i) = choice_list(ui, list, row, &rows, false) {
                 let v = flags[i].2;
                 let next = if rows[i].2 { bits & !v } else { bits | v };
@@ -643,7 +643,7 @@ fn cell_body(
             rows.extend(entries.iter().map(|e| {
                 (e.name.clone(), e.value.clone(), now.as_deref() == Some(e.name.as_str()))
             }));
-            let list = egui::Id::new(("table-choices", id, column));
+            let list = egui::Id::unique(("table-choices", id, column));
             match choice_list(ui, list, row, &rows, true) {
                 Some(0) if value.is_some() => set = Some(None),
                 Some(i) if i > 0 && !rows[i].2 => set = Some(Some(entries[i - 1].value.clone())),
@@ -955,7 +955,7 @@ pub(crate) fn references(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) 
                             let label = egui::Label::new(text).truncate().sense(egui::Sense::click());
                             let r = ui.add(label);
                             r.widget_info(|| {
-                                egui::WidgetInfo::labeled(egui::WidgetType::Link, true, words)
+                                egui::WidgetInfo::labeled(egui::Role::Link, true, words)
                             });
                             r.on_hover_cursor(egui::CursorIcon::PointingHand)
                         }

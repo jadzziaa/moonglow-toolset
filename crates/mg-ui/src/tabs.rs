@@ -782,7 +782,7 @@ impl TabViewer for Viewer<'_> {
                 let (area, first) = &objects[0];
                 window(self.app, *area, first).with(("instances", objects.len()))
             }
-            _ => Id::new(("tab", &*tab)),
+            _ => Id::unique(("tab", &*tab)),
         }
     }
 
@@ -819,7 +819,7 @@ impl TabViewer for Viewer<'_> {
             && ui.layer_id().order != egui::Order::Background
         {
             // (Not a stop of Tab: `Sense::DRAG` alone.)
-            ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::DRAG);
+            ui.interact(ui.max_rect(), ui.scope_id().with("no-window-drag"), egui::Sense::DRAG);
         }
         // In a window of its own, the panels its editor brings there, at
         // its right and under it (`shell::window_panes`; docked, they are
@@ -992,9 +992,8 @@ impl TabViewer for Viewer<'_> {
                 let tip = format!("{}: its source, as JUI Source or Binding JSON", look.name);
                 let _ = response.clone().on_hover_text(tip);
             }
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, front, &name)
-            });
+            response
+                .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, front, &name));
             let modified = look.modified;
             response.ctx.accesskit_node_builder(response.id, |node| {
                 node.set_role(egui::accesskit::Role::Tab);
@@ -1513,8 +1512,7 @@ fn paint_window_bar_button(
                 (true, true) => ("Expand", "Show the window again"),
                 (true, false) => ("Expand", "Show the pane again"),
             };
-            response
-                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name));
             let _ = response.clone().on_hover_text(tip);
         }
         WindowBarButton::CloseAll { disabled, whole_window } => {
@@ -1534,7 +1532,7 @@ fn paint_window_bar_button(
             // "Close" button (the hak editor's view), may be in sight.)
             let name = if whole_window { WINDOW_CLOSE } else { PANE_CLOSE };
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && !disabled, name)
+                egui::WidgetInfo::labeled(egui::Role::Button, enabled && !disabled, name)
             });
             let _ = response.clone().on_hover_text(tip);
         }

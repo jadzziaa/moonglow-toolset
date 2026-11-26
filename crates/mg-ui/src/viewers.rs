@@ -294,7 +294,7 @@ fn placed(area: egui::Rect, size: egui::Vec2, scale: f32, offset: egui::Vec2) ->
 /// is and its scale.
 #[doc(hidden)]
 pub fn picture_drawn(ctx: &egui::Context, key: ResKey) -> Option<(egui::Rect, f32)> {
-    ctx.data(|d| d.get_temp(egui::Id::new(("viewer-picture-drawn", key))))
+    ctx.data(|d| d.get_temp(egui::Id::unique(("viewer-picture-drawn", key))))
 }
 
 impl std::fmt::Debug for Picture {
@@ -450,7 +450,7 @@ impl Picture {
                 // (The room to pan in and zoom over, all of it.)
                 let r = ui.interact(
                     area,
-                    ui.id().with(("viewer-picture-room", key)),
+                    ui.scope_id().with(("viewer-picture-room", key)),
                     egui::Sense::click_and_drag(),
                 );
                 let mut next = (scale, shown);
@@ -533,7 +533,7 @@ impl Picture {
                 );
                 ui.painter().image(texture.id(), visible, uv, egui::Color32::WHITE);
                 ui.ctx().data_mut(|d| {
-                    d.insert_temp(egui::Id::new(("viewer-picture-drawn", key)), (shown, scale));
+                    d.insert_temp(egui::Id::unique(("viewer-picture-drawn", key)), (shown, scale));
                 });
                 let r = r.on_hover_text(
                     "Scroll to zoom, drag to pan, double click to go between fitted and actual size",
@@ -547,15 +547,11 @@ impl Picture {
                 }
                 let image = ui.interact(
                     visible,
-                    ui.id().with(("viewer-picture", key)),
+                    ui.scope_id().with(("viewer-picture", key)),
                     egui::Sense::hover(),
                 );
                 image.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Image,
-                        true,
-                        format!("{key}, {caption}"),
-                    )
+                    egui::WidgetInfo::labeled(egui::Role::Image, true, format!("{key}, {caption}"))
                 });
                 let _ = caption_at(ui, room, &caption);
                 if !fitted {
@@ -565,9 +561,12 @@ impl Picture {
             Ok(None) => {
                 const READING: &str = "Reading the picture…";
                 let rect = caption_at(ui, room, READING);
-                let r =
-                    ui.interact(rect, ui.id().with(("viewer-reading", key)), egui::Sense::hover());
-                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, READING));
+                let r = ui.interact(
+                    rect,
+                    ui.scope_id().with(("viewer-reading", key)),
+                    egui::Sense::hover(),
+                );
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, READING));
             }
             Err(e) => {
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(room.shrink(10.0)));
@@ -627,10 +626,9 @@ fn percent_at(ui: &mut Ui, key: ResKey, room: egui::Rect, percent: f32) {
     );
     ui.painter().rect_filled(rect, 3.0, t.raised.gamma_multiply(0.85));
     ui.painter().galley(rect.min + egui::vec2(5.0, 2.0), galley, t.text_3);
-    let r = ui.interact(rect, ui.id().with(("viewer-picture-zoom", key)), egui::Sense::hover());
-    r.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("Zoom {words}"))
-    });
+    let r =
+        ui.interact(rect, ui.scope_id().with(("viewer-picture-zoom", key)), egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, format!("Zoom {words}")));
 }
 
 /// A quiet caption at the foot of `room`, centered. Where it stands.
@@ -740,8 +738,9 @@ pub(crate) fn sound_ui(
         y += galley.size().y + 2.0;
         ui.painter().galley(at, galley, t.text_3);
         // (Read by a screen reader as the words they are.)
-        let r = ui.interact(rect, ui.id().with(("viewer-sound-said", n)), egui::Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &line));
+        let r =
+            ui.interact(rect, ui.scope_id().with(("viewer-sound-said", n)), egui::Sense::hover());
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &line));
     }
     if app.viewer_sound.is_some() && (playing || pressed == Some(Pressed::Play)) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));

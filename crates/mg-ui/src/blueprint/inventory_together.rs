@@ -170,7 +170,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     };
     let holdings: std::sync::Arc<Holdings> = super::kept_for(
         ui.ctx(),
-        egui::Id::new(("inventory-together-held", key)),
+        egui::Id::unique(("inventory-together-held", key)),
         &targets,
         &holder,
         || {
@@ -513,14 +513,21 @@ fn worn_in(
     key: mg_resman::ResKey,
     targets: &std::sync::Arc<Vec<lists::Target>>,
 ) -> std::sync::Arc<Vec<Vec<Option<ResRef>>>> {
-    super::kept_for(ui.ctx(), egui::Id::new(("equipment-together-worn", key)), targets, &(), || {
-        let worn = |t: &lists::Target, bit: u32| {
-            let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
-            lists::item_of(e)
-        };
-        let slots = SLOTS.iter().map(|(bit, _)| targets.iter().map(|t| worn(t, *bit)).collect());
-        std::sync::Arc::new(slots.collect())
-    })
+    super::kept_for(
+        ui.ctx(),
+        egui::Id::unique(("equipment-together-worn", key)),
+        targets,
+        &(),
+        || {
+            let worn = |t: &lists::Target, bit: u32| {
+                let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
+                lists::item_of(e)
+            };
+            let slots =
+                SLOTS.iter().map(|(bit, _)| targets.iter().map(|t| worn(t, *bit)).collect());
+            std::sync::Arc::new(slots.collect())
+        },
+    )
 }
 
 #[cfg(test)]

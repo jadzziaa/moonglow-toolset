@@ -609,7 +609,7 @@ impl HakDoc {
 
 /// The Description's field's id, by its hak (typed text keeps to its hak).
 pub(crate) fn description_id(id: u32) -> egui::Id {
-    egui::Id::new(("hak-description", id))
+    egui::Id::unique(("hak-description", id))
 }
 
 /// Each open hak followed as a frame begins: what was made of a hak that
@@ -1217,7 +1217,7 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
     let find = |ui: &mut Ui| {
         let mut text = filter.borrow_mut();
         let left =
-            crate::widgets::SearchField::new(egui::Id::new(("hak-filter-field", id)), &mut text)
+            crate::widgets::SearchField::new(egui::Id::unique(("hak-filter-field", id)), &mut text)
                 .name(FIND)
                 .hint("name or .type")
                 .width(FIND_WIDTH)
@@ -1275,7 +1275,7 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
             Item::custom(FIND, FIND_WIDTH, find)
                 .more(FIND_WIDTH, |ui| {
                     let mut text = filter.borrow_mut();
-                    let field = egui::Id::new(("hak-filter-field", id));
+                    let field = egui::Id::unique(("hak-filter-field", id));
                     let left = crate::widgets::SearchField::new(field, &mut text)
                         .name(FIND)
                         .hint("name or .type")
@@ -1388,7 +1388,7 @@ fn notice(ui: &mut Ui, lines: &[String]) {
     }
     let said = lines.join(" ");
     r.on_hover_text(&said)
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
 }
 
 /// What a row of the table asked for (its menu, a double click), done after
@@ -1437,7 +1437,7 @@ struct CutStartCache {
 /// the board's Source, "…/test-output/screens-hak/mg_chair.mdl".
 fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     let (pixels, width_key) = (ui.ctx().pixels_per_point().to_bits(), width.to_bits());
-    let id = egui::Id::new("hak-cut-start-cache");
+    let id = egui::Id::unique("hak-cut-start-cache");
     let same = |c: &CutStartCache| {
         c.font.as_ref() == Some(font) && c.pixels == pixels && c.width == width_key
     };
@@ -1488,13 +1488,13 @@ fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
 
 /// The hak whose table was given the keys last.
 fn keys_of(ctx: &egui::Context) -> Option<u32> {
-    ctx.data(|d| d.get_temp(egui::Id::new("hak-keys-of")))
+    ctx.data(|d| d.get_temp(egui::Id::unique("hak-keys-of")))
 }
 
 /// The keys given to hak `id`'s table (a click on a row, F6).
 pub(crate) fn take_keys(ctx: &egui::Context, id: u32) {
     crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Hak);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("hak-keys-of"), id));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("hak-keys-of"), id));
 }
 
 /// Whether hak `id`'s table has the keys: they are a hak table's, its, its
@@ -1573,13 +1573,13 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
         let cell = egui::Rect::from_x_y_ranges(x, head.y_range());
         look::header_cell(ui, cell);
         let on = d.sort == sort;
-        let r = ui.interact(cell, ui.id().with(("hak-head", d.id, i)), egui::Sense::click());
+        let r = ui.interact(cell, ui.scope_id().with(("hak-head", d.id, i)), egui::Sense::click());
         let said = match (on, d.descending) {
             (true, false) => format!("{words}, sorted up"),
             (true, true) => format!("{words}, sorted down"),
             (false, _) => words.to_string(),
         };
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
         let r = r.on_hover_text(match on {
             true => format!("Sort by {} the other way", words.to_lowercase()),
             false => format!("Sort by {}", words.to_lowercase()),
@@ -1637,7 +1637,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
         let items = d.hak.items();
         if let Some(at) = d.anchor.and_then(|a| rows.iter().position(|&r| items[r].key == a)) {
             let seen: Option<(usize, usize)> =
-                ui.data(|m| m.get_temp(egui::Id::new(("hak-rows-seen", d.id))));
+                ui.data(|m| m.get_temp(egui::Id::unique(("hak-rows-seen", d.id))));
             if seen.is_none_or(|(from, end)| at <= from || at + 2 >= end) {
                 let height = ui.available_height();
                 scroll = scroll.vertical_scroll_offset((at as f32 * pitch - height / 2.0).max(0.0));
@@ -1650,7 +1650,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
     let mut rename_focus = std::mem::take(&mut d.rename_focus);
     let shown = mg_uikit::show_rows(scroll, ui, rows.len(), |ui, range| {
         ui.data_mut(|m| {
-            m.insert_temp(egui::Id::new(("hak-rows-seen", id)), (range.start, range.end))
+            m.insert_temp(egui::Id::unique(("hak-rows-seen", id)), (range.start, range.end))
         });
         ui.spacing_mut().item_spacing.y = 0.0;
         let mut clicked = None;
@@ -1665,12 +1665,8 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
             let words = kind_words(key.restype);
             let size_str = size(item.size);
             resp.widget_info(|| {
-                let mut info = egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
-                    true,
-                    selected,
-                    &name,
-                );
+                let mut info =
+                    egui::WidgetInfo::selected(egui::Role::Button, true, selected, &name);
                 info.current_text_value = Some(format!("{words}, {size_str}"));
                 info
             });
@@ -2127,7 +2123,7 @@ mod tests {
             ctx.run_ui(egui::RawInput::default(), |ui| {
                 if fresh {
                     ui.data_mut(|d| {
-                        d.remove::<CutStartCache>(egui::Id::new("hak-cut-start-cache"))
+                        d.remove::<CutStartCache>(egui::Id::unique("hak-cut-start-cache"))
                     });
                 }
                 out = cut_start(ui, text, font, 200.0);

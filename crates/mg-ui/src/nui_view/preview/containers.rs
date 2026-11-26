@@ -118,12 +118,12 @@ impl Renderer<'_> {
                 strip.min[1 - axis] = strip.max[1 - axis] - thick;
                 let scroll_response = ui.interact(
                     strip,
-                    ui.id().with(("group-scroll", axis, source_path, row)),
+                    ui.scope_id().with(("group-scroll", axis, source_path, row)),
                     Sense::click_and_drag(),
                 );
                 scroll_response.widget_info(|| {
                     egui::WidgetInfo::labeled(
-                        egui::WidgetType::Slider,
+                        egui::Role::Slider,
                         !disabled,
                         format!(
                             "Scroll group {} {path}",
@@ -362,12 +362,12 @@ impl Renderer<'_> {
             );
             let scroll_response = ui.interact(
                 track,
-                ui.id().with(("list-scroll", source_path, row)),
+                ui.scope_id().with(("list-scroll", source_path, row)),
                 Sense::click_and_drag(),
             );
             scroll_response.widget_info(|| {
                 egui::WidgetInfo::labeled(
-                    egui::WidgetType::Slider,
+                    egui::Role::Slider,
                     !disabled,
                     format!("Scroll list {path}"),
                 )

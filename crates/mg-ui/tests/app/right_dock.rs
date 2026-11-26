@@ -293,9 +293,9 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
     // edge, which it is resized by, its fold button beside it, and what
     // holds the whole dock (the window's layouts).
     let inner = dock.shrink(1.0);
-    let edge = egui::Id::new("right-dock").with("__resize").value();
+    let edge = egui::Id::unique("right-dock").with("__resize").value();
     // (And its seam over the editor area's widgets beside it, M5's W8.)
-    let seam = egui::Id::new("right-dock-edge").with("seam").value();
+    let seam = egui::Id::unique("right-dock-edge").with("seam").value();
     let names: std::collections::HashMap<u64, &String> = (others.iter())
         .map(|(name, _, id)| (*id, name))
         .chain(own.iter().map(|(name, _, id)| (*id, name)))
@@ -812,6 +812,7 @@ fn the_palette_s_lists_keep_their_own_scroll_places() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -2000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     // (egui's scrolling is animated: until the list is still.)
@@ -1024,7 +1025,7 @@ fn a_width_kept_by_an_earlier_run_is_the_right_dock_s() {
         h.state_mut().settings.dock_sizes_taken = false;
         let rect = egui::Rect::from_min_size(egui::pos2(900.0, 40.0), egui::vec2(430.0, 600.0));
         let state = egui::containers::panel::PanelState { outer_rect: rect };
-        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::unique("right-dock"), state));
         settle(&mut h);
         assert_eq!(h.state().settings.right_dock_width, Some(430), "at {window}");
         let width = right_width(&h);
@@ -1159,8 +1160,8 @@ fn right_dock_drawn(h: &Harness<'_, Moonglow>) -> bool {
     assert!(h.query_by_label(mg_ui::RIGHT_DOCK).is_none(), "a tab bar or strip with no dock");
     assert!(h.state().preview_panel_rect().is_none(), "a Preview's place kept");
     let handles =
-        ["right-dock", "right-dock-strip"].map(|id| egui::Id::new(id).with("__resize").value());
-    let fold = egui::Id::new("right-dock-fold").value();
+        ["right-dock", "right-dock-strip"].map(|id| egui::Id::unique(id).with("__resize").value());
+    let fold = egui::Id::unique("right-dock-fold").value();
     h.ctx.viewport(|v| {
         for (_, widgets) in v.prev_pass.widgets.layers() {
             for w in widgets {
@@ -1595,6 +1596,7 @@ fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -30.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.step();

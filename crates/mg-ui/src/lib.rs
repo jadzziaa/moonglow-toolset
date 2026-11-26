@@ -3726,7 +3726,7 @@ impl Moonglow {
     /// is opened.
     pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
         for id in ["tree", "log", shell::RIGHT_DOCK_ID, shell::MODULE_PANEL_ID] {
-            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::new(id)));
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::unique(id)));
         }
         self.settings.hide_tree = false;
         self.settings.hide_log = Settings::new_installation().hide_log;
@@ -4360,7 +4360,7 @@ impl Moonglow {
             let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
             let bar = egui::Rect::from_x_y_ranges(left.min(end_left)..=end_left, row);
             let response = bar.is_positive().then(|| {
-                let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
+                let id = egui::Id::unique(("window-bar", path.surface.0, path.node.0));
                 let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
                 ui.scope_builder(builder, |ui| {
                     // (Not cut to the editor area: a window's bar lies over

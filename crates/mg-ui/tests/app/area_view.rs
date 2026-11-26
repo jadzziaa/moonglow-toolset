@@ -241,6 +241,7 @@ fn a_sideways_scroll_pans_the_area_view() {
                 unit: egui::MouseWheelUnit::Point,
                 delta,
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             },
             modifiers,
@@ -264,6 +265,7 @@ fn a_sideways_scroll_pans_the_area_view() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: shift,
     });
     h.run_steps(30);
@@ -649,6 +651,7 @@ fn area_viewer_paints_placeables() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: shift,
     });
     h.run_steps(30);
@@ -4673,6 +4676,7 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
         unit: egui::MouseWheelUnit::Line,
         delta: egui::vec2(0.0, -3.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(20);
@@ -6592,6 +6596,7 @@ fn ctrl_and_the_wheel_scale_what_is_selected() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, by),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: ctrl,
         });
         h.run_steps(12);
@@ -8087,6 +8092,7 @@ fn a_wheel_scaling_under_way_is_not_given_to_the_next_object_by_a_cut() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: ctrl,
     });
     h.run_steps(8);

@@ -143,7 +143,7 @@ pub(crate) fn panel(
     // each of them looked for every frame.)
     let names = crate::area_tools::kept_while_shown(
         ui.ctx(),
-        egui::Id::new("custom-light-haks"),
+        egui::Id::unique("custom-light-haks"),
         || -> Vec<String> { listed(app).into_iter().map(|(n, _)| n).collect() },
     );
     let ok = matches!(d.planned, Some((_, Ok(_))));

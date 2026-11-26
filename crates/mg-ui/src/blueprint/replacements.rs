@@ -588,7 +588,7 @@ fn icon_prefixes(game: &mg_rules::GameData) -> Vec<String> {
 /// module's each time.
 fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     let Some(game) = app.game.clone() else { return Arc::default() };
-    let id = egui::Id::new("select-texture-names");
+    let id = egui::Id::unique("select-texture-names");
     let listed = super::kept_for_load_order(ui, app.load_order, id, || {
         // (The layers' names looked through once for both types, each
         // ResRef sorted and made a name once: listed type by type, a
@@ -623,7 +623,7 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     }
     super::kept_for_key(
         ui.ctx(),
-        egui::Id::new("select-texture-names-merged"),
+        egui::Id::unique("select-texture-names-merged"),
         &(app.load_order, own_sig),
         || {
             let Some(ws) = &app.ws else { return listed.clone() };
@@ -951,7 +951,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
 type Open = Vec<(egui::Id, u64)>;
 
 fn open_id() -> egui::Id {
-    egui::Id::new("select-texture-open")
+    egui::Id::unique("select-texture-open")
 }
 
 /// Notes that the Select Texture window `id` is drawn in this pass.

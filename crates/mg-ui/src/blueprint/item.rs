@@ -263,7 +263,7 @@ pub(super) fn model_numbers(
     load_order: u64,
     prefix: &str,
 ) -> Arc<Vec<u16>> {
-    let id = egui::Id::new(("model-numbers", prefix));
+    let id = egui::Id::unique(("model-numbers", prefix));
     super::kept_for_load_order(ui, load_order, id, || {
         Arc::new(numbered(game, &[ResType::MDL], prefix))
     })
@@ -309,7 +309,7 @@ fn part_numbers(ui: &Ui, game: &GameData, load_order: u64, prefix: &str) -> Arc<
 /// simple and layered items ("the icon determines availability",
 /// nwn.wiki's baseitems.2da).
 fn icon_numbers(ui: &Ui, game: &GameData, load_order: u64, prefix: &str) -> Arc<Vec<u16>> {
-    let id = egui::Id::new(("icon-numbers", prefix));
+    let id = egui::Id::unique(("icon-numbers", prefix));
     super::kept_for_load_order(ui, load_order, id, || {
         let types = [ResType::TGA, ResType::DDS, ResType::PLT];
         Arc::new(numbered(game, &types, &format!("i{prefix}")))
@@ -340,7 +340,7 @@ fn part_choice(
     numbers: &Arc<Vec<u16>>,
     text: impl Fn(u16) -> String,
 ) {
-    let id = egui::Id::new(("uti-part-choices", f.key, labels[0]));
+    let id = egui::Id::unique(("uti-part-choices", f.key, labels[0]));
     let choices = super::kept_for(ui.ctx(), id, numbers, &(), || {
         Arc::new(
             numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect::<Vec<_>>(),
@@ -500,11 +500,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                     .add_enabled(color.is_some(), egui::Button::new("Reset").small())
                     .on_hover_text("Use the armor's color");
                 reset.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        true,
-                        format!("Reset {what}"),
-                    )
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Reset {what}"))
                 });
                 if reset.clicked() {
                     f.set_opt(&what, &label, None);
@@ -575,7 +571,7 @@ fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
     let label = "ModelPart1";
     let current = part_number(&f.root, label).unwrap_or(0);
     f.mark_mixed_inline(ui, &[label]);
-    let id = egui::Id::new(("uti-icons", f.key, label));
+    let id = egui::Id::unique(("uti-icons", f.key, label));
     // (The cell kept for these numbers: another base item's icons start
     // anew.)
     let numbers_key = {
@@ -669,7 +665,7 @@ fn part_grid(
     let id = ("uti-icons", f.key, label);
     // As tall as whole rows of icons (their height as last drawn), so the
     // tips of the next row don't show under the last one in view.
-    let row_id = egui::Id::new(id).with("row");
+    let row_id = egui::Id::unique(id).with("row");
     let gap = ui.spacing().item_spacing.y;
     let height = match ui.data(|d| d.get_temp::<f32>(row_id)).filter(|h| *h > 0.0) {
         Some(row) => {
@@ -682,7 +678,7 @@ fn part_grid(
     // (A choice out of sight takes its room, and nothing of it is made:
     // the item was copied for each every frame. A part alone is as large
     // as it was when last drawn.)
-    let sizes_id = egui::Id::new(id).with("sizes");
+    let sizes_id = egui::Id::unique(id).with("sizes");
     type Sizes = std::collections::HashMap<u16, egui::Vec2>;
     let mut sizes: Sizes = ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default();
     let mut learned = false;
@@ -710,9 +706,7 @@ fn part_grid(
                     None => {
                         let text = egui::RichText::new(n.to_string()).weak();
                         let r = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                        r.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &alt)
-                        });
+                        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &alt));
                         r
                     }
                 }
@@ -778,7 +772,7 @@ fn armor_part_choices(
     game: &GameData,
     table: &'static str,
 ) -> Arc<Vec<Choice>> {
-    super::kept_for_key(ctx, egui::Id::new(("armor-part-choices", table)), &load_order, || {
+    super::kept_for_key(ctx, egui::Id::unique(("armor-part-choices", table)), &load_order, || {
         let t = game.table(table).ok();
         let numbers: Vec<u16> = t.as_ref().map_or_else(Vec::new, |t| {
             (0..t.len()).filter(|&r| t.get(r, "ACBONUS").is_some()).map(|r| r as u16).collect()
@@ -816,9 +810,7 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             };
             let r = ui.add(mg_uikit::KitButton::new(None, *title).toggle(at == i).look(look));
             let on = at == i;
-            r.widget_info(move || {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, *title)
-            });
+            r.widget_info(move || egui::WidgetInfo::selected(egui::Role::Button, true, on, *title));
             if r.clicked() {
                 at = i;
             }

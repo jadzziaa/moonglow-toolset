@@ -419,6 +419,7 @@ fn no_form_page_is_drawn_again_every_frame() {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, delta),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: egui::Modifiers::NONE,
                 });
                 h.run_steps(2);

@@ -613,7 +613,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
     let title = "Text in the Talk Table";
-    let always_id = egui::Id::new("talk-typed-always");
+    let always_id = egui::Id::unique("talk-typed-always");
     let (on, tip) = crate::widgets::always_now(
         ctx,
         always_id,
@@ -623,7 +623,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     // under it doesn't take it for its Cancel.)
     let escape = crate::widgets::escape_closes(ctx, title);
     let modal =
-        crate::widgets::modal_window(ctx, egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
+        crate::widgets::modal_window(ctx, egui::Id::unique("talk-typed-ask")).show(ctx, |ui| {
             crate::widgets::modal_titled_foot(ui, title, |ui| {
                 ui.set_max_width(ui.available_width().min(420.0));
                 ui.label(format!(

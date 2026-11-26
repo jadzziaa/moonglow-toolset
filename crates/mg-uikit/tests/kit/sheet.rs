@@ -58,8 +58,10 @@ impl Default for State {
 fn cell(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
     ui.allocate_ui_with_layout(vec2(CELL, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
         ui.set_width(CELL);
-        ui.label(RichText::new(caption).small().weak());
-        add(ui);
+        // (The cell's controls named by its caption, as a form's are by
+        // their labels: kittest asks every input for a name.)
+        let caption = ui.label(RichText::new(caption).small().weak());
+        ui.label_inputs_by(caption.id, add);
     });
 }
 
@@ -68,8 +70,10 @@ fn cell_wide(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
     let width = 2.0 * CELL + 16.0;
     ui.allocate_ui_with_layout(vec2(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
         ui.set_width(width);
-        ui.label(RichText::new(caption).small().weak());
-        add(ui);
+        // (The cell's controls named by its caption, as a form's are by
+        // their labels: kittest asks every input for a name.)
+        let caption = ui.label(RichText::new(caption).small().weak());
+        ui.label_inputs_by(caption.id, add);
     });
 }
 

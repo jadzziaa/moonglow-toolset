@@ -1028,7 +1028,7 @@ fn trusted(ctx: &egui::Context, state: &State) -> Option<u64> {
 }
 
 fn mutated_id() -> egui::Id {
-    egui::Id::new("nui-view-mutated")
+    egui::Id::unique("nui-view-mutated")
 }
 
 /// Marks that a deferred `ctx` temp consumer mutated `work` this frame so
@@ -1378,7 +1378,7 @@ fn editor(
 ) -> (Option<crate::blueprint::Pressed>, Option<usize>) {
     // What the tab asks for this frame starts here (its OK and Cancel note it).
     let asked = app.actions.len();
-    let id = ui.id().with(("nui", key));
+    let id = ui.scope_id().with(("nui", key));
     // Floating dock windows have no native title bar, so egui permits dragging
     // their background. Absorb body drags before registering controls; child
     // text selections, sliders and canvas handles retain their own drag sense.
@@ -1688,7 +1688,7 @@ fn header(
     // | Night.)
     let switch_width = form::segmented_width(
         ui,
-        egui::Id::new("nui-pages-switch-w"),
+        egui::Id::unique("nui-pages-switch-w"),
         &[PAGES[0].1, PAGES[1].1, PAGES[2].1, PAGES[3].1],
     );
     let switch = |ui: &mut Ui| {
@@ -1933,7 +1933,7 @@ fn how_to_open(ui: &mut Ui, name: &str, state: &mut State) {
             ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
             let mut shown = code.as_str();
             let field = egui::TextEdit::multiline(&mut shown).code_editor().desired_rows(6);
-            crate::widgets::text_area(ui, ui.id().with("nui-open-code"), field);
+            crate::widgets::text_area(ui, ui.scope_id().with("nui-open-code"), field);
             ui.weak("Pass the player who should see it. Build & Compile first.");
             ((), widgets::Foot::new().main("Copy", true).leave("Close"))
         });
@@ -2457,7 +2457,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     if ty == "window" {
         title_bar(ui, obj, s);
     }
-    let reveal_id = ui.id().with("reveal-nui-property");
+    let reveal_id = ui.scope_id().with("reveal-nui-property");
     let reveal = ui.ctx().data_mut(|d| d.remove_temp::<String>(reveal_id));
     let mut remove = None;
     for (section, keys, open) in SECTIONS {
@@ -2588,7 +2588,7 @@ fn size_row(
                         field.labelled_by(lead.id);
                     } else {
                         field.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, words)
+                            egui::WidgetInfo::labeled(egui::Role::SpinButton, true, words)
                         });
                     }
                 }
@@ -3320,7 +3320,7 @@ fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
         }
         // Lined up in a grid, so the values start at one edge.
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
-            egui::Grid::new(ui.id().with("numbers")).num_columns(2).show(ui, |ui| {
+            egui::Grid::new(ui.scope_id().with("numbers")).num_columns(2).show(ui, |ui| {
                 for (k, v) in o {
                     widgets::field_label(
                         ui,

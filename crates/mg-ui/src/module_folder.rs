@@ -33,7 +33,7 @@ pub(crate) fn open(app: &mut Moonglow, path: &Path) {
 pub(crate) fn ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(path) = app.module_folder.clone() else { return };
     let folder = folder_beside(&path).unwrap_or_else(|| path.with_extension(""));
-    let id = egui::Id::new("module-folder-always");
+    let id = egui::Id::unique("module-folder-always");
     let (on, tip) = crate::widgets::always_now(
         ctx,
         id,

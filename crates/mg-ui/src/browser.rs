@@ -421,7 +421,7 @@ impl RowFonts {
     fn of(ui: &Ui) -> RowFonts {
         let small = egui::TextStyle::Small.resolve(ui.style());
         let key = (small.clone(), ui.ctx().pixels_per_point().to_bits());
-        let id = egui::Id::new("browser-row-fonts");
+        let id = egui::Id::unique("browser-row-fonts");
         if let Some((was, cached)) =
             ui.ctx().data(|d| d.get_temp::<((egui::FontId, u32), RowFonts)>(id))
             && was == key
@@ -536,15 +536,13 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
     // (The layer's part from the gap before its words to the row's end.)
     let layer_left = layer_galley.as_ref().map(|g| end - g.size().x);
     let split = layer_left.map_or(rect.right(), |l| (l - ROW_GAP).max(rect.left() + 1.0));
-    let id = ui.id().with(("browser-row", row.key, &*row.layer));
+    let id = ui.scope_id().with(("browser-row", row.key, &*row.layer));
     let named = ui.interact(rect.with_max_x(split), id, egui::Sense::click());
-    named.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, marked, &name)
-    });
+    named.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, &name));
     // (Clicked as the row, not a stop of its own for the keyboard's Tab.)
     let response = if layer_galley.is_some() {
         let said = ui.interact(rect.with_min_x(split), id.with("layer"), egui::Sense::CLICK);
-        said.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &layer));
+        said.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &layer));
         named | said
     } else {
         named
@@ -658,7 +656,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         // The Name's keys, as the side panes' Filters have them (GitHub
         // issue 12): Find's (Ctrl+F) with the pointer over the panel go to
         // it, Escape clears it and then leaves it, Down goes into the list.
-        let field_id = egui::Id::new("browser-filter-field");
+        let field_id = egui::Id::unique("browser-filter-field");
         let over = ui.ctx().pointer_hover_pos().is_some_and(|p| pane.contains(p));
         // (The Status Bar's hints are the panel's while it is in use: the
         // pointer over it or its list with the keys, `shell::shown`.)
@@ -1251,7 +1249,7 @@ impl LongText {
         salt: impl std::hash::Hash + std::fmt::Debug,
         palette: Option<&crate::script_view::Palette>,
     ) {
-        self.draw(ui, egui::Id::new(salt), palette, None);
+        self.draw(ui, egui::Id::unique(salt), palette, None);
     }
 
     /// [`LongText::ui`] with its Find bar, marked line and right-click menu
@@ -1266,7 +1264,7 @@ impl LongText {
         find: &mut TextFind,
         (keys, here, any_here): (&crate::keys::Keymap, bool, bool),
     ) {
-        let id = egui::Id::new(salt);
+        let id = egui::Id::unique(salt);
         let ctx = ui.ctx().clone();
         let pointer = ui.rect_contains_pointer(ui.max_rect());
         let takes = view_has_the_keys(&ctx, (here, any_here, pointer));
@@ -1519,7 +1517,7 @@ impl LongText {
                 // times at most.)
                 if let Some((s, y)) = sent {
                     let room = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
-                    let short = (shown.state.offset.y - y.min(room)).abs() > 1.0;
+                    let short = (shown.state.clamped_offset().y - y.min(room)).abs() > 1.0;
                     if short && f.tries < 5 {
                         f.tries += 1;
                         f.reveal = Some(s);
@@ -1528,9 +1526,9 @@ impl LongText {
                         f.tries = 0;
                     }
                 }
-                f.view = Some((shown.state.offset, shown.inner_rect.size()));
+                f.view = Some((shown.state.clamped_offset(), shown.inner_rect.size()));
                 f.view_rect = Some(shown.inner_rect);
-                f.top_line = (shown.state.offset.y / height.max(1.0)) as usize;
+                f.top_line = (shown.state.clamped_offset().y / height.max(1.0)) as usize;
                 // (A press in the text: what Select All chose and the
                 // marked line let go of, as the editor's band moves.)
                 // (A press on the text's own menu is the menu's.)
@@ -1933,7 +1931,7 @@ fn menu_keys(ctx: &egui::Context, find: &mut TextFind) {
 /// them (the pointer resting over a text the builder is not in takes no
 /// keys).
 fn view_has_the_keys(ctx: &egui::Context, (here, any_here, pointer): (bool, bool, bool)) -> bool {
-    let key = egui::Id::new("mg-read-only-view-pressed");
+    let key = egui::Id::unique("mg-read-only-view-pressed");
     let pressed = ctx.input(|i| i.pointer.any_pressed());
     if pressed && pointer {
         ctx.data_mut(|d| d.insert_temp(key, true));
@@ -2582,12 +2580,12 @@ fn resource_header(
             ui.add(egui::Label::new(egui::RichText::new(&from).color(t.text_2)).selectable(false));
         } else {
             // (The lock alone: named by the words it stands for.)
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &from));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &from));
         }
         // (Its tip over the lock and the words: the kit's custom items
         // leave their tips to their callers.)
         let all = ui.min_rect();
-        ui.interact(all, ui.id().with("read-only-from"), egui::Sense::hover())
+        ui.interact(all, ui.scope_id().with("read-only-from"), egui::Sense::hover())
             .on_hover_text(&from_tip);
     };
     let (in_module, has_module) = match &app.ws {

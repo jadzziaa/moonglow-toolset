@@ -179,7 +179,7 @@ pub fn palette_swatches(
                     ui.painter().rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Outside);
                 }
                 let name = format!("{what} {i}");
-                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
                 if r.on_hover_text(&name).clicked() {
                     clicked = Some(i);
                 }
@@ -235,8 +235,8 @@ pub struct FormColumns {
 
 impl FormColumns {
     /// Columns kept by `id_salt` (the sections' heights as last drawn).
-    pub fn new(id_salt: impl egui::AsId) -> Self {
-        FormColumns { id: egui::Id::new(id_salt), columns: None, keys: Vec::new() }
+    pub fn new(id_salt: impl egui::AsIdSalt) -> Self {
+        FormColumns { id: egui::Id::unique(id_salt), columns: None, keys: Vec::new() }
     }
 
     /// In `columns` columns, not as many as fit (a page that orders its
@@ -254,7 +254,7 @@ impl FormColumns {
         mut self,
         keys: impl IntoIterator<Item = impl std::hash::Hash + std::fmt::Debug>,
     ) -> Self {
-        self.keys = keys.into_iter().map(egui::Id::new).collect();
+        self.keys = keys.into_iter().map(egui::Id::unique).collect();
         self
     }
 
@@ -269,7 +269,7 @@ impl FormColumns {
         let width = ui.available_width().max(1.0);
         let columns = self.columns.unwrap_or_else(|| form_columns(width)).min(sections.max(1));
         let kept_id = self.id.with("mg-uikit-form-columns");
-        let key = |s: usize| self.keys.get(s).copied().unwrap_or(egui::Id::new(s));
+        let key = |s: usize| self.keys.get(s).copied().unwrap_or(egui::Id::unique(s));
         let kept: Vec<(egui::Id, f32)> = ui.data(|d| d.get_temp(kept_id)).unwrap_or_default();
         let heights: Vec<f32> = (0..sections)
             .map(|s| kept.iter().find(|(k, _)| *k == key(s)).map_or(100.0, |(_, h)| *h))
@@ -289,7 +289,7 @@ impl FormColumns {
                 egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(column_w, f32::INFINITY));
             let mut child = ui.new_child(
                 egui::UiBuilder::new()
-                    .id(self.id.with(("mg-uikit-section", key(s))))
+                    .scope_id(self.id.with(("mg-uikit-section", key(s))))
                     .max_rect(room)
                     .layout(egui::Layout::top_down(egui::Align::Min)),
             );
@@ -397,9 +397,7 @@ pub fn section_heading_with(
                 let at = egui::pos2(rect.left(), heading.rect.center().y - galley.size().y / 2.0);
                 ui.painter().galley(at, galley, color);
                 let name = format!("{text} ({note})");
-                heading.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name)
-                });
+                heading.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &name));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), end);
             heading

@@ -2053,8 +2053,7 @@ fn follow(ui: &mut egui::Ui, view: &mut ModelView) {
     let shown = egui::Rect::from_center_size(room.center(), size);
     egui::Image::new(egui::load::SizedTexture::new(id, size)).paint_at(ui, shown);
     let response = ui.allocate_rect(room, egui::Sense::click_and_drag());
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, SHARED_PICTURE));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, SHARED_PICTURE));
     steer(ui, view, &response);
 }
 

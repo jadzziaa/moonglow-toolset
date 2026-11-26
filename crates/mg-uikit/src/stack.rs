@@ -341,7 +341,7 @@ impl<'a, D: Copy, P: Copy + PartialEq> DockDrop<'a, D, P> {
 /// over every window.
 pub fn paint_drop_preview(ctx: &egui::Context, rect: Rect) {
     let accent = crate::tokens(ctx).accent;
-    let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("dock-drop-preview"));
+    let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("dock-drop-preview"));
     let painter = ctx.layer_painter(layer);
     painter.rect_filled(rect, 2.0, accent.gamma_multiply(0.22));
     painter.rect_stroke(rect, 2.0, egui::Stroke::new(2.0, accent), egui::StrokeKind::Inside);
@@ -441,7 +441,7 @@ pub fn stack_seams_least(
             continue;
         }
         let grip = line.expand2(egui::vec2(0.0, 3.0));
-        let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::DRAG);
+        let seam = ui.interact(grip, egui::Id::unique((salt, "seam", i)), egui::Sense::DRAG);
         if seam.hovered() || seam.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }

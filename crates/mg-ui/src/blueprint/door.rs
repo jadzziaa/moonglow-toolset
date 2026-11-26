@@ -63,7 +63,7 @@ fn door_types(f: &Form<'_>, ui: &Ui) -> std::sync::Arc<Vec<Choice>> {
     let Ok(table) = game.table("doortypes") else { return Default::default() };
     let columns = ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") };
     let Ok(names) = game.choice_list("doortypes", columns) else { return Default::default() };
-    super::kept_for(ui.ctx(), egui::Id::new("door-types"), &names, &(), || {
+    super::kept_for(ui.ctx(), egui::Id::unique("door-types"), &names, &(), || {
         let named = names.iter().map(|c| {
             let tileset = table.get(c.row, "TileSet").filter(|t| *t != "****");
             match tileset {

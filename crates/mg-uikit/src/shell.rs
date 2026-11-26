@@ -71,7 +71,7 @@
 //! ```
 
 use egui::{
-    Color32, FontId, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
+    Color32, FontId, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use crate::icons::{ButtonState, Icon, IconButton};
@@ -850,7 +850,7 @@ impl DockTabs {
                 if let Some(title) = &self.title {
                     let size = vec2(self.title_width(ui), bar.height());
                     let (rect, r) = ui.allocate_exact_size(size, Sense::hover());
-                    r.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, title));
+                    r.widget_info(|| WidgetInfo::labeled(Role::Label, true, title));
                     let font = FontId::proportional(metrics::BODY_SIZE);
                     let galley = ui.painter().layout_no_wrap(title.clone(), font, t.text);
                     let y = (rect.center().y - 0.5 - galley.size().y / 2.0).round();
@@ -895,7 +895,7 @@ impl DockTabs {
                     }
                     let on = *selected == i;
                     let name = tab.name.clone().unwrap_or_else(|| tab.text.clone());
-                    r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &name));
+                    r.widget_info(|| WidgetInfo::labeled(Role::Button, true, &name));
                     let value = tab.badge.as_ref().map(|b| b.text().to_owned());
                     r.ctx.accesskit_node_builder(r.id, |node| {
                         node.set_role(egui::accesskit::Role::Tab);
@@ -1250,7 +1250,7 @@ pub fn doc_tab_close(
             ui.interact(rect, id, egui::Sense::click())
         })
         .inner;
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
     let state = if r.is_pointer_button_down_on() {
         ButtonState::Pressed
     } else if r.hovered() || r.has_focus() {

@@ -736,7 +736,7 @@ pub struct HeaderRecord {
 }
 
 fn recording_id() -> Id {
-    Id::new("mg-uikit-record-headers")
+    Id::unique("mg-uikit-record-headers")
 }
 
 /// Has `ctx` keep header placement records (`HeaderOutput::places`,
@@ -751,7 +751,7 @@ fn is_recording_headers(ctx: &egui::Context) -> bool {
 
 /// The id under which the records of the headers named `name` are kept.
 fn record_id(name: &str) -> Id {
-    Id::new(("mg-uikit-header-records", name))
+    Id::unique(("mg-uikit-header-records", name))
 }
 
 /// What the headers named `name` drew in the last pass that drew one,

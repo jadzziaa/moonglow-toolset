@@ -589,7 +589,7 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
         .collapsible(false)
         .show_foot(ctx, |ui| {
             let field =
-                crate::widgets::SearchField::new(egui::Id::new("open-2da-find"), &mut w.filter)
+                crate::widgets::SearchField::new(egui::Id::unique("open-2da-find"), &mut w.filter)
                     .hint("Find by name")
                     .find_over()
                     .show(ui)
@@ -1652,7 +1652,7 @@ pub(crate) fn column_edge(
     let zone = egui::Rect::from_x_y_ranges(rect.right() - 4.0..=rect.right() + gap, rect.y_range());
     let r = ui.interact(zone, id, egui::Sense::click_and_drag());
     r.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Other, true, format!("Width of {column}"))
+        egui::WidgetInfo::labeled(egui::Role::Unknown, true, format!("Width of {column}"))
     });
     if r.hovered() || r.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
@@ -1891,15 +1891,13 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
         let field = egui::DragValue::new(&mut n).range(1..=10_000).speed(0.2);
         ui.add_sized([COUNT, mg_uikit::metrics::CONTROL_HEIGHT], field)
             .on_hover_text("How many rows Add Row adds")
-            .widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, ADD_COUNT)
-            });
+            .widget_info(|| egui::WidgetInfo::labeled(egui::Role::SpinButton, true, ADD_COUNT));
         count.set(n.max(1));
     };
     // Find: text in any cell, its rows alone shown.
     const FIND: f32 = 170.0;
     let find = |ui: &mut Ui| {
-        let field = egui::Id::new(("table-filter", id));
+        let field = egui::Id::unique(("table-filter", id));
         let mut text = filter.borrow_mut();
         crate::widgets::SearchField::new(field, &mut text)
             .name("Find")
@@ -1914,7 +1912,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
         let mut text = go_to.borrow_mut();
         let field = mg_uikit::text_field(&mut *text).desired_width(GO_TO).hint_text("Go to row");
         let r = ui.add(field).on_hover_text("Go to a row by its number: Enter");
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Go to"));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Go to"));
         // (Its Enter taken: the grid, given the keys, began typing in the
         // row's cell with it, as it did before M4's U16.)
         if r.lost_focus()
@@ -1974,7 +1972,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
         .left(
             Item::custom("Find", FIND, find)
                 .more(FIND, |ui| {
-                    let field = egui::Id::new(("table-filter", id));
+                    let field = egui::Id::unique(("table-filter", id));
                     let mut text = filter.borrow_mut();
                     crate::widgets::SearchField::new(field, &mut text)
                         .name("Find")
@@ -1994,7 +1992,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
                         .hint_text("Go to row");
                     let r = ui.add(field);
                     r.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Go to")
+                        egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Go to")
                     });
                     if r.lost_focus()
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
@@ -2149,7 +2147,7 @@ fn warn_button(ui: &mut Ui, words: &str) -> egui::Response {
     mg_uikit::Icon::Warning.paint(ui.painter(), icon, t.warn);
     let at = egui::pos2(icon.right() + 6.0, rect.center().y - galley.size().y / 2.0);
     ui.painter().galley(at, galley, t.warn);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, words));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, words));
     r.on_hover_text(WRONG_TIP)
 }
 
@@ -2314,10 +2312,10 @@ fn rows_found(doc: &TableDoc) -> Vec<usize> {
 pub fn take_keys(ctx: &egui::Context, table: u32) {
     give_keys(ctx, Keys::Table);
     ctx.data_mut(|d| {
-        d.insert_temp(egui::Id::new("table-keys-of"), table);
+        d.insert_temp(egui::Id::unique("table-keys-of"), table);
         // (Its editor made the active one as its tab is next drawn:
         // `focus_asked`.)
-        d.insert_temp(egui::Id::new("table-keys-focus"), table);
+        d.insert_temp(egui::Id::unique("table-keys-focus"), table);
     });
 }
 
@@ -2326,7 +2324,7 @@ pub fn take_keys(ctx: &egui::Context, table: u32) {
 /// given the focus, so that its editor is the active one
 /// ([`grid_has_keys`]): `tab` drawing the grid `id`.
 pub(crate) fn focus_asked(app: &mut Moonglow, ctx: &egui::Context, id: u32, tab: &Tab) {
-    let key = egui::Id::new("table-keys-focus");
+    let key = egui::Id::unique("table-keys-focus");
     if ctx.data(|d| d.get_temp::<u32>(key)) != Some(id) {
         return;
     }
@@ -2400,7 +2398,7 @@ pub(crate) fn grid_has_keys(app: &Moonglow, ctx: &egui::Context, id: u32, tab: &
 
 /// The table whose grid was given the keys last.
 fn keys_table(ctx: &egui::Context) -> Option<u32> {
-    ctx.data(|d| d.get_temp(egui::Id::new("table-keys-of")))
+    ctx.data(|d| d.get_temp(egui::Id::unique("table-keys-of")))
 }
 
 /// The keys in the grid, from a click on a cell: the arrows, Tab, Page Up
@@ -2519,7 +2517,7 @@ pub(crate) fn keys_in(doc: &mut TableDoc, ui: &mut Ui, read_only: bool, has: boo
     } else if let Some(typed) = typed_text(ui) {
         // A letter typed begins typing: the cell's text replaced by it,
         // the cursor after it, as a spreadsheet does.
-        let id = egui::Id::new(("table-cell", doc.id));
+        let id = egui::Id::unique(("table-cell", doc.id));
         let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
         let end = egui::text::CCursor::new(typed.chars().count());
         state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
@@ -2580,7 +2578,7 @@ pub(crate) fn keys_in(doc: &mut TableDoc, ui: &mut Ui, read_only: bool, has: boo
 pub(crate) fn view_header(ui: &mut Ui, doc: &mut TableDoc) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Find");
-        let field = ui.id().with(("table-filter", doc.id));
+        let field = ui.scope_id().with(("table-filter", doc.id));
         crate::widgets::SearchField::new(field, &mut doc.filter)
             .hint("text in any cell")
             .width(170.0)
@@ -2846,7 +2844,7 @@ pub(crate) fn grid_in(
                         ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout))
                             .add(egui::Label::new(text).truncate().selectable(false))
                             .on_hover_text("The layer each row comes from");
-                        let edge_id = egui::Id::new(("table-from-edge", id));
+                        let edge_id = egui::Id::unique(("table-from-edge", id));
                         if let Some(act) = column_edge(ui, edge_id, rect, "From") {
                             from_edge = Some(act);
                         }
@@ -2995,7 +2993,7 @@ pub(crate) fn grid_in(
                             }
                         });
                         // (On top of the name: its right end is the edge's.)
-                        let edge_id = egui::Id::new(("table-edge", id, index));
+                        let edge_id = egui::Id::unique(("table-edge", id, index));
                         if doc.moving.is_none()
                             && let Some(act) = column_edge(ui, edge_id, rect, c)
                         {
@@ -3150,10 +3148,10 @@ pub(crate) fn grid_in(
                                 if here && let Some(text) = doc.typing.as_mut() {
                                     unseen.pass(ui, row_height);
                                     let edit = mg_uikit::text_field(text)
-                                        .id(egui::Id::new(("table-cell", id)))
+                                        .id(egui::Id::unique(("table-cell", id)))
                                         .font(egui::TextStyle::Monospace)
                                         .margin(egui::Margin::symmetric(4, 0))
-                                        .vertical_align(egui::Align::Center);
+                                        .align(egui::Align2::LEFT_CENTER);
                                     // (In the cell's own place, as wide.)
                                     let (rect, _) = ui.allocate_exact_size(
                                         egui::vec2(width, row_height),
@@ -3314,8 +3312,8 @@ pub(crate) fn grid_in(
         })
         .inner
     });
-    doc.scroll = shown.state.offset;
-    if (shown.state.offset - egui::vec2(head_x, gutter_y)).length_sq() > 0.25 {
+    doc.scroll = shown.state.clamped_offset();
+    if (shown.state.clamped_offset() - egui::vec2(head_x, gutter_y)).length_sq() > 0.25 {
         ui.ctx().request_repaint();
     }
     // A drag selecting cells past the grid's edge scrolls it that way,
@@ -3674,7 +3672,7 @@ fn string_choice(
     set: &mut Option<Option<String>>,
     new_line: &mut Option<String>,
 ) {
-    let base = egui::Id::new(("table-string", id));
+    let base = egui::Id::unique(("table-string", id));
     let (choose_id, new_id) = (base.with("choose"), base.with("new"));
     let mut choosing: bool = ui.data(|d| d.get_temp(choose_id)).unwrap_or(false);
     let mut adding: bool = ui.data(|d| d.get_temp(new_id)).unwrap_or(false);
@@ -3853,7 +3851,7 @@ fn model_choice(
         }
     }
     ui.end_row();
-    let find_id = egui::Id::new(("table-model-find", id));
+    let find_id = egui::Id::unique(("table-model-find", id));
     let open_id = find_id.with("open");
     let mut open: bool = ui.data(|d| d.get_temp(open_id)).unwrap_or(false);
     if ui.selectable_label(open, "Choose Model…").clicked() {
@@ -3928,7 +3926,7 @@ fn row_choice(
     let Some(t) = other else { return };
     // (Every row's name only while the list is open or has the keys: a
     // table may have thousands.)
-    let id = egui::Id::new(("table-row-choice", id));
+    let id = egui::Id::unique(("table-row-choice", id));
     let rows = if crate::widgets::RowChoice::in_use(ui, id) {
         0..t.len()
     } else {

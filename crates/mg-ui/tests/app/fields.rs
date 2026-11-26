@@ -1028,6 +1028,7 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -40.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(2);
@@ -1997,6 +1998,7 @@ fn a_list_in_the_raw_fields_view_lays_out_the_items_in_sight() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -1_000_000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     let deadline = std::time::Instant::now() + SETTLE_TIME;
@@ -2629,6 +2631,7 @@ fn filters_find_names_case_and_accents_aside() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         settle(&mut h);

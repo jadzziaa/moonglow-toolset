@@ -963,6 +963,7 @@ fn advanced_search_lays_out_the_rows_in_sight() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -1_000_000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     let deadline = std::time::Instant::now() + SETTLE_TIME;

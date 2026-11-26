@@ -419,6 +419,7 @@ fn picture_viewer_zoom() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 40.0 * 9.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     let (_, scale) = still(&mut h);
@@ -1178,6 +1179,7 @@ fn read_only_script_and_text() {
                 unit: egui::MouseWheelUnit::Point,
                 delta,
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(20);
@@ -1251,6 +1253,7 @@ fn table_read_only_and_column_widths() {
             unit: egui::MouseWheelUnit::Point,
             delta,
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(60);
@@ -3082,6 +3085,7 @@ fn whole_item_icons() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -29.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(3);
@@ -3198,6 +3202,7 @@ fn armor_part_pictures() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -100.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         settle(&mut h);
@@ -4282,6 +4287,7 @@ fn store_scrolled() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, dy),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(20);
@@ -5209,7 +5215,7 @@ fn script_selection() {
     let from = text.find("    int").unwrap();
     let to = text.find("\n\n").unwrap() + 1;
     for (name, range) in [("lines", (from, to)), ("part", (from + 4, from + 13))] {
-        let id = egui::Id::new(("script", key));
+        let id = egui::Id::unique(("script", key));
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
             egui::text::CCursor::new(range.0),
@@ -9806,6 +9812,7 @@ fn module_tree_long_names() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(-400.0, 0.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -9814,6 +9821,7 @@ fn module_tree_long_names() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(400.0, 0.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -10204,6 +10212,7 @@ fn main_window_log_and_tree() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -10385,7 +10394,7 @@ fn script_selection_menu() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
     let (from, to) = (text.find("  if").unwrap(), text.find("    n++").unwrap() + 2);
     let range =
@@ -11284,7 +11293,7 @@ fn script_editor_large() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let select = |h: &mut Harness<'_, Moonglow>, from: usize, to: usize| {
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         let c = egui::text::CCursorRange::two(
@@ -11510,6 +11519,7 @@ fn theme_read_only_focus_and_tabs() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -120.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -12117,7 +12127,7 @@ fn shell_doc_tabs() {
         // The script typed in: its dot too.
         let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
         h.state_mut().script_tools.jump = Some((key, 0));
-        let editor = egui::Id::new(("script", key));
+        let editor = egui::Id::unique(("script", key));
         let started = std::time::Instant::now();
         while !h.ctx.memory(|m| m.has_focus(editor)) {
             assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
@@ -12300,6 +12310,7 @@ fn resources_chicken(h: &mut Harness<'_, Moonglow>, size: egui::Vec2, width: Opt
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -300.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -12466,6 +12477,7 @@ fn shell_tree_well_heights() {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, -200.0),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: egui::Modifiers::NONE,
                 });
                 h.run_steps(2);
@@ -12589,6 +12601,7 @@ fn shell_tree_narrowed() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(-100.0, 0.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -14333,7 +14346,7 @@ fn board_script_pitch() {
             mg_ui::script_tools::line_start(&text, 17),
             mg_ui::script_tools::line_start(&text, 20),
         );
-        let id = egui::Id::new(("script", key));
+        let id = egui::Id::unique(("script", key));
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
             egui::text::CCursor::new(text[..from].chars().count()),
@@ -15406,6 +15419,7 @@ fn choose_victim(h: &mut Harness<'_, Moonglow>, advanced: bool) {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -6.0 * 22.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(10);
@@ -15594,6 +15608,7 @@ fn board_options() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Page,
         delta: egui::vec2(0.0, 20.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -15722,6 +15737,7 @@ fn gff_scrolled_to(h: &mut Harness<'_, Moonglow>, name: &str) {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, top - to),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -16350,6 +16366,7 @@ fn board_pickers() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -(row.top() - 140.0)),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         pictures_made(&mut h);
@@ -16446,6 +16463,7 @@ fn gallery_as_the_board(h: &mut Harness<'_, Moonglow>, hover: Option<&str>, held
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -30.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -16527,6 +16545,7 @@ fn gallery_as_the_board(h: &mut Harness<'_, Moonglow>, hover: Option<&str>, held
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -10.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(2);
@@ -16655,6 +16674,7 @@ fn board_gallery_tiles() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -20.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -16781,6 +16801,7 @@ fn u26_gallery_views() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, if down { -150.0 } else { 600.0 }),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             pictures_shown(h);

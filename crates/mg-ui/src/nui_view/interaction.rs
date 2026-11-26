@@ -334,10 +334,10 @@ pub(super) fn resize_handles(
         }
         let hit = egui::Rect::from_center_size(position, egui::Vec2::splat(11.0));
         let response = ui
-            .interact(hit, ui.id().with(("resize", &path, x, y)), egui::Sense::drag())
+            .interact(hit, ui.scope_id().with(("resize", &path, x, y)), egui::Sense::drag())
             .on_hover_cursor(cursor);
         let name = if window { name.replacen("Resize", "Resize window", 1) } else { name.into() };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
         ui.painter().rect_filled(hit.shrink(2.0), 1, ui.visuals().selection.bg_fill);
         ui.painter().rect_stroke(
             hit.shrink(2.0),

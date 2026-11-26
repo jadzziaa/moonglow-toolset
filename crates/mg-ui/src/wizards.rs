@@ -338,7 +338,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if app.closing {
         let mut open = true;
         let mut answer = None;
-        let always_id = egui::Id::new("close-always");
+        let always_id = egui::Id::unique("close-always");
         let (on, tip) = crate::widgets::always_now(
             &ctx,
             always_id,

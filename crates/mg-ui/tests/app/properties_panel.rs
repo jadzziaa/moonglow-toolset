@@ -554,6 +554,7 @@ fn the_rail_reaches_every_page_in_a_low_section() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);
@@ -1169,6 +1170,7 @@ fn the_wide_layout_s_pages_stand_on_one_scroll() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);
@@ -1188,6 +1190,7 @@ fn the_wide_layout_s_pages_stand_on_one_scroll() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);
@@ -1304,6 +1307,7 @@ fn visible_distance_scrolls_clear_of_the_panel_bottom() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use egui::text::{LayoutJob, TextFormat, TextWrapping};
-use egui::{FontId, Galley, Rect, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
+use egui::{FontId, Galley, Rect, Role, Sense, Ui, WidgetInfo, pos2, vec2};
 use mg_uikit::dialog::EmptyState;
 use mg_uikit::{ButtonLook, Icon, KitButton, TokensExt as _, metrics};
 
@@ -777,7 +777,7 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
                 let Some(path) = app.settings.recent.get(i) else { continue };
                 // (By its place in the list: a list edited by hand can name
                 // a module twice.)
-                let id = ui.id().with(("welcome-recent", i));
+                let id = ui.scope_id().with(("welcome-recent", i));
                 let opened = app.settings.recent_opened.get(path).copied();
                 if recent_row(ui, id, path, opened, r) {
                     click = Some(Click::Recent(path.clone()));
@@ -795,10 +795,10 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
                     continue;
                 }
                 let salt = match button {
-                    Button::Start(id, _) | Button::Without(id, _) => egui::Id::new(id.id()),
-                    Button::Manual => egui::Id::new("manual"),
-                    Button::Options => egui::Id::new("options"),
-                    Button::Offer(offer) => egui::Id::new(offer.text().0),
+                    Button::Start(id, _) | Button::Without(id, _) => egui::Id::unique(id.id()),
+                    Button::Manual => egui::Id::unique("manual"),
+                    Button::Options => egui::Id::unique("options"),
+                    Button::Offer(offer) => egui::Id::unique(offer.text().0),
                 };
                 let (b, c) = match button {
                     Button::Start(id, icon) => {
@@ -925,7 +925,7 @@ fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, opened: Option<u64>, r: Re
         response.scroll_to_me(None);
     }
     let label = recent_label(path, opened);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, &label));
     let painter = ui.painter();
     if response.hovered() || response.has_focus() {
         painter.rect_filled(r, metrics::RADIUS, t.hover_row);
@@ -967,8 +967,8 @@ fn recent_row(ui: &mut Ui, id: egui::Id, path: &Path, opened: Option<u64>, r: Re
 /// A link's row at `r`: its icon in `text-2`, its words in the accent.
 fn link_row(app: &Moonglow, ui: &mut Ui, link: Link, r: Rect) -> Option<Click> {
     let id = match link {
-        Link::Chapter(i) => ui.id().with(("welcome-chapter", i)),
-        Link::Command(command, _) => ui.id().with(("welcome-link", command.id())),
+        Link::Chapter(i) => ui.scope_id().with(("welcome-chapter", i)),
+        Link::Command(command, _) => ui.scope_id().with(("welcome-link", command.id())),
     };
     let (words, icon, tip, click, enabled) = match link {
         Link::Chapter(i) => {
@@ -988,7 +988,7 @@ fn link_row(app: &Moonglow, ui: &mut Ui, link: Link, r: Rect) -> Option<Click> {
     if response.gained_focus() {
         response.scroll_to_me(None);
     }
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Link, enabled, &words));
+    response.widget_info(|| WidgetInfo::labeled(Role::Link, enabled, &words));
     let painter = ui.painter();
     if enabled && (response.hovered() || response.has_focus()) {
         painter.rect_filled(r, metrics::RADIUS, t.hover_row);

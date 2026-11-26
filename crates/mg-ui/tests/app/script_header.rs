@@ -177,7 +177,7 @@ fn reference_on_the_right_and_help_under_the_text_in_either_host() {
         settle(&mut h);
         // (Help's body, under the editor's text and across it.)
         let help = h.get_by_label("Help's text").rect();
-        let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+        let editor = h.ctx.read_response(egui::Id::unique(("script", key))).unwrap().rect;
         assert!(help.top() >= editor.bottom() - 1.0, "{mode:?}: {help:?} under {editor:?}");
         assert!(
             help.left() <= editor.left() + 1.0 && help.right() >= editor.right() - 1.0,
@@ -298,7 +298,7 @@ fn records_naming_the_old_side_pane_or_help_tab_read_as_before() {
         let mut h = harness(app, width, 800.0);
         settle(&mut h);
         assert_eq!(h.state().active_editor(), Some(&Tab::Script(key)));
-        let at = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))
+        let at = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::unique(("script", key)))
             .and_then(|s| s.cursor.char_range())
             .map(|r| usize::from(r.primary.index));
         assert_eq!(at, Some(20), "{folded}: its cursor kept");

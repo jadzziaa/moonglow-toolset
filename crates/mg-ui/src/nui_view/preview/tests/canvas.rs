@@ -1562,6 +1562,7 @@ fn progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -1000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run();
@@ -1598,6 +1599,7 @@ fn a_combo_popup_s_bar_is_dragged_and_clicked() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 1000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run();

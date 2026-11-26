@@ -2,7 +2,7 @@
 //!
 //! egui eases two kinds of scrolling over a few frames: a mouse wheel's
 //! notch (its `WheelState` spreads a notch's lines over about a tenth of a
-//! second, a smoothing no option of egui 0.36 turns off) and a jump made in
+//! second, a smoothing no option of egui 0.37 turns off) and a jump made in
 //! code (`scroll_to_rect`, `scroll_to_me`: `Style::scroll_animation`).
 //! Off, both land at once: the style's animation is none, and a plugin of
 //! the context ([`egui::Plugin::input_hook`], run before the frame reads its
@@ -100,7 +100,7 @@ impl egui::Plugin for WheelSteps {
         let events = std::mem::take(&mut input.events);
         for event in events {
             match event {
-                egui::Event::MouseWheel { unit, delta, phase, modifiers }
+                egui::Event::MouseWheel { unit, delta, phase, source, modifiers }
                     if is_notch(unit, delta, phase) && !modifiers.matches_any(zoom) =>
                 {
                     let points = match unit {
@@ -114,6 +114,7 @@ impl egui::Plugin for WheelSteps {
                             unit: egui::MouseWheelUnit::Point,
                             delta: step,
                             phase,
+                            source,
                             modifiers,
                         });
                     }
@@ -129,7 +130,7 @@ impl egui::Plugin for WheelSteps {
 fn is_notch_of(ctx: &egui::Context) -> impl Fn(&egui::Event) -> bool {
     let zoom = ctx.options(|o| o.input_options.zoom_modifier);
     move |e| match e {
-        egui::Event::MouseWheel { unit, delta, phase, modifiers } => {
+        egui::Event::MouseWheel { unit, delta, phase, modifiers, .. } => {
             is_notch(*unit, *delta, *phase) && !modifiers.matches_any(zoom)
         }
         _ => false,
@@ -167,7 +168,13 @@ mod tests {
         delta: egui::Vec2,
         modifiers: egui::Modifiers,
     ) -> egui::Event {
-        egui::Event::MouseWheel { unit, delta, phase: egui::TouchPhase::Move, modifiers }
+        egui::Event::MouseWheel {
+            unit,
+            delta,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers,
+        }
     }
 
     /// One frame of `ctx` at `time` with `events`: the frame's scroll.

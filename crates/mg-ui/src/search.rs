@@ -789,7 +789,7 @@ fn row_picker_in(
         ui.label(format!("Row {row}"));
     };
     let current = row.map(|r| r as i64);
-    let mut list = crate::widgets::row_choice(egui::Id::new(id), choices, current)
+    let mut list = crate::widgets::row_choice(egui::Id::unique(id), choices, current)
         .width(260.0)
         .about(&mut number);
     if ordered {
@@ -1376,7 +1376,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 draft.hits.last().map(|h| h.key),
                 ticked_hash(&draft.ticked),
             );
-            let cache_id = egui::Id::new("advanced-search-ui-cache");
+            let cache_id = egui::Id::unique("advanced-search-ui-cache");
             let mut cache: SearchUiCache = ui.data(|d| d.get_temp(cache_id)).unwrap_or_default();
             let mut cache_dirty = false;
             if cache.sig != sig {
@@ -1506,8 +1506,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             // and link: a right click on it opens its menu
                             // too. Not a Tab stop: its link is.)
                             let room = egui::Rect::from_min_size(ui.cursor().min, size);
-                            let whole =
-                                ui.interact(room, ui.id().with(("hit-row", i)), egui::Sense::CLICK);
+                            let whole = ui.interact(
+                                room,
+                                ui.scope_id().with(("hit-row", i)),
+                                egui::Sense::CLICK,
+                            );
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             let h = &draft.hits[i];
                             let mine = h.layer.is_none();

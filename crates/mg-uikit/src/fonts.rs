@@ -34,7 +34,7 @@ pub fn definitions() -> egui::FontDefinitions {
 /// from the next frame): Ubuntu Bold, then egui's emoji fonts for the
 /// glyphs it lacks.
 pub fn install_fonts(ctx: &egui::Context) {
-    let done = egui::Id::new("moonglow-fonts");
+    let done = egui::Id::unique("moonglow-fonts");
     if ctx.data(|d| d.get_temp::<bool>(done)).is_some() {
         return;
     }

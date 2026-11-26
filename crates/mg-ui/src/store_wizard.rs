@@ -271,7 +271,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.label("Enter the conversation text for the shopkeeper.");
                 ui.label("What does the shopkeeper say when the conversation begins?");
                 let field = egui::TextEdit::multiline(&mut w.greeting).desired_rows(2);
-                let id = egui::Id::new("store-wizard-greeting");
+                let id = egui::Id::unique("store-wizard-greeting");
                 let field = crate::widgets::text_area(ui, id, field).response.response;
                 crate::widgets::autofocus(ui, &field);
                 ui.label("What does the player say when the player wishes to see the store?");
@@ -312,7 +312,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.selectable_value(&mut w.custom, false, "Standard");
                     ui.selectable_value(&mut w.custom, true, "Custom");
                     crate::widgets::SearchField::new(
-                        egui::Id::new("store-wizard-find"),
+                        egui::Id::unique("store-wizard-find"),
                         &mut w.filter,
                     )
                     .hint("Find a store")
@@ -698,7 +698,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         crate::widgets::field_label(ui, "Popup Text");
         let field = egui::TextEdit::multiline(&mut p.text).desired_rows(4);
         let field =
-            crate::widgets::text_area(ui, egui::Id::new("popup-text"), field).response.response;
+            crate::widgets::text_area(ui, egui::Id::unique("popup-text"), field).response.response;
         crate::widgets::autofocus(ui, &field);
         crate::widgets::field_label(ui, "Conversation File");
         ui.add(resref_edit(&mut ResRefText(&mut p.name)));

@@ -65,7 +65,7 @@ fn keys_wait_for_menus(h: &mut Harness<'_, Moonglow>, name: &str) {
         Some(first),
         "{name}: the cell clicked has the cursor"
     );
-    let menu = egui::Id::new("mg-test-menu");
+    let menu = egui::Id::unique("mg-test-menu");
     for key in [egui::Key::ArrowRight, egui::Key::ArrowDown, egui::Key::End, egui::Key::PageDown] {
         egui::Popup::open_id(&h.ctx, menu);
         h.key_press(key);
@@ -444,6 +444,7 @@ fn the_creature_wizard_s_portraits_choose_by_the_keys_and_open_at_the_one_chosen
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 2000.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         settle(&mut h);

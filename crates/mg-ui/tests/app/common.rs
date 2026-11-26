@@ -2532,6 +2532,7 @@ fn wheel_until(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, label: &s
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, dy),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);

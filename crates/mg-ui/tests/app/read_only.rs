@@ -83,6 +83,7 @@ fn scroll_view(h: &mut Harness<'_, Moonglow>, pages: usize) {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Page,
             delta: egui::vec2(0.0, -1.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -1794,6 +1795,7 @@ fn wheel_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, notches: f32) {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 40.0 * notches),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
 }

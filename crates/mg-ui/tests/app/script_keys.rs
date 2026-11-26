@@ -40,7 +40,7 @@ fn editors(
 }
 
 fn id(key: ResKey) -> egui::Id {
-    egui::Id::new(("script", key))
+    egui::Id::unique(("script", key))
 }
 
 /// The editor's cursor and the other end of its selection (characters).
@@ -386,6 +386,7 @@ fn the_toolbar_s_undo_brings_the_cursor_into_sight() {
             unit: egui::MouseWheelUnit::Page,
             delta: egui::vec2(0.0, 5.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.step();

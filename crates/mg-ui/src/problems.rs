@@ -835,7 +835,7 @@ fn heading(
     // Used's click is the button's, not the heading's.)
     let top = ui.cursor().min;
     let rect = egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().right(), top.y + line));
-    let id = ui.id().with("problems-heading");
+    let id = ui.scope_id().with("problems-heading");
     let r = ui.interact(rect, id, egui::Sense::click() | egui::Sense::FOCUSABLE);
     ui.horizontal(|ui| {
         ui.set_min_height(line);
@@ -872,7 +872,7 @@ fn heading(
         Some(w) => format!("{}, {w}", set.source.title()),
         None => set.source.title(),
     };
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &said));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, &said));
     if r.has_focus() {
         ui.painter().rect_stroke(
             rect,
@@ -1019,7 +1019,7 @@ fn problem(
     let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), line));
     // (The row first, under what is in it: a click on its link or button
     // is theirs.)
-    let row = ui.interact(room, ui.id().with("problem-row"), egui::Sense::click());
+    let row = ui.interact(room, ui.scope_id().with("problem-row"), egui::Sense::click());
     let error = p.severity == Severity::Error;
     let (icon, color, word) = match error {
         true => (mg_uikit::Icon::Error, t.error, "Error"),
@@ -1030,7 +1030,7 @@ fn problem(
     let selected = look.selected;
     row.widget_info(|| {
         let said = row_name(p);
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &said)
+        egui::WidgetInfo::selected(egui::Role::Button, true, selected, &said)
     });
     if look.selected {
         // (The lists' chosen fill, as the tables and the tree: `select` is

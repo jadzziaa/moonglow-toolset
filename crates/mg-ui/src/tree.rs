@@ -815,7 +815,7 @@ pub(crate) fn contents_ui(
     let closing = fold == Some(false)
         || !outliner
             && ui.data_mut(|d| {
-                d.remove_temp::<bool>(egui::Id::new(("tree-area-kinds-closed", area))).is_some()
+                d.remove_temp::<bool>(egui::Id::unique(("tree-area-kinds-closed", area))).is_some()
             });
     let mut body = |ui: &mut Ui| {
         for (at, KindContents { kind, rows, order, tagged_order }) in contents.iter().enumerate() {
@@ -894,10 +894,10 @@ pub(crate) fn contents_ui(
             // of what is typed, and can be closed after: it was held open,
             // a click on its arrow undone the next frame, a builder's
             // report.)
-            let opened_for = egui::Id::new(("tree-kind-filter", area, *kind));
+            let opened_for = egui::Id::unique(("tree-kind-filter", area, *kind));
             let newly_found = filtered
                 && ui.data_mut(|d| {
-                    let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                    let now = d.get_temp::<u64>(egui::Id::unique("tree-filter-changes"));
                     let was = d.get_temp::<Option<u64>>(opened_for);
                     d.insert_temp(opened_for, now);
                     was != Some(now)
@@ -1225,7 +1225,7 @@ fn reveal_into_view(ui: &Ui, rect: egui::Rect) {
 /// out ([`areas_well`]): its view on the screen (as high as it is at
 /// most).
 fn well_view() -> egui::Id {
-    egui::Id::new("tree-well-view")
+    egui::Id::unique("tree-well-view")
 }
 
 /// A row of the Areas group's well to scroll to, once its rows are laid
@@ -1263,7 +1263,7 @@ fn well_target(ui: &Ui, rect: egui::Rect, center: bool) -> bool {
     let center = center && !seen;
     let rows = (!seen).then(|| rect.y_range());
     let target = WellTarget { rows, at: rect.y_range(), center };
-    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-target"), target));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique("tree-well-target"), target));
     true
 }
 
@@ -1298,7 +1298,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
         app.plugins.pane = Some(crate::plugins::Pane::Tree);
     }
-    let filter_id = egui::Id::new("tree-filter");
+    let filter_id = egui::Id::unique("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     // As the palettes' pane: the search across the pane, with a button to
     // clear it. Find's keys (Ctrl+F), with the keys the tree's, go to it;
@@ -1314,7 +1314,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     let left = egui::Frame::new()
         .inner_margin(bar)
         .show(ui, |ui| {
-            crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
+            crate::widgets::SearchField::new(egui::Id::unique("tree-filter-field"), &mut filter)
                 .icon(mg_uikit::Icon::Filter)
                 .hint("Filter")
                 .name(TREE_FILTER)
@@ -1346,7 +1346,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // (Each change of the Filter counted, for the kinds of objects it
     // opens once: `contents_ui`.)
     if changed {
-        ui.data_mut(|d| *d.get_temp_mut_or(egui::Id::new("tree-filter-changes"), 0_u64) += 1);
+        ui.data_mut(|d| *d.get_temp_mut_or(egui::Id::unique("tree-filter-changes"), 0_u64) += 1);
     }
     // Expand All and Collapse All (on the tab bar), and their keys too,
     // while the keys are the tree's.
@@ -1365,10 +1365,10 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
         for area in ws.module.keys_of(ResType::ARE).map(|k| k.resref) {
             ui.data_mut(|d| {
                 // (Those the Filter opened out too, until it changes.)
-                let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
-                d.insert_temp(egui::Id::new(("tree-area-filter-closed", area)), now);
-                d.insert_temp(egui::Id::new(("tree-area-open", area)), false);
-                d.insert_temp(egui::Id::new(("tree-area-kinds-closed", area)), true);
+                let now = d.get_temp::<u64>(egui::Id::unique("tree-filter-changes"));
+                d.insert_temp(egui::Id::unique(("tree-area-filter-closed", area)), now);
+                d.insert_temp(egui::Id::unique(("tree-area-open", area)), false);
+                d.insert_temp(egui::Id::unique(("tree-area-kinds-closed", area)), true);
             });
         }
     }
@@ -1378,7 +1378,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     let view = ui.available_height();
     // (Where the Areas group's well is, known for the frame it is drawn
     // in: `areas_well`.)
-    let well_rect = egui::Id::new("tree-well-rect");
+    let well_rect = egui::Id::unique("tree-well-rect");
     ui.data_mut(|d| {
         d.remove::<egui::Rect>(well_rect);
         d.remove::<WellFoot>(well_foot());
@@ -1386,7 +1386,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // Where the tree was scrolled to before something was typed in the
     // Filter, back once it is cleared (a word that finds little made the
     // tree short, and a scroll area keeps no more than it can show).
-    let unfiltered = egui::Id::new("tree-unfiltered-offset");
+    let unfiltered = egui::Id::unique("tree-unfiltered-offset");
     // (egui's default id, under which eframe has kept the tree's place
     // from run to run; the Resources panel's list, drawn in the same place
     // of the Left Dock, has one of its own: `browser::ui`.)
@@ -1409,7 +1409,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
         // (Rows out of sight are not laid out: the widest drawn since the
         // filter changed keeps the width scrolled through, which then
         // doesn't change as rows go by.)
-        let widest = egui::Id::new("tree-widest");
+        let widest = egui::Id::unique("tree-widest");
         let drawn = ui.min_rect().right() - left;
         let width = ui.data_mut(|d| {
             let (kept_filter, w) = d.get_temp_mut_or_default::<(String, f32)>(widest);
@@ -1424,7 +1424,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
         ui.expand_to_include_x(left + width);
     });
     if filter.is_empty() {
-        ui.data_mut(|d| d.insert_temp(unfiltered, rows.state.offset.y));
+        ui.data_mut(|d| d.insert_temp(unfiltered, rows.state.clamped_offset().y));
     }
     // (Over the Areas group's well, its own: `areas_well`.)
     let well = ui.data(|d| d.get_temp::<egui::Rect>(well_rect));
@@ -1491,7 +1491,7 @@ struct WellFoot {
 
 /// Where [`WellFoot`] is kept for the frame.
 fn well_foot() -> egui::Id {
-    egui::Id::new("tree-well-foot")
+    egui::Id::unique("tree-well-foot")
 }
 
 /// The Areas group's menu's Areas Group Height: fitted, as high as its
@@ -1539,7 +1539,7 @@ fn well_handle(app: &mut Moonglow, ui: &mut Ui, foot: WellFoot, view: egui::Rect
     let height = app.settings.areas_height;
     let least = WELL_LEAST_ROWS * row;
     let given = height != AreasHeight::Fit && foot.content > foot.auto + 0.5;
-    let id = egui::Id::new("tree-well-handle");
+    let id = egui::Id::unique("tree-well-handle");
     // (Held, kept whatever the well becomes and wherever its foot goes:
     // dragged as high as its rows, or below the tree's view, it is let go
     // of here, where it opens out.)
@@ -1558,7 +1558,7 @@ fn well_handle(app: &mut Moonglow, ui: &mut Ui, foot: WellFoot, view: egui::Rect
     // (A press and a drag alone, never the keyboard's Tab: the docks'
     // seams'.)
     let r = ui.interact(grip, id, egui::Sense::CLICK | egui::Sense::DRAG);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, WELL_HANDLE));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, WELL_HANDLE));
     let lit = r.hovered() || r.dragged();
     if lit {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
@@ -1670,7 +1670,7 @@ fn areas_well<R>(
     // the well spans the pane as the board draws it.)
     let at = egui::pos2(clip.left(), ui.cursor().top());
     let room = egui::Rect::from_min_size(at, egui::vec2(clip.width(), height));
-    let target_id = egui::Id::new("tree-well-target");
+    let target_id = egui::Id::unique("tree-well-target");
     ui.data_mut(|d| {
         d.insert_temp(well_view(), Some(room));
         d.remove_temp::<WellTarget>(target_id);
@@ -1694,9 +1694,9 @@ fn areas_well<R>(
     // scroll area scrolls), to its middle or only as far as it shows it;
     // and the well into the tree's view.
     let target = ui.data_mut(|d| d.remove_temp::<WellTarget>(target_id));
-    let offset_was = out.state.offset.y;
+    let offset_was = out.state.clamped_offset().y;
     if let Some(WellTarget { rows, center, .. }) = target {
-        let (now, tall) = (out.state.offset.y, view.height());
+        let (now, tall) = (out.state.clamped_offset().y, view.height());
         let most = (out.content_size.y - tall).max(0.0);
         let (from, to) = rows.map_or((now, now), |r| (r.min - top, r.max - top));
         let offset = if rows.is_none() {
@@ -1712,7 +1712,8 @@ fn areas_well<R>(
         };
         let offset = offset.clamp(0.0, most);
         if (offset - now).abs() > 0.1 {
-            out.state.offset.y = offset;
+            let x = out.state.clamped_offset().x;
+            crate::widgets::set_scroll_offset(&mut out.state, egui::vec2(x, offset));
             out.state.store(ui.ctx(), out.id);
             ui.ctx().request_repaint();
         }
@@ -1722,7 +1723,7 @@ fn areas_well<R>(
     // takes a row's so too.)
     ui.allocate_space(egui::vec2(1.0, rect.height()));
     ui.data_mut(|d| {
-        d.insert_temp(egui::Id::new("tree-well-rect"), rect);
+        d.insert_temp(egui::Id::unique("tree-well-rect"), rect);
         let content = out.content_size.y;
         let scrolls = content > view.height() + 0.5;
         let kept = WellFoot {
@@ -1742,7 +1743,7 @@ fn areas_well<R>(
         if rect.height() <= tree.height() {
             ui.scroll_to_rect(rect, None);
         } else {
-            let moved = out.state.offset.y - offset_was;
+            let moved = out.state.clamped_offset().y - offset_was;
             let at = egui::Rangef::new(target.at.min - moved, target.at.max - moved);
             let x = tree.center().x;
             let to = egui::Rect::from_x_y_ranges(x..=x, at);
@@ -2321,7 +2322,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // together, its making undone): at the row that takes its place, as for
     // a placed object deleted (`past_deleted`), by the rows its group
     // listed the frame before, which held it.
-    let before_id = egui::Id::new("tree-rows-before");
+    let before_id = egui::Id::unique("tree-rows-before");
     let before = ui.data(|d| d.get_temp::<RowsBefore>(before_id));
     let gone = match app.tree_cursor {
         Some(TreeAt::Resource(k)) => Some(k),
@@ -2449,19 +2450,19 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         egui::Sense::click()
                     };
                     // An area opens out to what is placed in it.
-                    let opened = egui::Id::new(("tree-area-open", k.resref));
+                    let opened = egui::Id::unique(("tree-area-open", k.resref));
                     let is_area = k.restype == ResType::ARE;
                     let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
                     // (Shown opened out while the Filter finds what is
                     // placed in it, until it is closed: then closed until
                     // what is typed changes. It was held open, a click on
                     // its arrow undone the next frame, a builder's report.)
-                    let closed_for = egui::Id::new(("tree-area-filter-closed", k.resref));
+                    let closed_for = egui::Id::unique(("tree-area-filter-closed", k.resref));
                     let by_filter = is_area
                         && !filter.is_empty()
                         && holds(&k)
                         && ui.data(|d| {
-                            let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                            let now = d.get_temp::<u64>(egui::Id::unique("tree-filter-changes"));
                             d.get_temp::<Option<u64>>(closed_for) != Some(now)
                         });
                     out |= by_filter;
@@ -2473,7 +2474,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             if open {
                                 d.remove_temp::<Option<u64>>(closed_for);
                             } else {
-                                let now = d.get_temp::<u64>(egui::Id::new("tree-filter-changes"));
+                                let now = d.get_temp::<u64>(egui::Id::unique("tree-filter-changes"));
                                 d.insert_temp(closed_for, now);
                             }
                         });
@@ -2576,7 +2577,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     // are cut then. The unlisted mark measured this frame;
                     // the claims mark, which claims.rs draws, as wide as
                     // it was the frame before.)
-                    let marks_id = egui::Id::new(("tree-area-marks", k.resref));
+                    let marks_id = egui::Id::unique(("tree-area-marks", k.resref));
                     let is_unlisted = is_area && unlisted.contains(&k.resref);
                     if is_area {
                         let claims = ui.data(|d| d.get_temp::<f32>(marks_id)).unwrap_or(0.0);
@@ -3128,7 +3129,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         let tags = app.settings.tree_tags;
         let text = |at: TreeAt| row_text(at, &named, &app.area_contents, tags);
         let seek_from = |from: Option<TreeAt>, typed: &str| seek(&shown, &outs, from, typed, &text);
-        let to = typed_row(ui, egui::Id::new("tree-typed"), app.tree_cursor, &seek_from);
+        let to = typed_row(ui, egui::Id::unique("tree-typed"), app.tree_cursor, &seek_from);
         if let Some(at) = to {
             app.tree_cursor = Some(at);
             app.tree_cursor_moved = true;

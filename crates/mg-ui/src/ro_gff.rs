@@ -351,7 +351,7 @@ pub(crate) fn ui(
             rows
         }
     };
-    let id = egui::Id::new(("read-only-gff", salt));
+    let id = egui::Id::unique(("read-only-gff", salt));
     let height = mg_uikit::metrics::ROW_HEIGHT;
     let mono = egui::TextStyle::Monospace.resolve(ui.style());
     let body = egui::TextStyle::Body.resolve(ui.style());
@@ -463,7 +463,7 @@ pub(crate) fn ui(
                 };
                 r.widget_info(|| {
                     let said = format!("{kind}, {}", whole());
-                    let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &name);
+                    let mut info = egui::WidgetInfo::labeled(egui::Role::Unknown, true, &name);
                     info.current_text_value = Some(said);
                     info
                 });

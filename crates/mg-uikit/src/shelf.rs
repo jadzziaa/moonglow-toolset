@@ -32,7 +32,7 @@
 //! # });
 //! ```
 
-use egui::{Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2};
+use egui::{Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo, pos2, vec2};
 
 use crate::icons::{ButtonState, Icon};
 use crate::metrics;
@@ -164,7 +164,7 @@ impl ToolShelf {
             pos2(left + metrics::TOOL_SHELF, ui.max_rect().bottom()),
         );
         let response =
-            ui.interact(rect, ui.id().with(("mg-uikit-shelf", &self.name)), Sense::hover());
+            ui.interact(rect, ui.scope_id().with(("mg-uikit-shelf", &self.name)), Sense::hover());
         ui.painter().rect_filled(rect, 0.0, t.bar);
         let x = rect.right() - 0.5;
         ui.painter().vline(x, rect.y_range(), Stroke::new(1.0, t.line));
@@ -262,7 +262,7 @@ fn tool_ui(ui: &mut Ui, tool: &Tool) -> Response {
     let sense = if tool.enabled { Sense::click() } else { Sense::hover() };
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(metrics::TOOL_BUTTON), sense);
     let enabled = tool.enabled && ui.is_enabled();
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, tool.on, &tool.name));
+    response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, tool.on, &tool.name));
     if ui.is_rect_visible(rect) {
         let t = ui.tokens();
         let state = tool.drawn_as.unwrap_or_else(|| match enabled {

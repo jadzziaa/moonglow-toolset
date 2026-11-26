@@ -214,7 +214,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
         // (Ctrl and Shift select several, to drag, copy or cut together.)
-        let chosen_id = egui::Id::new(("item-rows-selected", key, path.to_string()));
+        let chosen_id = egui::Id::unique(("item-rows-selected", key, path.to_string()));
         let selected = inventory::selected_rows(ui, chosen_id, items.len());
         // What the store sells each for and buys it for: its cost at the
         // store's mark up and mark down, as Aurora shows them (a buyer's
@@ -274,7 +274,7 @@ pub(crate) fn price(cost: u32, percent: u64) -> u64 {
 
 /// The base items a store can list (those with a store panel), by name.
 fn base_items(f: &Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
-    super::kept_for_key(ctx, egui::Id::new("store-base-items"), &f.app.game_names(), || {
+    super::kept_for_key(ctx, egui::Id::unique("store-base-items"), &f.app.game_names(), || {
         let Some(game) = f.app.game.as_deref() else { return Default::default() };
         let Ok(table) = game.table("baseitems") else { return Default::default() };
         let named = f.choices("baseitems", Some("Name"), Some("label"));

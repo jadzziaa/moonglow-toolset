@@ -644,7 +644,7 @@ impl Loader<'_> {
 
 /// Where [`Moonglow::portraits_now`]'s count is kept.
 fn portraits_asked_id() -> egui::Id {
-    egui::Id::new("portrait-cells-asked")
+    egui::Id::unique("portrait-cells-asked")
 }
 
 /// Draws an icon's layers over each other, `scale` times their size (the
@@ -661,7 +661,7 @@ pub(crate) fn stacked(
     for p in layers {
         ui.painter().image(p.texture.id(), rect, uv, egui::Color32::WHITE);
     }
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, alt));
     response
 }
 
@@ -682,7 +682,7 @@ pub(crate) fn stacked_drawn(
     for p in layers {
         ui.painter().image(p.texture.id(), rect, uv, egui::Color32::WHITE);
     }
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, alt));
     response
 }
 
@@ -694,7 +694,7 @@ pub(crate) fn cropped(ui: &mut egui::Ui, p: &Picture, most: f32, alt: &str) -> e
     let size = size * (most / size.max_elem().max(1.0)).min(1.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     ui.painter().image(p.texture.id(), rect, p.drawn, egui::Color32::WHITE);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, alt));
     response
 }
 
@@ -758,7 +758,7 @@ pub(crate) fn icon_box(
     for p in layers {
         ui.painter().image(p.texture.id(), at, uv, egui::Color32::WHITE);
     }
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, alt));
     response
 }
 

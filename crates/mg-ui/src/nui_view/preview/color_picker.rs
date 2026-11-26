@@ -51,7 +51,7 @@ fn picker(
         );
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
-                egui::WidgetType::Slider,
+                egui::Role::Slider,
                 interactive,
                 format!("Color picker {name}"),
             )
@@ -130,7 +130,7 @@ impl Renderer<'_> {
             c.changed = Some(Some(json!({"r":r,"g":g,"b":b,"a":255})));
             c.normalization = true;
         }
-        let id = ui.id().with(("nui-color", source_path, row));
+        let id = ui.scope_id().with(("nui-color", source_path, row));
         if let Some(value) = picker(ui, c, color, id, a.font_height(font)) {
             c.changed = Some(Some(value));
         }

@@ -812,6 +812,7 @@ fn a_tall_creature_fills_the_preview_and_a_zoom_is_kept() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 120.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -1081,6 +1082,7 @@ fn a_wide_placeable_is_whole_in_a_tall_preview() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 240.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -1234,7 +1236,7 @@ fn a_floating_form_s_preview_pane_edge_is_dragged() {
 
 /// The Right Dock's edge seam's id (`shell::right_edge_seam`).
 fn right_edge_seam() -> egui::Id {
-    egui::Id::new("right-dock-edge").with("seam")
+    egui::Id::unique("right-dock-edge").with("seam")
 }
 
 /// The edge seams made last frame (`shell::edge_seam`'s: a drag
@@ -1248,7 +1250,7 @@ fn edge_seams(h: &Harness<'_, Moonglow>) -> Vec<(egui::Id, egui::Rect)> {
             .filter(|w| w.rect.width() <= 8.0 && w.rect.height() > 40.0)
             // (Not a window's own edges, egui's `Window` resize.)
             .filter(|w| {
-                let edges = egui::Id::new(w.layer_id).with("edge_drag");
+                let edges = egui::Id::unique(w.layer_id).with("edge_drag");
                 !["left", "right"].iter().any(|side| w.id == edges.with(side))
             })
             .map(|w| (w.id, w.rect))
@@ -1360,10 +1362,10 @@ fn tab_passes_the_right_dock_s_seams() {
     let Some((mut h, area)) = wide_harness("preview-seams-tab", &[("w8_table", 732)]) else {
         return;
     };
-    let mut seams = vec![right_edge_seam(), egui::Id::new("right-dock-column-seam")];
+    let mut seams = vec![right_edge_seam(), egui::Id::unique("right-dock-column-seam")];
     for c in 0..2 {
         for i in 0..4 {
-            seams.push(egui::Id::new((format!("right-dock-column-{c}").as_str(), "seam", i)));
+            seams.push(egui::Id::unique((format!("right-dock-column-{c}").as_str(), "seam", i)));
         }
     }
     for (size, kinds) in [((1600.0, 1000.0), "sections"), ((3440.0, 1440.0), "columns")] {

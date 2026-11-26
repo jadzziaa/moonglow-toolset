@@ -272,13 +272,11 @@ impl StepList {
         painter.galley(at, heading, t.text_3);
         let named = ui.interact(
             Rect::from_min_size(pos2(rect.left(), y), vec2(STEP_LIST_WIDTH, STEP_HEADING_LINE)),
-            ui.id().with(("mg-step-heading", &self.heading)),
+            ui.scope_id().with(("mg-step-heading", &self.heading)),
             egui::Sense::hover(),
         );
         let heading_words = self.heading.clone();
-        named.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &heading_words)
-        });
+        named.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &heading_words));
         y += STEP_HEADING_LINE + STEP_HEADING_UNDER;
         let mut rows = Vec::with_capacity(self.steps.len());
         for (i, (name, state)) in self.steps.iter().enumerate() {
@@ -309,16 +307,11 @@ impl StepList {
                 egui::text::TextWrapping::truncate_at_width((row.right() - 6.0 - left).max(0.0));
             let galley = painter.layout_job(job);
             painter.galley(pos2(left, row.center().y - galley.size().y / 2.0), galley, words);
-            let r = ui.interact(row, ui.id().with(("mg-step", i)), egui::Sense::hover());
+            let r = ui.interact(row, ui.scope_id().with(("mg-step", i)), egui::Sense::hover());
             let (enabled, current) = (*state != StepState::Off, *state == StepState::Current);
             let named = format!("Step {}: {name}", i + 1);
             r.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
-                    enabled,
-                    current,
-                    &named,
-                )
+                egui::WidgetInfo::selected(egui::Role::Button, enabled, current, &named)
             });
             rows.push(row);
             y += metrics::ROW_HEIGHT;
@@ -357,8 +350,8 @@ pub fn page_bar(ui: &mut Ui, icon: Option<Icon>, title: &str) -> Response {
     );
     let galley = painter.layout_job(job);
     painter.galley(pos2(left, rect.center().y - galley.size().y / 2.0), galley, t.text);
-    let r = ui.interact(rect, ui.id().with(("mg-page-bar", title)), egui::Sense::hover());
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    let r = ui.interact(rect, ui.scope_id().with(("mg-page-bar", title)), egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, title));
     r
 }
 

@@ -1059,8 +1059,9 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = &mut app.export_ask else { return };
     let mut answer = None;
     let always = ask.always;
-    let footed =
-        crate::widgets::modal(ctx, "Export").id(egui::Id::new("export-ask")).show_foot(ctx, |ui| {
+    let footed = crate::widgets::modal(ctx, "Export").id(egui::Id::unique("export-ask")).show_foot(
+        ctx,
+        |ui| {
             crate::widgets::fit_width(ui, 460.0);
             let name = ask.path.file_name().map_or_else(
                 || ask.path.display().to_string(),
@@ -1087,7 +1088,8 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .button("Overwrite", true)
                 .cancel();
             ((), foot)
-        });
+        },
+    );
     if let Some(f) = footed {
         ask.always = f.pressed.checked.unwrap_or(ask.always);
         if f.pressed.main() {
@@ -1263,7 +1265,7 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         Dropped::NoModule => "Open a module first: dropped files are imported into it".into(),
     };
     let painter =
-        ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drop-files")));
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("drop-files")));
     let room = ctx.content_rect();
     let visuals = ctx.global_style().visuals.clone();
     painter.rect_filled(room, 0.0, mg_uikit::tokens(ctx).overlay);
@@ -1347,7 +1349,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 crate::widgets::field_label(ui, "Filter");
                 let width = ui.spacing().text_edit_width;
                 let field = crate::widgets::SearchField::new(
-                    ui.id().with("transfer-filter-field"),
+                    ui.scope_id().with("transfer-filter-field"),
                     &mut draft.filter,
                 )
                 .width(width)
@@ -1534,7 +1536,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.colored_label(ui.visuals().warn_fg_color, format!("Careful: {w}."));
             }
             // (What is under the list: its height the frame before.)
-            let under_id = ui.id().with("import-under-list");
+            let under_id = ui.scope_id().with("import-under-list");
             let under_was: Option<f32> = ui.data(|d| d.get_temp(under_id));
             let mut under_from = None;
             let unsaved_set: Option<std::collections::HashSet<ResKey>> =

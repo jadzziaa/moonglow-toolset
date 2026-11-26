@@ -161,7 +161,7 @@ fn edit_srgba_with(
                         let chosen = Color32::from(hsva) == color;
                         let swatch = show_color_button(ui, color, chosen);
                         swatch.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+                            egui::WidgetInfo::labeled(egui::Role::Button, true, name)
                         });
                         if swatch.on_hover_text(name).clicked() {
                             hsva = Hsva::from(color);
@@ -281,7 +281,7 @@ pub fn edit_rgb(ui: &mut Ui, rgb: &mut [f32; 3]) -> Response {
 fn show_color_button(ui: &mut Ui, color: Color32, open: bool) -> Response {
     let size = ui.spacing().interact_size;
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-    response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ColorButton));
+    response.widget_info(|| egui::WidgetInfo::new(egui::Role::ColorWell));
     if ui.is_rect_visible(rect) {
         let t = mg_uikit::tokens(ui.ctx());
         let look = mg_uikit::SwatchLook {

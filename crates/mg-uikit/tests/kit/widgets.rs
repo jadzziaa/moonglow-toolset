@@ -142,7 +142,8 @@ fn a_text_field_is_as_high_as_a_control() {
         let height = std::cell::Cell::new(0.0);
         let mut h = Harness::new_ui(|ui| {
             mg_uikit::apply(ui.ctx(), theme);
-            height.set(ui.add(mg_uikit::text_field(&mut text)).rect.height());
+            let field = ui.add(mg_uikit::text_field(&mut text)).accessible_name("Name");
+            height.set(field.rect.height());
         });
         h.run();
         assert_eq!(height.get(), mg_uikit::metrics::CONTROL_HEIGHT, "{theme:?}");
@@ -420,7 +421,7 @@ fn a_focused_field_is_bordered_in_accent_and_lets_go_when_gone() {
         let mut h = Harness::new_ui(|ui| {
             mg_uikit::apply(ui.ctx(), theme);
             if shown.get() {
-                ui.add(mg_uikit::text_field(&mut text));
+                ui.add(mg_uikit::text_field(&mut text)).accessible_name("Tag");
             }
         });
         h.run();
@@ -658,7 +659,7 @@ fn a_segmented_control_moved_has_this_frame_s_rect() {
     let choices = [(Open::Tabs, "As Tabs", ""), (Open::Windows, "As Windows", "")];
     let at = Cell::new(egui::pos2(20.0, 20.0));
     let mut h = Harness::new_ui(|ui| {
-        egui::Area::new(egui::Id::new("moved")).fixed_pos(at.get()).show(ui.ctx(), |ui| {
+        egui::Area::new(egui::Id::unique("moved")).fixed_pos(at.get()).show(ui.ctx(), |ui| {
             let mut v = Open::Tabs;
             mg_uikit::segmented(ui, "Open", &mut v, &choices);
         });
@@ -694,7 +695,7 @@ fn a_focused_field_leaves_unrelated_on_fill_rects_alone() {
                 let inset_rect = RefCell::new(egui::Rect::NOTHING);
                 let mut h = Harness::new_ui(|ui| {
                     mg_uikit::apply(ui.ctx(), theme);
-                    ui.add(mg_uikit::text_field(&mut text));
+                    ui.add(mg_uikit::text_field(&mut text)).accessible_name("Tag");
                     let (p, _) =
                         ui.allocate_exact_size(egui::vec2(60.0, 20.0), egui::Sense::hover());
                     ui.painter().rect(

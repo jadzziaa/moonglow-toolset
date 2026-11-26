@@ -324,12 +324,12 @@ pub(crate) fn blueprint(
 /// Set by a page that equips items (a creature's inventory) before its
 /// picker is drawn: the rows' menu then offers Equip.
 pub(crate) fn can_equip_id() -> egui::Id {
-    egui::Id::new("item-picker-can-equip")
+    egui::Id::unique("item-picker-can-equip")
 }
 
 /// The item a picker row's Equip was chosen for, for the page to take.
 pub(crate) fn equip_asked_id() -> egui::Id {
-    egui::Id::new("item-picker-equip-asked")
+    egui::Id::unique("item-picker-equip-asked")
 }
 
 /// What a search finds in a palette: the blueprints, and the branches

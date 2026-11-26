@@ -384,7 +384,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     let field = egui::TextEdit::multiline(&mut p.description)
                         .desired_rows(3)
                         .desired_width(420.0);
-                    crate::widgets::text_area(ui, ui.id().with("nwsync-description"), field);
+                    crate::widgets::text_area(ui, ui.scope_id().with("nwsync-description"), field);
                 }
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Group ID");

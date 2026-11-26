@@ -284,7 +284,7 @@ pub(super) fn images(
         }
     }
     ui.collapsing("Choose image", |ui| {
-        let filter = ui.id().with("nui-image-filter");
+        let filter = ui.scope_id().with("nui-image-filter");
         let width = ui.spacing().text_edit_width;
         widgets::SearchField::new(filter, &mut state.asset_search)
             .hint("Find a picture…")

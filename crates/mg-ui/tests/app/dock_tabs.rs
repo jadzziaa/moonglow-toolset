@@ -1448,6 +1448,7 @@ fn least_window_lines(scale: u16) {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -11.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });

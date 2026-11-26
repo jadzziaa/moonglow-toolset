@@ -41,7 +41,7 @@
 
 use std::ops::Range;
 
-use egui::{Color32, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2};
+use egui::{Color32, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo, pos2, vec2};
 
 use crate::icons::{ButtonState, Icon};
 use crate::metrics;
@@ -80,8 +80,8 @@ pub struct PageRail {
 
 impl PageRail {
     /// A rail named "Pages", its scroll kept by `id_salt`.
-    pub fn new(id_salt: impl egui::AsId) -> Self {
-        PageRail { id: egui::Id::new(id_salt), name: PAGES.to_string(), pages: Vec::new() }
+    pub fn new(id_salt: impl egui::AsIdSalt) -> Self {
+        PageRail { id: egui::Id::unique(id_salt), name: PAGES.to_string(), pages: Vec::new() }
     }
 
     /// Named `name` for a screen reader (and tests) in place of "Pages".
@@ -168,8 +168,8 @@ impl PageRail {
             &child,
             inner,
             t.bar,
-            out.state.offset.y > 1.0,
-            out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
+            out.state.clamped_offset().y > 1.0,
+            out.state.clamped_offset().y + out.inner_rect.height() < out.content_size.y - 1.0,
         );
         // (Noted once it is in sight: until then each frame brings it in.)
         if in_sight {
@@ -303,8 +303,8 @@ pub struct PageList {
 
 impl PageList {
     /// A list named "Pages", its scroll kept by `id_salt`.
-    pub fn new(id_salt: impl egui::AsId) -> Self {
-        let id = egui::Id::new(id_salt);
+    pub fn new(id_salt: impl egui::AsIdSalt) -> Self {
+        let id = egui::Id::unique(id_salt);
         PageList {
             id,
             name: PAGES.to_string(),
@@ -406,8 +406,8 @@ impl PageList {
             &child,
             inner,
             t.panel,
-            out.state.offset.y > 1.0,
-            out.state.offset.y + out.inner_rect.height() < out.content_size.y - 1.0,
+            out.state.clamped_offset().y > 1.0,
+            out.state.clamped_offset().y + out.inner_rect.height() < out.content_size.y - 1.0,
         );
         if brought {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
@@ -423,7 +423,7 @@ fn list_row_ui(ui: &mut Ui, icon: Icon, name: &str, on: bool, marked: bool) -> R
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, PAGE_ROW), Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, name));
+    response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, on, name));
     if ui.is_rect_visible(rect) {
         let t = ui.tokens();
         let hovered = enabled && (response.hovered() || response.is_pointer_button_down_on());
@@ -671,9 +671,9 @@ pub struct PageScroll {
 impl PageScroll {
     /// A scroll of pages, kept by `id_salt` (the [`PageList`] beside it
     /// reads it by the same: [`PageScroll::seen`]).
-    pub fn new(id_salt: impl egui::AsId) -> Self {
+    pub fn new(id_salt: impl egui::AsIdSalt) -> Self {
         PageScroll {
-            id: egui::Id::new(id_salt),
+            id: egui::Id::unique(id_salt),
             pages: Vec::new(),
             sideways: false,
             bring: false,
@@ -763,8 +763,8 @@ impl PageScroll {
 
     /// What the scroll kept by `id_salt` showed last: the page at the top
     /// and the pages in view (`None` before it is first drawn).
-    pub fn seen(ctx: &egui::Context, id_salt: impl egui::AsId) -> Option<Seen> {
-        let id = egui::Id::new(id_salt).with("mg-uikit-page-scroll");
+    pub fn seen(ctx: &egui::Context, id_salt: impl egui::AsIdSalt) -> Option<Seen> {
+        let id = egui::Id::unique(id_salt).with("mg-uikit-page-scroll");
         ctx.data(|d| d.get_temp::<Kept>(id)).filter(|k| k.reported.is_some()).map(|k| k.seen)
     }
 
@@ -814,7 +814,8 @@ impl PageScroll {
         // a target go on. egui's is kept by the scroll's id under the
         // `Ui` it is in: a window dragged out has another, at the top.)
         let scroll_id = ui.make_persistent_id(scroll_id_salt);
-        let now = egui::scroll_area::State::load(ui.ctx(), scroll_id).map(|s| s.offset.y);
+        let now =
+            egui::scroll_area::State::load(ui.ctx(), scroll_id).map(|s| s.unclamped_offset().y);
         if now.is_none_or(|o| (o - start).abs() > 0.5) {
             area = area.vertical_scroll_offset(start);
         }
@@ -882,7 +883,7 @@ impl PageScroll {
                         // it: its widgets' ids, the keyboard's and what is
                         // typed with them, stay as pages come into sight
                         // and go.)
-                        .id(self.id.with(("mg-uikit-page", i)))
+                        .scope_id(self.id.with(("mg-uikit-page", i)))
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
                 let name = &self.pages[i].1;
@@ -941,7 +942,7 @@ impl PageScroll {
         // to the page it was on where the page it comes to is not measured
         // yet (its height a guess: its height found when it is drawn moves
         // nothing in view).
-        let into_now = into + (out.state.offset.y - start);
+        let into_now = into + (out.state.unclamped_offset().y - start);
         let held_top = top_of(&heights, anchor);
         let at = (held_top + into_now).max(0.0);
         let page_at = |at: f32| {
@@ -1036,7 +1037,8 @@ impl PageScroll {
         let mut area =
             egui::ScrollArea::vertical().id_salt(scroll_id_salt).auto_shrink([false, false]);
         let scroll_id = ui.make_persistent_id(scroll_id_salt);
-        let now = egui::scroll_area::State::load(ui.ctx(), scroll_id).map(|s| s.offset.y);
+        let now =
+            egui::scroll_area::State::load(ui.ctx(), scroll_id).map(|s| s.unclamped_offset().y);
         if now.is_none_or(|o| (o - start).abs() > 0.5) {
             area = area.vertical_scroll_offset(start);
         }
@@ -1103,7 +1105,7 @@ impl PageScroll {
                 let mut child = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(rect)
-                        .id(self.id.with(("mg-uikit-page", i)))
+                        .scope_id(self.id.with(("mg-uikit-page", i)))
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
                 child.set_max_width(column_w);
@@ -1193,7 +1195,7 @@ impl PageScroll {
         // (Where egui left it, as a place in the page held: by the heights
         // now measured, a page above it grown, it stays where it was in
         // view.)
-        let into_now = into + (out.state.offset.y - start);
+        let into_now = into + (out.state.unclamped_offset().y - start);
         let at = (layout.tops[anchor] + into_now).max(0.0);
         // (The page held while its bar is in view: brought there, or as
         // the wheel goes; else the first page whose bar is in view; else
@@ -1375,7 +1377,7 @@ fn keyboard_page(
 fn page_ui(ui: &mut Ui, icon: Icon, name: &str, on: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(PAGE_BUTTON), Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, name));
+    response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, on, name));
     if ui.is_rect_visible(rect) {
         let t = ui.tokens();
         let state = if enabled { ButtonState::of(&response) } else { ButtonState::Rest };
@@ -1529,7 +1531,7 @@ mod tests {
                     let _ = ui.button("Header");
                 });
                 room.min.y += 30.0;
-                egui::Area::new(egui::Id::new("floating"))
+                egui::Area::new(egui::Id::unique("floating"))
                     .order(egui::Order::Foreground)
                     .fixed_pos(pos2(450.0, room.top() + 60.0))
                     .show(ui.ctx(), |ui| {
@@ -1556,11 +1558,11 @@ mod tests {
             scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
                 ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
                 let mut text = String::new();
-                let id = egui::Id::new(("field", i));
+                let id = egui::Id::unique(("field", i));
                 ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
                 let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
                 ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(WidgetType::TextEdit, true, format!("field {i}"))
+                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
                 });
                 ui.data_mut(|d| d.insert_temp(id, text));
                 let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0;
@@ -1637,6 +1639,7 @@ mod tests {
         h.hover_at(pos2(400.0, 150.0));
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: vec2(0.0, 60.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
@@ -1701,6 +1704,7 @@ mod tests {
         for _ in 0..6 {
             h.event(egui::Event::MouseWheel {
                 unit: egui::MouseWheelUnit::Point,
+                source: egui::MouseWheelSource::Unknown,
                 delta: vec2(0.0, -300.0),
                 phase: egui::TouchPhase::Move,
                 modifiers: egui::Modifiers::NONE,
@@ -1754,6 +1758,7 @@ mod tests {
         h.hover_at(pos2(400.0, 150.0));
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: vec2(0.0, -120.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
@@ -1827,6 +1832,7 @@ mod tests {
         h.hover_at(pos2(400.0, 150.0));
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: vec2(0.0, 100.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
@@ -1891,6 +1897,7 @@ mod tests {
             h.hover_at(pos2(400.0, 150.0));
             h.event(egui::Event::MouseWheel {
                 unit: egui::MouseWheelUnit::Point,
+                source: egui::MouseWheelSource::Unknown,
                 delta: vec2(0.0, 100.0),
                 phase: egui::TouchPhase::Move,
                 modifiers: egui::Modifiers::NONE,
@@ -1969,11 +1976,11 @@ mod tests {
             scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
                 ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
                 let mut text = String::new();
-                let id = egui::Id::new(("cols-field", i));
+                let id = egui::Id::unique(("cols-field", i));
                 ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
                 let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
                 ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(WidgetType::TextEdit, true, format!("field {i}"))
+                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
                 });
                 ui.data_mut(|d| d.insert_temp(id, text));
                 let rest = match heights[i] < 0.0 {
@@ -2108,6 +2115,7 @@ mod tests {
         h.hover_at(pos2(400.0, 150.0));
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: vec2(0.0, 50.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
@@ -2164,11 +2172,11 @@ mod tests {
             scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
                 ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
                 let mut text = String::new();
-                let id = egui::Id::new(("cols-field", i));
+                let id = egui::Id::unique(("cols-field", i));
                 ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
                 let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
                 ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(WidgetType::TextEdit, true, format!("field {i}"))
+                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
                 });
                 ui.data_mut(|d| d.insert_temp(id, text));
                 // (A page that fills its room: no last field, the rest of
@@ -2182,10 +2190,10 @@ mod tests {
                 ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
                 // A last field at the page's foot.
                 let mut t2 = String::new();
-                let id2 = egui::Id::new(("cols-last", i));
+                let id2 = egui::Id::unique(("cols-last", i));
                 ui.data_mut(|d| t2 = d.get_temp::<String>(id2).unwrap_or_default());
                 ui.add(egui::TextEdit::singleline(&mut t2).id(id2.with("edit"))).widget_info(
-                    || WidgetInfo::labeled(WidgetType::TextEdit, true, format!("last {i}")),
+                    || WidgetInfo::labeled(Role::TextInput, true, format!("last {i}")),
                 );
                 ui.data_mut(|d| d.insert_temp(id2, t2));
             });
@@ -2213,6 +2221,7 @@ mod tests {
         h.hover_at(pos2(400.0, 150.0));
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: vec2(0.0, dy),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,

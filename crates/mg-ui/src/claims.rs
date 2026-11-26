@@ -820,7 +820,7 @@ pub(crate) fn table_body(app: &mut Moonglow, ui: &mut egui::Ui) {
     let font = egui::TextStyle::Button.resolve(ui.style());
     let pad_x = ui.spacing().button_padding.x;
     let width_key = (font.size.to_bits(), pad_x.to_bits());
-    let width_id = egui::Id::new("claims-actions-width");
+    let width_id = egui::Id::unique("claims-actions-width");
     let actions = ui
         .data(|d| d.get_temp::<(u32, u32, f32)>(width_id))
         .filter(|(fs, px, _)| (*fs, *px) == width_key)
@@ -837,7 +837,7 @@ pub(crate) fn table_body(app: &mut Moonglow, ui: &mut egui::Ui) {
         });
     let (cols, folded) = crate::dock_reports::claim_columns(ui.available_width(), actions);
     let spec = crate::report_table::Spec {
-        id: egui::Id::new("claims-table"),
+        id: egui::Id::unique("claims-table"),
         name: crate::dock_reports::CLAIM_ROWS,
         cols: &cols,
         keys: crate::palette_view::Keys::ClaimsTable,

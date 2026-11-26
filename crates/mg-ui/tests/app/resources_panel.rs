@@ -526,6 +526,7 @@ fn wheel(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, by: f32, place: &Place) 
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -by),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     still(h, place);
@@ -726,7 +727,7 @@ fn the_left_dock_s_tabs_show_their_words_at_its_first_width() {
 /// The Left Dock's right edge: its panel's, as egui keeps it under the
 /// panel's id (`"tree"`).
 fn dock_right(h: &Harness<'_, Moonglow>) -> f32 {
-    let id = egui::Id::new("tree");
+    let id = egui::Id::unique("tree");
     let state = h.ctx.data_mut(|d| d.get_persisted::<egui::containers::panel::PanelState>(id));
     state.expect("the dock drawn").outer_rect.right()
 }

@@ -34,7 +34,7 @@ struct LabelWidthCache {
 fn label_width(ui: &Ui, label: &str) -> f32 {
     let font = egui::TextStyle::Body.resolve(ui.style());
     let stamp = metric_stamp(ui, &font);
-    let id = egui::Id::new("nui-form-label-widths");
+    let id = egui::Id::unique("nui-form-label-widths");
     if let Some(w) = ui.ctx().data_mut(|d| {
         let cache = d.get_temp_mut_or_insert_with(id, || LabelWidthCache {
             stamp,
@@ -181,7 +181,7 @@ pub(super) fn section(
             let r = ui.add(egui::Label::new(text).truncate().sense(egui::Sense::click()));
             let opened = state.is_open();
             r.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, title)
+                egui::WidgetInfo::labeled(egui::Role::DisclosureTriangle, true, title)
             });
             // (Its fold, said by a small chevron after its words.)
             let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
@@ -220,7 +220,7 @@ pub(super) fn bind_chip(ui: &mut Ui, name: &str) -> egui::Response {
         egui::vec2(2.0 * pad + icon + 4.0 + galley.size().x, mg_uikit::metrics::CONTROL_HEIGHT);
     let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
     let said = format!("Bound to {name}");
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
     if ui.is_rect_visible(rect) {
         let fill =
             if r.hovered() { t.accent.gamma_multiply(0.28) } else { t.accent.gamma_multiply(0.16) };
@@ -245,12 +245,12 @@ pub(super) fn bind_chip(ui: &mut Ui, name: &str) -> egui::Response {
 /// window) never take each other's.
 pub(super) fn chip_asked(ctx: &egui::Context) -> egui::Id {
     let owner = ctx.data(|d| d.get_temp::<ResKey>(chip_owner()));
-    egui::Id::new(("nui-bind-chip-asked", owner))
+    egui::Id::unique(("nui-bind-chip-asked", owner))
 }
 
 /// Where the designer whose Properties are being drawn is noted.
 pub(super) fn chip_owner() -> egui::Id {
-    egui::Id::new("nui-bind-chip-owner")
+    egui::Id::unique("nui-bind-chip-owner")
 }
 
 /// A button with the kit's drawn plus before its words (Add Property,

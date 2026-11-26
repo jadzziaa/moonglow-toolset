@@ -620,9 +620,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
                     n => format!("{n} warnings"),
                 };
                 let r = ui.colored_label(t.warn, what).on_hover_text(tip);
-                r.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, WARNINGS)
-                });
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, WARNINGS));
             });
         h = h.right(item);
     }
@@ -988,7 +986,7 @@ fn all_or_none_arrow(ui: &mut Ui, all: bool, none: bool, pick: &Cell<Option<bool
     let size = vec2(ARROW_WIDTH, metrics::CONTROL_HEIGHT);
     let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
     let enabled = ui.is_enabled();
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, ALL_OR_NONE));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, ALL_OR_NONE));
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&r));
     let fill = if r.hovered() || open { t.raised_hover } else { t.raised };
     let corners = egui::CornerRadius { nw: 0, sw: 0, ne: metrics::RADIUS, se: metrics::RADIUS };
@@ -1045,7 +1043,7 @@ fn warning_mark(ui: &mut Ui, words: &str, tip: &str) {
     let font = FontId::proportional(metrics::BODY_SIZE);
     let at = egui::pos2(square.right() + LEAD_GAP, y);
     ui.painter().text(at, egui::Align2::LEFT_CENTER, words, font, t.warn);
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, WARNINGS));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, WARNINGS));
     r.on_hover_text(tip);
 }
 

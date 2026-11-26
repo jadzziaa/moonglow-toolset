@@ -361,7 +361,7 @@ pub(crate) fn counted_as_used(app: &mut Moonglow, button: &egui::Response) {
     let mut draft = std::mem::take(&mut app.build_used);
     let mut change = None;
     egui::Popup::menu(button)
-        .id(egui::Id::new("build-counted-as-used"))
+        .id(egui::Id::unique("build-counted-as-used"))
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .width(380.0)
         .show(|ui| {

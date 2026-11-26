@@ -125,7 +125,7 @@ fn spell_categories_kept(
     load_order: u64,
     game: &GameData,
 ) -> Arc<Vec<(i32, String)>> {
-    super::kept_for_key(ctx, egui::Id::new("utc-spell-categories"), &load_order, || {
+    super::kept_for_key(ctx, egui::Id::unique("utc-spell-categories"), &load_order, || {
         Arc::new(spell_categories(game))
     })
 }
@@ -208,10 +208,13 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let total = targets.len();
     // Each feat any of them has, and how many have it (kept while the
     // targets are: merged each frame, 100 creatures' took 25 µs).
-    let merged =
-        super::kept_for(ui.ctx(), egui::Id::new(("utc-feats-merged", key)), &targets, &(), || {
-            Arc::new(lists::merged(&targets, "FeatList", lists::feat))
-        });
+    let merged = super::kept_for(
+        ui.ctx(),
+        egui::Id::unique(("utc-feats-merged", key)),
+        &targets,
+        &(),
+        || Arc::new(lists::merged(&targets, "FeatList", lists::feat)),
+    );
     let have: std::collections::HashMap<i64, usize> =
         merged.iter().map(|m| (m.key, m.having.len())).collect();
     let having = |row: usize| have.get(&(row as i64)).copied().unwrap_or(0);
@@ -419,7 +422,7 @@ fn class_spells(
     class: usize,
 ) -> Arc<Vec<(usize, String, usize)>> {
     let Ok(names) = game.choice_list("spells", SPELL_NAMES) else { return Arc::default() };
-    super::kept_for(ctx, egui::Id::new("class-spells"), &names, &class, || {
+    super::kept_for(ctx, egui::Id::unique("class-spells"), &names, &class, || {
         Arc::new(class_spells_of(game, &names, class))
     })
 }
@@ -1054,7 +1057,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     // then the others', with how many have each.
     // (Kept while the targets and the load order are: read each frame,
     // 100 creatures' classes took 35 µs.)
-    let id = egui::Id::new(("utc-caster-classes", key));
+    let id = egui::Id::unique(("utc-caster-classes", key));
     let load_order = f.app.load_order;
     let caster_classes = super::kept_for(ui.ctx(), id, &targets, &load_order, || {
         let mut caster_classes: Vec<(i64, usize)> = Vec::new();
@@ -1855,7 +1858,7 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
                     }
                     let width = ui.available_width();
                     // (An item worn off: a warning before its name.)
-                    let mark = ui.next_auto_id().with("worn-off");
+                    let mark = egui::IdSalt::new("worn-off");
                     let mut atoms = egui::Atoms::default();
                     if warned {
                         let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
@@ -2191,7 +2194,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let mut edits: Vec<(&str, Edit)> = Vec::new();
     // The items selected (Aurora selects one; here Ctrl and Shift add
     // more, to set their options together).
-    let item_id = egui::Id::new(("utc-selected-items", key, base.clone()));
+    let item_id = egui::Id::unique(("utc-selected-items", key, base.clone()));
     let lens = (equipped.len(), backpack.len());
     let mut selected: Selected =
         ui.data(|d| d.get_temp(item_id)).filter(|s: &Selected| s.lens == lens).unwrap_or_default();
@@ -2255,7 +2258,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
         ui.separator();
-        super::side_panel(ui, egui::Id::new(("utc-inventory", key)), |ui| {
+        super::side_panel(ui, egui::Id::unique(("utc-inventory", key)), |ui| {
             {
                 crate::widgets::section_heading(ui, "Equipment");
                 let icons: Vec<_> =
@@ -2611,7 +2614,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // An item that needs a feat the creature lacks: Aurora asks whether to
     // add the first (and does not equip it otherwise; one moved stays where
     // it was).
-    let ask = egui::Id::new(("utc-equip-feat", key, base.clone()));
+    let ask = egui::Id::unique(("utc-equip-feat", key, base.clone()));
     if let (Some(mut bit), Some(r)) = (equip, chosen) {
         let whole = moving.as_ref().map(|m| &m.item).filter(|s| inventory::is_whole(s));
         // A weapon dropped on the secondary weapon slot while the primary

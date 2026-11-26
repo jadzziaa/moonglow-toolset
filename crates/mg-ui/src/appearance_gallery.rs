@@ -316,7 +316,7 @@ impl Rows {
     /// Where row `row` is among those found, kept for the list found and
     /// the row (a walk of 17,100 creatures a frame, before).
     fn place(&self, ctx: &egui::Context, row: Option<i64>) -> Option<usize> {
-        let id = egui::Id::new("appearance-gallery-place");
+        let id = egui::Id::unique("appearance-gallery-place");
         crate::blueprint::kept_for(ctx, id, &self.found, &row, || {
             let row = row?;
             (0..self.found.len()).find(|&i| self.row(i).row as i64 == row)
@@ -483,7 +483,7 @@ fn grid(
 
 /// The grid's id for `kind` (its keys' cursor kept under it).
 fn grid_id(kind: Kind) -> egui::Id {
-    egui::Id::new(("appearance-gallery", kind))
+    egui::Id::unique(("appearance-gallery", kind))
 }
 
 /// The objects a gallery gives appearances to: their document, their
@@ -504,7 +504,7 @@ fn dressed_kept(
     at: (ResKey, GffPath),
     of: &mg_gff::Struct,
 ) -> u64 {
-    let id = egui::Id::new("appearance-gallery-dressed");
+    let id = egui::Id::unique("appearance-gallery-dressed");
     let key = (at, revision);
     type Kept = (((ResKey, GffPath), Option<u64>), u64);
     let kept: Option<Kept> = ctx.data(|d| d.get_temp(id));
@@ -558,7 +558,7 @@ fn header(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut Gallery, count: &st
     let font = egui::TextStyle::Body.resolve(ui.style());
     let ppp = ui.ctx().pixels_per_point().to_bits();
     let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
-    let sw_id = egui::Id::new("appearance-gallery-switch-width");
+    let sw_id = egui::Id::unique("appearance-gallery-switch-width");
     let sw_key = (font.size.to_bits(), pad.to_bits(), ppp);
     let switch_width = ui
         .data(|d| d.get_temp::<((u32, u32, u32), f32)>(sw_id))
@@ -591,7 +591,7 @@ fn header(app: &mut Moonglow, ui: &mut egui::Ui, state: &mut Gallery, count: &st
     let find = |ui: &mut egui::Ui| {
         let mut text = filter.borrow_mut();
         let left =
-            crate::widgets::SearchField::new(egui::Id::new("gallery-filter-field"), &mut text)
+            crate::widgets::SearchField::new(egui::Id::unique("gallery-filter-field"), &mut text)
                 .name("Find")
                 .hint("Find")
                 .width(FIND_WIDTH)
@@ -1003,7 +1003,7 @@ pub(crate) fn facts(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
     // (Read once for the row and the table as the game data keeps it:
     // its name was looked for through every choice each frame.)
     let Some(list) = game.choice_list(kind.table().0, kind.table().1).ok() else { return };
-    let id = egui::Id::new("appearance-gallery-facts");
+    let id = egui::Id::unique("appearance-gallery-facts");
     let rows = crate::blueprint::kept_for(ui.ctx(), id, &list, &(kind, row), || {
         ui.ctx().data_mut(|d| *d.get_temp_mut_or_default::<usize>(facts_read_id()) += 1);
         facts_of(&game, kind, row, &list)
@@ -1049,7 +1049,7 @@ pub(crate) fn facts(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
 /// Where the count of the Appearance panel's reads is kept (the window's
 /// own, so other tests' windows don't add to it).
 fn facts_read_id() -> egui::Id {
-    egui::Id::new("appearance-gallery-facts-read")
+    egui::Id::unique("appearance-gallery-facts-read")
 }
 
 /// How many times the Appearance panel in `ctx`'s window has read a row's

@@ -203,7 +203,7 @@ pub(crate) fn has_keys(ctx: &egui::Context, keys: Keys) -> bool {
     if has && crate::widgets::popup_was_open(ctx) {
         return false;
     }
-    let left = egui::Id::new(FOCUS_LEFT);
+    let left = egui::Id::unique(FOCUS_LEFT);
     if !has {
         // (Its rows no longer have the keys: Tab goes as egui sends it.)
         let of = ctx.data(|d| d.get_temp::<Left>(left));
@@ -235,7 +235,7 @@ type Left = (Keys, egui::Id, bool);
 /// searched (egui lets a one-line field's focus go on Enter): Shift + Tab
 /// from the rows comes back to it, Tab goes on from it (M4's U28 review).
 pub(crate) fn rows_took_keys_from_field(ctx: &egui::Context, keys: Keys, id: egui::Id) {
-    ctx.data_mut(|d| d.insert_temp::<Left>(egui::Id::new(FOCUS_LEFT), (keys, id, true)));
+    ctx.data_mut(|d| d.insert_temp::<Left>(egui::Id::unique(FOCUS_LEFT), (keys, id, true)));
 }
 
 /// Tab or Shift + Tab while a table's rows hold the keys they took from
@@ -244,7 +244,7 @@ pub(crate) fn rows_took_keys_from_field(ctx: &egui::Context, keys: Keys, id: egu
 /// window's first or last control (M4's U28 review). Called before any
 /// control is drawn, as egui hands Tab on while widgets are laid out.
 pub(crate) fn tab_from_the_rows(ctx: &egui::Context) {
-    let left = egui::Id::new(FOCUS_LEFT);
+    let left = egui::Id::unique(FOCUS_LEFT);
     if ctx.memory(|m| m.focused()).is_some() {
         ctx.data_mut(|d| d.remove::<Left>(left));
         return;
@@ -403,7 +403,7 @@ fn show_in(
                 (true, true) => format!("{}, sorted down", col.name),
                 (false, _) => col.name.to_string(),
             };
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
             let r = r.on_hover_text(match on {
                 true => format!("Sort by {} the other way", col.name.to_lowercase()),
                 false => format!("Sort by {}", col.name.to_lowercase()),
@@ -483,8 +483,7 @@ fn show_in(
             let on = selected == Some(r);
             resp.widget_info(|| {
                 let (name, value) = words(r);
-                let mut info =
-                    egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, &name);
+                let mut info = egui::WidgetInfo::selected(egui::Role::Button, true, on, &name);
                 if !value.is_empty() {
                     info.current_text_value = Some(value);
                 }

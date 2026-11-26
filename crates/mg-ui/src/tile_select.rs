@@ -968,7 +968,7 @@ pub(crate) fn light_colors(app: &Moonglow) -> Vec<Color32> {
 
 fn cached_light_colors(app: &Moonglow, ui: &egui::Ui) -> std::sync::Arc<[Color32]> {
     let key = (app.game.is_some(), app.load_order);
-    let id = egui::Id::new("tile-light-colors-cache");
+    let id = egui::Id::unique("tile-light-colors-cache");
     if let Some((was, cached)) =
         ui.data(|d| d.get_temp::<((bool, u64), std::sync::Arc<[Color32]>)>(id))
         && was == key
@@ -982,7 +982,7 @@ fn cached_light_colors(app: &Moonglow, ui: &egui::Ui) -> std::sync::Arc<[Color32
 
 fn cached_replacetexture(app: &Moonglow, ui: &egui::Ui) -> std::sync::Arc<[mg_rules::Choice]> {
     let key = (app.game.is_some(), app.load_order);
-    let id = egui::Id::new("tile-replacetexture-cache");
+    let id = egui::Id::unique("tile-replacetexture-cache");
     if let Some((was, cached)) =
         ui.data(|d| d.get_temp::<((bool, u64), std::sync::Arc<[mg_rules::Choice]>)>(id))
         && was == key
@@ -1031,7 +1031,7 @@ fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> e
 
 /// A swatch's name, for the screen reader (and the tests).
 fn named(r: &egui::Response, name: &str, enabled: bool) {
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name));
 }
 
 /// The model of Tile Properties' first tile as it was last read, and its
@@ -1248,7 +1248,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                     size_slider(app, ui, side);
                 });
                 let room = ui.available_width() - 30.0;
-                let id = egui::Id::new(("tile-all-search", props.area));
+                let id = egui::Id::unique(("tile-all-search", props.area));
                 crate::widgets::SearchField::new(id, &mut props.find)
                     .hint(ALL_TILES_SEARCH)
                     .clear_tip("Show every tile")
@@ -1287,7 +1287,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                 });
                 // (The kit's small cells, as many across as the panel is
                 // wide, 6 apart.)
-                let id = egui::Id::new(("tile-variants", props.area));
+                let id = egui::Id::unique(("tile-variants", props.area));
                 if let Some(p) = variant_pictures(app, ui, id, variants, props.variant, side) {
                     picked = Some(p);
                 }
@@ -1479,7 +1479,7 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
         let row = mg_area::replacement_row(Some(i64::from(props.replace)), rows.len());
         let r = ui.add_enabled_ui(enabled, |ui| {
             let mut list = crate::widgets::row_choice(
-                egui::Id::new("tile_replace"),
+                egui::Id::unique("tile_replace"),
                 &rows,
                 row.map(|r| r as i64),
             )
@@ -1534,7 +1534,7 @@ fn cached_all_tiles(
     let tileset =
         app.area_views.get(&props.area).and_then(|v| v.terrain.as_ref().map(|t| t.tileset));
     let key = (tileset, app.load_order, props.find.clone(), props.turn, props.every.len());
-    let id = egui::Id::new("tile-all-tiles-cache");
+    let id = egui::Id::unique("tile-all-tiles-cache");
     if let Some((was, cached)) = ui.data(|d| {
         d.get_temp::<(
             (Option<ResRef>, u64, String, u8, usize),
@@ -1577,7 +1577,7 @@ fn all_tiles_pictures(
         .auto_shrink([false, false])
         .max_height(shown)
         .show(ui, |ui| {
-            let id = egui::Id::new(("tile-all-pictures", props.area));
+            let id = egui::Id::unique(("tile-all-pictures", props.area));
             variant_pictures(app, ui, id, list, props.variant, side)
         })
         .inner

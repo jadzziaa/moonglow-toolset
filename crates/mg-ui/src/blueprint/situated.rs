@@ -130,7 +130,7 @@ pub(crate) fn faction_names_kept(
     ctx: &egui::Context,
 ) -> std::sync::Arc<Vec<String>> {
     let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
-    crate::blueprint::kept_for_key(ctx, egui::Id::new("repute-faction-names"), &ws_key, || {
+    crate::blueprint::kept_for_key(ctx, egui::Id::unique("repute-faction-names"), &ws_key, || {
         let key = ResKey::parse("repute", ResType::FAC).expect("valid");
         let names: Vec<String> = match app.ws.as_mut().map(|ws| ws.doc(&key)) {
             Some(Ok(g)) => g
@@ -150,7 +150,7 @@ pub(crate) fn faction_names_kept(
 /// the standard factions every module starts with.
 pub(super) fn factions(f: &mut Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
     let names = faction_names_kept(f.app, ctx);
-    crate::blueprint::kept_for(ctx, egui::Id::new("object-factions"), &names, &(), || {
+    crate::blueprint::kept_for(ctx, egui::Id::unique("object-factions"), &names, &(), || {
         std::sync::Arc::new(object_factions(names.as_ref().clone()))
     })
 }
@@ -239,7 +239,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     // (The rows with a portrait's name, as a list's choices: made once
     // for the table, and kept. Every page with a portrait made a name for
     // every row each frame.)
-    let list = super::kept_for(ui.ctx(), egui::Id::new("portrait-rows"), &table, &(), || {
+    let list = super::kept_for(ui.ctx(), egui::Id::unique("portrait-rows"), &table, &(), || {
         let rows = (0..table.len()).filter_map(|row| Some(Choice { row, text: base(row)?.into() }));
         std::sync::Arc::new(rows.collect::<Vec<Choice>>())
     });
@@ -1004,7 +1004,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             if let Some(map) = shown.cloned() {
                 let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(side), egui::Sense::click());
                 r.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "The area's map")
+                    egui::WidgetInfo::labeled(egui::Role::Unknown, true, "The area's map")
                 });
                 // (In the middle of its square, a long area's.)
                 let placed = map.placed(rect.right_top(), side);

@@ -105,7 +105,7 @@ fn add_file(app: &mut Moonglow, path: &Path) -> Option<(ResKey, Edit)> {
 }
 
 fn asked() -> egui::Id {
-    egui::Id::new("nui-picture-from-disk")
+    egui::Id::unique("nui-picture-from-disk")
 }
 
 /// A picture field's **From disk…**: asks for the file (the editors have no
@@ -441,7 +441,7 @@ pub(super) fn page(
         names.hash(&mut h);
         h.finish()
     };
-    let unused_id = egui::Id::new("nui-images-unused");
+    let unused_id = egui::Id::unique("nui-images-unused");
     let unused_key = (ws.identity(), ws.revision(), names_hash);
     let unused: std::sync::Arc<BTreeSet<String>> = ui
         .data(|d| d.get_temp::<((u64, u64, u64), std::sync::Arc<BTreeSet<String>>)>(unused_id))

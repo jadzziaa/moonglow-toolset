@@ -207,7 +207,7 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((mut name, clip)) = app.prefab_save.take() else { return };
     let mut open = true;
     // (The prefabs kept, read from their folder as the window opens.)
-    let names = crate::area_tools::kept_while_shown(ctx, egui::Id::new("prefab-names"), || {
+    let names = crate::area_tools::kept_while_shown(ctx, egui::Id::unique("prefab-names"), || {
         std::sync::Arc::new(list(app.prefab_dir.as_deref()))
     });
     let footed = crate::widgets::dialog(ctx, "Save as Prefab", &mut open)

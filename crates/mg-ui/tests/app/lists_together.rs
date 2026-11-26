@@ -275,6 +275,7 @@ fn an_encounter_s_creature_is_added_to_those_that_lack_it() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(-600.0, 0.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);

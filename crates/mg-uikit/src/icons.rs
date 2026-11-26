@@ -7,7 +7,7 @@
 //! egui's painter at any size; [`icon`], [`icon_button`], [`icon_toggle`],
 //! [`icon_text_button`] and [`icon_text_toggle`] are the widgets.
 
-use egui::{Color32, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2, WidgetInfo, WidgetType};
+use egui::{Color32, Pos2, Rect, Response, Role, Sense, Shape, Stroke, Ui, Vec2, WidgetInfo};
 
 use crate::metrics;
 use crate::theme::TokensExt as _;
@@ -301,8 +301,8 @@ fn icon_button_ui(ui: &mut Ui, icon: Icon, tooltip: &str, on: Option<bool>) -> R
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| match on {
-        Some(on) => WidgetInfo::selected(WidgetType::Button, enabled, on, tooltip),
-        None => WidgetInfo::labeled(WidgetType::Button, enabled, tooltip),
+        Some(on) => WidgetInfo::selected(Role::Button, enabled, on, tooltip),
+        None => WidgetInfo::labeled(Role::Button, enabled, tooltip),
     });
     if ui.is_rect_visible(rect) {
         let tokens = ui.tokens();
@@ -333,7 +333,7 @@ pub fn icon_toggle(ui: &mut Ui, on: &mut bool, icon: Icon, tooltip: &str) -> Res
 }
 
 fn icon_text_button_ui(ui: &mut Ui, icon: Icon, text: &str, selected: Option<bool>) -> Response {
-    let id = ui.next_auto_id().with("mg-uikit-icon");
+    let id = egui::IdSalt::new("mg-uikit-icon");
     let side = Vec2::splat(metrics::ICON);
     let mut button = egui::Button::new((egui::Atom::custom(id, side), text));
     if let Some(selected) = selected {
@@ -729,7 +729,7 @@ impl egui::Widget for IconButton {
                 let size = Vec2::new(self.width(ui), height);
                 let (rect, response) = ui.allocate_exact_size(size, self.sense);
                 let enabled = ui.is_enabled();
-                response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &text));
+                response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, &text));
                 if ui.is_rect_visible(rect) {
                     let t = ui.tokens();
                     let state = ButtonState::of(&response);
@@ -769,8 +769,8 @@ impl egui::Widget for IconButton {
                 let (rect, response) = ui.allocate_exact_size(size, self.sense);
                 let enabled = ui.is_enabled();
                 response.widget_info(|| match self.selected {
-                    Some(on) => WidgetInfo::selected(WidgetType::Button, enabled, on, &text),
-                    None => WidgetInfo::labeled(WidgetType::Button, enabled, &text),
+                    Some(on) => WidgetInfo::selected(Role::Button, enabled, on, &text),
+                    None => WidgetInfo::labeled(Role::Button, enabled, &text),
                 });
                 if ui.is_rect_visible(rect) {
                     let tokens = ui.tokens();
@@ -827,7 +827,7 @@ impl egui::Widget for IconButton {
                 // (The mock's `.btn .ic { margin-left: -2px }`: the icon
                 // 2 px into the padding, 6 px from the button's edge, the
                 // words 6 px after it.)
-                let id = ui.next_auto_id().with("mg-uikit-icon");
+                let id = egui::IdSalt::new("mg-uikit-icon");
                 let room = Vec2::new(metrics::ICON - ICON_INSET, metrics::ICON);
                 let atoms: egui::Atoms<'static> =
                     (egui::Atom::custom(id, room), self.text.clone()).into_atoms();
@@ -877,8 +877,8 @@ fn submenu_row(ui: &mut Ui, button: IconButton) -> Response {
 /// egui's `SubMenuButton`, whose arrow is a font's glyph). Its
 /// accessible name is the words alone.
 pub fn submenu_button(ui: &mut Ui, button: IconButton) -> Response {
-    let chevron = ui.next_auto_id().with("mg-uikit-chevron");
-    let icon = ui.next_auto_id().with("mg-uikit-icon");
+    let chevron = egui::IdSalt::new("mg-uikit-chevron");
+    let icon = egui::IdSalt::new("mg-uikit-icon");
     let side = Vec2::splat(metrics::ICON);
     let mut atoms = egui::Atoms::default();
     let with_icon = button.label != Label::WordsOnly;
@@ -977,7 +977,7 @@ pub fn say_expanded(response: &Response, open: bool) {
 
 /// The id under which the icons painted are kept while they are recorded.
 fn recording_id() -> egui::Id {
-    egui::Id::new("mg-uikit-icons-drawn")
+    egui::Id::unique("mg-uikit-icons-drawn")
 }
 
 /// The icons painted in a pass, while recorded ([`record_icons`]).

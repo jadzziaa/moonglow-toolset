@@ -27,7 +27,7 @@
 //! # });
 //! ```
 
-use egui::{Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType};
+use egui::{Color32, Pos2, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo};
 
 use crate::icons::{ButtonState, Icon, paint_icon_button};
 use crate::metrics;
@@ -136,9 +136,9 @@ pub fn title_row_with(
     let live = !ui.is_sizing_pass();
     let enabled = ui.is_enabled();
     let button_at = |ui: &mut Ui, r: Rect, salt: &str, icon: Icon, name: &str, tip: &str| {
-        let id = ui.id().with((salt, title));
+        let id = ui.scope_id().with((salt, title));
         let response = ui.interact(r, id, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name));
+        response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, name));
         if ui.is_rect_visible(r) {
             paint_icon_button(ui.painter(), &t, r, icon, ButtonState::of(&response), false);
         }

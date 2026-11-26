@@ -1129,7 +1129,7 @@ fn import_files_says_which_editors_hold_unsaved_changes() {
     h.run_steps(3);
     h.event(egui::Event::Text("// typed\n".into()));
     h.run_steps(3);
-    h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new(("script", hello))));
+    h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::unique(("script", hello))));
     h.state_mut().actions.push(mg_ui::Action::ImportFilesDialog);
     settle(&mut h);
     assert_eq!(h.state().import.as_ref().unwrap().unsaved, [hello]);

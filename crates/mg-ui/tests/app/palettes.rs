@@ -820,6 +820,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(30);
@@ -829,6 +830,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 400.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(30);
@@ -893,6 +895,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers,
     });
     h.run_steps(20);
@@ -3036,6 +3039,7 @@ fn a_search_s_categories_out_of_sight_keep_their_room() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -step),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             settle(&mut h);

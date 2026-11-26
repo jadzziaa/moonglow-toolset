@@ -1413,7 +1413,7 @@ fn a_width_kept_by_an_earlier_run_is_the_left_dock_s() {
         h.state_mut().settings.dock_sizes_taken = false;
         let rect = egui::Rect::from_min_size(egui::pos2(8.0, 40.0), egui::vec2(430.0, 600.0));
         let state = egui::containers::panel::PanelState { outer_rect: rect };
-        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::unique("tree"), state));
         settle(&mut h);
         assert_eq!(h.state().settings.left_dock_width, Some(430), "at {window}");
         if window > 1000.0 {

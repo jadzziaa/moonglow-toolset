@@ -739,7 +739,7 @@ impl Moonglow {
 const RECOVER_WIDTH: f32 = 548.0;
 
 pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
-    let confirm_id = egui::Id::new("mg-recovery-confirm-discard");
+    let confirm_id = egui::Id::unique("mg-recovery-confirm-discard");
     if app.recoveries.is_empty() {
         ui.ctx().data_mut(|d| d.remove_temp::<PathBuf>(confirm_id));
         return;

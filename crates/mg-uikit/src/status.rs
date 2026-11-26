@@ -37,8 +37,8 @@
 use std::sync::Arc;
 
 use egui::{
-    Color32, FontId, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo,
-    WidgetType, pos2, vec2,
+    Color32, FontId, Painter, Pos2, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo,
+    pos2, vec2,
 };
 
 use crate::icons::{ButtonState, Icon};
@@ -256,7 +256,7 @@ impl egui::Widget for StatusSwitch {
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let enabled = ui.is_enabled();
         let on = self.on;
-        response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, &self.text));
+        response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, on, &self.text));
         if let Some(badge) = &self.badge {
             response.ctx.accesskit_node_builder(response.id, |node| node.set_value(badge.text()));
         }
@@ -702,8 +702,7 @@ impl MeasuredHints<'_> {
             for (i, hint) in self.hints[..shown].iter().enumerate() {
                 let size = vec2(self.widths[i], HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-                response
-                    .widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, hint.spoken()));
+                response.widget_info(|| WidgetInfo::labeled(Role::Label, true, hint.spoken()));
                 if ui.is_rect_visible(rect) {
                     hint.paint(ui, &t, rect.left(), rect.center().y, &self.parts[i].0);
                 }
@@ -719,8 +718,7 @@ impl MeasuredHints<'_> {
                 let galley = ui.painter().layout_job(job);
                 let size = vec2(galley.size().x, HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-                response
-                    .widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, note.spoken()));
+                response.widget_info(|| WidgetInfo::labeled(Role::Label, true, note.spoken()));
                 let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
                 ui.painter().galley(pos, galley, t.text_2);
                 response.on_hover_text(&note.word);
@@ -867,7 +865,7 @@ impl egui::Widget for StatusItem {
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
         response.widget_info(|| {
             let text = format!("{}{}", self.text, self.kept);
-            WidgetInfo::labeled(WidgetType::Label, true, text)
+            WidgetInfo::labeled(Role::Label, true, text)
         });
         if ui.is_rect_visible(rect) {
             let mut x = rect.left();
@@ -1004,7 +1002,7 @@ impl egui::Widget for StatusJob {
         let done = self.done;
         let name = self.name.clone().unwrap_or_else(|| self.text.clone());
         response.widget_info(|| {
-            let mut info = WidgetInfo::labeled(WidgetType::ProgressIndicator, true, &name);
+            let mut info = WidgetInfo::labeled(Role::ProgressIndicator, true, &name);
             info.value = done.map(f64::from);
             info
         });
@@ -1133,7 +1131,7 @@ impl egui::Widget for StatusLog {
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let enabled = ui.is_enabled();
         let name = self.name.clone().unwrap_or_else(|| self.line().to_owned());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &name));
+        response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, &name));
         if ui.is_rect_visible(rect) {
             let p = ui.painter();
             let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());

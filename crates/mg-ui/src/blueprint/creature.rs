@@ -621,7 +621,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
     crate::widgets::section_heading(ui, "Body Parts");
     let parts_choices: std::sync::Arc<Vec<Vec<mg_rules::Choice>>> = super::kept_for_key(
         ui.ctx(),
-        egui::Id::new(("utc-body-parts", prefix)),
+        egui::Id::unique(("utc-body-parts", prefix)),
         &f.app.load_order,
         || {
             let single = prefix[0] == prefix[1];
@@ -1095,7 +1095,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let rows = skills.iter().map(|s| s.row + 1).max().unwrap_or(0);
     let differ: std::sync::Arc<Vec<bool>> = super::kept_for(
         ui.ctx(),
-        egui::Id::new(("utc-skills-differ", key)),
+        egui::Id::unique(("utc-skills-differ", key)),
         &targets,
         &rows,
         || std::sync::Arc::new(skills_differ(&targets, rows)),

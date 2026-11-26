@@ -2304,7 +2304,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         // over the right pane, nor is what it holds.)
         let room = ui.available_rect_before_wrap();
         ui.set_clip_rect(ui.clip_rect().intersect(room));
-        let bottom_id = egui::Id::new(("window-bottom", &owner));
+        let bottom_id = egui::Id::unique(("window-bottom", &owner));
         seed_window_pane(ui, bottom_id, kept);
         let shown = egui::Panel::bottom(bottom_id)
             .resizable(true)
@@ -2341,7 +2341,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                         ui.set_max_width(room - 4.0);
                         let r = ui.add(label);
                         r.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said)
+                            egui::WidgetInfo::labeled(egui::Role::Button, true, &said)
                         });
                         r
                     } else {
@@ -2432,7 +2432,7 @@ fn keep_window_size(
     let pass = ui.ctx().cumulative_pass_nr();
     // (The window's own, by its edges: not the kind's, or another window
     // of the kind drawn after it would keep its own untouched size.)
-    let slot = egui::Id::new(("window-size-dragged", edges));
+    let slot = egui::Id::unique(("window-size-dragged", edges));
     if edges.iter().any(|id| ui.ctx().is_being_dragged(*id)) {
         ui.ctx().data_mut(|d| d.insert_temp(slot, pass));
     }
@@ -2958,7 +2958,7 @@ const FIRST_ROW: &str = "bottom-dock-first-row";
 pub(crate) fn first_row_ends(ui: &Ui, y: f32) {
     // (The lowest said this frame: a form says where it ends whole, its
     // rows where they are under it as drawn.)
-    let id = egui::Id::new(FIRST_ROW);
+    let id = egui::Id::unique(FIRST_ROW);
     ui.ctx().data_mut(|d| {
         let y = d.get_temp::<f32>(id).map_or(y, |was| was.max(y));
         d.insert_temp(id, y);
@@ -2969,7 +2969,7 @@ pub(crate) fn first_row_ends(ui: &Ui, y: f32) {
 /// where what it drew ends, unless a row said where it ends: the dock's
 /// least height shows its form whole all the same.
 pub(crate) fn drawn_ends(ui: &Ui) {
-    let id = egui::Id::new(FIRST_ROW);
+    let id = egui::Id::unique(FIRST_ROW);
     if ui.ctx().data(|d| d.get_temp::<f32>(id)).is_none() {
         first_row_ends(ui, ui.min_rect().bottom());
     }
@@ -4348,7 +4348,7 @@ pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
         (&mut s.bottom_dock_height, "log", 1),
     ] {
         if kept.is_none() {
-            let was = egui::containers::panel::PanelState::load(ctx, egui::Id::new(id));
+            let was = egui::containers::panel::PanelState::load(ctx, egui::Id::unique(id));
             *kept = was.map(|s| s.size()[axis].round().max(0.0) as u32);
         }
     }
@@ -4366,7 +4366,7 @@ pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
 /// made smaller would otherwise leave the dock as small as it was drawn
 /// there, for good.
 fn draw_at(ctx: &egui::Context, id: &str, axis: usize, size: f32) {
-    size_panel(ctx, egui::Id::new(id), axis, size);
+    size_panel(ctx, egui::Id::unique(id), axis, size);
 }
 
 /// [`draw_at`] for the panel of id `id`.
@@ -4401,7 +4401,7 @@ fn dock_pane(ui: &Ui) {
 /// within its range): read before the panel is drawn, as egui reads it.
 /// (egui's resize handle is the panel's id with `"__resize"`.)
 fn edge_dragged(ctx: &egui::Context, id: &str) -> bool {
-    let handle = egui::Id::new(id).with("__resize");
+    let handle = egui::Id::unique(id).with("__resize");
     ctx.read_response(handle).is_some_and(|r| r.dragged() || r.drag_stopped())
 }
 
@@ -4789,7 +4789,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
     app.right_rect = None;
-    ui.ctx().data_mut(|d| d.remove::<RightEdge>(egui::Id::new(RIGHT_EDGE)));
+    ui.ctx().data_mut(|d| d.remove::<RightEdge>(egui::Id::unique(RIGHT_EDGE)));
     app.strips[1] = None;
     app.preview_rect = None;
     app.late_slots.clear();
@@ -5140,7 +5140,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     }
     if resizable {
         let edge = RightEdge { dock, least: edge_range.0, most: edge_range.1 };
-        ctx.data_mut(|d| d.insert_temp(egui::Id::new(RIGHT_EDGE), edge));
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique(RIGHT_EDGE), edge));
     }
     app.right_rect = Some(dock);
     let (chosen, pressed, folded) = shown.inner;
@@ -5842,7 +5842,7 @@ const RIGHT_EDGE: &str = "right-dock-edge";
 /// to (`keep_right_width`), held to the dock's range, the point taken
 /// staying under the pointer.
 pub(crate) fn right_edge_seam(app: &mut Moonglow, ui: &Ui) {
-    let id = egui::Id::new(RIGHT_EDGE);
+    let id = egui::Id::unique(RIGHT_EDGE);
     let Some(edge) = ui.ctx().data(|d| d.get_temp::<RightEdge>(id)) else { return };
     if let Some(width) = edge_seam(ui, id, edge) {
         keep_right_width(app, width as u32);
@@ -5910,7 +5910,7 @@ fn edge_seam(ui: &Ui, id: egui::Id, edge: RightEdge) -> Option<f32> {
 /// width for the active editor's kind (`DockLayout::column`).
 fn column_seam(app: &mut Moonglow, ui: &Ui, pane: egui::Rect, x: f32) {
     // (A drag alone, never the keyboard's Tab: M5's W8.)
-    let id = egui::Id::new("right-dock-column-seam");
+    let id = egui::Id::unique("right-dock-column-seam");
     let Some(first) = mg_uikit::stack::column_seam(ui, id, pane, x, RIGHT_DOCK_LEAST) else {
         return;
     };
@@ -6290,7 +6290,7 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             app.bottom_rect = Some(ui.max_rect());
             let margin = Margin { left: 8, right: 8, top: 4, bottom: 4 };
             let dock_top = ui.max_rect().top();
-            ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::new(FIRST_ROW)));
+            ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::unique(FIRST_ROW)));
             match front {
                 Panel::Log => {
                     egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
@@ -6299,7 +6299,7 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             }
             // (Its first row's end as drawn: the least height from the
             // next frame, drawn again once where it changed.)
-            let first = ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::new(FIRST_ROW)));
+            let first = ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::unique(FIRST_ROW)));
             let need = first.map_or(0.0, |y| (y - dock_top + 8.0).ceil());
             if (need - app.dock_need).abs() > 0.5 {
                 app.dock_need = need;

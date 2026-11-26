@@ -48,16 +48,16 @@ pub(super) enum Place {
 /// fields keep their own stores, so that one drawn between another's
 /// panels and its editor never clears what the other shows.
 fn designer(ctx: &egui::Context) -> egui::Id {
-    ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new("nui-fields-designer")))
+    ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::unique("nui-fields-designer")))
         .unwrap_or(egui::Id::NULL)
 }
 
 fn unset_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-unset").with(designer(ctx))
+    egui::Id::unique("nui-fields-unset").with(designer(ctx))
 }
 
 fn drawn_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-drawn").with(designer(ctx))
+    egui::Id::unique("nui-fields-drawn").with(designer(ctx))
 }
 
 fn shows_unset(ui: &Ui, field: egui::Id, set: Value, shown: Value) {
@@ -77,13 +77,13 @@ fn drawn(ui: &Ui, field: egui::Id) {
 }
 
 fn of_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-of").with(designer(ctx))
+    egui::Id::unique("nui-fields-of").with(designer(ctx))
 }
 
 /// The fields drawn from here on are designer `key`'s (each part of it
 /// that draws fields enters it: its panels, its editor).
 pub(super) fn enter(ctx: &egui::Context, key: ResKey) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nui-fields-designer"), egui::Id::new(key)));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("nui-fields-designer"), egui::Id::unique(key)));
 }
 
 /// Once a frame for designer `key`, before the first of its parts draws.
@@ -280,7 +280,7 @@ pub(super) fn hinted(
 
 fn text_field(ui: &mut Ui, text: &mut String, width: f32, hint: &str) -> Option<egui::Response> {
     let id = ui.next_auto_id().with("nui-text");
-    let held = egui::Id::new("nui-fields-typed");
+    let held = egui::Id::unique("nui-fields-typed");
     let mut typed = ui.data_mut(|d| d.remove_temp::<Typed>(held)).unwrap_or_default();
     let set =
         crate::widgets::commit_text_hinted(&mut typed.0, ui, id, text, None, width, None, hint);
@@ -379,7 +379,7 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
             {
                 field.widget_info(|| {
                     egui::WidgetInfo::labeled(
-                        egui::WidgetType::TextEdit,
+                        egui::Role::TextInput,
                         true,
                         format!("Option {} label", i + 1),
                     )

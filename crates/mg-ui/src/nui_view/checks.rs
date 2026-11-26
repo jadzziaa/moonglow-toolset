@@ -179,7 +179,7 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
     for (what, error) in [("JUI", window_error), ("Settings", settings_error)] {
         if let Some(e) = error {
             ui.horizontal(|ui| {
-                let id = ui.id().with(("unread-row", what));
+                let id = ui.scope_id().with(("unread-row", what));
                 let row = row_at(ui, id);
                 ui.set_min_height(line);
                 mark(ui, true);
@@ -231,7 +231,7 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
                     let error = d.severity == Severity::Error;
-                    let id = ui.id().with("check-row");
+                    let id = ui.scope_id().with("check-row");
                     let as_line = || copy_line(error, place, &d.message);
                     let row = row_at(ui, id);
                     let held;

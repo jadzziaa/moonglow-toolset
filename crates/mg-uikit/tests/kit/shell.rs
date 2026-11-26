@@ -584,7 +584,7 @@ fn a_document_tab_s_close_button_is_named_and_clicked() {
         let parts = shell::doc_tab_parts(tab, 80.0, false);
         let (r, drawn) = shell::doc_tab_close(
             ui,
-            egui::Id::new("close"),
+            egui::Id::unique("close"),
             (ui.layer_id(), tab),
             parts.close,
             "Close map_m1q1a",

@@ -153,7 +153,7 @@ fn begin_panel(app: &mut Moonglow, ui: &Ui, keys: crate::palette_view::Keys) -> 
 /// The ids of the String panel's fields: their table's and their line's,
 /// so that what is typed for one line is never shown or set in another's.
 fn field_id(which: Which, field: &str, row: usize) -> egui::Id {
-    egui::Id::new(("talk-string", which, field, row))
+    egui::Id::unique(("talk-string", which, field, row))
 }
 
 /// The String panel's Text field's id for `row` (the tests', F6's, Enter's).
@@ -333,7 +333,7 @@ pub(crate) fn string(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                         })
                         .inner;
                     r.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Length (s)")
+                        egui::WidgetInfo::labeled(egui::Role::SpinButton, true, "Length (s)")
                     });
                     left |= r.lost_focus();
                     if r.changed() {
@@ -576,7 +576,7 @@ pub(crate) fn references(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) 
                             let text = egui::RichText::new(words).color(t.accent);
                             let label = egui::Label::new(text).truncate().sense(egui::Sense::click());
                             let r = ui.add(label);
-                            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, words));
+                            r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, words));
                             r.on_hover_cursor(egui::CursorIcon::PointingHand)
                         }
                         false => ui.add(egui::Label::new(words).truncate()),
@@ -806,9 +806,7 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
             .desired_width(ui.available_width())
             .hint_text("name");
         let r = ui.add(field);
-        r.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "New talk table")
-        });
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "New talk table"));
         // (F6 here: the name takes the keyboard.)
         if focus {
             r.request_focus();
@@ -818,7 +816,7 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
         ui.add(egui::Checkbox::new(&mut v.new_feminine, "With a feminine table"))
             .on_hover_text("For languages whose text differs for female characters");
     });
-    let exists_id = egui::Id::new("talk-new-file-exists");
+    let exists_id = egui::Id::unique("talk-new-file-exists");
     let made_exists = made_in.as_ref().is_some_and(|f| {
         let now = std::time::Instant::now();
         let ttl = std::time::Duration::from_secs(2);

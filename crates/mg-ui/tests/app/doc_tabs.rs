@@ -70,7 +70,7 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
 
     // A script typed in: its tab, named without a star.
     h.state_mut().script_tools.jump = Some((script, 0));
-    let editor = egui::Id::new(("script", script));
+    let editor = egui::Id::unique(("script", script));
     until(&mut h, "the script's editor has the keys", |h| h.ctx.memory(|m| m.has_focus(editor)));
     h.event(egui::Event::Text("// one\n".into()));
     until(&mut h, "the script's dot", |h| said_modified(h, "hello.nss"));

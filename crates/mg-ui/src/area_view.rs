@@ -4409,7 +4409,7 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         map_painter.circle_filled(at, 3.5, Color32::WHITE);
         map_painter.circle_stroke(at, 3.5, Stroke::new(1.0, Color32::BLACK));
     }
-    let id = ui.id().with(("minimap", view.area));
+    let id = ui.scope_id().with(("minimap", view.area));
     // (Not focusable: a click on the map leaves the keys to the view.)
     let r = ui.interact(rect, id, egui::Sense::CLICK | egui::Sense::DRAG);
     let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -6530,7 +6530,7 @@ fn camera_input(
     let rect = view.rect;
     // The keys drive the area view the pointer was in last, wherever the
     // pointer is now (over the palette, the module tree).
-    let last = egui::Id::new("area-view-camera-keys");
+    let last = egui::Id::unique("area-view-camera-keys");
     if response.hovered() {
         ui.data_mut(|d| d.insert_temp(last, view.area));
     }

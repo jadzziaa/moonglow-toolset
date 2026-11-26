@@ -187,7 +187,7 @@ fn editing_a_huge_script() {
     let mut app = h.into_state();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
     let mut w = Window { app, ctx: egui::Context::default(), clock: 0.0 };
-    let id = egui::Id::new(("script", script));
+    let id = egui::Id::unique(("script", script));
     let at = |w: &mut Window, from: usize, to: usize| {
         let mut state = egui::text_edit::TextEditState::load(&w.ctx, id).unwrap_or_default();
         let c = egui::text::CCursorRange::two(
@@ -262,6 +262,7 @@ fn editing_a_huge_script() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -120.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: Modifiers::NONE,
             },
         ]);
@@ -281,6 +282,7 @@ fn editing_a_huge_script() {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, 120.0 * down),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: Modifiers::NONE,
                 },
             ]
@@ -422,6 +424,7 @@ fn opening_select_texture() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -700.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -756,7 +759,7 @@ fn scripts_at_scale() {
     // X18: a completion list open at the first line, then at the last.
     let name = "a completion list";
     if v.wanted(name) {
-        let id = egui::Id::new(("script", big));
+        let id = egui::Id::unique(("script", big));
         let chars = h.state().script_text(big).unwrap().chars().count();
         let complete_at = |h: &mut Harness<'_, Moonglow>, at: usize| {
             let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();

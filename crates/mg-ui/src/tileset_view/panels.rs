@@ -181,14 +181,14 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         ),
     );
     diagram(ui, &t, square, tile, middle, found.is_some());
-    let r = ui.interact(square, ui.id().with("tile-diagram"), egui::Sense::hover());
+    let r = ui.interact(square, ui.scope_id().with("tile-diagram"), egui::Sense::hover());
     let r = match tile.model.trim().is_empty() {
         true => r,
         false => r.on_hover_text(tile.model.trim()),
     };
     r.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::Image,
+            egui::Role::Image,
             true,
             format!("{DIAGRAM_NAME}: tile {i}, its corners' terrain and height, and its edges"),
         )
@@ -230,8 +230,8 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         y += high;
     }
     let said = sentences.join(" ");
-    let r = ui.interact(note, ui.id().with("door-sentence"), egui::Sense::hover());
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
+    let r = ui.interact(note, ui.scope_id().with("door-sentence"), egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
 }
 
 /// The tile's diagram in `square` (the board's `.tp`): a dashed frame; at

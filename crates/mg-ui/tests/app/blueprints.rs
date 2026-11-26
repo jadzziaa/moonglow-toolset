@@ -389,6 +389,7 @@ fn body_parts_lists_offer_the_default_phenotype_s_parts() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -50.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(2);
@@ -733,6 +734,7 @@ fn a_long_store_page_lays_out_the_rows_in_sight() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -300.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(4);
@@ -3989,6 +3991,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, y),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -4005,6 +4008,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -50.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(2);
@@ -4278,6 +4282,7 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -(seen.height() * 0.8).max(40.0)),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::NONE,
                     });
                     h.run_steps(8);

@@ -61,12 +61,12 @@ clap = { version = "4", features = ["derive"] }
 # (Ctrl+C and the end of a terminal caught, for `mg serve` to stop its
 # server with `exit`.)
 ctrlc = { version = "3.5", features = ["termination"] }
-eframe = { version = "0.36", default-features = false, features = ["accesskit", "wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
-egui = "0.36"
-egui-wgpu = "0.36"
-egui_commonmark = { version = "0.25", default-features = false, features = ["pulldown_cmark"] }
-egui_dock = "0.21"
-egui_kittest = "0.36"
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
+egui = { version = "0.37", features = ["default_fonts", "monochrome_emoji_fonts"] }
+egui-wgpu = "0.37"
+egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark"] }
+egui_dock = "0.22"
+egui_kittest = "0.37"
 encoding_rs = "0.8"
 fastrand = "2"
 # (glslang's C++ built from the sources the crate ships, with cc: no
@@ -191,8 +191,10 @@ strip = "debuginfo"
 # moves to a winit that has. `vendor/winit/MOONGLOW.md` says what changed.
 [patch.crates-io]
 winit = { path = "vendor/winit" }
-# egui_dock 0.21.1 with two additions for the editor area (the main
-# surface's tab bars without the leaf buttons, the windows' with them, and
-# a call for the tab being dragged): `vendor/egui_dock/MOONGLOW.md` says
-# what changed, why and when to drop it.
+# egui_dock 0.22.0 with five additions for the editor area (the main
+# surface's tab bars without the leaf buttons, the windows' with them, a
+# call for the tab being dragged, a window's bar buttons painted by the
+# application, room at a window's bar's end and its least width, and its
+# collapse arrow first in the keys' order): `vendor/egui_dock/MOONGLOW.md`
+# says what changed, why and when to drop it.
 egui_dock = { path = "vendor/egui_dock" }
