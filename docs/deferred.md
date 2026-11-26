@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:43:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T08:12:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -210,22 +210,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   world_perf's content doctor, fixed: V6, V10, V12), and gave views to
   the five largest costs that grew with the module (D20, D23, B22, A18,
   N16; [the log](log.md), 10 November). These have no view yet:
-  - the NUI Creator and the script editor: two Creator tabs side by
-    side, and Split source while a picture's name is typed (N3); a
-    column of 1,000 rows (N12); a combo of 10,000 entries, closed
-    (N14); 2,000 findings (N15); a docked panel's 2,000-option choice
-    (X5); Search Results after Find In Files (X8); Open Script with All
-    Resources (X10); the end of a huge script with completions open
-    (X18); Choose Image with a name typed (X11, X20); the Bindings page
-    of many binds (X22); Design with a deep window (X23); a list cell of
-    thousands of rows (X24);
-  - the renderer: a model view drawn beside the area, `FRAME_DETAIL=1`
-    (R9); an animated cloaked NPC out of the map's region
-    (R15); an interior with a flame on every tile (R16); a TDoD area of
+  - (Engine and Rendering's) the renderer: a model view drawn beside
+    the area, `FRAME_DETAIL=1` (R9); an animated cloaked NPC out of the
+    map's region (R15); an interior with a flame on every tile (R16); a TDoD area of
     tinted placeables (R22); texture memory and area opening with DDS
     heads and many colored NPCs (R12, R13);
-  - Verify, the plugins and the models: a second Find with haks and
-    game, Delete's question and Rename in a large module (V15 to V17); a
+  - (the command line's / Verify's) Verify, the plugins and the
+    models: a second Find with haks and game, Delete's question and Rename in a large module (V15 to V17); a
     panel with `refresh = "selection"` over a large selection (C3), a
     plugin check of many fixes in Verify Module (C4); `mg haks --usage`
     on a module of many part-based creatures (M17); opening a large
@@ -292,6 +283,43 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (+37 to +43 µs, Find's click 3.8 to 4.3 ms), Build Module's 20,000
   (+11 to +22), Custom Content (−100 to +23), `nwscript.nss` (−2 to
   +5), the Variables window (+2 to +61), the module tree (−32 to −28).
+  The NUI Creator's and the script editor's have theirs since 26
+  November (`nui_perf::the_creator_at_scale`, `NUI_VIEW` picks its
+  groups, and `editor_perf::scripts_at_scale`, `EDITOR_VIEW`; [the
+  log](log.md)). No quiet window came (an encoding job and other
+  sessions' builds kept the load at 28 to 33, the processors 23 to 44%
+  idle, the rests' two runs up to 2.2 ms apart), so the final figures
+  are loaded, lowest of three then the spread, each view against its
+  own rest; "at load 12" is one run at 00:56, the lowest load reached
+  (not 85% idle, and before the form parts' last change): what they
+  leave, beyond a local change: the column of 1,000
+  rows +2.5 (to +6.6) ms (frames 3.2 to 8.3; before +5.0 to +18.2, and
+  +0.83 at load 12, about 1.4 ms a frame): each frame still
+  measures the whole window for the group's scroll extent and walks it
+  for pictures and strings; the combo of 10,000 entries in Interact
+  +450 (to +2,392) µs (+186 at load 12): Interact compares the window and
+  its settings with the session's twice a frame, besides those walks;
+  Design of 511 controls eight deep +345 (to +1,733) µs (+346 at
+  load 12; +2.0 to +2.4 ms before; the canvas drawing 239 more
+  containers than the shallow window); a
+  key a frame in Choose Image's Find +2.9 (to +3.5) ms, frames 3.5 to
+  4.8 ms (+1.4 at load 12), every one of 129,689 picture names searched for
+  each key, under the budget. A cache of the walks across frames needs
+  a signal that the window changed, which a window edited in place
+  doesn't give. Over in every run, cause not found: Search Results of
+  10,000 lines, +128 (to +1,797) µs (+387 at load 26; the module tree
+  of 8,000 scripts takes most of the frame, in its rest too). Near the line, to time again on a quiet machine (the
+  loaded spread crosses it): two Creator tabs side by side (−428 to
+  +1,139; +71 at load 12, its rest's noise 44), Split source as a
+  picture's name is typed (−919 to +111; +7), the Bindings page of 60
+  binds (−130 to +1,077; +22), the list's cell of 5,000 rows (+30 to
+  +514; +53) and New Bind open on it (−76 to +934; +215 to +229 before
+  its draft's type was kept between frames, not confirmed under the
+  line), Open Script with All
+  Resources (−10 to +188) and the completion list at a huge script's
+  end (−199 to +175). Within at that load: 2,000 findings (−1,886 to
+  −486), Choose Image with a name typed (−195 to +106), a plugin
+  panel's choice of 2,000 options (−13 to +6).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories
