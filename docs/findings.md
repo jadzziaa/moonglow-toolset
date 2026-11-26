@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:52:32Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2001,7 +2001,11 @@ the hak's TGA of it isn't there.
   shallow pool hid its shadowed floor (`client_render.rs`'s
   `tdod_custom_shaders_look` with `MG_FOUNTAIN_OVERRIDE`, `shadows.rs`
   with `MG_SEE_THROUGH_OVERRIDE`: the client's water painted by
-  patched `fswater` programs).
+  patched `fswater` programs). That is the game's `fswater`'s picture
+  (the Shaders switch on): Moonglow's own water, which draws the water
+  opaque and sees no floor under it, keeps the gray (`TextureEntry`'s
+  `lost`; test `moonglow_s_own_water_draws_a_lost_ripple_in_its_gray`),
+  its pictures the same as before pixel for pixel.
 - **Wiki:** missing.
 
 ### A DXT1's one-bit texels are opaque black
@@ -2284,10 +2288,7 @@ road 69% and 16%, its splotch 3% and 33%, its tree leaves 39% and 2%.
   0.264 with the Shaders switch on since 2026-11-26 (0.002 before, its
   floor hidden by the rippling procedure's gray: [A DDS with a
   rippling procedure loses its picture](#a-dds-with-a-rippling-procedure-loses-its-picture));
-  Moonglow's own water, with it off, hides its floor and now draws the
-  picture bright where the gray had been nearer ([deferred
-  list](deferred.md), "A shallow pool with the Shaders switch off").
-  Test
+  Moonglow's own water, with it off, hides its floor as before. Test
   `grass_and_see_through_receivers_are_darkened_in_the_shadow`.
 - **Wiki:** "Model Shadows" says what casts; not what receives.
 

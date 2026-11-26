@@ -167,6 +167,11 @@ struct TextureEntry {
     ripple: Option<(f32, f32)>,
     /// It is water (`bumpmaptexture shinywater`): waves cross it.
     water: bool,
+    /// Shiny water whose picture the rippling procedure loses (a DDS):
+    /// the texture Moonglow's own water draws it with, the flat gray
+    /// ([`LOST_RIPPLE_GRAY`]), where the game's `fswater` reads the
+    /// picture whole ([`procedure_picture`]).
+    lost: Option<Arc<TextureEntry>>,
 }
 
 /// Whether the game's shiny water is drawn with its own programs
@@ -370,7 +375,15 @@ struct Surface {
     /// The mesh's ambient, diffuse and self-illumination colors, linear
     /// (worked out for every mesh of every frame, they were seen).
     linear: [Vec3; 3],
+    /// Shiny water whose picture the rippling procedure loses, as
+    /// Moonglow's own water draws it: of the texture's gray
+    /// ([`TextureEntry::lost`]).
+    own: Option<Arc<Surface>>,
 }
+
+/// What a texture's name is given to stand for its gray
+/// ([`TextureEntry::lost`]) in a material's key: no resource's name has it.
+const LOST_SUFFIX: &str = "\u{1}lost";
 
 /// What a model's [`Surface`]s are kept by: the model, and of the
 /// instance its texture renames, its environment map (and whether that
@@ -845,10 +858,39 @@ fn load_texture(
                 cube: true,
                 ripple: None,
                 water: false,
+                lost: None,
             });
         }
     }
-    let mut t = assets.texture_kept(name, palettes)?;
+    let t = assets.texture_kept(name, palettes)?;
+    // (Shiny water that the procedure would draw gray: Moonglow's own
+    // water draws that gray, as it did before the game's `fswater` was
+    // given the picture whole.)
+    let lost = (t.txi.arturo() && t.txi.water() && t.texture.format != mg_image::Format::Rgba8)
+        .then(|| {
+            let gray = crate::LoadedTexture { texture: lost_ripple_picture(), txi: t.txi.clone() };
+            texture_entry(gpu, name, gray, role, None).map(Arc::new)
+        })
+        .flatten();
+    texture_entry(gpu, name, t, role, lost)
+}
+
+/// The flat gray of a picture the rippling procedure loses
+/// ([`LOST_RIPPLE_GRAY`], opaque).
+fn lost_ripple_picture() -> mg_image::Texture {
+    let g = LOST_RIPPLE_GRAY;
+    let data = [g, g, g, 255].repeat(16);
+    mg_image::Rgba { width: 4, height: 4, data }.into_texture(false)
+}
+
+/// A texture read, uploaded with what is known of it.
+fn texture_entry(
+    gpu: &Gpu,
+    name: &str,
+    mut t: crate::LoadedTexture,
+    role: Role,
+    lost: Option<Arc<TextureEntry>>,
+) -> Option<TextureEntry> {
     // What the rippling procedure makes of the picture where it doesn't
     // ripple it: of a DDS, a flat gray (the client loses its picture);
     // with `distort 0`, the channels scaled and moved.
@@ -894,6 +936,7 @@ fn load_texture(
         clamp: t.txi.clamp(),
         ripple,
         water: t.txi.water(),
+        lost,
     })
 }
 
@@ -964,9 +1007,7 @@ fn procedure_picture(
         return None;
     }
     if texture.format != mg_image::Format::Rgba8 {
-        let g = LOST_RIPPLE_GRAY;
-        let data = [g, g, g, 255].repeat(16);
-        return Some(mg_image::Rgba { width: 4, height: 4, data }.into_texture(false));
+        return Some(lost_ripple_picture());
     }
     let (scale, translate) = txi.channels()?;
     let mut rgba = texture.to_rgba();
@@ -2142,7 +2183,9 @@ impl Renderer {
             .model
             .meshes
             .iter()
-            .map(|mesh| self.surface(gpu, assets, &mesh.material, inst, scene_env, key.values))
+            .map(|mesh| {
+                self.surface(gpu, assets, &mesh.material, inst, scene_env, key.values, false)
+            })
             .collect();
         let surfaces: Arc<[Surface]> = made.into_iter().collect::<Option<_>>()?;
         if self.surfaces.len() >= SURFACES_KEPT {
@@ -2154,6 +2197,8 @@ impl Renderer {
 
     /// A mesh's surface, for an instance of its model; `None` while a
     /// texture of it is being read ([`Renderer::read_textures_apart`]).
+    /// `lost`: as Moonglow's own water draws it ([`Surface::own`]).
+    #[allow(clippy::too_many_arguments)]
     fn surface(
         &mut self,
         gpu: &Gpu,
@@ -2162,6 +2207,7 @@ impl Renderer {
         inst: &Instance,
         scene_env: Option<&str>,
         values: u32,
+        lost: bool,
     ) -> Option<Surface> {
         let slots = self.slots(assets, mat);
         let slots = self.valued_slots(slots, values);
@@ -2170,7 +2216,7 @@ impl Renderer {
         // (A mesh that names none takes the instance's texture
         // for those, under the empty name: a body part's own.)
         let unnamed = || inst.textures.as_ref().and_then(|t| t.get("")).map(String::as_str);
-        let names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
+        let mut names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
             let named =
                 slots.names[i].as_deref().or_else(|| if i == 0 { unnamed() } else { None })?;
             let n = inst.textures.as_ref().and_then(|t| t.get(named)).map_or(named, String::as_str);
@@ -2202,6 +2248,11 @@ impl Renderer {
                 let _ = self.texture_read(gpu, assets, &env, Role::Picture);
             }
             return None;
+        }
+        // (Its own water's: the texture's gray, under a name of its own.)
+        if lost {
+            read[0] = read[0].as_ref().and_then(|t| t.lost.clone());
+            names[0] = names[0].take().map(|n| n + LOST_SUFFIX);
         }
         let tex = read[0].clone();
         let bound: [bool; SLOTS] = std::array::from_fn(|i| read[i].is_some());
@@ -2263,7 +2314,11 @@ impl Renderer {
         let water_material = water_env.map(|env| {
             (self.material_group(gpu, assets, &(key.0.clone(), env, key.2)), water_cube)
         });
+        let own = (!lost && tex.as_ref().is_some_and(|t| t.lost.is_some()))
+            .then(|| self.surface(gpu, assets, mat, inst, scene_env, values, true).map(Arc::new))
+            .flatten();
         Some(Surface {
+            own,
             water_material,
             linear: [lin(mat.ambient), lin(mat.diffuse), lin(mat.emissive)],
             material: self.material_group(gpu, assets, &key),
@@ -2307,6 +2362,9 @@ impl Renderer {
         };
         if let Some(t) = self.textures.get(name) {
             return stamped(t);
+        }
+        if let Some(base) = name.strip_suffix(LOST_SUFFIX) {
+            return self.texture(gpu, assets, base, role).and_then(|t| t.lost.clone());
         }
         // (A texture that breaks what reads it is none, as on the threads
         // that read them apart.)
@@ -2729,6 +2787,14 @@ impl Renderer {
                 for (j, (mesh, surface)) in
                     inst.model.meshes.iter().zip(surfaces.iter()).enumerate()
                 {
+                    // (Shiny water Moonglow's own water draws: in the gray
+                    // the rippling procedure leaves of a DDS.)
+                    let surface = match &surface.own {
+                        Some(own) if game_frame.is_none() || !self.water_now || inst.unlit => {
+                            own.as_ref()
+                        }
+                        _ => surface,
+                    };
                     // (Its place among the scene's meshes.)
                     let place = places;
                     places += 1;
