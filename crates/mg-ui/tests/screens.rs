@@ -5313,6 +5313,8 @@ fn creature_wizard() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    // (The new module's Area Wizard, as Aurora opens it, closed.)
+    h.state_mut().wizard = None;
     h.state_mut().creature_wizard = Some(Default::default());
     h.run();
     for page in 0..8 {
@@ -5353,6 +5355,8 @@ fn item_wizard_magical() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    // (The new module's Area Wizard, as Aurora opens it, closed.)
+    h.state_mut().wizard = None;
     h.state_mut().blueprint_wizard = Some(mg_ui::blueprint_wizard::BlueprintWizard::new(
         mg_module::palette::BlueprintKind::Item,
     ));
