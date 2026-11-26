@@ -449,6 +449,63 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
     assert!(mg_render::guard::take_failures().is_empty(), "told once");
 }
 
+/// A tile whose model fails is left out with its grass: the tufts that
+/// grow on its walkmesh would stand over ground not drawn (the renderer
+/// watch counts what they draw as the area's ground).
+#[test]
+fn a_tile_that_fails_is_left_out_with_its_grass() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    // Alone across this test because mg_render::guard::fail_on is process-global.
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = shared_game(&root);
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Fails", &mut rng).unwrap();
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    let spec = AreaSpec { name: "Field".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    let (id, tile) = set.tiles.iter().enumerate().find(|(_, t)| !t.model.is_empty()).unwrap();
+    let name = tile.model.to_ascii_lowercase();
+    let mut are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    for t in are.root.list_mut("Tile_List").unwrap() {
+        t.set("Tile_ID", mg_gff::Value::Int(id as i32));
+    }
+    let git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+    let camera = mg_render::Camera {
+        eye: glam::Vec3::new(10.0, -10.0, 25.0),
+        target: glam::Vec3::new(10.0, 10.0, 0.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 200.0,
+    };
+    let grass = |scene: &AreaScene| {
+        let sight = mg_area::Sight::of(&camera, 4.0 / 3.0);
+        let view = View { fog: false, grass: Some(sight), ..View::of(&model) };
+        let frame = scene.scene(&model, &view);
+        frame.instances.iter().filter(|i| i.grass).count()
+    };
+    let sound = AreaScene::new(&gpu, &game, &model);
+    assert!(grass(&sound) > 0, "grass grows on {name}");
+    let _ = mg_render::guard::take_failures();
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            mg_render::guard::fail_on(None);
+        }
+    }
+    let _reset = Reset;
+    mg_render::guard::fail_on(Some(&name));
+    let broken = AreaScene::new(&gpu, &game, &model);
+    assert_eq!(broken.failed_tiles(&model, &[]).len(), 4, "the tiles failed");
+    assert_eq!(grass(&broken), 0, "no grass over the tiles left out");
+}
+
 /// The Tile Border: with it on, the scene holds the tileset's edge tiles
 /// past the area's edge (ttr01's grass, five deep on each side and five
 /// by five past each corner) in the material the client gives them, half
