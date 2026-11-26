@@ -945,12 +945,17 @@ pub(crate) const LOST_RIPPLE_GRAY: u8 = 72;
 /// read as RGBA) flat gray ([`LOST_RIPPLE_GRAY`], opaque), its picture lost
 /// whatever it is (`batch6_procedure_on_dds`); with `distort 0`, each
 /// channel `c × channelscale + channeltranslate` (`batch6_ripple`; one
-/// level, the texture's largest). `None`: the texture as it is.
+/// level, the texture's largest). `None`: the texture as it is, and so
+/// for shiny water (`bumpmaptexture shinywater`), which EE draws with its
+/// water programs, not the procedure: `fswater` reads the picture's alpha
+/// at its smallest level as the water's clarity (0.73 for ttr01's
+/// `ttr01_water01` in the client, `shadows_on_see_through` with a painting
+/// `fswater`), where the opaque gray hid the floor under every shallow pool.
 fn procedure_picture(
     texture: &mg_image::Texture,
     txi: &mg_image::txi::Txi,
 ) -> Option<mg_image::Texture> {
-    if !txi.arturo() {
+    if !txi.arturo() || txi.water() {
         return None;
     }
     if texture.format != mg_image::Format::Rgba8 {
@@ -5031,7 +5036,8 @@ mod tests {
     }
 
     /// A DDS with the rippling procedure is drawn flat gray, its picture
-    /// lost, as the client draws one (`batch6_procedure_on_dds`); a TGA's
+    /// lost, as the client draws one (`batch6_procedure_on_dds`), unless it
+    /// is shiny water; a TGA's
     /// picture ripples; with `distort 0` the channels are scaled and moved
     /// (the zombie's scale 0 and translation 1: white, `batch6_ripple`).
     #[test]
@@ -5046,6 +5052,9 @@ mod tests {
         let g = LOST_RIPPLE_GRAY;
         assert!(flat.data.as_chunks::<4>().0.iter().all(|p| *p == [g, g, g, 255]));
         assert!(procedure_picture(&dds, &txi("blending additive\n")).is_none());
+        // (Shiny water keeps its picture: its alpha is the water's clarity.)
+        let water = txi("bumpmaptexture shinywater\nproceduretype arturo\ndistort 1\n");
+        assert!(procedure_picture(&dds, &water).is_none(), "shiny water drawn gray");
         let still = txi("proceduretype arturo\ndistort 0\nchannelscale 4\n0\n0.5\n1\n0\n\
              channeltranslate 4\n1\n0\n0\n0.5\n");
         let scaled = procedure_picture(&tga, &still).unwrap().to_rgba();
