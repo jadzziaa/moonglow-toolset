@@ -225,6 +225,28 @@ pub(crate) struct State {
     layer_rows: Option<panels::LayerRows>,
     /// How many copies of the window [`check`] made to edit ([`Work`]).
     copies: usize,
+    /// The window's generation: one more for each frame in which it may
+    /// have changed before the canvas drew it. What is worked out of the
+    /// window is kept under it from one frame to the next (the canvas's
+    /// layout, `measured`; the names of its pictures and strings, `walked`;
+    /// Interact's check that its session is of this window), so that a
+    /// frame that changes nothing walks no more than is in sight.
+    window_gen: u64,
+    /// Which window [`end`] last found the window unchanged in, on a frame
+    /// with no input that could change it: the copy edited and the variant
+    /// in its place. A frame begun without it, or with another, is a new
+    /// generation ([`settle`]).
+    settled: Option<(usize, Option<String>)>,
+    /// The pass [`settle`] last found the window unchanged in: only then is
+    /// what was kept under its generation taken ([`trusted`]).
+    proven_in: Option<u64>,
+    measured: Option<((u64, u32, u32), preview::Measured)>,
+    /// How many passes drew with the layout kept from the one before (the
+    /// tests').
+    carried: usize,
+    /// The pictures and strings the window names, and the generation and
+    /// Interact session (where its window is what is drawn) they are of.
+    walked: Option<Walked>,
     /// Counts the typings ended by the window changing under them: part of
     /// Properties' fields' ids ([`begin`]).
     typing: u64,
@@ -265,6 +287,12 @@ pub(crate) fn choose_bind(state: &mut State, name: &str) {
 /// (`Moonglow::nui_binds_walks`).
 pub(crate) fn binds_walks(state: &State) -> usize {
     state.binds_walks
+}
+
+/// A designer's window's generation, and how many passes of its canvas
+/// drew with the layout kept from the pass before (`Moonglow::nui_kept`).
+pub(crate) fn kept(state: &State) -> (u64, usize) {
+    (state.window_gen, state.carried)
 }
 
 /// How many copies of its window a designer made (`Moonglow::nui_copies`).
@@ -910,6 +938,66 @@ type Nothing = &'static str;
 /// What a page says where the module no longer holds the window.
 const GONE: Nothing = "This window is no longer in the module.";
 
+/// The pictures and the strings (talk table rows) a window names.
+#[derive(PartialEq)]
+struct Walked {
+    /// The window's generation, and the Interact session's stamp where its
+    /// window is what was walked.
+    at: (u64, Option<u64>),
+    names: std::collections::BTreeSet<String>,
+    refs: std::collections::BTreeSet<i64>,
+}
+
+impl Walked {
+    fn of(at: (u64, Option<u64>), v: &Value, s: &Settings) -> Walked {
+        let mut names = std::collections::BTreeSet::new();
+        skin::names(v, s, &mut names);
+        Walked { at, names, refs: skin::strrefs(v, s) }
+    }
+}
+
+/// The window may have changed: what is kept of it is of another
+/// generation ([`State::window_gen`]).
+fn unsettle(state: &mut State) {
+    state.settled = None;
+    state.window_gen += 1;
+}
+
+/// Whether the window is the one the last frame drew: [`end`] found it
+/// unchanged then, on a frame with no input, and nothing in this frame
+/// could have changed it before the canvas draws it (no input, no field
+/// held, no popup, nothing dragged). Otherwise a new generation. Once a
+/// frame, before the canvas.
+fn settle(ctx: &egui::Context, state: &mut State) {
+    let proven = state.settled.take() == Some((state.copies, state.edit_view.clone()));
+    let quiet = ctx.memory(|m| m.focused().is_none())
+        && !egui::Popup::is_any_open(ctx)
+        && !mg_uikit::popover::Popover::any_open(ctx)
+        && ctx.dragged_id().is_none()
+        && !egui::DragAndDrop::has_any_payload(ctx)
+        && ctx.data(|d| d.get_temp::<bool>(mutated_id()).is_none())
+        && ctx.input(|i| {
+            i.events
+                .iter()
+                .all(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerGone))
+                && !i.pointer.any_down()
+                && !i.pointer.any_pressed()
+                && !i.pointer.any_released()
+                && i.keys_down.is_empty()
+        });
+    state.proven_in = (proven && quiet).then(|| ctx.cumulative_pass_nr());
+    if !(proven && quiet) {
+        unsettle(state);
+    }
+}
+
+/// The window's generation, where [`settle`] found it unchanged in this
+/// pass: what was kept under it may be taken (a canvas drawn without it,
+/// as tests draw one, keeps nothing from frame to frame).
+fn trusted(ctx: &egui::Context, state: &State) -> Option<u64> {
+    (state.proven_in == Some(ctx.cumulative_pass_nr())).then_some(state.window_gen)
+}
+
 fn mutated_id() -> egui::Id {
     egui::Id::new("nui-view-mutated")
 }
@@ -1048,6 +1136,8 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
         }
         let last = std::mem::take(&mut state.reverted);
         fields::recover(ctx, &last, &mut work.window, &mut work.settings);
+        // (Armed below only where nothing can have changed the window.)
+        state.settled = None;
         if let Some(Source { window: Ok(was), settings: Ok(was_settings), .. }) = &state.source {
             let has_unset = fields::has_unset(ctx);
             let has_active_ui = ctx.memory(|m| m.focused().is_some())
@@ -1066,6 +1156,9 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
             });
             let can_skip_diff =
                 work.verified_clean && !had_pending && !has_unset && !has_active_ui && quiet_input;
+            if can_skip_diff {
+                state.settled = Some((state.copies, state.edit_view.clone()));
+            }
             if has_unset {
                 let mut now = Vec::new();
                 fields::put_back(ctx, was, &mut work.window, &fields::Place::Window, &mut now);
@@ -1093,8 +1186,12 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
             }
         }
         state.work = Some(work);
+        if state.settled.is_none() {
+            unsettle(state);
+        }
     } else {
         state.swapped = None;
+        unsettle(state);
     }
     let edits = changes(app, ctx, key, (raw, config), state);
     if edits.is_empty() {
@@ -1207,6 +1304,7 @@ pub(crate) fn store_typed(app: &mut Moonglow) {
     for key in keys {
         let Some(mut state) = app.nui_views.remove(&key) else { continue };
         let typed = std::mem::take(&mut state.reverted);
+        unsettle(&mut state);
         let now = app.ws.as_ref().and_then(|ws| held_raw(&ws.module, key).ok());
         let source = state.source.as_ref().filter(|s| now.is_some_and(|n| same(&s.of, &n)));
         let was = source.and_then(|s| Some((s.window.as_ref().ok()?, s.settings.as_ref().ok()?)));
@@ -1988,20 +2086,31 @@ fn design_view(
     state: &mut State,
 ) {
     let Some(ws) = app.ws.as_ref() else { return };
-    let (asset_doc, asset_settings) = state
-        .runtime
-        .as_ref()
-        .filter(|r| state.preview_interactive && r.matches(v, s))
-        .map_or((&*v, &*s), |r| (&r.doc, &r.settings));
-    app.nui_assets.prepare(
+    settle(ui.ctx(), state);
+    let generation = trusted(ui.ctx(), state);
+    let interacting = state.preview_interactive
+        && state.runtime.as_mut().is_some_and(|r| r.matches(generation, v, s));
+    let (asset_doc, asset_settings, session) = match &state.runtime {
+        Some(r) if interacting => (&r.doc, &r.settings, Some(r.revision)),
+        _ => (&*v, &*s, None),
+    };
+    // The pictures and strings it names, walked for again only where the
+    // window (or Interact's) may have changed.
+    let at = (state.window_gen, session);
+    let kept = state.walked.take().filter(|w| generation.is_some() && w.at == at);
+    if let Some(w) = &kept {
+        debug_assert!(*w == Walked::of(at, asset_doc, asset_settings), "a window changed");
+    }
+    let walked = kept.unwrap_or_else(|| Walked::of(at, asset_doc, asset_settings));
+    app.nui_assets.prepare_names(
         ui.ctx(),
         app.game.as_deref().map(|g| &g.resman),
         &ws.module,
         ws.revision(),
-        asset_doc,
-        asset_settings,
+        &walked.names,
     );
-    app.nui_assets.prepare_strings(app.game.as_deref(), asset_doc, asset_settings);
+    app.nui_assets.prepare_strings_of(app.game.as_deref(), &walked.refs);
+    state.walked = Some(walked);
     // The canvas shows the source as it is typed, where it reads, before
     // the field is left; it edits nothing of it meanwhile.
     if let Some((mut shown, settings)) = typed_source(state, v) {

@@ -1,15 +1,90 @@
 //! How much room a control asks for and gets: the client's layout, measured.
 use super::*;
 
-/// The natural sizes a pass of the canvas has worked out, by the control
+/// What the canvas has worked out of the window's layout, by the control
 /// (where it is in memory: the window is not changed while it is drawn)
-/// and its depth. Each container asks for its children's, and each child's
-/// own children ask again, so without them a window was walked whole once
-/// for each level of it (a group's column of 1,000 rows, four times a frame).
-pub(super) type Naturals = std::cell::RefCell<std::collections::HashMap<(usize, usize), Vec2>>;
+/// and its depth: the controls' natural sizes and the containers' plans.
+/// Each container asks for its children's sizes, and each child's own
+/// children ask again, so without them a window was walked whole once for
+/// each level of it (a group's column of 1,000 rows, four times a frame).
+/// Kept for a pass, and from one frame to the next while the window is
+/// known not to have changed (`State::measured`): the column was still
+/// measured whole once a frame for its group's scroll extent, and each of
+/// its rows asked whether it fills its width and height.
+pub(super) type Naturals = std::cell::RefCell<Measured>;
+
+#[derive(Default)]
+pub(in crate::nui_view) struct Measured {
+    pub(super) naturals: std::collections::HashMap<(usize, usize), Vec2>,
+    plans: std::collections::HashMap<(usize, usize), std::rc::Rc<Plan>>,
+    /// Brought from a frame before this one, and (in a debug build) which
+    /// of what was brought were worked out again in this pass to check
+    /// them: a window changed while kept is a test's failure, not a
+    /// layout left as it was.
+    carried: bool,
+    checked: std::collections::HashSet<(bool, usize, usize)>,
+}
+
+impl Measured {
+    /// What was kept, for a pass of another frame.
+    pub(in crate::nui_view) fn carry(mut self) -> Measured {
+        self.carried = true;
+        self.checked.clear();
+        self
+    }
+
+    /// Whether what is kept at `key` (a size, or a plan) is to be worked
+    /// out again and compared, once a pass.
+    fn to_check(&mut self, plan: bool, key: (usize, usize)) -> bool {
+        cfg!(debug_assertions) && self.carried && self.checked.insert((plan, key.0, key.1))
+    }
+}
+
+/// What a row, column or group lays out its children by that only the
+/// window, its settings and the scale decide (not where it is drawn):
+/// each child's room, and which of them fill its width and its height,
+/// with their sums.
+#[derive(Debug, PartialEq)]
+pub(super) struct Plan {
+    pub sizes: Vec<Vec2>,
+    /// Each child's (fills its width, fills its height).
+    pub fills: Vec<(bool, bool)>,
+    pub total_gap: f32,
+    pub fixed: f32,
+    pub flex: usize,
+    pub fixed_height: f32,
+    pub height_flex: usize,
+    /// A column's widths after each child (`widths_after`).
+    pub widths_after: Vec<f32>,
+}
+
+/// `node`'s plan (a container's, `children` its children), worked out by
+/// `make`, kept in `kept` and taken from it (not a list's row's).
+pub(super) fn plan(
+    node: &Value,
+    row: Option<usize>,
+    depth: usize,
+    kept: &Naturals,
+    make: impl Fn() -> Plan,
+) -> std::rc::Rc<Plan> {
+    if row.is_some() {
+        return std::rc::Rc::new(make());
+    }
+    let key = (std::ptr::from_ref(node) as usize, depth.min(33));
+    let found = kept.borrow().plans.get(&key).cloned();
+    if let Some(plan) = found {
+        if kept.borrow_mut().to_check(true, key) {
+            assert_eq!(*plan, make(), "a kept plan of a window that changed");
+        }
+        return plan;
+    }
+    let plan = std::rc::Rc::new(make());
+    kept.borrow_mut().plans.insert(key, plan.clone());
+    plan
+}
 
 /// A control's natural size (its own, or what its children ask for),
-/// kept in `kept` for the pass and taken from it.
+/// kept in `kept` and taken from it.
 pub(super) fn natural(
     node: &Value,
     s: &Settings,
@@ -21,12 +96,16 @@ pub(super) fn natural(
     // the moment, whose place the next copy may take.)
     let kept = kept.filter(|_| row.is_none());
     let key = (std::ptr::from_ref(node) as usize, depth.min(33));
-    if let Some(size) = kept.and_then(|k| k.borrow().get(&key).copied()) {
+    if let Some(size) = kept.and_then(|k| k.borrow().naturals.get(&key).copied()) {
+        if kept.is_some_and(|k| k.borrow_mut().to_check(false, key)) {
+            let again = measure(node, s, row, depth, kept);
+            assert_eq!(size, again, "a kept size of a window that changed");
+        }
         return size;
     }
     let size = measure(node, s, row, depth, kept);
     if let Some(k) = kept {
-        k.borrow_mut().insert(key, size);
+        k.borrow_mut().naturals.insert(key, size);
     }
     size
 }

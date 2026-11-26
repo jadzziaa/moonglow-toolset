@@ -1,5 +1,6 @@
 //! Rows, columns and groups (with a group's scrolling), and lists.
 use super::*;
+use std::fmt::Write as _;
 
 /// The most rows of a list drawn at once (from the first in its view), and
 /// laid out off the screen (from its first).
@@ -172,12 +173,40 @@ impl Renderer<'_> {
             c.label(inner, "+ Drop a control", Align2::CENTER_CENTER, false);
         }
         let gap = self.gap_px(4.0);
-        let total_gap = children
-            .iter()
-            .take(children.len().saturating_sub(1))
-            .map(|child| self.gap_px(child_gap(ty, child)))
-            .sum::<f32>();
-        let sizes: Vec<_> = children.iter().map(|n| self.cell(n, row, depth + 1)).collect();
+        let make = || {
+            let total_gap = children
+                .iter()
+                .take(children.len().saturating_sub(1))
+                .map(|child| self.gap_px(child_gap(ty, child)))
+                .sum::<f32>();
+            let sizes: Vec<_> = children.iter().map(|n| self.cell(n, row, depth + 1)).collect();
+            let fills: Vec<_> = children
+                .iter()
+                .map(|n| (fills_width(n, s, row), fills_height(n, s, row)))
+                .collect();
+            let fixed = sizes.iter().zip(&fills).filter(|(_, f)| !f.0).map(|(v, _)| v.x).sum();
+            let fixed_height =
+                sizes.iter().zip(&fills).filter(|(_, f)| !f.1).map(|(v, _)| v.y).sum();
+            Plan {
+                total_gap,
+                flex: fills.iter().filter(|f| f.0).count(),
+                height_flex: fills.iter().filter(|f| f.1).count(),
+                fixed,
+                fixed_height,
+                // (A column's alone: the rows that reach are a column's.)
+                widths_after: match ty {
+                    "col" => widths_after(children, s, row),
+                    _ => Vec::new(),
+                },
+                sizes,
+                fills,
+            }
+        };
+        let plan = plan(c.node, row, depth, &self.naturals, make);
+        let Plan { sizes, fills, total_gap, fixed, flex, fixed_height, height_flex, widths_after } =
+            &*plan;
+        let (total_gap, fixed, fixed_height, flex, height_flex) =
+            (*total_gap, *fixed, *fixed_height, *flex, *height_flex);
         // A row's last button without a width stretches to a control with
         // a width of its own after the row in its column, never before it
         // (NWN EE 8193.37: one button under an image 200 wide is 196, two
@@ -187,26 +216,7 @@ impl Renderer<'_> {
             Some((path, right)) if ty == "row" && path == source_path => Some(*right),
             _ => None,
         };
-        // (A column's alone: the rows that reach are a column's.)
-        let widths_after = match ty {
-            "col" => widths_after(children, s, row),
-            _ => Vec::new(),
-        };
-        let fixed: f32 = children
-            .iter()
-            .zip(&sizes)
-            .filter(|(n, _)| !fills_width(n, s, row))
-            .map(|(_, v)| v.x)
-            .sum();
-        let flex = children.iter().filter(|n| fills_width(n, s, row)).count();
         let share = ((inner.width() - fixed - total_gap) / flex.max(1) as f32).max(0.0);
-        let height_flex = children.iter().filter(|n| fills_height(n, s, row)).count();
-        let fixed_height: f32 = children
-            .iter()
-            .zip(&sizes)
-            .filter(|(n, _)| !fills_height(n, s, row))
-            .map(|(_, size)| size.y)
-            .sum();
         let height_share =
             ((inner.height() - fixed_height - total_gap) / height_flex.max(1) as f32).max(0.0);
         let mut cursor = inner.min - scrolled;
@@ -223,6 +233,8 @@ impl Renderer<'_> {
         // asked for (`mg nui layout`): a group's column of 1,000 rows laid
         // every one out each frame.
         let clip = ui.clip_rect();
+        let mut child_path = format!("{source_path}/children/");
+        let base = child_path.len();
         let past = |cursor: egui::Pos2| match ty {
             "col" => cursor.y > clip.bottom(),
             "row" => cursor.x > clip.right(),
@@ -233,15 +245,16 @@ impl Renderer<'_> {
                 break;
             }
             let mut size = sizes[i];
-            if ty == "row" && fills_width(child, s, row) {
+            let (fills_width, fills_height) = fills[i];
+            if ty == "row" && fills_width {
                 size.x = share;
-            } else if ty != "row" && fills_width(child, s, row) {
+            } else if ty != "row" && fills_width {
                 size.x = if ty == "group" { inner.width().max(size.x) } else { inner.width() };
             }
             if ty == "group" && matches!(child["type"].as_str(), Some("col" | "row")) {
                 // A group's layout fills it, or runs past it and scrolls.
                 size.y = inner.height().max(size.y);
-            } else if fills_height(child, s, row) {
+            } else if fills_height {
                 size.y = if ty == "row" || ty == "group" {
                     inner.height()
                 } else {
@@ -258,7 +271,7 @@ impl Renderer<'_> {
             }
             if let Some(right) = reach
                 && i + 1 == children.len()
-                && !fills_width(child, s, row)
+                && !fills_width
                 && num(&child["width"], s, row, -1.0) < 0.0
             {
                 size.x = size.x.max(right - cursor.x);
@@ -267,7 +280,9 @@ impl Renderer<'_> {
             // is a control hundreds of millions of points high, and a
             // scrollbar as long.)
             size = size.min(self.scaled(Vec2::splat(LARGEST)));
-            let child_path = format!("{source_path}/children/{i}");
+            // (One string for every child's path, not one made for each.)
+            child_path.truncate(base);
+            let _ = write!(child_path, "{i}");
             let after = widths_after.get(i).copied().unwrap_or(-1.0);
             self.reach = (ty == "col" && child["type"] == "row" && after >= 0.0).then(|| {
                 let padding = layout_padding(child, s, row) * scale;

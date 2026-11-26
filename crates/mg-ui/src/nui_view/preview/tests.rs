@@ -74,7 +74,7 @@ fn kept_natural_sizes_are_those_measured_afresh() {
             assert_eq!(natural(v, &s, row, depth, Some(&kept)), natural(v, &s, row, depth, None));
         }
     });
-    assert!(kept.borrow().len() > 30);
+    assert!(kept.borrow().naturals.len() > 30);
 }
 
 /// The widest width after each child, in one pass from the end, is what

@@ -13,7 +13,7 @@ pub(in crate::nui_view) fn canvas(
         state.preview_scale = 1.0;
     }
     track_gestures(ui, v, state);
-    let mut runtime = session(v, s, state);
+    let mut runtime = session(crate::nui_view::trusted(ui.ctx(), state), v, s, state);
     // What is shown in the window's place: a simulation's window, the window
     // as a gesture under way leaves it, or a variant inside its window.
     // Otherwise it is the window itself, and nothing is copied.
@@ -188,10 +188,15 @@ fn track_gestures(ui: &Ui, v: &Value, state: &mut State) {
 
 /// The simulation of Interact: a new one when the window or its settings
 /// changed, with the size the client would give it.
-fn session(v: &Value, s: &Settings, state: &mut State) -> Option<interaction::Session> {
+fn session(
+    generation: Option<u64>,
+    v: &Value,
+    s: &Settings,
+    state: &mut State,
+) -> Option<interaction::Session> {
     let mut runtime = state.runtime.take();
-    if state.preview_interactive && runtime.as_ref().is_none_or(|r| !r.matches(v, s)) {
-        runtime = Some(interaction::Session::new(v, s));
+    if state.preview_interactive && runtime.as_mut().is_none_or(|r| !r.matches(generation, v, s)) {
+        runtime = Some(interaction::Session::new(v, s, generation));
         state.forget_scrolls();
     }
     if state.preview_interactive
@@ -676,7 +681,20 @@ impl Stage<'_> {
         // (8193.37-17: measured on the client's screenshots; `container`).
         let root_group = v["root"]["type"] == "group";
         let reach = if root_group { inner.expand(4.0 * scale) } else { inner };
-        ui.scope_builder(egui::UiBuilder::new().max_rect(reach), |ui| {
+        // What the last pass worked out of the window, where it is the
+        // window itself (not a copy shown in its place), at the same
+        // scale, and known since not to have changed (`State::measured`).
+        let at = (self.state.window_gen, scale.to_bits(), self.ui_scale.to_bits());
+        let trusted = crate::nui_view::trusted(ui.ctx(), self.state) == Some(self.state.window_gen);
+        let kept = match self.state.measured.take() {
+            Some((was, kept)) if was == at && trusted && self.shown.is_none() => {
+                self.state.carried += 1;
+                kept.carry()
+            }
+            _ => Measured::default(),
+        };
+        let keep = self.shown.is_none();
+        let kept = ui.scope_builder(egui::UiBuilder::new().max_rect(reach), |ui| {
             ui.set_clip_rect(reach.intersect(ui.clip_rect()));
             let mut renderer = Renderer {
                 s,
@@ -693,7 +711,7 @@ impl Stage<'_> {
                 ancestor_disabled: !flag(&v["accepts_input"], s, None, true),
                 context_prefix: self.context_prefix,
                 reach: None,
-                naturals: Naturals::default(),
+                naturals: Naturals::new(kept),
             };
             if !flag(&v["collapsed"], s, None, false) {
                 let desired =
@@ -707,6 +725,10 @@ impl Stage<'_> {
                 }
                 renderer.node(ui, &v["root"], "/root", root, None, 0);
             }
+            renderer.naturals.into_inner()
         });
+        if keep {
+            self.state.measured = Some((at, kept.inner));
+        }
     }
 }
