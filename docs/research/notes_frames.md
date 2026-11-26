@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:06:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:42:48Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -836,12 +836,15 @@ this work):
 | Turned, off, encoded | 18.08 / 18.26 / 0.92 | 19.17 / 19.58 / 2.67 |
 | Turned, on, encoded | 28.14 / 28.44 / 1.01 | 29.14 / 30.68 / 3.09 |
 
-Inside the spread either way, as the off rows show; the window's frame
-with the wheel turning, seen whole, gave 17.49 / 17.58 / 1.97 on before
-and 19.54 / 20.77 / 19.62 after, a set with one run far out. Timed
-again at load 32 to 61, every view took twice as long (off 34 to 41 ms
-before, 41 to 49 after, the switch on 50 to 58 either way). Neither
-resolves 1 ms; the alternate-frame comparison does. The bar (on no
+Inside the spread either way, as the off rows show. The window's frame
+with the wheel turning, seen whole, the switch on, pointed the other
+way: 17.49 / 17.58 / 1.97 before and 19.54 / 20.77 / 19.62 after (two of
+the three runs after above all three before; off level, 14.46 / 17.58
+against 14.71 / 17.94). Timed again at load 32 to 61, every view took
+twice as long (off 34 to 41 ms before, 41 to 49 after, the switch on 50
+to 58 either way). So the 1.0 ms is `render_area`'s encoding, in the
+alternate-frame comparison; the window's frame did not confirm it, and
+in one set pointed the other way. The bar (on no
 slower than off) is not cleared: on 16.1 against 12.8 seen whole, 29.1
 against 19.2 turned.
 
@@ -864,8 +867,12 @@ about 0.3 ms of the draws' encoding, not 0.9: lake seen whole, 4× MSAA,
 against 2.19 / 2.43 on, 2.06 against 2.44 at load 61, inside the budget.
 The entry's ideas do not apply: these programs read neither `m_normal`
 nor `m_mvp`, and Moonglow's own path works out the same inverse a
-draw. The work above changed the water by nothing measurable (medians
-0.99 to 0.98, 1.17 to 1.14).
+draw. What the 0.3 ms is: the game's programs' own pipelines and
+material groups, as in the woods (a pipeline and two groups per
+material kind, the pipelines looked up a draw); the profile shows no
+single part apart from the same functions as with the switch off. The
+work above changed the water by nothing measurable (medians 0.99 to
+0.98, 1.17 to 1.14).
 
 **The review's small slowdowns, against the build it timed** (develop
 at a46ba28a, version 3.18.1, built beside this one; alternated, load
@@ -876,13 +883,36 @@ at a46ba28a, version 3.18.1, built beside this one; alternated, load
 | Area092 turned, encoded | 2.28 / 2.39 / 2.02 | 1.86 / 1.89 / 3.28 |
 | Area092 turned, on the processor | 1.99 / 1.99 / 1.99 | 1.37 / 1.63 / 3.60 |
 | Grass field close, no grass, frame | 0.98 (load 10.5) | 1.17 (load 9.8) |
+| The same, wheel, at load 16 to 21 | 2.21 / 2.25 / 0.05 | 2.94 / 3.25 / 1.20 |
+| Grass field close, off, GPU (load 16 to 21) | 3.52 / 3.53 / 0.09 | 3.74 / 3.76 / 0.05 |
 | Grass field close, on, encoded | 0.44 / 0.45 / 0.90 | 0.62 / 0.68 / 0.47 |
 | Woods turned, off, GPU | 6.62 / 6.73 / 1.69 | 7.70 / 9.40 / 2.01 |
 | Woods turned, off, GPU's quickest tenth | 6.21 to 7.08 | 7.30 to 8.87 |
 
-Area092 is quicker than in 3.18.1 now. The grass field close up is
-0.15 to 0.2 ms slower in the calmest pair, inside the spread of the
-rest: not bisected. The woods turned with Moonglow's shader take about
+Area092 is quicker than in 3.18.1 now.
+
+The grass field close up is slower in every pair, not only the calmest.
+Timed again at load 16 to 21 (three runs, alternated), the window's
+frames without grass (pointer, idle and wheel) took 1.62 to 2.50 ms in
+3.18.1 against 2.63 to 4.14 now, and the close view's GPU 3.52 to 3.61 against 3.74 to 3.79. The
+two have different causes. The GPU's step was bisected over develop's
+first-parent commits (old, middle and new alternated, three rounds a
+step, load 11 to 30) to dd8d0bc1 and 03340a65, the next merge. Timed
+again four rounds each, alternated: 3.47 to 3.63 ms before dd8d0bc1,
+3.60 to 3.70 at it, 3.68 to 3.75 at 03340a65, which changes nothing
+that draws (its renderer-side change is a test of a DDS header). The
+step is dd8d0bc1, grass and see-through meshes taking the shadows
+through a mask of the shadows laid and read after them, as in the
+client. Its own measurement was 0.3 to 0.6 ms of GPU in area084 seen
+close. It is kept: it is the client's look.
+
+The window's frame did not bisect. Its old, middle and new figures
+crossed at every step, at load 11 to 30: 3.18.1's ranged from 0.83 to
+3.22 ms within one step. The review saw it as waiting rather than work
+(less on the processor than before), and a frame that waits grows with
+the machine's load. It is left in the deferred list for a calm machine.
+
+The woods turned with Moonglow's shader take about
 1 ms more of the GPU, beyond the spread in the quickest tenth. Built on
 each side of 6b26e702 ("See-through draws of a material are drawn chunk
 by chunk", 10 November) and alternated (load 27 to 42), the quickest

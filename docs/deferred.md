@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:06:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:42:48Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -189,6 +189,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The animation step could follow what a picture costs:** a slow GPU
     stepping less often while the window is in front, measured with the
     GPU's timestamps (not on every backend). (M)
+- **The grass field's window frame close up, slower than in 3.18.1:**
+  the grass test's field close up without grass, the window's frames
+  (pointer, idle, wheel), took 1.17 to 1.25 ms where 3.18.1 took 0.98
+  to 1.02 (load about 10), and 2.63 to 4.14 where 1.62 to 2.50 at load
+  16 to 21. A bisect over develop's first-parent commits (old, middle
+  and new alternated, three rounds a step) did not settle it, because
+  the three crossed at every step at load 11 to 30. The review saw it as
+  waiting rather than work. The rest of the old entry is settled: area092
+  is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
+  taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
+  frames note](research/notes_frames.md) of 25 November says. (S, waits
+  on a calm machine: load under 5 for the bisect) (the review of
+  November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
   show each change. The reviewer's run of 10 November timed every view
@@ -512,9 +525,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     note](research/notes_frames.md), 25 November): the game's draws set
     group 1 and the zero vertex buffer again at every draw (5,514 binds
     each seen whole); now each is set only where another is bound, about
-    11,000 commands and 1.0 ms of encoding less. Draws encoded seen whole
-    16.1 ms on against 12.8 off, turned 29.1 against 19.2 (load 2 to 9,
-    the lowest of three). What is left is the game's programs
+    11,000 commands and 1.0 ms of encoding less, measured as both paths
+    on alternate frames of one `render_area` run; `frame_perf` at load 2
+    to 9 cannot tell 1 ms apart (draws encoded seen whole, on, 16.95
+    before and 16.1 after; turned 28.1 and 29.1; the window's frame with
+    the wheel turning seen whole, on, 17.5 before and 19.5 after, not
+    confirmed either way). Draws encoded seen whole 16.1 ms on against
+    12.8 off, turned 29.1 against 19.2 (the lowest of three). What is left is the game's programs
     themselves: 5,500 to 7,500 pipeline changes against 3,200 off, two
     groups set at each (the vertex program reads `texUnit0`, so group 2
     is the material's), and the game's see-through runs by material
