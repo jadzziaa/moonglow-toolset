@@ -3046,6 +3046,50 @@ fn hover_list_row(
     h.run_steps(40);
 }
 
+/// A whole item's icons on its Appearance page, each in a cell of the
+/// largest one's size (the owner's ruling of 26 November): a medium
+/// miscellaneous item's 999, at the top and scrolled down.
+#[test]
+#[ignore]
+fn whole_item_icons() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let name = "nw_it_mring001";
+    let mut h = pictured_blueprint(
+        &root,
+        &dir,
+        (name, ResType::UTI),
+        "Appearance",
+        egui::vec2(1200.0, 800.0),
+    );
+    h.run_steps(6);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Base item",
+        vec![mg_edit::Edit::SetField {
+            key: ResKey::parse(name, ResType::UTI).unwrap(),
+            path: GffPath::root(),
+            label: "BaseItem".into(),
+            value: Some(mg_gff::Value::Int(29)),
+        }],
+    )));
+    h.run_steps(20);
+    shoot(&mut h, &dir, "icons-misc-medium-top");
+    let at = h.get_by_label("Appearance 1").rect().center();
+    for _ in 0..12 {
+        h.hover_at(at);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -29.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(3);
+    }
+    h.run_steps(20);
+    shoot(&mut h, &dir, "icons-misc-medium-scrolled");
+}
+
 /// The pictures beside the row the pointer rests on in a door's and an
 /// item's Appearance lists (GitHub issue 7): a generic door's and a
 /// tileset door's, a ring's model, a longsword's blade and an armor's

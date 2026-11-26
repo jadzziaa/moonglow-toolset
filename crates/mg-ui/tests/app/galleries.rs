@@ -625,8 +625,8 @@ fn each_gallery_comes_to_rest() {
 #[test]
 fn a_whole_item_s_icons_take_the_room_of_its_base_item_s() {
     let row = |h: &Harness<'_, Moonglow>, key: ResKey| {
-        let id = egui::Id::new(("uti-icons", key, "ModelPart1")).with("row");
-        h.ctx.data(|d| d.get_temp::<f32>(id))
+        let id = egui::Id::new(("uti-icons", key, "ModelPart1")).with("cell");
+        h.ctx.data(|d| d.get_temp::<(u64, egui::Vec2)>(id)).map(|(_, cell)| cell.y)
     };
     let made_medium = |name: &str, copy: &str| {
         let (mut h, key) = blueprint_harness(name, copy, ResType::UTI)?;
@@ -651,9 +651,9 @@ fn a_whole_item_s_icons_take_the_room_of_its_base_item_s() {
 }
 
 /// A whole item's icons scrolled through: in sight in their order, line by
-/// line, and every one of them reached (those out of sight are given
-/// their room one by one, at the first icon's size): a medium
-/// miscellaneous item's.
+/// line, each in a cell of one size (the owner's ruling of 26 November),
+/// and every one of them reached (the lines out of sight skipped whole):
+/// a medium miscellaneous item's.
 #[test]
 fn a_whole_item_s_icons_keep_their_places_scrolled_through() {
     let Some((mut h, key)) = blueprint_harness("nw_it_mring001", "icons_kept", ResType::UTI) else {
@@ -696,6 +696,15 @@ fn a_whole_item_s_icons_keep_their_places_scrolled_through() {
             let ((a, ra), (b, rb)) = (w[0], w[1]);
             let next_line = rb.top() > ra.center().y;
             assert!(next_line || rb.left() > ra.right(), "icon {b} {rb:?} after {a} {ra:?}");
+        }
+        // (Each in a cell of one size: their centers in columns and lines
+        // as evenly apart, whatever each icon's own size.)
+        for axis in [|r: &egui::Rect| r.center().x, |r: &egui::Rect| r.center().y] {
+            let mut at: Vec<f32> = shown.iter().map(|(_, r)| axis(r)).collect();
+            at.sort_by(f32::total_cmp);
+            at.dedup_by(|a, b| (*a - *b).abs() < 1.0);
+            let steps: Vec<f32> = at.windows(2).map(|w| w[1] - w[0]).collect();
+            assert!(steps.iter().all(|s| (s - steps[0]).abs() < 1.0), "the cells apart: {steps:?}");
         }
         seen.extend(shown.iter().map(|(n, _)| *n));
         h.hover_at(at);

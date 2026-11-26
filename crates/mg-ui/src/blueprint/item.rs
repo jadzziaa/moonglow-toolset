@@ -566,9 +566,78 @@ fn part_icon(
 }
 
 /// Aurora's icon grid: the icon of each model number, a click chooses it.
+/// Every icon stands in a cell of the largest one's size drawn yet (the
+/// owner's ruling of 26 November), at most `ICON_GRID_TALL` of whole lines
+/// in sight: a line out of sight is skipped whole, nothing of it made (a
+/// base item with a thousand icons had them all read and drawn at once,
+/// then each given its room one by one every frame).
 fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
-    part_grid(f, ui, game, numbers, ("Appearance", "ModelPart1"), None, 220.0);
+    let label = "ModelPart1";
+    let current = part_number(&f.root, label).unwrap_or(0);
+    f.mark_mixed_inline(ui, &[label]);
+    let id = egui::Id::new(("uti-icons", f.key, label));
+    // (The cell kept for these numbers: another base item's icons start
+    // anew.)
+    let numbers_key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        numbers.hash(&mut h);
+        h.finish()
+    };
+    let cell_id = id.with("cell");
+    let kept = ui.data(|d| d.get_temp::<(u64, egui::Vec2)>(cell_id));
+    let cell = kept.filter(|(k, _)| *k == numbers_key).map_or(ICON_CELL_FIRST, |(_, c)| c);
+    let gap = ui.spacing().item_spacing;
+    let step = cell + gap;
+    let lines_tall = ((ICON_GRID_TALL + gap.y) / step.y).floor().max(1.0);
+    let mut largest = cell;
+    let mut chosen = None;
+    let scroll = egui::ScrollArea::vertical().max_height(lines_tall * step.y - gap.y).id_salt(id);
+    scroll.show(ui, |ui| {
+        let per = (((ui.available_width() + gap.x) / step.x).floor() as usize).max(1);
+        let lines = numbers.len().div_ceil(per);
+        let size = egui::vec2(ui.available_width(), (lines as f32 * step.y - gap.y).max(0.0));
+        let (grid, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let clip = ui.clip_rect();
+        let first = ((clip.top() - grid.top()) / step.y).floor().max(0.0) as usize;
+        let last = (((clip.bottom() - grid.top()) / step.y).ceil().max(0.0) as usize).min(lines);
+        for (i, &n) in numbers.iter().enumerate().take(last * per).skip(first * per) {
+            let (line, column) = (i / per, i % per);
+            let at = grid.min + egui::vec2(column as f32 * step.x, line as f32 * step.y);
+            let rect = egui::Rect::from_min_size(at, cell);
+            let layout = egui::Layout::centered_and_justified(egui::Direction::TopDown);
+            let mut ui =
+                ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout).id_salt(n));
+            let item = with_model(&f.root, label, n);
+            let alt = format!("Appearance {n}");
+            let layers = icon(f, &ui, game, &item);
+            let r = crate::images::stacked_drawn(&mut ui, &layers, (1.0, CHOICE_TALLEST), &alt)
+                .on_hover_text(alt);
+            largest = largest.max(r.rect.size());
+            if i64::from(n) == current {
+                let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
+                ui.painter().rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
+            }
+            if r.clicked() {
+                chosen = Some(n);
+            }
+        }
+    });
+    if kept != Some((numbers_key, largest)) {
+        ui.data_mut(|d| d.insert_temp(cell_id, (numbers_key, largest)));
+        ui.ctx().request_repaint();
+    }
+    if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
+        set_part(f, "Appearance", &[label], i64::from(n));
+    }
 }
+
+/// The most room a whole item's icon grid takes, in whole lines of its
+/// cells.
+const ICON_GRID_TALL: f32 = 220.0;
+
+/// A whole item's icon cell before any icon is drawn: one inventory slot.
+const ICON_CELL_FIRST: egui::Vec2 = egui::vec2(32.0, 32.0);
 
 /// The largest a composite item's part is drawn among its choices: a
 /// great sword's blade is 190 points in its icon, and three lists of those
@@ -581,18 +650,17 @@ const PART_TALLEST: f32 = 96.0;
 const ICON_TALLEST: f32 = 300.0;
 const CHOICE_TALLEST: f32 = 128.0;
 
-/// The item's icon with each of `numbers` as its part `label` (named
-/// `what`), in a grid at most `height` tall: a click chooses the part.
-/// For a composite item's part (`letter` in its icons' names), that part
-/// alone and no more room than it fills: the icon is the whole item's
-/// size, most of it empty.
+/// A composite item's part `label` (named `what`, `letter` in its icons'
+/// names) as each of `numbers`, in a grid at most `height` tall: that part
+/// alone and no more room than it fills (the icon is the whole item's
+/// size, most of it empty). A click chooses the part.
 fn part_grid(
     f: &mut Form<'_>,
     ui: &mut Ui,
     game: &GameData,
     numbers: &[u16],
     (what, label): (&str, &str),
-    letter: Option<&str>,
+    letter: &str,
     height: f32,
 ) {
     let current = part_number(&f.root, label).unwrap_or(0);
@@ -611,29 +679,17 @@ fn part_grid(
         None => height,
     };
     let mut tallest: f32 = 0.0;
-    // (A choice out of sight takes its room, and nothing of it is made: a
-    // base item with a thousand icons had them all read and drawn at
-    // once, and the item copied for each every frame. A whole item's
-    // icons are of one size, the first one drawn's; a part alone is as
-    // large as it was when last drawn.)
-    // (The whole item's size learned again each frame: kept across them,
-    // its icons kept another base item's size once it was changed.)
-    let mut usual: Option<egui::Vec2> = None;
+    // (A choice out of sight takes its room, and nothing of it is made:
+    // the item was copied for each every frame. A part alone is as large
+    // as it was when last drawn.)
     let sizes_id = egui::Id::new(id).with("sizes");
     type Sizes = std::collections::HashMap<u16, egui::Vec2>;
-    let mut sizes: Sizes = match letter {
-        Some(_) => ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default(),
-        None => Sizes::new(),
-    };
+    let mut sizes: Sizes = ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default();
     let mut learned = false;
     egui::ScrollArea::vertical().max_height(height).id_salt(id).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
-                let known = match letter {
-                    Some(_) => sizes.get(&n).copied(),
-                    None => usual,
-                };
-                if let Some(size) = known {
+                if let Some(size) = sizes.get(&n).copied() {
                     // (In this line of them or, this one full, the next.)
                     let top = ui.cursor().min.y;
                     let lines = egui::Rect::from_x_y_ranges(
@@ -648,11 +704,10 @@ fn part_grid(
                 }
                 let item = with_model(&f.root, label, n);
                 let alt = format!("{what} {n}");
-                let alone = letter.and_then(|l| part_icon(f, ui, game, &item, (label, l)));
-                let r = match alone {
+                let r = match part_icon(f, ui, game, &item, (label, letter)) {
                     Some(p) => crate::images::cropped(ui, &p, PART_TALLEST, &alt),
                     // A part with a model and no icon: its number.
-                    None if letter.is_some() => {
+                    None => {
                         let text = egui::RichText::new(n.to_string()).weak();
                         let r = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
                         r.widget_info(|| {
@@ -660,15 +715,10 @@ fn part_grid(
                         });
                         r
                     }
-                    None => {
-                        let layers = icon(f, ui, game, &item);
-                        crate::images::stacked_drawn(ui, &layers, (1.0, CHOICE_TALLEST), &alt)
-                    }
                 }
                 .on_hover_text(alt);
                 tallest = tallest.max(r.rect.height());
-                usual.get_or_insert(r.rect.size());
-                if letter.is_some() && sizes.insert(n, r.rect.size()) != Some(r.rect.size()) {
+                if sizes.insert(n, r.rect.size()) != Some(r.rect.size()) {
                     learned = true;
                 }
                 if i64::from(n) == current {
@@ -971,7 +1021,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 }
                 ui.separator();
                 crate::widgets::field_label(ui, text);
-                part_grid(f, ui, game, &numbers, (text, label), Some(part), 150.0);
+                part_grid(f, ui, game, &numbers, (text, label), part, 150.0);
             }
         }
         // Armor: a part per body part (parts_*.2da), the robe and colours.

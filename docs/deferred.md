@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:34:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:52:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -248,13 +248,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   8.6 with 32,000 rows (from 18.8; the portraits' names gathered in one
   walk); an item's Appearance page of 999 icons opened in 8.75 to 8.87
   ms (its icons' numbers 1.8, the grid 1.1 to 1.3, the rest the
-  window's first frame), and +145 (to 197) µs at rest over the same
-  with 142: each icon out of sight is given its room one by one, and
-  skipping them by lines changed which icons share a line (icons in
-  sight are laid out at their own sizes, those out of sight at the
-  first one's), so it waits on a ruling for a visible change, a cell of
-  one size for every icon (test
-  `a_whole_item_s_icons_keep_their_places_scrolled_through`); the
+  window's first frame); the
   Custom palette with 8,000 items found against 100, List +105 (to 108),
   Gallery +150 (to 168) (likely a header built each frame for every
   category holding a find, in sight or not: laying the palette's tree
