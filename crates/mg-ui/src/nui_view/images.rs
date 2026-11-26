@@ -403,10 +403,21 @@ fn use_hak(app: &mut Moonglow, path: PathBuf, then: Using) {
 
 /// The module's edits of pictures moved into a hak, made once it is
 /// written (its job's end): one step, as the window's own are named.
+/// What it takes out of the module is noted for the window's Cancel, as
+/// the window's own edits are, while its tab is open.
 fn make_edits(app: &mut Moonglow, name: &str, edits: Vec<Edit>) {
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new(format!("Edit NUI {name}"), edits)));
+    if edits.is_empty() {
+        return;
     }
+    let command = Command::new(format!("Edit NUI {name}"), edits);
+    if let Some(key) = ResKey::parse(name, ResType::JUI) {
+        let tab = Tab::Nui(key);
+        if app.dock.find_tab(&tab).is_some() {
+            let targets = [(key, mg_edit::GffPath::root())];
+            crate::blueprint::note_command(app, &tab, &targets, &command);
+        }
+    }
+    app.actions.push(Action::Apply(command));
 }
 
 /// The Images page. Returns the module's changes to make with the window's.

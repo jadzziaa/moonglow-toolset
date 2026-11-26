@@ -330,9 +330,10 @@ Workshop) can't take pictures: choose a new hak. A hak open in the hak
 editor takes them there: it is saved at once (a copy of what it was kept
 as `.hak.bak`), unless it has other unsaved changes, when the log asks you
 to save it there (and a Move leaves the module its pictures until then).
-A hak is written as a job, with a window that shows how far it is and
-**Cancel**: the log says what was written, and the module's list and
-pictures change, once the hak is on disk.
+A hak is written as a job, its window showing it under way (one open in
+the hak editor with how far it is and **Cancel**, as its own Save): the
+log says what was written, and the module's list and pictures change,
+once the hak is on disk.
 Pictures added to the module that the window doesn't show yet are listed
 too, ready to be the background. **Use as Background** puts a picture
 under the window's controls, stretched over it: a draw layer of the root

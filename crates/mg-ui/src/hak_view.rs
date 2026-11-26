@@ -952,14 +952,23 @@ fn save_job(app: &mut Moonglow, id: u32, ask: bool, then: Then, after: AfterSave
     let Some(i) = app.haks.iter().position(|d| d.id == id) else { return after(app, false) };
     app.clear_failed(&Tab::Hak(id));
     // (One job at a time: started under another, it was not started, and
-    // what was to follow it was dropped without a word.)
+    // what was to follow it was dropped without a word. Under a hak's own
+    // save, a second is refused, said why; under another job, the hak is
+    // written here and now, as it was before it was a job.)
     if let Some(job) = &app.job {
-        let why =
-            format!("{} is still running: wait for it to finish, or cancel it, first", job.title);
-        app.log.error(format!("Could not save the hak: {why}"));
-        app.note_failed(&Tab::Hak(id), why);
-        failed(app, id, then);
-        return after(app, false);
+        if job.title == SAVE_JOB {
+            let why =
+                format!("{SAVE_JOB} is still running: wait for it to finish, or cancel it, first");
+            app.log.error(format!("Could not save the hak: {why}"));
+            app.note_failed(&Tab::Hak(id), why);
+            failed(app, id, then);
+            return after(app, false);
+        }
+        let saved = save(app, id, ask);
+        if !saved {
+            failed(app, id, then);
+        }
+        return after(app, saved);
     }
     // (Not where the Save dialog was canceled: that is no failure.)
     let Ok(to) = save_to(app, i, ask) else {
