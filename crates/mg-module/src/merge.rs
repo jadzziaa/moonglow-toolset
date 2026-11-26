@@ -180,7 +180,8 @@ fn in_place(base: &Gff, side: &Gff) -> bool {
 /// Theirs' new lines (those after the base's) numbered on after ours', and
 /// their links with them; ours' new lines put in theirs' list at their
 /// numbers, so that a merge by place has both. A kind of line only one side
-/// added to, or both the same lines, is left as it is.
+/// added to is left as it is, and the new lines both sides begin with the
+/// same are taken as one.
 fn number_theirs_after_ours(base: &Gff, ours: &Gff, theirs: &mut Gff) {
     let mut shift = [0u32; 2];
     let mut from = [0u32; 2];
@@ -190,10 +191,14 @@ fn number_theirs_after_ours(base: &Gff, ours: &Gff, theirs: &mut Gff) {
             dialog::nodes(ours, kind),
             dialog::nodes(theirs, kind),
         );
-        if o.len() > b && t.len() > b && o[b..] != t[b..] {
-            shift[kind as usize] = (o.len() - b) as u32;
+        // (New lines both put first the same, a commit picked onto both,
+        // are one: theirs' others go after ours'.)
+        let alike = (o.iter().skip(b)).zip(t.iter().skip(b)).take_while(|(x, y)| x == y).count();
+        let start = b + alike;
+        if o.len() > start && t.len() > start {
+            shift[kind as usize] = (o.len() - start) as u32;
         }
-        from[kind as usize] = b as u32;
+        from[kind as usize] = start as u32;
     }
     if shift == [0, 0] {
         return;
@@ -203,7 +208,7 @@ fn number_theirs_after_ours(base: &Gff, ours: &Gff, theirs: &mut Gff) {
         for l in links {
             let i = dialog::link_index(l);
             if by > 0 && i >= at {
-                l.set("Index", Value::Dword(i + by));
+                l.set("Index", Value::Dword(i.saturating_add(by)));
             }
         }
     };
@@ -231,7 +236,7 @@ fn number_theirs_after_ours(base: &Gff, ours: &Gff, theirs: &mut Gff) {
         for (j, n) in theirs_new.iter_mut().enumerate() {
             // (A struct id that was its place goes with it.)
             if n.id as usize == at + j {
-                n.id += by;
+                n.id = n.id.saturating_add(by);
             }
         }
         nodes.extend(ours_new.iter().cloned());
@@ -294,9 +299,53 @@ mod tests {
         let m = merge(&base, &theirs, &ours, Prefer::Ours);
         assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
         assert_eq!(texts(&m.gff, Kind::Entry)[3..], ["Halt!", "A bard, too.", "Then pass."]);
-        // Lines both added the same (a commit picked onto both) are one.
+        // Lines both added the same (a commit picked onto both) are one,
+        // also where one side added more after them.
         let m = merge(&base, &ours, &ours, Prefer::Ours);
         assert_eq!(m.gff, ours);
+        let mut more = ours.clone();
+        add_node(&mut more, Parent::Node(Kind::Entry, 2), "Begone.");
+        let m = merge(&base, &more, &ours, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(m.gff, more);
+        let m = merge(&base, &ours, &more, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(m.gff, more);
+        // Theirs' picked lines and their own after them: theirs' own after
+        // ours' others.
+        let mut picked = ours.clone();
+        add_node(&mut picked, Parent::Node(Kind::Entry, 1), "Farewell.");
+        let mut want = more.clone();
+        add_node(&mut want, Parent::Node(Kind::Entry, 1), "Farewell.");
+        let m = merge(&base, &more, &picked, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(m.gff, want);
+    }
+
+    /// After one side merged the other's lines (numbered after its own), the
+    /// next merge's base is the other side's, whose lines are at other
+    /// numbers on this side: lines both add again are the conflict of the
+    /// lines, not merged by place.
+    #[test]
+    fn lines_added_again_after_a_merge_are_a_conflict_not_a_wrong_pairing() {
+        let base = sample();
+        let mut ours = base.clone();
+        add_node(&mut ours, Parent::Node(Kind::Entry, 0), "Ours.");
+        let mut theirs = base.clone();
+        add_node(&mut theirs, Parent::Node(Kind::Entry, 0), "Theirs.");
+        let merged = merge(&base, &ours, &theirs, Prefer::Ours);
+        assert!(merged.conflicts.is_empty());
+        assert_eq!(texts(&merged.gff, Kind::Reply)[1..], ["Ours.", "Theirs."]);
+        let mut ours2 = merged.gff.clone();
+        add_node(&mut ours2, Parent::Node(Kind::Entry, 2), "Ours again.");
+        let mut theirs2 = theirs.clone();
+        add_node(&mut theirs2, Parent::Node(Kind::Entry, 2), "Theirs again.");
+        let m = merge(&theirs, &ours2, &theirs2, Prefer::Ours);
+        assert_eq!(
+            m.conflicts.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+            [LINES_CONFLICT]
+        );
+        assert_eq!(m.gff, ours2);
     }
 
     /// One side adds lines while the other changes one, and a side adds

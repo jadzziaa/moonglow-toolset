@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:23:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:44:00Z }
 ---
 
 # Modules
@@ -705,7 +705,13 @@ with it.
   as ever. A side that deleted lines merges with one that changed none.
   Aurora numbers a conversation's lines anew each time it saves one, so
   a line added there renumbers others, and merging it with another
-  builder's lines is that conflict.
+  builder's lines is that conflict. So is the next merge of two
+  branches that both go on adding lines after one merged the other's:
+  the merged branch has the other's lines at numbers after its own,
+  which the other branch doesn't, and a rebase of several commits that
+  add lines onto a branch that added lines too meets the same at its
+  second commit. Merge such a conversation by hand, in Moonglow (or
+  take one side's lines with `--prefer` and add the other's again).
 - **Every other list** (tiles, skills) is merged by place: an item is
   its number in the list, and two items added at one place are a
   conflict.
@@ -742,7 +748,7 @@ come their changes that conflict with nothing, then their side of each
 conflict, and each edit says which in its `note`:
 
 ```json
-{ "version": 1, "label": "Merge area1.git: theirs' changes, and theirs' side of 1 conflicts",
+{ "version": 1, "label": "Merge area1.git: theirs' changes, and theirs' side of 1 conflict",
   "edits": [
     { "op": "insert_item", "resource": "area1.git", "list": "/Placeable List",
       "index": 2, "item": { "__struct_id": 9, "Tag": { "type": "cexostring", "value": "RUG" } },
@@ -754,8 +760,11 @@ conflict, and each edit says which in its `note`:
 ```
 
 Applied as it is, it takes their side of every conflict. To keep yours
-of one, take that conflict's edits out of the file (each conflict's
-edits are its own: take out any of them, keep the rest in their order).
+of one, take that conflict's edits out of the file, and keep the rest in
+their order. Conflicts whose edits overlap (both sides reordered a list
+and both changed a value in it: the order's edits put items in other
+places) are one group, said in its note (`conflicts 1 and 2 of 2`):
+take both out or neither.
 Then apply it to the project (the folder with `nasher.cfg`) or the
 module folder, and tell git the file is merged:
 

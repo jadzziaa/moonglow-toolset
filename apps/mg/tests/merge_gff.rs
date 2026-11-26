@@ -518,3 +518,57 @@ fn a_conversation_s_lines_conflict_is_settled_by_its_conflict_file() {
     assert_eq!(read(&conv), read(Path::new(&out)));
     assert_eq!(read(&conv).root.dword("DelayReply"), Some(2));
 }
+
+/// A list's order both changed and a value in it both changed: the
+/// order's edits put items in other places, so the two are one group in
+/// the conflict file, taken together; applied whole it is still `--prefer
+/// theirs`, and without them `--prefer ours`.
+#[test]
+fn conflicts_whose_edits_overlap_are_taken_together() {
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-overlap");
+    let var = |name: &str, value: i32| {
+        let mut s = Struct::new(0);
+        s.set("Name", Value::String(name.into()));
+        s.set("Type", Value::Dword(1));
+        s.set("Value", Value::Int(value));
+        s
+    };
+    let utc = |vars: &[Struct]| {
+        let mut g = Gff::new(*b"UTC ");
+        g.root.set("Tag", Value::String(b"GUARD".to_vec()));
+        g.root.set("VarTable", Value::List(vars.to_vec()));
+        g
+    };
+    let (a, c) = (var("a", 1), var("c", 3));
+    let base = utc(&[a.clone(), var("b", 2), c.clone()]);
+    let ours = utc(&[var("b", 20), a.clone(), c.clone()]);
+    let mut theirs = utc(&[c.clone(), a.clone(), var("b", 21)]);
+    theirs.root.set("Tag", Value::String(b"GATE".to_vec()));
+    let module = dir.join("module");
+    std::fs::create_dir_all(&module).unwrap();
+    let file = module.join("guard.utc");
+    let bytes = |g: &Gff| g.to_bytes().unwrap();
+    std::fs::write(&file, bytes(&ours)).unwrap();
+    let (b, t) = (put(&dir, "base", bytes(&base)), put(&dir, "theirs", bytes(&theirs)));
+    let o = file.to_str().unwrap().to_string();
+    let (ok, m) = mg(&["merge-gff", &b, &o, &t]);
+    assert!(!ok, "{m}");
+    let paths: Vec<&str> =
+        m["conflicts"].as_array().unwrap().iter().map(|c| c["path"].as_str().unwrap()).collect();
+    assert_eq!(paths, ["/VarTable[b, 1]/Value", "/VarTable/(order)"]);
+    assert_eq!(m["conflicts"][0]["edits"], m["conflicts"][1]["edits"], "{m}");
+    let conflicts = format!("{o}.conflicts");
+    let text = std::fs::read_to_string(&conflicts).unwrap();
+    assert!(text.contains("conflicts 1 and 2 of 2, theirs' side of each"), "{text}");
+    let out = dir.join("out").to_str().unwrap().to_string();
+    let module_dir = module.to_str().unwrap();
+    for (keep, prefer) in [(&[0usize, 1][..], "theirs"), (&[][..], "ours")] {
+        std::fs::write(&file, bytes(&ours)).unwrap();
+        assert!(mg(&["merge-gff", &b, &o, &t, "--prefer", prefer, "-o", &out]).0);
+        let edits = dir.join("edits.json");
+        std::fs::write(&edits, conflict_edits(&conflicts, &m, keep).to_string()).unwrap();
+        let (ok, applied) = mg(&["apply", module_dir, edits.to_str().unwrap()]);
+        assert!(ok, "{applied}");
+        assert_eq!(read(&file), read(Path::new(&out)), "--prefer {prefer}");
+    }
+}

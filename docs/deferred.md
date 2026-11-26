@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:44:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -96,7 +96,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
   a line both sides changed is what `by_lines` can't find) would merge
   those as well. Aurora numbers a conversation's lines anew whenever it
   saves one, so a conversation edited in Aurora on both sides is that
-  conflict whenever both change lines. What the guard can't tell from an
+  conflict whenever both change lines; and so is the everyday second
+  merge: once a branch has merged the other's lines (numbered after its
+  own) and both go on adding lines, the next merge's base has the other
+  branch's numbers, and its lines are at other numbers on this one (a
+  rebase of two commits that add lines onto a branch that did meets it
+  at the second). What the guard can't tell from an
   edit: the last line of a list deleted and another added under the same
   line at the same place, taken for that line changed (nothing in the
   file says otherwise), and coincidences like it. (M) (beyond what was
