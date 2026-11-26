@@ -3,3 +3,9 @@
 # Redistributable installed.
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# The tests' scratch folders (`mg_module::build::own_scratch_dir`): under
+# `target/test-output/`, not in the user's cache folder. (A variable already
+# set wins.)
+[env]
+MOONGLOW_SCRATCH_DIR = { value = "target/test-output/own-scratch", relative = true }

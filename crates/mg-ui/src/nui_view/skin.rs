@@ -281,7 +281,7 @@ pub(crate) struct Assets {
     /// typed looks among what the filter before it found, and a key taken
     /// back finds its filter's again, rather than each searching all
     /// 130,000 names. The listing they were found in.
-    narrowing: Vec<(mg_core::text::Needle, Vec<u32>)>,
+    narrowing: crate::narrowing::Narrowing,
     narrowed_in: u64,
     requested: BTreeSet<String>,
     /// How many times the skin was read, and how many pictures were (for
@@ -913,8 +913,7 @@ impl Assets {
             let names = match query.is_empty() {
                 true => self.catalog.iter().take(most).cloned().collect(),
                 false => {
-                    self.narrow(query);
-                    let at = self.narrowing.last().map_or(&[][..], |(_, at)| at);
+                    let at = self.narrow(query);
                     at.iter().take(most).map(|&i| self.catalog[i as usize].clone()).collect()
                 }
             };
@@ -923,31 +922,16 @@ impl Assets {
         self.found.as_ref().map_or(&[], |(_, _, _, names)| names)
     }
 
-    /// Finds what `query` (not empty) finds, as the top of `narrowing`:
-    /// the filters it does not narrow taken off first, then looked for
-    /// among what the one left found, or in the whole catalog.
-    fn narrow(&mut self, query: mg_core::text::Needle) {
+    /// The places in the catalog of what `query` (not empty) finds, among
+    /// what the filters before it found (`narrowing`).
+    fn narrow(&mut self, query: mg_core::text::Needle) -> std::sync::Arc<Vec<u32>> {
         if self.narrowed_in != self.listings {
             self.narrowing.clear();
             self.narrowed_in = self.listings;
         }
-        while self.narrowing.last().is_some_and(|(wider, _)| !query.narrows(wider)) {
-            self.narrowing.pop();
-        }
-        if self.narrowing.last().is_some_and(|(same, _)| *same == query) {
-            return;
-        }
         let catalog = &self.catalog;
-        let found = |&i: &u32| name_found(&query, &catalog[i as usize]);
-        let at: Vec<u32> = match self.narrowing.last() {
-            Some((_, within)) => within.iter().copied().filter(found).collect(),
-            None => (0..catalog.len() as u32).filter(found).collect(),
-        };
-        // (A long name typed key by key keeps the last few dozen.)
-        if self.narrowing.len() == 64 {
-            self.narrowing.remove(0);
-        }
-        self.narrowing.push((query, at));
+        let found = |i: u32| name_found(&query, &catalog[i as usize]);
+        self.narrowing.find(query.clone(), catalog.len(), found)
     }
 
     /// The skin, its pictures and the fonts read, and every picture kept

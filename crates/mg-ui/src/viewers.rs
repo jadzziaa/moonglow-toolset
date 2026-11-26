@@ -335,7 +335,7 @@ impl Picture {
         data: Arc<[u8]>,
     ) -> Picture {
         let palettes: Vec<Option<Arc<mg_image::Rgba>>> = match (key.restype, app.loader()) {
-            (ResType::PLT, Some(mut l)) => {
+            (ResType::PLT, Some(l)) => {
                 mg_image::plt::PALETTES.iter().map(|p| l.palette(p)).collect()
             }
             _ => vec![None; 10],

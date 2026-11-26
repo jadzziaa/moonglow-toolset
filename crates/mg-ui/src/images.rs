@@ -34,8 +34,8 @@ impl std::fmt::Debug for Picture {
 /// Decoded images, by lowercase name (and colouring, for PLTs).
 pub(crate) type Pictures = HashMap<String, Option<Picture>>;
 
-/// Decoded palettes (`pal_*`), by name.
-pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
+/// Decoded palettes (`pal_*`), by name: the renderer's own keeping.
+pub(crate) use mg_render::Palettes;
 
 /// Lets go of the pictures and palettes kept of what the module's changes
 /// since the last call touched, so that a picture the module adds, changes
@@ -45,7 +45,7 @@ pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
 /// go; another module, or none, is [`Moonglow`]'s own reset.
 pub(crate) fn forget_changed(
     pictures: &mut Pictures,
-    palettes: &mut Palettes,
+    palettes: &Palettes,
     ws: Option<&Workspace>,
     seen: &mut Option<(u64, u64)>,
 ) {
@@ -70,13 +70,13 @@ pub(crate) fn forget_changed(
         let (base, how) = key.split_once('#').unwrap_or((key, ""));
         !names.contains(base) && !(how == "loadscreen" && names.contains(&format!("{base}s")))
     });
-    palettes.retain(|name, _| !names.contains(name));
+    palettes.retain(|name| !names.contains(name));
 }
 
 /// Loads images from the module and the game into the cache.
 pub(crate) struct Loader<'a> {
     pub pictures: &'a mut Pictures,
-    pub palettes: &'a mut Palettes,
+    pub palettes: &'a Palettes,
     pub ws: Option<&'a Workspace>,
     pub game: &'a GameData,
 }
@@ -335,19 +335,11 @@ impl Loader<'_> {
     }
 
     /// A palette image (`pal_cloth01`, ...) as pixels, loaded once.
-    pub(crate) fn palette(&mut self, name: &str) -> Option<Arc<mg_image::Rgba>> {
-        // (By its name in lower case, as `picture`'s: one image, however
-        // it is asked for.)
-        let name = name.to_ascii_lowercase();
-        if let Some(p) = self.palettes.get(&name) {
-            return p.clone();
-        }
-        let rgba = ResRef::from_str(&name).ok().and_then(|r| {
-            let (t, data) = self.texture(r)?;
-            Some(Arc::new(mg_image::read(t, &data).ok()?.to_rgba()))
-        });
-        self.palettes.insert(name, rgba.clone());
-        rgba
+    pub(crate) fn palette(&self, name: &'static str) -> Option<Arc<mg_image::Rgba>> {
+        self.palettes.get(name, |name| {
+            let (t, data) = self.texture(ResRef::from_str(name).ok()?)?;
+            Some(mg_image::read(t, &data).ok()?.to_rgba())
+        })
     }
 
     /// The image named `name` (a texture resref), loaded once.
@@ -532,7 +524,7 @@ impl Moonglow {
         let game = self.game.as_deref()?;
         Some(Loader {
             pictures: &mut self.pictures,
-            palettes: &mut self.palettes,
+            palettes: &self.palettes,
             ws: self.ws.as_ref(),
             game,
         })
@@ -545,7 +537,7 @@ impl Moonglow {
         let game = self.game.as_deref()?;
         let loader = Loader {
             pictures: &mut self.pictures,
-            palettes: &mut self.palettes,
+            palettes: &self.palettes,
             ws: self.ws.as_ref(),
             game,
         };
@@ -578,21 +570,39 @@ impl Moonglow {
     }
 }
 
-/// Whether a portrait has a picture to show, in the module or the game
-/// (portraits.2da lists some the game has no pictures for: `matron`,
-/// `tm_tnobrl3_`).
-pub(crate) fn has_portrait(game: &GameData, ws: Option<&mg_edit::Workspace>, base: &str) -> bool {
-    ['m', 's', 'l', 'h', 't'].into_iter().any(|size| {
-        let Ok(name) = ResRef::from_str(&format!("po_{}{size}", base.to_ascii_lowercase())) else {
-            return false;
+/// The portraits' pictures there are, in the module or the game, by name
+/// (lowercase): found in one pass over the layers' names. (A row's five
+/// sizes looked for in every layer, 32,000 rows took Select Portrait's
+/// opening 19 ms.)
+pub(crate) struct Portraits(std::collections::HashSet<ResRef>);
+
+impl Portraits {
+    pub(crate) fn of(game: &GameData, ws: Option<&mg_edit::Workspace>) -> Portraits {
+        let texture = |k: &ResKey| k.restype == ResType::DDS || k.restype == ResType::TGA;
+        let portrait = |k: &ResKey| {
+            let name = k.resref.as_bytes();
+            name.len() > 3 && name[..3].eq_ignore_ascii_case(b"po_")
         };
-        let module = ws.is_some_and(|ws| {
-            [ResType::DDS, ResType::TGA]
-                .into_iter()
-                .any(|t| ws.module.get(&ResKey::new(name, t)).is_some())
+        let game_keys = game.resman.layers().iter().flat_map(|l| l.container.keys());
+        let module_keys = ws.into_iter().flat_map(|ws| {
+            [ResType::DDS, ResType::TGA].into_iter().flat_map(|t| ws.module.keys_of(t).copied())
         });
-        module || game.resman.texture(name).is_some()
-    })
+        let names = game_keys
+            .chain(module_keys)
+            .filter(|k| texture(k) && portrait(k))
+            .map(|k| k.resref.to_lowercase())
+            .collect();
+        Portraits(names)
+    }
+
+    /// Whether a portrait has a picture to show (portraits.2da lists some
+    /// the game has no pictures for: `matron`, `tm_tnobrl3_`).
+    pub(crate) fn has(&self, base: &str) -> bool {
+        let base = base.to_ascii_lowercase();
+        ['m', 's', 'l', 'h', 't'].into_iter().any(|size| {
+            ResRef::from_str(&format!("po_{base}{size}")).is_ok_and(|name| self.0.contains(&name))
+        })
+    }
 }
 
 /// A portrait thumbnail's width in a grid of them (Select Portrait, the
@@ -872,9 +882,9 @@ mod tests {
         m.set(key("po_bothm"), tga(30));
         m.set(key("po_modm"), tga(40));
         let ws = Workspace::new(m);
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let loader =
-            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+            Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(&ws), game: &game };
         let level = |name: &str| {
             let (t, d) = loader.texture(ResRef::from_str(name).unwrap()).unwrap();
             mg_image::read(t, &d).unwrap().to_rgba().data[0]
@@ -902,12 +912,12 @@ mod tests {
         let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
         let mut ws = Workspace::new(mg_module::Module::new());
         let ctx = egui::Context::default();
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let mut seen = None;
         let mut frame = |ws: &Workspace, pictures: &mut Pictures, names: &[&str]| {
-            forget_changed(pictures, &mut palettes, Some(ws), &mut seen);
+            forget_changed(pictures, &palettes, Some(ws), &mut seen);
             let mut loader =
-                Loader { pictures, palettes: &mut Palettes::new(), ws: Some(ws), game: &game };
+                Loader { pictures, palettes: &Palettes::default(), ws: Some(ws), game: &game };
             names
                 .iter()
                 .map(|n| loader.picture(&ctx, n).map(|p| p.texture.id()))
@@ -935,6 +945,66 @@ mod tests {
         ws.derive(|_| ()).unwrap();
         let outside = frame(&ws, &mut pictures, &["po_otherm"]);
         assert_ne!(outside[0], first[1], "a change outside the history reads all again");
+    }
+
+    /// A palette is read once, kept in the renderer's keeping
+    /// (`mg_render::Palettes`), and read again when the module changes it;
+    /// the others stay kept.
+    #[test]
+    fn a_palette_the_module_changes_is_read_again() {
+        let tga = |level: u8| {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8];
+            t.extend([level, level, level, 255]);
+            t
+        };
+        let key = |n: &str| ResKey::parse(n, ResType::TGA).unwrap();
+        let mut game_layer = mg_resman::MemContainer::new();
+        game_layer.insert(key("pal_skin01"), tga(10));
+        game_layer.insert(key("pal_hair01"), tga(20));
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "key:pals", mg_resman::LayerClass::Key, game_layer);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut ws = Workspace::new(mg_module::Module::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
+        let mut seen = None;
+        let mut frame = |ws: &Workspace| {
+            forget_changed(&mut pictures, &palettes, Some(ws), &mut seen);
+            let loader =
+                Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(ws), game: &game };
+            ["pal_skin01", "pal_hair01"].map(|n| loader.palette(n).unwrap())
+        };
+        let first = frame(&ws);
+        assert_eq!((first[0].data[0], first[1].data[0]), (10, 20));
+        assert!(Arc::ptr_eq(&frame(&ws)[0], &first[0]), "kept, not read again");
+
+        let edit = mg_edit::Edit::SetResource { key: key("pal_skin01"), data: Some(tga(30)) };
+        ws.apply(mg_edit::Command::new("Set", vec![edit])).unwrap();
+        let next = frame(&ws);
+        assert_eq!(next[0].data[0], 30, "the module's palette is read");
+        assert!(Arc::ptr_eq(&next[1], &first[1]), "a palette nothing changed is kept");
+    }
+
+    /// A portrait has a picture where any of its sizes is a DDS or TGA in
+    /// the game or the module, whatever the case of its name; not where
+    /// only another type or another name is.
+    #[test]
+    fn a_portrait_has_a_picture_where_one_of_its_sizes_is_there() {
+        let key = |n: &str, t: ResType| ResKey::parse(n, t).unwrap();
+        let mut layer = mg_resman::MemContainer::new();
+        layer.insert(key("po_gamem", ResType::TGA), vec![0]);
+        layer.insert(key("PO_Upperh", ResType::DDS), vec![0]);
+        layer.insert(key("po_mdlm", ResType::MDL), vec![0]);
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "key:po", mg_resman::LayerClass::Key, layer);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut ws = Workspace::new(mg_module::Module::new());
+        let edit =
+            mg_edit::Edit::SetResource { key: key("po_ownl", ResType::TGA), data: Some(vec![0]) };
+        ws.apply(mg_edit::Command::new("Set", vec![edit])).unwrap();
+        let p = Portraits::of(&game, Some(&ws));
+        assert!(p.has("game") && p.has("Upper") && p.has("own"));
+        assert!(!p.has("mdl") && !p.has("matron"));
+        assert!(!Portraits::of(&game, None).has("own"), "the module's own only with it");
     }
 
     /// An item icon is drawn only where a TGA of its name is there, in any
@@ -986,9 +1056,9 @@ mod tests {
         let mut m = mg_module::Module::new();
         m.set(key("iit_smlmisc_004", ResType::TGA), tga(4));
         let ws = Workspace::new(m);
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let mut loader =
-            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+            Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(&ws), game: &game };
         let ctx = egui::Context::default();
         let mut drawn = |n: u8| {
             let mut item = Struct::new(0);

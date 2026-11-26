@@ -1173,7 +1173,8 @@ DDS, with no TGA of its name anywhere, as the red cross the game shows
 for it); a model and each of a
 weapon's three parts are also chosen by picture: a model's by the item's
 icon as it would be with each (what of it is drawn, at most 128 points
-tall), a weapon's part by that part alone, as
+tall, each in a cell as large as the largest drawn, so the grid stands
+in even lines and columns), a weapon's part by that part alone, as
 large as it is in the icon, a part with a model and no icon by its
 number, and an armor's parts under their lists by **Pictures of**: the
 part chosen in the row of part buttons there (the torso first; each

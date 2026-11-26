@@ -297,6 +297,14 @@ pub(crate) struct Kept {
     #[allow(clippy::type_complexity)]
     pub(super) targets:
         HashMap<(ResKey, mg_edit::GffPath, crate::widgets::Also), Arc<Vec<mg_edit::lists::Target>>>,
+    /// The last of `targets` asked for, found again by its objects' list
+    /// itself (the same `Arc`): hashing the list of 5,000 objects the
+    /// Properties panel edits together took a quarter of its frame.
+    #[allow(clippy::type_complexity)]
+    pub(super) targets_last: Option<(
+        (ResKey, mg_edit::GffPath, crate::widgets::Also),
+        Arc<Vec<mg_edit::lists::Target>>,
+    )>,
 }
 
 /// A blueprint's fields: the module's, else the game's.

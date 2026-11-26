@@ -104,6 +104,7 @@ fn portraits(
     all: bool,
 ) -> Vec<(u16, String)> {
     let Ok(t) = game.table("portraits") else { return Vec::new() };
+    let pictured = crate::images::Portraits::of(game, ws);
     let rows = |fits: &dyn Fn(Option<i32>) -> bool| -> Vec<(u16, String)> {
         (0..t.len())
             .filter(|&r| {
@@ -117,7 +118,7 @@ fn portraits(
                             && t.get_int(r, "Plot").unwrap_or(0) == 0)
             })
             .filter_map(|r| Some((r as u16, t.get(r, "BaseResRef")?.to_string())))
-            .filter(|(_, base)| crate::images::has_portrait(game, ws, base))
+            .filter(|(_, base)| pictured.has(base))
             .collect()
     };
     let of_gender = rows(&|sex| sex == Some(i32::from(gender)));

@@ -304,8 +304,8 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         let read_for = (ws.map(mg_edit::Workspace::revision), f.app.load_order);
         let with_picture =
             super::kept_for(ui.ctx(), pick_id.with("pictured"), &table, &read_for, || {
-                let has =
-                    |c: &&Choice| game.is_some_and(|g| crate::images::has_portrait(g, ws, &c.text));
+                let pictured = game.map(|g| crate::images::Portraits::of(g, ws));
+                let has = |c: &&Choice| pictured.as_ref().is_some_and(|p| p.has(&c.text));
                 let rows: std::collections::HashSet<usize> =
                     list.iter().filter(has).map(|c| c.row).collect();
                 std::sync::Arc::new(rows)

@@ -629,6 +629,12 @@ pub struct AreaView {
     /// selection and the kinds shown stay as they were (made again every
     /// frame of a drag, which poses what it moves).
     boxes_kept: std::cell::RefCell<Option<(BoxesKey, std::sync::Arc<[egui::Shape]>)>>,
+    /// The turning rings' lines on screen, kept for the view and the
+    /// rings they were made for (`handles::selection`).
+    #[allow(clippy::type_complexity)]
+    rings_kept: std::cell::RefCell<
+        Option<(OverlayKey, Vec<TurnRing>, std::sync::Arc<Vec<handles::RingLines>>)>,
+    >,
     /// How many times those boxes have been made (the tests' count of
     /// kept ones).
     pub box_builds: std::cell::Cell<u64>,
@@ -1343,6 +1349,7 @@ impl AreaView {
             object_walk_mesh: None,
             overlay_builds: [0; 2],
             boxes_kept: Default::default(),
+            rings_kept: Default::default(),
             previewed_kept: None,
             box_builds: Default::default(),
             sound_ranges_kept: None,
@@ -2163,6 +2170,18 @@ impl AreaView {
     }
 
     fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
+        // (Nowhere near the square the ring lies in, as it shows on screen:
+        // passed over without its segments, each ring of 5,000 selected
+        // looked at every frame.)
+        let r = ring.radius;
+        let corners = [(-r, -r), (r, -r), (r, r), (-r, r)]
+            .map(|(x, y)| self.screen_pos(ring.pivot + Vec3::new(x, y, 0.0)));
+        if corners.iter().all(Option::is_some) {
+            let square = egui::Rect::from_points(&corners.map(Option::unwrap));
+            if !square.expand(RING_REACH).contains(pos) {
+                return false;
+            }
+        }
         self.on_line(&|k| ring.segment(k), pos)
     }
 
@@ -5022,7 +5041,16 @@ fn overlays(
         }
     };
     let scene = view.scene.as_ref();
-    let chosen = view.selected_set();
+    // (Which are selected, by kind and place: a set of 5,000 hashed each
+    // frame a drag poses them.)
+    let mut chosen: [Vec<bool>; ObjectKind::ALL.len()] = Default::default();
+    for &(kind, index) in &view.selection {
+        let of = &mut chosen[kind.index()];
+        if of.len() <= index {
+            of.resize(index + 1, false);
+        }
+        of[index] = true;
+    }
     // (The boxes kept from a frame before, where what they show is as it
     // was: 5,000 objects selected, their boxes took 3 ms a frame at rest.
     // Not while a drag, a key or a handle poses the objects it moves.)
@@ -5048,12 +5076,17 @@ fn overlays(
     // through: the selected ones' dark edges, then their lines, over the
     // markers'.)
     let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
-    let (mut selected_edges, mut selected_lines) = (Vec::new(), Vec::new());
+    // (Twelve edges a box: grown edge by edge, 5,000 boxes' were copied
+    // again and again.)
+    let room = if kept_boxes.is_none() { 12 * view.selection.len() } else { 0 };
+    let (mut selected_edges, mut selected_lines) =
+        (Vec::with_capacity(room), Vec::with_capacity(room));
+    boxes.reserve(3 * room);
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
         }
-        let selected = chosen.contains(&(o.kind, o.index));
+        let selected = chosen[o.kind.index()].get(o.index).copied().unwrap_or(false);
         // (Selected, an outline and its spawn points are in the
         // selection's color over the handles' dark edge.)
         let highlight = Stroke::new(1.5, colors.turn.0);

@@ -53,6 +53,7 @@ mod model_textures;
 pub mod model_view;
 pub mod module_folder;
 pub mod module_props;
+mod narrowing;
 mod nui_view;
 /// The NUI designer's header and panels' names (M4's U18), for the tests
 /// and plugins that find its controls.
@@ -1204,6 +1205,8 @@ pub struct Moonglow {
     /// A Properties form is being drawn in the Properties panel: its ids
     /// are the panel's own (`blueprint::window_state_id`).
     pub(crate) panel_form: bool,
+    /// The Properties panel's paths, kept while its area's selection stays.
+    pub(crate) panel_kept: Option<crate::properties_panel::PanelKept>,
     /// The editors dragged out into windows too narrow for their right pane
     /// (`shell::window_panes`, the last frame's): a double click in such an
     /// area opens the Properties window, there being no panel to show; a
@@ -1800,7 +1803,7 @@ impl Moonglow {
             nui_views: HashMap::new(),
             new_nui: None,
             nui_import: None,
-            palettes: HashMap::new(),
+            palettes: Default::default(),
             area_audio: Default::default(),
             heard: None,
             scripts: HashMap::new(),
@@ -1996,6 +1999,7 @@ impl Moonglow {
             tile_props_focus: false,
             props_focus: false,
             panel_form: false,
+            panel_kept: None,
             panes_dropped: Default::default(),
             panel_pages: HashMap::new(),
             area_stats: None,
@@ -2294,7 +2298,7 @@ impl Moonglow {
         self.thumbnails.begin_frame(self.ws.as_ref(), female);
         images::forget_changed(
             &mut self.pictures,
-            &mut self.palettes,
+            &self.palettes,
             self.ws.as_ref(),
             &mut self.pictures_seen,
         );

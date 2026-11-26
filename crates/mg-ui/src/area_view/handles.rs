@@ -453,7 +453,7 @@ pub(super) fn selection(
 ) {
     let at = |p: Vec3| view.screen_pos(p);
     // (Where an object's pivot dot goes: about each object with a set.)
-    let mut pivots: Vec<Pos2> = Vec::new();
+    let mut pivots = Pivots::default();
     let tilting = match view.drag {
         Some(Drag::Tilt { .. }) => true,
         Some(_) => false,
@@ -514,10 +514,8 @@ pub(super) fn selection(
                 if front { (strength, Lay::Front) } else { (strength * FAR, Lay::Back) };
             canvas.path(points, closed, width, color, strength, lay);
         });
-        if let Some(c) = at(ring.pivot)
-            && !pivots.iter().any(|p| p.distance(c) < 0.5)
-        {
-            pivots.push(c);
+        if let Some(c) = at(ring.pivot) {
+            pivots.add(c);
         }
     }
     // Tilted: the wedge in the ring's plane from where it was taken to
@@ -579,10 +577,8 @@ pub(super) fn selection(
             let strength = Lit::strength(lit, &h);
             let color = colors.of_handle(&h, on);
             let (neck, tip) = arrow.head();
-            if let Some(c) = at(arrow.pivot)
-                && !pivots.iter().any(|p| p.distance(c) < 0.5)
-            {
-                pivots.push(c);
+            if let Some(c) = at(arrow.pivot) {
+                pivots.add(c);
             }
             let shaft = if on { SHAFT.1 } else { SHAFT.0 };
             if let Some([a, b]) = segment(arrow.pivot, neck) {
@@ -627,16 +623,38 @@ pub(super) fn selection(
             Some(_) => view.snap_landings(),
             None => Vec::new(),
         };
-        for (k, ring) in view.turn_rings(shown).into_iter().enumerate() {
+        let rings = view.turn_rings(shown);
+        // (Each ring's lines on screen, kept while the view and the rings
+        // are as they were: 5,000 selected, their 96 pieces each were put
+        // on screen again every frame.)
+        let key = super::OverlayKey::of(view);
+        let kept = view.rings_kept.borrow().as_ref().and_then(|(at, was, lines)| {
+            (key == Some(*at) && *was == rings).then(|| lines.clone())
+        });
+        let lines = kept.unwrap_or_else(|| {
+            let step = std::f32::consts::TAU / RING_DRAWN as f32;
+            let lines: std::sync::Arc<Vec<RingLines>> = std::sync::Arc::new(
+                (rings.iter())
+                    .map(|ring| {
+                        let points: Vec<Vec3> =
+                            (0..RING_DRAWN).map(|k| ring.point(k as f32 * step)).collect();
+                        runs(&points, segment)
+                    })
+                    .collect(),
+            );
+            if let Some(at) = key {
+                *view.rings_kept.borrow_mut() = Some((at, rings.clone(), lines.clone()));
+            }
+            lines
+        });
+        for (k, ring) in rings.into_iter().enumerate() {
             let h = Handle::Ring(ring);
             let on = Lit::lights(lit, &h);
             let strength = Lit::strength(lit, &h);
             let color = colors.of_handle(&h, on);
             let width = if on { RING.1 } else { RING.0 };
-            let step = std::f32::consts::TAU / RING_DRAWN as f32;
-            let points: Vec<Vec3> = (0..RING_DRAWN).map(|k| ring.point(k as f32 * step)).collect();
-            for (points, closed) in runs(&points, segment) {
-                canvas.path(points, closed, width, color, strength, Lay::Front);
+            for (points, closed) in &lines[k] {
+                canvas.path(points.clone(), *closed, width, color, strength, Lay::Front);
             }
             // (Where a facing's triangle stands on the ring, and which
             // way is out there.)
@@ -675,15 +693,44 @@ pub(super) fn selection(
                     canvas.chip(painter, t, c + RING_CHIP, text, colors.turn.0);
                 }
             }
-            if let Some(c) = at(ring.pivot)
-                && !pivots.iter().any(|p| p.distance(c) < 0.5)
-            {
-                pivots.push(c);
+            if let Some(c) = at(ring.pivot) {
+                pivots.add(c);
             }
         }
     }
-    for c in pivots {
+    for c in pivots.dots {
         canvas.dot(c, PIVOT, colors.scale.0, 1.0, Lay::Top);
+    }
+}
+
+/// A ring's lines on screen: runs of points, each closed or not.
+pub(super) type RingLines = Vec<(Vec<Pos2>, bool)>;
+
+/// The pivots' dots to draw, each once: one within half a point of
+/// another is the same. (Found by the half-point squares about it: each
+/// dot looked for among all before it, 5,000 objects selected took 12.5
+/// million comparisons a frame.)
+#[derive(Default)]
+struct Pivots {
+    dots: Vec<Pos2>,
+    near: std::collections::HashMap<(i32, i32), Vec<usize>>,
+}
+
+impl Pivots {
+    fn add(&mut self, c: Pos2) {
+        let cell = |p: Pos2| ((p.x / 0.5).floor() as i32, (p.y / 0.5).floor() as i32);
+        let (x, y) = cell(c);
+        let taken = (x - 1..=x + 1).any(|i| {
+            (y - 1..=y + 1).any(|j| {
+                self.near
+                    .get(&(i, j))
+                    .is_some_and(|at| at.iter().any(|&k| self.dots[k].distance(c) < 0.5))
+            })
+        });
+        if !taken {
+            self.near.entry((x, y)).or_default().push(self.dots.len());
+            self.dots.push(c);
+        }
     }
 }
 
@@ -851,6 +898,20 @@ pub(super) fn foot_handle(canvas: &mut Canvas, colors: &Colors, c: Pos2, side: f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pivot within half a point of one drawn is drawn once, across the
+    /// squares it is found by too, and one just past it is drawn.
+    #[test]
+    fn pivots_within_half_a_point_are_one() {
+        let mut p = Pivots::default();
+        for c in
+            [(10.0, 10.0), (10.3, 10.2), (10.49, 9.99), (9.76, 10.0), (11.0, 10.0), (10.0, 10.6)]
+        {
+            p.add(egui::pos2(c.0, c.1));
+        }
+        let drawn: Vec<(f32, f32)> = p.dots.iter().map(|d| (d.x, d.y)).collect();
+        assert_eq!(drawn, [(10.0, 10.0), (11.0, 10.0), (10.0, 10.6)]);
+    }
 
     fn line(a: Vec3, b: Vec3) -> Option<[Pos2; 2]> {
         // (Behind the eye: y below 0.)
