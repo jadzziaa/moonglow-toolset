@@ -1929,7 +1929,7 @@ is not taken for a new gap.
   copy a frame, and still nothing for a picture drawn once (a thumbnail,
   a preview), which has no frame before. (Settled with the deferred
   entries "The framebuffer's copies" and The Domains of Dread's
-  fountain, 2026-11-26.)
+  fountain, 2026-11-26; left unbuilt: the owner's word, 2026-11-26.)
 - **What stays with Moonglow's own shader with the Shaders switch on:**
   the sky's fade, unlit markers, shiny water without the targets'
   framebuffer copies (thumbnails, previews), textures that only ripple
