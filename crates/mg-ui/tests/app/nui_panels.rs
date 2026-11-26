@@ -3064,3 +3064,237 @@ fn a_check_s_row_copies_from_its_menu_and_its_tip_says_it_whole() {
     assert!(h.query_by_label(COPY_ALL).is_none(), "Escape closes it");
     assert!(link(&h), "Escape gives the keyboard back to its place");
 }
+
+/// [`our_window`] with a chart of a long series bound to `samples` (600
+/// values, kept between frames), a chart of columns of the same in
+/// magenta, and the swap layout of [`with_a_variant`];
+/// Send sets `samples` in Interact (a handler's ready-made action, what
+/// the game's script would do).
+fn with_a_long_chart() -> (Value, Settings) {
+    let (mut w, mut s) = with_a_variant();
+    w["geometry"]["h"] = json!(640.0);
+    w["root"]["children"].as_array_mut().unwrap().push(json!(
+        {"type":"chart","id":"log","width":300.0,"height":120.0,"value":[
+            {"type":0,"legend":"Log","data":{"bind":"samples"}}]}
+    ));
+    w["root"]["children"].as_array_mut().unwrap().push(json!(
+        {"type":"chart","id":"bars","width":300.0,"height":80.0,"value":[
+            {"type":1,"legend":"Bars","color":{"r":255,"g":0,"b":255,"a":255},
+                "data":{"bind":"samples"}}]}
+    ));
+    let samples = |m: u32| json!((0..600).map(|i| f64::from(i % m)).collect::<Vec<_>>());
+    s.bindings
+        .insert("samples".into(), mg_nui::Binding { value: samples(7), ..Default::default() });
+    s.handlers.push(mg_nui::Handler {
+        event: "click".into(),
+        element: "send".into(),
+        action: mg_nui::Action::Set { bind: "samples".into(), value: samples(5) },
+        extra: Default::default(),
+    });
+    (w, s)
+}
+
+/// The canvas's chart's line: the open path of the most points (the
+/// window's other lines have a few).
+#[track_caller]
+fn chart_line(h: &Harness<'_, Moonglow>) -> Vec<egui::Pos2> {
+    (h.output().shapes.iter())
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Path(p) if !p.closed && p.points.len() > 100 => Some(p.points.clone()),
+            _ => None,
+        })
+        .max_by_key(Vec::len)
+        .expect("the chart's line")
+}
+
+/// The number field `name` (the first) given `text` in place of its own,
+/// and left with Enter.
+#[track_caller]
+fn retype(h: &mut Harness<'_, Moonglow>, name: &str, text: &str) {
+    let field = |a: &egui_kittest::kittest::AccessKitNode<'_>| {
+        a.role() == egui::accesskit::Role::SpinButton && a.label().as_deref() == Some(name)
+    };
+    h.get_all_by(field).next().unwrap_or_else(|| panic!("no field {name}")).scroll_to_me();
+    settle(h);
+    h.get_all_by(field).next().unwrap().click();
+    settle(h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.event(egui::Event::Text(text.into()));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    settle(h);
+}
+
+/// The canvas's columns chart's columns (its magenta rectangles).
+fn columns(h: &Harness<'_, Moonglow>) -> Vec<egui::Rect> {
+    let magenta = egui::Color32::from_rgb(255, 0, 255);
+    let columns: Vec<_> = (h.output().shapes.iter())
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.fill == magenta => Some(r.rect),
+            _ => None,
+        })
+        .collect();
+    assert!(columns.len() > 20, "the columns drawn: {}", columns.len());
+    columns
+}
+
+/// Frames that change nothing walk no long chart's series and put no
+/// variant together (they are kept under the window's revision).
+#[track_caller]
+fn at_rest(h: &mut Harness<'_, Moonglow>, what: &str) -> (usize, usize) {
+    settle(h);
+    let walks = h.state().nui_walks(&key());
+    for i in 0..4 {
+        h.hover_at(egui::pos2(800.0 + 10.0 * i as f32, 500.0));
+        h.run();
+    }
+    assert_eq!(h.state().nui_walks(&key()), walks, "{what}: frames that change nothing");
+    walks
+}
+
+/// A long chart's series is walked only when the window may have changed
+/// (the review of November 2026's N16), and every writer of the window
+/// and its binds shows its change on the canvas at once: an edit on the
+/// Design page (the chart's width in Properties), Binding JSON typed (shown
+/// as typed, then set), Undo and Redo, the module's settings changed from
+/// elsewhere (a plugin, a reload), and Interact's session (a handler
+/// setting the bind, then Reset).
+#[test]
+fn a_kept_chart_shows_every_writer_s_change() {
+    let (w, s) = with_a_long_chart();
+    let mut h = designer_with(Mode::Tabs, 1920.0, w, s.clone());
+    let mut walks = at_rest(&mut h, "opened");
+    let mut line = chart_line(&h);
+    #[track_caller]
+    fn changed(
+        h: &mut Harness<'_, Moonglow>,
+        what: &str,
+        same: bool,
+        (line, walks): (&mut Vec<egui::Pos2>, &mut (usize, usize)),
+    ) {
+        h.run();
+        let now = chart_line(h);
+        let bars = columns(h);
+        if same {
+            assert_eq!(now, *line, "{what}: the line as it was");
+        } else {
+            assert_ne!(now, *line, "{what}: the line drawn anew");
+        }
+        assert!(h.state().nui_walks(&key()).1 > walks.1, "{what}: the series walked");
+        *walks = at_rest(h, what);
+        assert_eq!(chart_line(h), now, "{what}: and kept");
+        assert_eq!(columns(h), bars, "{what}: the columns kept");
+        *line = now;
+    }
+    // The Design page: the chart's width set in Properties.
+    let first = line.clone();
+    // (The line's chart, the first of the two.)
+    h.get_all_by_label("Canvas Chart").next().unwrap().click();
+    settle(&mut h);
+    retype(&mut h, "Width", "400");
+    assert_eq!(read_both(&h).0["root"]["children"][4]["width"], 400.0, "the width set");
+    changed(&mut h, "Properties' Width", false, (&mut line, &mut walks));
+    // (The columns follow the bind's writers below, not the line's width.)
+    let mut bars = columns(&h);
+    let mut bars_changed = |h: &Harness<'_, Moonglow>, what: &str| {
+        let now = columns(h);
+        assert_ne!(now, bars, "{what}: the columns drawn anew");
+        bars = now;
+    };
+    // Binding JSON: the bind's values typed, shown as they are typed.
+    layout_chosen(&mut h, "Split source");
+    h.get_by_label(nui_names::SOURCE_HEADER).get_by_label(nui_names::BINDING_JSON).click();
+    settle(&mut h);
+    let mut typed = read_both(&h).1;
+    typed.bindings.get_mut("samples").unwrap().value[300] = json!(100.0);
+    // (Its text is longer than the window: given the keyboard, not
+    // clicked in its middle.)
+    h.get_by_label(nui_names::SETTINGS_TEXT).focus();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.get_by_label(nui_names::SETTINGS_TEXT).type_text(&String::from_utf8(typed.bytes()).unwrap());
+    h.run();
+    let shown = chart_line(&h);
+    assert_ne!(shown, line, "Binding JSON: shown as typed");
+    // (Set as the switch moves.)
+    h.get_by_label(nui_names::SOURCE_HEADER).get_by_label(nui_names::JUI_SOURCE).click();
+    settle(&mut h);
+    assert_eq!(read_both(&h).1.bindings["samples"].value[300], 100.0, "Binding JSON: set");
+    changed(&mut h, "Binding JSON", false, (&mut line, &mut walks));
+    bars_changed(&h, "Binding JSON");
+    // (The line where the Editor draws it, to compare with.)
+    layout_chosen(&mut h, "Editor");
+    line = chart_line(&h);
+    let typed_line = line.clone();
+    // Undo and Redo.
+    tool(&h, "Undo").click();
+    changed(&mut h, "Undo", false, (&mut line, &mut walks));
+    bars_changed(&h, "Undo");
+    tool(&h, "Redo").click();
+    changed(&mut h, "Redo", false, (&mut line, &mut walks));
+    bars_changed(&h, "Redo");
+    assert_eq!(line, typed_line, "Redo: the line typed");
+    // The settings changed from elsewhere, between frames.
+    let mut outside = read_both(&h).1;
+    outside.bindings.get_mut("samples").unwrap().value[10] = json!(-50.0);
+    let edit = mg_edit::Edit::SetResource {
+        key: ResKey::new(key().resref, ResType::TXT),
+        data: Some(outside.bytes()),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+    changed(&mut h, "the settings from elsewhere", false, (&mut line, &mut walks));
+    bars_changed(&h, "the settings from elsewhere");
+    // Interact: Send's handler sets the bind; Reset sets it back.
+    let designed = line.clone();
+    nui_tool(&mut h, nui_names::INTERACT).click();
+    changed(&mut h, "Interact", true, (&mut line, &mut walks));
+    h.get_by_label("Canvas Button · Send").click();
+    changed(&mut h, "Send's handler", false, (&mut line, &mut walks));
+    bars_changed(&h, "Send's handler");
+    nui_tool(&mut h, nui_names::RESET).click();
+    changed(&mut h, "Reset", false, (&mut line, &mut walks));
+    bars_changed(&h, "Reset");
+    assert_eq!(line, designed, "Reset: the line designed");
+    nui_tool(&mut h, nui_names::INTERACT).click();
+    settle(&mut h);
+    assert_ne!(line, first, "the line of the last edit");
+}
+
+/// The variant edited is put together in its window only when the window
+/// may have changed (the review of November 2026's N13), and the canvas
+/// shows each change at once: a label typed in (shown as it is typed, then
+/// set), Undo and Redo, the window around it changed from elsewhere.
+#[test]
+fn a_kept_variant_window_shows_every_writer_s_change() {
+    let (w, st) = with_a_variant();
+    let mut h = designer_with(Mode::Tabs, 1920.0, w.clone(), st);
+    layer(&h, "Variant · details").click();
+    let mut walks = at_rest(&mut h, "the variant edited");
+    assert!(walks.0 >= 1, "the variant's window put together");
+    let mut anew = |h: &mut Harness<'_, Moonglow>, what: &str, shows: &str| {
+        h.run();
+        assert!(h.query_by_label(shows).is_some(), "{what}: {shows} on the canvas");
+        assert!(h.state().nui_walks(&key()).0 > walks.0, "{what}: put together anew");
+        walks = at_rest(h, what);
+        assert!(h.query_by_label(shows).is_some(), "{what}: {shows} kept");
+    };
+    choose(&mut h, "Label · Left");
+    type_in(&mut h, "Text", "!");
+    assert!(h.query_by_label("Canvas Label · Left!").is_some(), "shown as typed");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert_eq!(read_both(&h).1.variants["details"]["children"][0]["value"], "Left!");
+    anew(&mut h, "a label typed in", "Canvas Label · Left!");
+    tool(&h, "Undo").click();
+    anew(&mut h, "Undo", "Canvas Label · Left");
+    assert!(h.query_by_label("Canvas Label · Left!").is_none(), "Undo: the label as it was");
+    tool(&h, "Redo").click();
+    anew(&mut h, "Redo", "Canvas Label · Left!");
+    let mut around = w.clone();
+    around["root"]["children"][0]["value"] = json!("Oyez");
+    set_window(&mut h, &around);
+    anew(&mut h, "the window from elsewhere", "Context Label · Oyez");
+    assert!(h.query_by_label("Canvas Label · Left!").is_some(), "the variant still edited");
+}

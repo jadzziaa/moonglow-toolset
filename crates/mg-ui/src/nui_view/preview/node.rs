@@ -18,6 +18,11 @@ pub(super) struct Renderer<'a> {
     pub(super) selected_bounds: &'a mut Option<Rect>,
     pub(super) ancestor_disabled: bool,
     pub(super) context_prefix: Option<&'a str>,
+    /// The window's revision (its generation, and Interact's session's
+    /// stamp where that is what is drawn), where it is known not to have
+    /// changed since the last pass: what is worked out of it alone (a long
+    /// chart's series) is kept under it.
+    pub(super) revision: Option<(u64, Option<u64>)>,
     /// A row of a column with a control of its own width after it: the
     /// row's path, and the right edge its last button without a width
     /// stretches to (`Renderer::children`).
@@ -562,7 +567,7 @@ impl Renderer<'_> {
             "image" => Self::image(c),
             "options" | "tabbar" => Self::choices(ui, c),
             "color_picker" => Self::color_picker(ui, c),
-            "chart" => Self::chart(ui, c),
+            "chart" => self.chart(ui, c),
             "spacer" => {}
             other => {
                 let (p, body, node) = (&c.p, c.body, c.node);

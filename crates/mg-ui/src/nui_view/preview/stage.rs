@@ -21,7 +21,20 @@ pub(in crate::nui_view) fn canvas(
         Some(r) if state.preview_interactive => (Some(Cow::Borrowed(&r.doc)), &r.settings),
         _ => (None, s),
     };
-    if state.resize.is_some() || state.draw_drag.is_some() || state.window_move.is_some() {
+    // The window's revision as this pass draws it (its generation, and
+    // Interact's session's stamp where that is what is shown), and whether
+    // it is known not to have changed since the last pass: what is worked
+    // out of it (the variant's window, a long chart's series) is kept
+    // under it. A gesture's copy is of none.
+    let gesture =
+        state.resize.is_some() || state.draw_drag.is_some() || state.window_move.is_some();
+    let revision = (!gesture).then(|| {
+        let session = runtime.as_ref().filter(|_| state.preview_interactive).map(|r| r.revision);
+        (state.window_gen, session)
+    });
+    let trusted =
+        revision.is_some() && crate::nui_view::trusted(ui.ctx(), state) == Some(state.window_gen);
+    if gesture {
         let mut shown = other.map_or_else(|| v.clone(), Cow::into_owned);
         if let Some(resize) = &state.resize {
             resize.apply(&mut shown);
@@ -34,17 +47,22 @@ pub(in crate::nui_view) fn canvas(
         }
         other = Some(Cow::Owned(shown));
     }
-    let context = layouts::canvas_context(other.as_deref().unwrap_or(v), shown_settings, state);
-    let context_prefix = context.map(|(context, prefix)| {
-        other = Some(Cow::Owned(context));
-        prefix
-    });
+    // (Lent to the stage, not handed over: it is kept for the next pass.)
+    let context = layouts::kept_context(
+        other.as_deref().unwrap_or(v),
+        shown_settings,
+        state,
+        revision,
+        trusted,
+    );
+    let context_prefix = context.as_ref().map(|c| c.prefix.as_str());
+    let shown = context.as_ref().map(|c| &c.doc).or(other.as_deref());
     let empty_rows = Default::default();
     let row_values = runtime.as_ref().map_or(&empty_rows, |r| &r.row_values);
     let closed = state.preview_interactive && runtime.as_ref().is_some_and(|r| r.closed);
     let authored = v;
     let s = shown_settings;
-    let size = window_size(other.as_deref().unwrap_or(authored), s);
+    let size = window_size(shown.unwrap_or(authored), s);
     // (The whole room: what the canvas says stands over its corners, M4's
     // U19, not in rows over and under it.)
     let available = ui.available_size().max(vec2(80.0, 80.0));
@@ -68,15 +86,21 @@ pub(in crate::nui_view) fn canvas(
         state.zoom
     };
     let scale = state.resize.as_ref().map_or(zoom * ui_scale, |r| r.scale);
+    // (The variant's window kept is the same from pass to pass, as the
+    // window itself is: its layout may be kept too, but not of Interact's.)
+    let shown_kept = context.as_ref().is_some_and(|c| c.keep())
+        && revision.is_some_and(|(_, session)| session.is_none());
     let mut stage = Stage {
         authored: &mut *authored,
-        shown: other.as_deref(),
+        shown,
+        shown_kept,
+        revision: revision.filter(|_| trusted),
         s,
         assets,
         state: &mut *state,
         closed,
         row_values,
-        context_prefix: context_prefix.as_deref(),
+        context_prefix,
         size,
         extent,
         scale,
@@ -96,6 +120,7 @@ pub(in crate::nui_view) fn canvas(
         .show(ui, |ui| stage.draw(ui))
         .inner_rect;
     let Stage { changes, dropped, unsupported, close_requested, collapse_requested, .. } = stage;
+    state.context = context.filter(layouts::Context::keep);
     let last_event = (runtime.as_ref())
         .filter(|r| state.preview_interactive && !r.last_event.is_empty())
         .map(|r| r.last_event.clone());
@@ -138,6 +163,8 @@ pub(in crate::nui_view) fn still(
     let mut stage = Stage {
         authored: v,
         shown: None,
+        shown_kept: false,
+        revision: None,
         s,
         assets,
         state,
@@ -396,6 +423,13 @@ pub(super) struct Stage<'a> {
     authored: &'a mut Value,
     /// What is shown when it is not the window itself.
     shown: Option<&'a Value>,
+    /// Whether what is shown is the variant's window kept from pass to
+    /// pass (`layouts::kept_context`), whose layout may be kept as the
+    /// window's own is.
+    shown_kept: bool,
+    /// The window's revision, where it is known not to have changed since
+    /// the last pass (`Renderer::revision`).
+    revision: Option<(u64, Option<u64>)>,
     s: &'a Settings,
     assets: &'a skin::Assets,
     state: &'a mut State,
@@ -682,18 +716,21 @@ impl Stage<'_> {
         let root_group = v["root"]["type"] == "group";
         let reach = if root_group { inner.expand(4.0 * scale) } else { inner };
         // What the last pass worked out of the window, where it is the
-        // window itself (not a copy shown in its place), at the same
-        // scale, and known since not to have changed (`State::measured`).
+        // window itself or the variant's window kept with it (not another
+        // copy shown in its place), at the same scale, and known since not
+        // to have changed (`State::measured`).
         let at = (self.state.window_gen, scale.to_bits(), self.ui_scale.to_bits());
         let trusted = crate::nui_view::trusted(ui.ctx(), self.state) == Some(self.state.window_gen);
         let kept = match self.state.measured.take() {
-            Some((was, kept)) if was == at && trusted && self.shown.is_none() => {
+            Some((was, kept))
+                if was == at && trusted && (self.shown.is_none() || self.shown_kept) =>
+            {
                 self.state.carried += 1;
                 kept.carry()
             }
             _ => Measured::default(),
         };
-        let keep = self.shown.is_none();
+        let keep = self.shown.is_none() || self.shown_kept;
         let kept = ui.scope_builder(egui::UiBuilder::new().max_rect(reach), |ui| {
             ui.set_clip_rect(reach.intersect(ui.clip_rect()));
             let mut renderer = Renderer {
@@ -710,6 +747,7 @@ impl Stage<'_> {
                 selected_bounds: &mut self.selected_bounds,
                 ancestor_disabled: !flag(&v["accepts_input"], s, None, true),
                 context_prefix: self.context_prefix,
+                revision: self.revision,
                 reach: None,
                 naturals: Naturals::new(kept),
             };

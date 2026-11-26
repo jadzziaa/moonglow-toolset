@@ -604,9 +604,12 @@ fn picture_window(name: &str) -> Value {
 /// against 100, then New Bind for a Property's dialog (X24); Choose image
 /// with a name typed against nothing typed, over the install's pictures
 /// and the persistent world's haks where it is built, and a key a frame in
-/// its Find (X11, X20). `NUI_VIEW=<part of a name>` picks the groups
-/// ("tabs", "Split source", "column", "combo", "findings", "Bindings",
-/// "Design of", "a list's cell", "Choose").
+/// its Find (X11, X20); a swap layout's variant of 304 controls edited
+/// against them in its slot as its own contents (N13); a chart of a
+/// million samples, a line and columns, against one of 1,000 (N16).
+/// `NUI_VIEW=<part of a name>` picks the groups ("tabs", "Split source",
+/// "column", "combo", "findings", "Bindings", "Design of", "a list's
+/// cell", "Choose", "variant", "chart").
 #[test]
 #[ignore]
 fn the_creator_at_scale() {
@@ -833,6 +836,66 @@ fn the_creator_at_scale() {
                 modifiers: egui::Modifiers::NONE,
             }],
         });
+    }
+
+    // N13: a swap layout's variant of 304 controls edited in its slot,
+    // against the same controls shown in the slot as its own contents (the
+    // same drawn, no variant).
+    let name = "a variant edited";
+    if v.wanted(name) {
+        let large = window(38, 120.0);
+        let slot = |contents: Value| {
+            let mut w = large.clone();
+            w["root"]["children"].as_array_mut().unwrap().push(json!(
+                {"type":"group","id":"content","width":900.0,"height":300.0,
+                    "children":[contents]}
+            ));
+            w
+        };
+        let inline = slot(large["root"].clone());
+        let swapped = slot(json!({"type":"col","children":[{"type":"label","value":"Initial"}]}));
+        let mut s = mg_nui::Settings::default();
+        s.variants.insert("details".into(), large["root"].clone());
+        s.variant_targets.insert("details".into(), "content".into());
+        let windows = [("nui_inline", inline, none()), ("nui_swapped", swapped, s)];
+        let (mut h, keys) = creator(&root, "variant", &windows, None, Vec::new());
+        let rest = v.rest(&mut h);
+        show_only(&mut h, keys[1]);
+        h.state_mut().nui_edit_variant(&keys[1], "details");
+        h.run_steps(8);
+        assert_eq!(h.state().nui_chosen(&keys[1]).as_deref(), Some("/root"), "the variant edited");
+        let what = format!("{name} of 304 controls (against them in the slot itself)");
+        v.against(&mut h, &what, rest, |_| Vec::new());
+    }
+
+    // N16: a chart of a million samples at rest, a line and columns.
+    let name = "a chart of a million samples";
+    if v.wanted(name) {
+        let chart = |count: u32, kind: u32| {
+            let mut w = mg_nui::window();
+            w["geometry"] = json!({"x": -1.0, "y": -1.0, "w": 1100.0, "h": 760.0});
+            let mut chart = mg_nui::template("chart");
+            let data: Vec<f64> = (0..count).map(|i| (f64::from(i) * 0.001).sin()).collect();
+            chart["value"][0]["data"] = json!(data);
+            chart["value"][0]["type"] = json!(kind);
+            chart["height"] = json!(400.0);
+            w["root"]["children"] = json!([chart]);
+            w
+        };
+        let windows = [
+            ("nui_line_few", chart(1_000, 0), none()),
+            ("nui_line_many", chart(1_000_000, 0), none()),
+            ("nui_columns_few", chart(1_000, 1), none()),
+            ("nui_columns_many", chart(1_000_000, 1), none()),
+        ];
+        let (mut h, keys) = creator(&root, "chart", &windows, None, Vec::new());
+        for (kind, at) in [("a line", 0), ("columns", 2)] {
+            show_only(&mut h, keys[at]);
+            let rest = v.rest(&mut h);
+            show_only(&mut h, keys[at + 1]);
+            let what = format!("{name}, {kind} (against 1,000)");
+            v.against(&mut h, &what, rest, |_| Vec::new());
+        }
     }
 
     println!(

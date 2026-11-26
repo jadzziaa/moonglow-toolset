@@ -3653,6 +3653,17 @@ impl Moonglow {
         self.nui_views.get(key).map_or((0, 0), nui_view::kept)
     }
 
+    /// How many times NUI window `key`'s canvas put the variant it edits
+    /// together in its window, and walked a long chart's series (none in a
+    /// frame that changes nothing). For the tests.
+    #[doc(hidden)]
+    pub fn nui_walks(&self, key: &ResKey) -> (usize, usize) {
+        self.nui_views.get(key).map_or((0, 0), |s| {
+            let w = nui_view::walks(s);
+            (w.contexts, w.series)
+        })
+    }
+
     /// Where NUI window `key`'s designer keeps its working copy's words (the
     /// window's, its root's, each variant's): the same from frame to frame
     /// while nothing copies them. For the tests (M4's U18 review).
