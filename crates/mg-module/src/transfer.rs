@@ -918,6 +918,33 @@ mod tests {
         );
     }
 
+    /// A module's folder brought whole (tens of thousands of files, a
+    /// persistent world's) is sorted into resources and twins at once:
+    /// each file was held against every one before it, and each
+    /// resource's key against every other (20,000 of them, some six
+    /// seconds, against 0.03). The files are not there: each is refused as
+    /// unreadable, or, with a twin of its name, as that.
+    #[test]
+    fn a_module_s_folder_is_listed_at_once() {
+        let n = 20_000_usize;
+        let dir = mg_testkit::scratch_dir("import-many").join("not_there");
+        let mut files: Vec<PathBuf> = Vec::new();
+        for i in 0..n {
+            files.push(dir.join(format!("area{}", i % 50)).join(format!("r{i}.nss")));
+            if i % 100 == 0 {
+                files.push(dir.join("twins").join(format!("R{i}.NSS")));
+            }
+        }
+        let started = std::time::Instant::now();
+        let incoming = Incoming::files(&files);
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(1), "{n} files listed in {took:?}");
+        assert_eq!(incoming.refused.len(), files.len(), "each one said");
+        let twice = |r: &&Refused| r.why.contains("is among the files twice");
+        assert_eq!(incoming.refused.iter().filter(twice).count(), 2 * n.div_ceil(100));
+        assert!(incoming.resources.is_empty());
+    }
+
     /// Files planned and imported as an archive's resources are: those the
     /// module has (in any case) to overwrite or not, a new area listed,
     /// a script without its compiled script compiled with the scripts that

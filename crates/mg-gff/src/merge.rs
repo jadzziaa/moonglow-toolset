@@ -804,13 +804,13 @@ mod tests {
         s.fields.iter().map(|f| f.label.to_string()).collect()
     }
 
-    /// An area of 5,000 objects, every one moved on one side and a
-    /// thousand added on each: merged as a small one is, in well under a
-    /// second (each unmatched item was held against the whole other
-    /// list: 25 million struct comparisons).
+    /// An area of 40,000 objects, every one moved on one side and a
+    /// thousand added on each: merged in a fraction of a second (each
+    /// unmatched item was held against the whole other list: 1,600 million
+    /// struct comparisons, some ten seconds; the lookups take 0.15 s).
     #[test]
     fn a_long_list_changed_throughout_merges_at_once() {
-        let n = 5000;
+        let n = 40_000;
         let item = |i: usize, x: f32| placed("plc", &format!("t{i}"), x, i as f32);
         let list = |items: Vec<Struct>| root(&[("Placeable List", Value::List(items))]);
         let b: Vec<Struct> = (0..n).map(|i| item(i, 1.0)).collect();
@@ -824,7 +824,7 @@ mod tests {
         let started = std::time::Instant::now();
         let m = run(&list(b.clone()), &list(o.clone()), &list(t), Prefer::Ours);
         let took = started.elapsed();
-        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
+        assert!(took < std::time::Duration::from_millis(1500), "{n} items merged in {took:?}");
         let merged = m.gff.root.list("Placeable List").unwrap();
         // Ours' moves, theirs' removal (changed by ours: a conflict, ours
         // kept), and both sides' new items, the shared one once.
