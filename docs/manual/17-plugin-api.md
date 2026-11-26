@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:44:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:59:16Z }
 ---
 
 # Plugin API reference
@@ -780,6 +780,10 @@ reached only through what the user chooses (`ctx.ui:open_file`,
   they are stopped ([`ctx.event`](#ctxevent)).
 - Where a plugin is only checked (`mg plugin check`, `mg plugin pack`,
   an archive about to be installed), its code has 5 seconds to load.
+- A job's time is counted from when its code starts to load: what
+  Moonglow does before (reading the plugin, setting up where it runs)
+  is not the plugin's. A job stopped for its time says so, and an error
+  the code raised in time is reported as itself.
 - A job is stopped when the user cancels; no `pcall` catches that.
 - Nothing is kept between jobs but the plugin's settings
   (`ctx.settings:set`). A plugin runs when its command is chosen, when

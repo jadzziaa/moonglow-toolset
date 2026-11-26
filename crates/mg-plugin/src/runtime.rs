@@ -212,9 +212,11 @@ pub(crate) struct Shared {
     /// Why `ctx.settings:set` is refused in this job (a check's), if it is.
     pub(crate) no_set: std::cell::Cell<Option<&'static str>>,
     /// How long the job may run ([`Input::budget`]), and when it must
-    /// have ended.
+    /// have ended: none until [`start`] has the plugin's code run.
     budget: Option<std::time::Duration>,
     deadline: std::cell::Cell<Option<std::time::Instant>>,
+    /// Whether the job was found past its deadline, and stopped for it.
+    ran_out: std::cell::Cell<bool>,
 }
 
 pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
@@ -241,9 +243,20 @@ pub(crate) fn key_of(name: &str) -> mlua::Result<ResKey> {
 }
 
 impl Shared {
-    /// Whether the job ran past its time budget.
+    /// Whether the job ran past its time budget (the job is to stop:
+    /// so it is told after, by [`Shared::ran_out`]).
     pub(crate) fn out_of_time(&self) -> bool {
-        self.deadline.get().is_some_and(|d| std::time::Instant::now() > d)
+        let past = self.deadline.get().is_some_and(|d| std::time::Instant::now() > d);
+        if past {
+            self.ran_out.set(true);
+        }
+        past
+    }
+
+    /// Whether the job was stopped for its time budget: an error it raised
+    /// before, though only reported after the deadline, is its own.
+    pub(crate) fn ran_out(&self) -> bool {
+        self.ran_out.get()
     }
 
     /// Whether the job is to stop: canceled, or out of time.
@@ -1708,8 +1721,14 @@ pub(crate) fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
 
     // From here the globals are fixed, and each script has its own.
     lua.sandbox(true)?;
-    if let Some(entry) = entry {
-        let source = sh.files.read(entry).or_else(|e| fail(format!("{entry}: {e}")))?;
+    let source = match entry {
+        Some(entry) => Some(sh.files.read(entry).or_else(|e| fail(format!("{entry}: {e}")))?),
+        None => None,
+    };
+    // The budget is the plugin's code's, from its loading on: making the
+    // machine and reading the file are the host's work.
+    sh.deadline.set(sh.budget.map(|b| std::time::Instant::now() + b));
+    if let (Some(entry), Some(source)) = (entry, source) {
         lua.load(source).set_mode(TEXT).set_name(format!("@{entry}")).exec()?;
     }
     Ok(lua)
@@ -1721,7 +1740,7 @@ pub(crate) fn about(plugin: &Plugin) -> [&str; 3] {
 
 /// A job's failure as the host reports it.
 pub(crate) fn failed(plugin: &Plugin, sh: &Shared, e: mlua::Error) -> PluginError {
-    if let Some(budget) = sh.budget.filter(|_| sh.out_of_time() && !sh.host.cancelled()) {
+    if let Some(budget) = sh.budget.filter(|_| sh.ran_out() && !sh.host.cancelled()) {
         return PluginError::Script {
             plugin: plugin.manifest.name.clone(),
             message: format!(
@@ -1789,10 +1808,10 @@ fn shared_holding(
 ) -> Rc<Shared> {
     let game = input.game.as_deref().map_or(CODEPAGE, |g| g.text_codepage());
     GAME_CODEPAGE.with(|c| c.set(game));
-    let deadline = input.budget.map(|b| std::time::Instant::now() + b);
     Rc::new(Shared {
         budget: input.budget,
-        deadline: std::cell::Cell::new(deadline),
+        deadline: std::cell::Cell::new(None),
+        ran_out: std::cell::Cell::new(false),
         files,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
@@ -2420,7 +2439,7 @@ pub(crate) fn inspect(
         Ok(faults)
     };
     run().map_err(|e| match sh.budget {
-        Some(budget) if sh.out_of_time() && !host.cancelled() => PluginError::Script {
+        Some(budget) if sh.ran_out() && !host.cancelled() => PluginError::Script {
             plugin: manifest.name.clone(),
             message: format!(
                 "it ran out of time: its code may take {} seconds to load, and was stopped",
@@ -2695,6 +2714,47 @@ mod tests {
         fn ask(&self, _: &Question) -> Option<Answer> {
             None
         }
+    }
+
+    fn budgeted(ms: u64) -> Rc<Shared> {
+        let mut input = Input::new(mg_module::Module::new(), None);
+        input.budget = Some(std::time::Duration::from_millis(ms));
+        let host: Rc<dyn Host> = Rc::new(Nobody);
+        shared_in(Source::Nothing, "", input, &host)
+    }
+
+    /// A job's time budget is its code's: what the host does before the
+    /// code runs (the job's state, the machine, reading the file) is not
+    /// counted, however long it takes. A panel's set-up on a busy Windows
+    /// runner took its 250 milliseconds.
+    #[test]
+    fn the_hosts_setup_is_not_the_jobs_time() {
+        let sh = budgeted(50);
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let lua = start(None, &sh).unwrap();
+        assert_eq!(lua.load("return 1 + 1").eval::<i64>().unwrap(), 2);
+        assert!(!sh.out_of_time() && !sh.ran_out());
+        // And code past it is still stopped.
+        let e = lua.load("while true do end").exec().unwrap_err();
+        assert!(sh.ran_out(), "{e}");
+    }
+
+    /// An error the code raised in time is its own, though the job is
+    /// only told of it after the deadline (the thread held up between):
+    /// only a job the budget stopped ran out of time.
+    #[test]
+    fn an_error_reported_after_the_deadline_is_the_codes_own() {
+        let sh = budgeted(50);
+        let lua = start(None, &sh).unwrap();
+        let stalled = lua
+            .create_function(|_, ()| -> mlua::Result<()> {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                fail("a panel only reads")
+            })
+            .unwrap();
+        let e = lua.load("local stalled = ...; stalled()").call::<()>(stalled).unwrap_err();
+        assert!(e.to_string().contains("a panel only reads"), "{e}");
+        assert!(!sh.ran_out());
     }
 
     /// A large selection in a large area is read where the job's copy of
