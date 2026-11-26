@@ -297,8 +297,7 @@ their copy over red (`MG_COPY_ORDER=color`, `depth`, `particles`):
   red, it grows redder frame by frame, and shows the green of an
   additive card drawn after it;
 - **particles** read a depth copy without the water (a 4.5 m particle
-  through the pool fades where it meets the pool's floor, not the
-  water).
+  through the pool ends at the water's surface without fading).
 
 **Moonglow** made its copy at the first see-through draw, so the water
 showed only the solid meshes behind it (a glass wall behind water: 324

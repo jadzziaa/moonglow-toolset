@@ -5,12 +5,15 @@ use super::batch5::{base_game, patched, program, with_skybox};
 use super::readings::{INVISIBLE, Reading, placeables_with};
 use super::*;
 
+/// A card of [`ORDER_CARDS`].
+type Card = (&'static str, [u8; 4], &'static str, Option<&'static str>, &'static str);
+
 /// The cards standing through [`reading_copy_order`]'s water, west to
 /// east in each half: their name, color (opaque but for `alpha`), what
 /// their texture is (`tga`, a 32-bit TGA; `dds`, a standard DDS, DXT5,
 /// every texel opaque) and their MTR's lines (`None`: no MTR, the model's
 /// `bitmap` the texture) and their mesh's other lines.
-const ORDER_CARDS: [(&str, [u8; 4], &str, Option<&str>, &str); 6] = [
+const ORDER_CARDS: [Card; 6] = [
     ("solid", [255, 0, 0, 255], "tga", None, ""),
     ("alpha", [0, 255, 0, 128], "tga", None, ""),
     ("dxt5", [0, 0, 255, 255], "dds", None, ""),
@@ -124,6 +127,7 @@ fn flat(c: [u8; 4]) -> mg_image::Rgba {
 /// additive card not in it. Moonglow's three read this frame's copy. With
 /// `particles`, the particles end at the water's surface without fading
 /// in the client as in Moonglow: their depth copy holds no water.
+#[test]
 #[ignore]
 fn reading_copy_order() {
     let paint = std::env::var("MG_COPY_ORDER").unwrap_or_else(|_| "color".into());
