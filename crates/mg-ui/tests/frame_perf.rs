@@ -30,8 +30,9 @@
 //! keeps the textures of what was shown before an area opens, and
 //! `FRAME_STALE_KEPT=<MiB>` keeps that much of those not drawn lately, and
 //! `FRAME_TEXTURE_LIMIT=<pixels>` is Options › Area › Largest textures,
-//! and `FRAME_UNCOMPRESSED=1` uploads TGAs and PLTs as RGBA8, not
-//! compressed as they are read, and `FRAME_SAMPLES=1` (or `2`) is
+//! and `FRAME_UNCOMPRESSED=1` uploads TGAs as RGBA8, not compressed as
+//! they are read, and `FRAME_AREAS=<resref,…>` opens those areas instead
+//! of the campaign's middle and largest, and `FRAME_SAMPLES=1` (or `2`) is
 //! Options › Area › Anti-aliasing Off (or 2×). (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
@@ -1026,6 +1027,15 @@ fn areas(app: &mut Moonglow) -> Vec<(ResRef, i64)> {
         })
         .collect();
     sized.sort_by_key(|(r, n)| (*n, *r));
+    // (`FRAME_AREAS=zhentkeepwar,…`: those areas instead, by resref; the
+    // campaign's with the most creatures is zhentkeepwar, 67.)
+    if let Ok(named) = std::env::var("FRAME_AREAS") {
+        let named: Vec<&str> = named.split(',').map(str::trim).collect();
+        return sized
+            .into_iter()
+            .filter(|(r, _)| r.as_str().is_some_and(|s| named.contains(&s)))
+            .collect();
+    }
     let (largest, middle) = (*sized.last().unwrap(), sized[sized.len() / 2]);
     vec![middle, largest]
 }
