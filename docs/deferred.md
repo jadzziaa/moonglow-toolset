@@ -55,17 +55,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   own. (S, waits on the reviewer's run against the code before the
   fixes) (the review of November 2026, [its
   fixes](review-2026-11/fixes.md))
-- **Tests that write under the real cache folder:** since the last
-  pass of the review of November 2026 (its item 24), several tests make
-  a run folder through `mg_module::build::own_scratch_dir()` under the
-  real `~/.cache/moonglow/scratch`, as `mg lsp`'s tests already wrote
-  to the real cache, where the rest of the suite's scratch folders are
-  under `target/test-output`. Seen on the way by that pass's fixer, not
-  changed: beyond what was asked. (S) (the review of November 2026, the
-  last pass)
-
-## Script intelligence (`mg lsp`, the script editor)
-
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the

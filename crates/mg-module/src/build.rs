@@ -491,8 +491,9 @@ pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
 
 /// A folder of this run's own, for a file written for a moment or handed to
 /// another program (a script for the external editor, a page to print, a
-/// round trip's copy): in the user's cache folder (`scratch`), else in the
-/// system's temporary folder, named so that no other user of the machine
+/// round trip's copy): in `$MOONGLOW_SCRATCH_DIR` where it is set (the
+/// workspace's tests), else in the user's cache folder (`scratch`), else in
+/// the system's temporary folder, named so that no other user of the machine
 /// can guess it, made new (never one that was there) and, on Unix, open to
 /// the user alone. One a run, made when first asked for (again if it was
 /// taken away). Under the cache folder, the runs' folders older than a week
@@ -513,14 +514,22 @@ pub fn own_scratch_dir() -> std::io::Result<std::path::PathBuf> {
         base
     };
     #[cfg(not(test))]
-    let base = match cache_dir() {
-        Some(cache) => {
-            let base = cache.join("scratch");
-            std::fs::create_dir_all(&base)?;
-            sweep_scratch(&base, std::time::Duration::from_secs(7 * 24 * 3600));
-            base
+    let base = {
+        // (`MOONGLOW_SCRATCH_DIR` is the workspace's tests': `.cargo/config.toml`
+        // sets it under `target/test-output/`, so a test run leaves nothing in
+        // the user's cache.)
+        let base = match std::env::var_os("MOONGLOW_SCRATCH_DIR").filter(|v| !v.is_empty()) {
+            Some(dir) => Some(std::path::PathBuf::from(dir)),
+            None => cache_dir().map(|cache| cache.join("scratch")),
+        };
+        match base {
+            Some(base) => {
+                std::fs::create_dir_all(&base)?;
+                sweep_scratch(&base, std::time::Duration::from_secs(7 * 24 * 3600));
+                base
+            }
+            None => std::env::temp_dir(),
         }
-        None => std::env::temp_dir(),
     };
     let dir = new_private_dir(&base)?;
     *kept = Some(dir.clone());
