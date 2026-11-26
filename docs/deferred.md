@@ -193,22 +193,37 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the grass test's field close up without grass, the window's frames
   (pointer, idle, wheel), took 1.17 to 1.25 ms where 3.18.1 took 0.98
   to 1.02 (load about 10), and 2.63 to 4.14 where 1.62 to 2.50 at load
-  16 to 21. A bisect over develop's first-parent commits (old, middle
-  and new alternated, three rounds a step) did not settle it, because
-  the three crossed at every step at load 11 to 30. The review saw it as
-  waiting rather than work. The rest of the old entry is settled: area092
+  16 to 21. A bisect on a quieter machine (load 2.5 to 4, three runs a
+  step, the idle line) found three steps: b4da2984 (the box around
+  points in one place, the review's R20), +0.2 to 0.3 ms (0.84 to 1.14);
+  a small one between 992ed8d2 and 27a4050c, +0.06; and 89e62b7f (the UI
+  redesign's M3 shell), +0.11, which is Interface's. The first is given
+  back: the sun's shadow plan, on a thread of its own beside the meshes'
+  draws, put `box_of` around the receivers' box and each receiving mesh's
+  (about 10,000 a frame in the field), so it took 0.31 ms against the
+  draws' 0.18 and the frame waited about 0.18 ms for it; the receivers'
+  box is now taken as it goes (their boxes are already known to be
+  somewhere), and `box_of` is a plain loop. The plan takes 0.09 ms and
+  the frame no longer waits (temporary timers, load 15 to 22); the idle
+  line, develop and the fix alternated four rounds at load 15 to 16:
+  1.37 to 1.65 ms against 1.16 to 1.33. Confirmed on a quiet machine
+  (26 November, load 2.8 to 4.8, six rounds of the four alternated):
+  the idle line 0.84 ms before b4da2984, 1.21 on develop, 1.04 to 1.06
+  with the fix (spread 0.02 to 0.03). The fix gives back 0.17 of the
+  0.37 between 3.18.1's base and develop. Left: the small step between
+  992ed8d2 and 27a4050c, and the shell's. The review saw it as waiting
+  rather than work. The rest of the old entry is settled: area092
   is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
   taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
   frames note](research/notes_frames.md) of 25 November says. The
-  bisect of 26 November (load 2.5 to 4) found three steps, the last
-  89e62b7f (M3's shell) +0.11 ms: profiled against 4.2.1 (abe3e024),
-  it is the shell's own chrome drawn each frame, three fifths widgets
-  (the Outliner beside the module tree, the Status Bar, the Top Bar's
-  Quick Open, the tree's guide lines and eye icons) and two fifths
+  last step, 89e62b7f (M3's shell) +0.11 ms: profiled against 4.2.1
+  (abe3e024), it is the shell's own chrome drawn each frame, three fifths
+  widgets (the Outliner beside the module tree, the Status Bar, the Top
+  Bar's Quick Open, the tree's guide lines and eye icons) and two fifths
   their shapes' tessellation, nothing drawn twice or for nothing: left,
   since under the line would mean taking parts of the shell away
   (Interface's, 26 November). (S, waits on a calm machine: load under 5
-  for the bisect) (the review of
+  to time the small step) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would

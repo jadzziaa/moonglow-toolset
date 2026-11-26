@@ -283,8 +283,11 @@ pub(crate) fn plan<'a>(
     // out once it is known to cast into the map's region.)
     let mut casters: Vec<Met<'a>> = Vec::new();
     let mut bones = Vec::new();
-    // (The box around what receives them.)
-    let mut receivers: Option<(Vec3, Vec3)> = None;
+    // (The box around what receives them: of boxes known to be somewhere,
+    // so taken as it goes, as [`crate::reach::box_of`] each mesh cost a
+    // large area's frame a fifth of a millisecond; no box where none
+    // receives.)
+    let mut receivers = crate::reach::NO_BOX;
     let somewhere = |(min, max): (Vec3, Vec3)| min.is_finite() && max.is_finite();
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
@@ -318,8 +321,7 @@ pub(crate) fn plan<'a>(
             // receive.)
             let hidden = replaced.is_some_and(|r| r.hidden);
             if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
-                let all = receivers.into_iter().chain([bounds]);
-                receivers = crate::reach::box_of(all.flat_map(|(min, max)| [min, max]));
+                receivers = (receivers.0.min(bounds.0), receivers.1.max(bounds.1));
             }
             let skinned = mesh.skin.is_some();
             if casts(inst, mesh, alpha) && (skins || !skinned) {
@@ -351,7 +353,8 @@ pub(crate) fn plan<'a>(
             }
         }
     }
-    let receivers = receivers.filter(|_| !casters.is_empty())?;
+    let receivers =
+        Some(receivers).filter(|(min, max)| !casters.is_empty() && min.cmple(*max).all())?;
     let region = seen(camera, aspect, receivers)?;
     let view = light_view(scene.area.direction);
     let to_light = |(min, max): (Vec3, Vec3)| {
@@ -588,8 +591,8 @@ pub(crate) fn light_plan<'a>(
             break;
         }
         let (first, first_bone) = (plan.casters.len(), plan.bones.len());
-        // (The box around all of it.)
-        let mut around: Option<(Vec3, Vec3)> = None;
+        // (The box around all of it, of parts known to be somewhere.)
+        let (mut lo, mut hi) = crate::reach::NO_BOX;
         for inst in &parts {
             let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
             let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
@@ -610,15 +613,15 @@ pub(crate) fn light_plan<'a>(
                 if !(a.is_finite() && b.is_finite()) {
                     continue;
                 }
-                around = crate::reach::box_of(
-                    around.into_iter().flat_map(|(a, b)| [a, b]).chain([a, b]),
-                );
+                (lo, hi) = (lo.min(a), hi.max(b));
                 let skinned = skin_bones(mesh, pose, &mut plan.bones);
                 let model = &inst.model;
                 plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
             }
         }
-        let Some((lo, hi)) = around else { continue };
+        if plan.casters.len() == first {
+            continue;
+        }
         // (One light for the whole of it, from where its base stands, and
         // one map: its box is all its parts'.)
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);

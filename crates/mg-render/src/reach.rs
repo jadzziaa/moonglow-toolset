@@ -459,9 +459,16 @@ pub fn box_corners(min: Vec3, max: Vec3) -> [Vec3; 8] {
 /// points: a mesh's, the shadows' receivers and casters, the previews'
 /// and the model viewer's framing.
 pub fn box_of(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
-    let mut somewhere = points.into_iter().filter(|p| p.is_finite());
-    let first = somewhere.next()?;
-    Some(somewhere.fold((first, first), |(min, max), p| (min.min(p), max.max(p))))
+    // (A plain loop, a branch to each point: the filtered fold it replaces
+    // was slower where the shadows' plan boxes a large area's every
+    // caster each frame.)
+    let (mut min, mut max) = NO_BOX;
+    for p in points {
+        if p.is_finite() {
+            (min, max) = (min.min(p), max.max(p));
+        }
+    }
+    min.cmple(max).all().then_some((min, max))
 }
 
 /// What stands for the box around no points, where one is needed all the
