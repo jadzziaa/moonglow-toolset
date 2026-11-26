@@ -2927,11 +2927,13 @@ fn palette_labels(
     h: &Harness<'_, Moonglow>,
     search: egui::Rect,
 ) -> std::collections::BTreeSet<String> {
+    // (On the screen: the categories far out of sight are not built.)
+    let bottom = h.ctx.content_rect().bottom();
     h.query_all_by_label_contains("")
         .filter(|n| n.accesskit_node().bounding_box().is_some())
         .filter(|n| {
             let r = n.rect();
-            r.top() > search.bottom() && r.left() >= search.left() - 30.0
+            r.top() > search.bottom() && r.left() >= search.left() - 30.0 && r.top() < bottom
         })
         .filter_map(|n| n.accesskit_node().label())
         .collect()
@@ -2963,7 +2965,7 @@ fn a_search_cleared_leaves_the_categories_as_they_were() {
     h.get_by_label(&header).click();
     settle(&mut h);
     let before = palette_labels(&h, hint);
-    assert!(before.len() > first.len(), "{header} opened: {before:?}");
+    assert!(before.iter().any(|l| !first.contains(l)), "{header} opened: {before:?}");
     h.state_mut().palette.filter = "chest".into();
     settle(&mut h);
     let found = palette_labels(&h, hint);
@@ -2980,6 +2982,92 @@ fn a_search_cleared_leaves_the_categories_as_they_were() {
     h.state_mut().palette.filter.clear();
     settle(&mut h);
     assert_eq!(palette_labels(&h, hint), listed, "in the List too");
+}
+
+/// A search that finds blueprints in every category, scrolled through in
+/// the List and the Gallery: the categories out of sight take the room
+/// they took when last drawn (not built), so every category in sight moves
+/// by the wheel's distance, none jumping as one comes into sight, and the
+/// last is reached.
+#[test]
+fn a_search_s_categories_out_of_sight_keep_their_room() {
+    let Some((mut h, _area)) = area_harness("palette-search-rooms") else { return };
+    for gallery in [false, true] {
+        {
+            let p = &mut h.state_mut().palette;
+            p.kind = mg_module::palette::BlueprintKind::Placeable;
+            (p.tiles, p.custom) = (false, false);
+            p.filter.clear();
+        }
+        h.state_mut().settings.palette_gallery = gallery;
+        settle(&mut h);
+        let hint = search_rect(&h, "Search name, tag, resref");
+        h.state_mut().palette.filter = "e".into();
+        settle(&mut h);
+        let bottom = h.ctx.content_rect().bottom();
+        let headers = |h: &Harness<'_, Moonglow>| -> Vec<(String, f32)> {
+            let mut v: Vec<(String, f32)> = h
+                .query_all_by_label_contains(" (")
+                .filter(|n| n.accesskit_node().bounding_box().is_some())
+                .filter(|n| {
+                    n.accesskit_node().role() == egui::accesskit::Role::Button
+                        || n.accesskit_node().label().is_some_and(|l| l.ends_with(')'))
+                })
+                .filter_map(|n| {
+                    let (label, r) = (n.accesskit_node().label()?, n.rect());
+                    let shown = r.top() > hint.bottom() && r.bottom() < bottom - 4.0;
+                    (shown && r.left() >= hint.left() - 30.0 && label.ends_with(')'))
+                        .then_some((label, r.top()))
+                })
+                .collect();
+            v.sort_by(|a, b| a.1.total_cmp(&b.1));
+            v
+        };
+        let at = egui::pos2(hint.center().x, hint.bottom() + 120.0);
+        // (A step of the wheel: the Gallery's categories are many pictures
+        // tall.)
+        let step = if gallery { 300.0 } else { 200.0 };
+        let (mut was, mut seen) = (headers(&h), std::collections::BTreeSet::new());
+        assert!(!was.is_empty(), "categories found");
+        let (mut moved, mut wheel, mut ended) = (0, None, false);
+        for _ in 0..200 {
+            h.hover_at(at);
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -step),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            settle(&mut h);
+            let now = headers(&h);
+            // (Each in sight before and after moved by as much, the wheel's
+            // step, or less at the end: all by the same.)
+            let steps: Vec<f32> = (now.iter())
+                .filter_map(|(l, y)| was.iter().find(|(m, _)| m == l).map(|(_, w)| w - y))
+                .collect();
+            if let Some(&first) = steps.first() {
+                assert!(
+                    steps.iter().all(|s| (s - first).abs() < 0.5),
+                    "gallery {gallery}: {steps:?} {was:?} {now:?}"
+                );
+                // (As far as the wheel's first move, every one, until the
+                // end, where it moves less once and then not at all.)
+                let wheel = *wheel.get_or_insert(first);
+                match ended {
+                    false if first < wheel - 0.5 => ended = true,
+                    false => assert!((first - wheel).abs() < 0.5, "moved {first} of {wheel}"),
+                    true => assert!(first.abs() < 0.5, "moved {first} past the end"),
+                }
+                moved += (first > 0.5) as usize;
+            }
+            seen.extend(now.iter().map(|(l, _)| l.clone()));
+            was = now;
+        }
+        // (In the Gallery a category's pictures may fill the view: fewer
+        // steps have two headers to compare.)
+        assert!(moved > 1, "gallery {gallery}: scrolled {moved} times");
+        assert!(seen.len() > 4, "gallery {gallery}: categories seen {seen:?}");
+    }
 }
 
 /// The tiles palette's search opens the headings with a match, in the

@@ -3037,6 +3037,18 @@ impl Selection {
 
 /// How many blueprints a palette node and those under it hold.
 /// Every blueprint under a palette node.
+/// See [`Tree::room_fresh`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RoomFresh {
+    meta: usize,
+    found: usize,
+    gallery: bool,
+    side: u32,
+    width: i32,
+    hide_empty: bool,
+    open: bool,
+}
+
 fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     out.extend(node.blueprints.iter().map(|b| ResKey::new(b.resref, kind.restype())));
     for c in &node.children {
@@ -3218,6 +3230,21 @@ impl Tree<'_> {
         self.cursor.as_ref().filter(|c| c.branch == *branch).map(|c| c.blueprint)
     }
 
+    /// What a category's room out of sight is kept for ([`Tree::node`]):
+    /// the palette's categories and finds, how its rows are laid out, and
+    /// whether it was open.
+    fn room_fresh(&self, ui: &egui::Ui) -> RoomFresh {
+        RoomFresh {
+            meta: Arc::as_ptr(&self.meta).cast::<()>() as usize,
+            found: Arc::as_ptr(&self.found_at).cast::<()>() as usize,
+            gallery: self.gallery,
+            side: self.side.to_bits(),
+            width: ui.available_width().round() as i32,
+            hide_empty: self.hide_empty,
+            open: false,
+        }
+    }
+
     /// What the keys ask of a branch's header, this frame: open or closed.
     fn asked(&self, branch: &Branch) -> Option<bool> {
         self.fold.or(self.toggle.as_ref().filter(|(b, _)| b == branch).map(|(_, open)| *open))
@@ -3276,6 +3303,29 @@ impl Tree<'_> {
         *meta_idx += 1;
         let (game, kind, custom) = (self.game, self.kind, self.custom);
         let branch = Branch::Category(path.to_vec());
+        // Out of sight, the room it took when last drawn alone, while what
+        // it holds and shows is as it was then (a search finding 8,000 items
+        // built a header for each of their categories every frame). Drawn
+        // whole where the keys need every place or ask something of it.
+        let room_id = egui::Id::new(("palette-room", kind, custom, path, &self.grouping));
+        let fresh = self.room_fresh(ui);
+        if self.listed.is_none()
+            && !self.reveal
+            && self.range.is_none()
+            && self.asked(&branch).is_none()
+            && let Some((was, header_id, size)) =
+                ui.data(|d| d.get_temp::<(RoomFresh, egui::Id, egui::Vec2)>(room_id))
+            && (RoomFresh { open: was.open, ..fresh }) == was
+            && Some(was.open)
+                == egui::collapsing_header::CollapsingState::load(ui.ctx(), header_id)
+                    .map(|s| s.is_open())
+            && !ui.is_rect_visible(egui::Rect::from_min_size(ui.cursor().min, size))
+            && !self.arrives_in(node)
+        {
+            ui.allocate_space(egui::vec2(1.0, (size.y - ui.spacing().item_spacing.y).max(0.0)));
+            *meta_idx = end;
+            return;
+        }
         let top = ui.cursor().top();
         let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), parent, top));
         let within = self.cursor_in(&branch).flatten();
@@ -3342,6 +3392,12 @@ impl Tree<'_> {
             });
         // Advance unconditionally past this subtree even when collapsed so sibling indices stay aligned.
         *meta_idx = end;
+        let header_id = shown.header_response.id;
+        let open = egui::collapsing_header::CollapsingState::load(ui.ctx(), header_id)
+            .is_some_and(|s| s.is_open());
+        let room = egui::vec2(1.0, ui.cursor().top() - top);
+        let fresh = RoomFresh { open, ..fresh };
+        ui.data_mut(|d| d.insert_temp(room_id, (fresh, header_id, room)));
         let row = shown.header_response.rect;
         if let Some(c) = count_text {
             let t = mg_uikit::tokens(ui.ctx());

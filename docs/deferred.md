@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:52:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T19:52:54Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -304,10 +304,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   walk); an item's Appearance page of 999 icons opened in 8.75 to 8.87
   ms (its icons' numbers 1.8, the grid 1.1 to 1.3, the rest the
   window's first frame); the
-  Custom palette with 8,000 items found against 100, List +105 (to 108),
-  Gallery +150 (to 168) (likely a header built each frame for every
-  category holding a find, in sight or not: laying the palette's tree
-  out by rows is a change of its own); the Instances window of 100
+  Instances window of 100
   creatures on its Feats page +90 (to 130) µs, its timers' remaining
   costs each under the line (Classes 20 µs, the inventory's rows 40);
   and the Appearance Gallery's drag to the end, its median 3.5 (to 4.6)
