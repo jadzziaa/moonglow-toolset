@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:44:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:47:01Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -819,9 +819,15 @@ Nothing open.
   Reactions panel's bars (legible on both: `screens.rs`'s
   `board_factions` in the light theme, Advanced with Reactions beside
   it, shows the red and blue cells and a friendly bar), and the area
-  view's overlays are drawn over the 3D view, whatever the theme. What
-  else a builder who uses it finds wanting waits on such a pass. (S) (a
-  senior builder's review, October 2026)
+  view's overlays are drawn over the 3D view, whatever the theme. Every
+  window picture of `screens.rs` was looked through in it on 26 November
+  (1,266 pictures, 495 distinct, about 384 looked at): the conversation
+  tree's words, garbled after a theme switch, were the one fault, fixed;
+  disabled text (2.9:1, as designed), warning text and empty fields
+  measured within the tokens' rules; a selected gallery card's thin rim
+  on a dark card is left to the owner, who ruled on the gallery's rims.
+  What else a builder who uses it finds wanting waits on that builder.
+  (S) (a senior builder's review, October 2026)
 - **The docks' fold controls and a window dropped on the middle, by
   hand** (GitHub issues 10 and 21, open: wait on a hand in the running
   program). Issue 10's one-button rule is built as the shell's (M3, the
