@@ -45,6 +45,22 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.4.0" date="2026-11-26">
+      <description>
+        <p>Plugin seeds for repeatable terrain (API 0.10), Compile All's
+        Details saying why each script was compiled and a warning for an
+        include with its own main, an Anti-aliasing setting, several
+        inventory items moved at once, Advanced Search editing objects
+        of several areas together, Custom Light flicker, the Area
+        Wizard in Aurora's three steps and zoom in the picture
+        viewer.</p>
+        <p>Game-data changes wait for the data instead of being lost,
+        grass and see-through surfaces take shadows, shiny water shows
+        a fountain's floor, textures take less memory, Verify checks
+        four more mistakes, and many windows are quicker. See the
+        release notes.</p>
+      </description>
+    </release>
     <release version="5.3.0" date="2026-11-25">
       <description>
         <p>File, Export Changed Resources for what changed since the
