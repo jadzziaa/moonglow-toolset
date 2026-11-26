@@ -1488,6 +1488,12 @@ impl ModelView {
         self.gpu_renders
     }
 
+    /// The samples a pixel its picture is drawn with (Options › Area ›
+    /// Anti-aliasing), where it has targets.
+    pub fn picture_samples(&self) -> Option<u32> {
+        self.targets.as_ref().map(|(t, _)| t.samples)
+    }
+
     /// Its picture drawn anew at the next frame, though nothing it is
     /// drawn from changed (the textures read again at another size).
     pub(crate) fn redraw_picture(&mut self) {
@@ -1802,11 +1808,6 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         view.animation.as_ref().is_some_and(|name| anims.iter().any(|(n, ..)| n == name));
     let moving = view.playing
         && (has_anim || view.last_live || view.last_dangly_moving || view.last_timed > 0);
-    // (Every texture the picture waited for read: drawn again now, not
-    // at the next step. Those read before it are as the picture knew
-    // them: some read, others still being read, it waits for the step.)
-    let textures_read = vp.renderer.textures_read();
-    let read_all = view.last_textures_pending > 0 && vp.renderer.textures_still_read() == 0;
     let pending = view.last_game_pending > 0 || view.last_textures_pending > 0;
     let from = ModelDrawn {
         size: (w, h),
@@ -1816,7 +1817,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         model_lights: view.model_lights,
         shadows: app.settings.model_shadows(),
         shaders,
-        textures_read,
+        textures_read: vp.renderer.textures_read(),
         paused_anim_time: (has_anim && !view.playing).then_some(view.time.to_bits()),
     };
     let focused = crate::area_view::animates_now(ui, app.settings.animate_unfocused, true, false);
@@ -1826,7 +1827,6 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         && view.drawn.as_ref().is_some_and(|(was, _, _)| *was == from)
         && (!moving || anim_since.is_some_and(|s| (0.0..CLOCK_STEP).contains(&s)))
         && (!pending || wall_since.is_some_and(|s| (0.0..f64::from(CLOCK_STEP)).contains(&s)));
-    let kept = kept && !read_all;
     if kept {
         if (moving && focused) || pending {
             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
@@ -2405,6 +2405,13 @@ impl Thumbnails {
     #[doc(hidden)]
     pub fn asked(&self) -> usize {
         self.pictures.len() + self.pictures.wanted().len()
+    }
+
+    /// The samples a pixel the pictures are drawn with (Options › Area ›
+    /// Anti-aliasing), where targets are held.
+    #[doc(hidden)]
+    pub fn picture_samples(&self) -> Option<u32> {
+        self.targets.as_ref().map(|t| t.samples)
     }
 
     /// The creatures' pictures in other appearances made (a gallery's

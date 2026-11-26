@@ -1424,10 +1424,14 @@ fn anti_aliasing_choice(ui: &mut Ui, samples: &mut Option<u8>, offered: &[u32]) 
         n => format!("{n}×"),
     };
     let choices: Vec<Option<u8>> = offered.iter().map(|&n| (n != 4).then_some(n as u8)).collect();
+    // (What is drawn, not what was chosen: 4×, the default, on a GPU that
+    // takes one sample alone shows Off.)
+    let drawn = samples_drawn(*samples, offered);
+    let shown = (drawn != 4).then_some(drawn as u8);
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Anti-aliasing");
         crate::widgets::dropdown("anti-aliasing")
-            .selected_text(name(samples))
+            .selected_text(name(&shown))
             .show(ui, samples, &choices, name)
             .on_hover_text("For a slow GPU: smooth the 3D views' edges less, or not at all");
     });
@@ -2484,6 +2488,25 @@ fn questions(ui: &mut Ui, draft: &mut OptionsDraft) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Anti-aliasing draws the most samples the GPU takes at or under the
+    /// choice: OpenGL (one alone) draws Off whatever is chosen; 2× on a
+    /// GPU without it draws Off, not more than asked.
+    #[test]
+    fn the_samples_drawn_are_the_most_offered_at_or_under_the_choice() {
+        for (chosen, offered, drawn) in [
+            (None, &[1, 2, 4][..], 4),
+            (Some(2), &[1, 2, 4], 2),
+            (Some(1), &[1, 2, 4], 1),
+            (None, &[1, 4], 4),
+            (Some(2), &[1, 4], 1),
+            (None, &[1], 1),
+            (Some(2), &[1], 1),
+            (None, &[], 1),
+        ] {
+            assert_eq!(samples_drawn(chosen, offered), drawn, "{chosen:?} of {offered:?}");
+        }
+    }
 
     /// Options' OK wrote back every setting as it was when the tab was
     /// opened: one set since from somewhere else (a question's "Always do
