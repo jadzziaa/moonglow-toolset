@@ -2412,7 +2412,33 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
               // (The Areas group's rows scroll by themselves.)
               let well = types == &[ResType::ARE];
               in_well(ui, well, (view, others, !filter.is_empty(), areas_height), |ui| {
-                for &k in keys {
+                // (A group with nothing to bring into view, an area's or
+                // the keys': the rows above the view passed over in one
+                // space, and those below it once the rows reach its foot.
+                // Looked at one by one, a world's 8,000 items' rows out of
+                // sight took 0.6 ms a frame while their group was open.)
+                let height = ui.spacing().interact_size.y;
+                let gap = ui.spacing().item_spacing.y;
+                let step = height + gap;
+                let ours = |k: &ResKey| types.contains(&k.restype);
+                let skips = !well
+                    && !app.tree_reveal.is_some_and(|(k, _)| ours(&k))
+                    && !(cursor_moved
+                        && matches!(cursor, Some(TreeAt::Resource(k)) if ours(&k)));
+                let clip = ui.clip_rect();
+                let mut from = 0;
+                if skips {
+                    let above = ((clip.top() - height - ui.cursor().top()) / step).floor();
+                    from = (above.max(0.0) as usize).min(keys.len());
+                    if from > 0 {
+                        ui.allocate_space(egui::vec2(1.0, from as f32 * step - gap));
+                    }
+                }
+                for (i, &k) in keys.iter().enumerate().skip(from) {
+                    if skips && ui.cursor().top() > clip.bottom() {
+                        ui.allocate_space(egui::vec2(1.0, (keys.len() - i) as f32 * step - gap));
+                        break;
+                    }
                     // Blueprints drag into an area, as from the palette.
                     let blueprint = mg_area::ObjectKind::from_restype(k.restype).is_some();
                     let sense = if blueprint {

@@ -271,10 +271,17 @@ pub(super) fn model_numbers(
 
 /// The numbers `nnn` for which the game data has a resource
 /// `{prefix}{nnn:03}` of one of `types`, in order, each once.
+///
+/// (The layers' names looked through once, for all of `types`, those of
+/// another start passed over unread: listed whole, type by type, the
+/// install's and a world's haks' 135,000 textures took 45 ms.)
 fn numbered(game: &GameData, types: &[ResType], prefix: &str) -> Vec<u16> {
-    let mut v: Vec<u16> = (types.iter())
-        .flat_map(|t| game.resman.list(*t))
-        .filter_map(|r| number_after(&r.to_string(), prefix))
+    let start = prefix.as_bytes();
+    let mut v: Vec<u16> = (game.resman.layers().iter())
+        .flat_map(|l| l.container.keys())
+        .filter(|k| types.contains(&k.restype))
+        .filter(|k| k.resref.as_bytes().starts_with(start))
+        .filter_map(|k| number_after(&k.resref.to_string(), prefix))
         .collect();
     v.sort_unstable();
     v.dedup();
