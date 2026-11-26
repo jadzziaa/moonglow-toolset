@@ -3291,3 +3291,39 @@ fn a_triple_click_on_an_object_s_row_opens_its_properties() {
     assert!(h.state().dock.find_tab(&window(1)).is_some(), "and opened its Properties");
     assert!(h.state().is_props_popped_out(area), "the docked pane closed");
 }
+
+/// Areas by name keep a space their name begins with, as Aurora sorts
+/// them: a builder's " Tavern" is listed before "Bandit Camp", whatever
+/// its ResRef (#54).
+#[test]
+fn an_area_named_with_a_leading_space_is_listed_first() {
+    let dir = mg_testkit::scratch_dir("ui-tree-leading-space");
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("SORT"));
+    let areas = [("zz_tavern", " Tavern"), ("aa_bandits", "Bandit Camp"), ("mm_docks", "Docks")];
+    for (resref, name) in areas {
+        let mut a = ifo::MOD_AREA_LIST.new_item();
+        a.write(&ifo::mod_area_list::AREA_NAME, ResRef::from_str(resref).unwrap());
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(a);
+        let mut are = Gff::new(*b"ARE ");
+        let text = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+        are.root.set("Name", mg_gff::Value::LocString(text));
+        m.set(ResKey::parse(resref, ResType::ARE).unwrap(), are.to_bytes().unwrap());
+    }
+    m.set_info(&info).unwrap();
+    let path = dir.join("sort.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.area_names = true;
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
+    settle(&mut h);
+    let rows = h.get_by_label("Module Tree Rows");
+    let y = |name: &str| rows.get_all_by_label_contains(name).next().unwrap().rect().top();
+    assert!(y("Tavern") < y("Bandit Camp"), "the leading space sorts first");
+    assert!(y("Bandit Camp") < y("Docks"), "the rest by name, not by ResRef");
+}

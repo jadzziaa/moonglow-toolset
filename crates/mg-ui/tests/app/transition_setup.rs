@@ -512,6 +512,47 @@ fn the_target_areas_follow_show_areas_by_name() {
     cancel(&mut h);
 }
 
+/// The Target Area list keeps a space an area's name begins with, as the
+/// Module panel sorts it (#54): " Zeta" is listed before "Alpha".
+#[test]
+fn the_target_areas_keep_a_leading_space() {
+    let Some(World { mut h, field, second }) = world("setup-area-space") else { return };
+    h.state_mut().settings.area_names = true;
+    let rename = |area: ResRef, name: &str| mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: GffPath::root(),
+        label: "Name".into(),
+        value: Some(Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, name))),
+    };
+    let edits = vec![rename(field, "Alpha"), rename(second, " Zeta")];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Names", edits)));
+    settle(&mut h);
+    open_setup(&mut h, trigger_tab(field, 0), None);
+    let label = h.get_by_label("Target area").rect();
+    let combo = (h.get_all_by_role(Role::ComboBox))
+        .find(|n| {
+            let r = n.rect();
+            (r.center().y - label.center().y).abs() < 10.0
+                && r.left() > label.left()
+                && !in_group(n, "Area toolbar")
+        })
+        .unwrap();
+    let under = combo.rect();
+    combo.click();
+    settle(&mut h);
+    let y = |name: &str| {
+        (h.query_all_by_label_contains(name))
+            .map(|n| n.rect())
+            .find(|r| r.top() >= under.bottom() - 1.0 && under.x_range().contains(r.center().x))
+            .unwrap_or_else(|| panic!("{name} in the Target Area list"))
+            .top()
+    };
+    assert!(y("Zeta") < y("Alpha"), "the leading space sorts first");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    cancel(&mut h);
+}
+
 /// A door to a trigger and a trigger to a door, Both Ways: whatever
 /// leads to a trigger names its waypoint (2), whatever leads to a door
 /// names the door (1), and a door is given no waypoint. Each undone and

@@ -1641,7 +1641,9 @@ impl AreaChooser {
             .map(|k| {
                 let a = k.resref;
                 let i = app.area_names.info(ws, app.game.as_deref(), a);
-                let label = match (i.name.trim(), by_name) {
+                // (A space the name begins with is kept, so it sorts as
+                // the Module panel lists it, #54.)
+                let label = match (i.name.trim_end(), by_name) {
                     ("", _) => a.to_string(),
                     (name, true) => format!("{name} ({a})"),
                     (name, false) => format!("{a} ({name})"),
