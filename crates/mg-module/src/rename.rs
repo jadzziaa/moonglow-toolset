@@ -1766,6 +1766,18 @@ mod tests {
             index.links_into(rr("keep")).into_iter().map(|u| u.path.to_string()).collect();
         assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
         assert!(index.links_into(rr("outside")).is_empty(), "OUT_1, OUT_2: nothing leads there");
+        // A third area with a guard of its own, then gone again: the
+        // count of each tag's areas follows what the index holds.
+        let mut third = Gff::new(*b"GIT ");
+        third.root.set("Door List", Value::List(vec![door(b"GUARD", b"")]));
+        m.set_gff(key("third", ResType::GIT), &third).unwrap();
+        index.refresh(&m);
+        assert!(index.links_into(rr("keep")).is_empty(), "GATE and GUARD: both elsewhere too");
+        m.remove(&key("third", ResType::GIT));
+        index.refresh(&m);
+        let paths: Vec<String> =
+            index.links_into(rr("keep")).into_iter().map(|u| u.path.to_string()).collect();
+        assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
     }
 
     /// A window reads only a few resources where it asks: past that, it
