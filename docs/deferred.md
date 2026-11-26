@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T19:52:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:26:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -154,10 +154,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Shaders on lands in one of two GPU levels from run to run, the code
   unchanged: the median pinned near 11.2 ms and the quickest tenth 6.8
   to 8.0, or a median of 6 to 8.5 and a tenth of 5.3 to 6.9; the slow
-  level goes with the card's automatic clocks settling low, not with
-  memory. Compare two builds in one run on alternate frames, or by many
-  runs sorted by level; [the frames note](research/notes_frames.md), 26
-  November). Done that day: the lights' sets
+  level is the card's automatic clocks settling near 800 MHz, against
+  1,300, because the test waited for the GPU after each frame and
+  encoded the next with it idle: alone on the GPU, 18 runs so paced
+  were slow, and paced as the app paces its frames, one drawn while the
+  next is encoded, 11 of 12 were quick; with another program drawing
+  beside it most were quick either way, which is why the same binary
+  fell in either. `area_parts` and `render_views` now pace their
+  frames as the app does (`FRAME_BLOCKING=1`: as before), and every
+  view's figures say the GPU's clock (`mg_testkit::clocks`; "n/a"
+  without amdgpu's `pp_dpm_sclk`): compare runs drawn at the same
+  clock, two builds still best on alternate frames; [the frames
+  note](research/notes_frames.md), 26 November). Done that day: the lights' sets
   numbered as a mesh's lights are chosen and a mesh's choice found by
   its place among the scene's meshes, the sun's shadows planned and the
   game's solid draws sorted on threads beside the other work (the
@@ -552,6 +560,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   front of a mesh that reads the copy (shiny water, the particles); a
   depth pre-pass of the soft parts; and see whether the discard with a
   depth write loses early depth testing for the meshes drawn after.
+  Timed again by the GPU's clock level (26 November, 160 frames a run,
+  [the frames note](research/notes_frames.md), "The held soft-depth
+  change by level"): with each frame waited for and nothing else on
+  the GPU (934 to 1,091 MHz), the woods turned 9.4 to 10.4 ms in the
+  quickest tenth before against 9.7 to 12.0 after (+0.25 to +2.02,
+  median +1.17, nine runs; the A/A -0.39 to +0.67), its median 11.6 to
+  11.9 against 17.4 to 17.7 in seven of the nine: the morning's figure,
+  a real cost at that clock (the old code on both sides of the A/A
+  stays at 11.0 to 11.8). Paced as the app paces its frames (1,110 to
+  1,405 MHz), +0.37 to +0.41 in the tenth and +0.3 to +0.5 in the
+  median (five runs; the A/A within 0.05), the overview +0.21 to +0.32
+  (six). Waiting on the owner: whether the change is taken with these
+  figures on record, given that the app draws at the second level.
   (2026-11-26)
 
 - **The frame budget of the game's shaders (M3 of [the shaders

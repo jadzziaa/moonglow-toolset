@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), the woods test's two GPU levels (26 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), the woods test's two GPU levels, what decides them (the test's waiting for each frame) and the soft-depth change's cost at each (26 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T11:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:26:36Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -35,6 +35,12 @@ sources:
   - id: levels
     resource: crates/mg-ui/tests/frame_perf.rs
     title: 'game_shaders_frames_at_144 (FRAME_AREA=tdod, "overview, 4x MSAA, Shaders on") built at 42027e27 and with its order''s variants on alternate frames of one run; six runs with FRAME_MEMORY=1 beside a read-only sampler of the RX 9070 XT''s pp_dpm_sclk, gpu_busy_percent, mem_info_vram_used and mem_info_gtt_used (26 November 2026)'
+  - id: cause
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'game_shaders_frames_at_144 (FRAME_AREA=tdod, the overview), 59 runs each waited for and paced as the app, with and without other programs drawing, beside a read-only sampler of card1''s clock and every process''s drm-engine-gfx (26 November 2026)'
+  - id: softlevels
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'The soft-depth change (62a1d436, soft-water-2) on alternate frames, the woods turned and overview, 39 runs of 160 frames each waited for and paced as the app, with A/A and old-on-both controls, beside the sampler (26 November 2026)'
   - id: editor-perf
     resource: crates/mg-ui/tests/editor_perf.rs
     title: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
@@ -976,12 +982,117 @@ clocks settle low or high for the run. A sample every 0.2 s against
 frames of 20 to 80 ms reads the clock only roughly, and run 5 was slow
 at a clock close to run 6's: the link is the clock, not one figure.
 
-**How to compare under it.** Don't compare one run with another. Either
-build both paths into one binary and switch on alternate frames
-(`renderer`'s variant flag toggled from `frame_perf`'s loop, the
-quickest tenths of even and odd frames printed apart), or take many
-runs of each, sort them by level (the median pinned near 11.2 ms or
-not), and compare within a level.
+**What decides the level: the test's own pacing, and whether anything
+else draws.** The same day's afternoon, 59 runs of the overview (72
+frames each) beside a sampler of the card's clock (every 0.1 s, read
+only) and of every program's GPU time (`/proc/*/fdinfo`, the drm
+clients' `drm-engine-gfx`), the test waiting for the GPU after each
+frame as it had until then[^cause]:
+
+| How the frames were paced | Anything else drawing | Runs | GPU median (ms) | Quickest tenth (ms) | Clock (MHz) |
+|---|---|---|---|---|---|
+| Each frame waited for | yes: Aurora on the off-screen display, a test client, another session's UI tests (11 to 97 ms of GPU a second) | 11 | 6.1 to 6.6 in 8; 7.5, 7.7 and 11.0 | 5.9 to 7.1 | 915 to 1,385 |
+| Each frame waited for | no (1 to 2.4 ms a second: the desktop) | 18 | 11.1 to 11.4 in 16; 8.3 and 8.4 | 6.4 to 8.3 | 705 to 915 |
+| As the app paces them (below) | no | 6 | 6.3 to 7.8 in 5; 11.3 in one | 6.0 to 6.8 in 5 | 1,188 to 1,273 in 5; 548 in one |
+| The same, an earlier build of it | no | 6 | (mean 6.3 to 9.1) | | 1,088 to 1,284 |
+
+- **A frame is drawn either at about 800 MHz or at about 1,300.** The
+  clock read while a frame was on the GPU was 765 MHz (median of 120
+  readings; quartiles 612 to 879) in the frames over 9.5 ms and 1,238
+  (841 to 1,344) in the others. The slow frames' own GPU time, as the
+  driver counts it for the test's process, was 11.2 ms, their whole
+  span: the GPU drew them slowly, it did not wait. The "pinned" 11.2 ms
+  is the woods' frame at that clock, and a run's median is pinned there
+  when more than half its frames are drawn at it (43 to 81% in the slow
+  runs, 0 to 11% in the quick ones).
+- **Alone, waiting for each frame keeps the clock low.** The test
+  encoded a frame (17 to 21 ms) with the GPU idle, then submitted it and
+  waited. With nothing else on the GPU every such run was slow; with any
+  program drawing steadily beside it (the quick runs of the morning had
+  Aurora running on the off-screen display), most were quick. That is
+  why the same binary fell in either level at load 2 as at 50: the
+  level followed what else was on the GPU, not the processor's load.
+- **Paced as the app paces its frames, the clock stays up.** eframe
+  submits a frame and goes on to the next without waiting for the GPU,
+  so one frame is drawn while the next is encoded. Paced so (the test
+  waits only for the frame before last), alone, 11 of 12 runs were
+  drawn at 1,088 to 1,284 MHz, with a median of 6.3 to 7.8 ms. The one
+  that was not had its frames encoded in 45 ms (the load at 14), the GPU
+  idle most of each frame again.
+- **The idle time alone does not decide it.** A sleep of 20 or 60 ms
+  added before each frame (blocking, alone) let the clock fall further
+  between frames (282 to 559 MHz read in the gaps), but the share of
+  slow frames stayed between 21 and 81%, no more than without the
+  sleep. How the card's firmware picks its clock is not visible from
+  here, and no power profile or clock was set to find out: what is
+  known is the two manipulations above.
+- **A view whose GPU work is a larger share of its frame is not
+  affected.** The woods close up (2.2 ms encoded, 3.2 to 3.6 drawn)
+  was drawn at 1,278 to 1,552 MHz whether each frame was waited for or
+  not, three runs of each.
+
+**What it means for the app.** The app paces its frames as the paced
+runs above do, so the woods overview is drawn at the quick level there
+(about 6 to 7 ms of GPU) even when nothing else draws, and the frame is
+set by its encoding (17 to 21 ms) anyway: the GPU level does not decide
+whether it makes 6.94 ms. Where the GPU's part is the larger, the GPU
+is busy most of each frame and its clock stays up (the close view
+above). So a real frame on the owner's 144 Hz screen does not miss the
+budget at the low clock where the test's would not: the slow level was
+the test's waiting for each frame, with nothing else on the GPU. This
+is inferred from the test's two pacings, not measured in the running
+app. One case remains where the app would see low clocks: a view whose
+encoding takes several times its GPU time (the 45 ms run), where the
+frame is long anyway.
+
+**What frame_perf does since.** Each view's figures are followed by the
+clock read beside its frames (`mg_testkit::clocks`: the
+`pp_dpm_sclk` of the card whose PCI ids are the adapter's, read every
+0.1 s; "n/a" without one, as on Windows, macOS and CI), so every run
+says its level. The areas taken apart (`area_parts`) and the
+renderer's fixes' views (`render_views`) pace their frames as the app
+does, each frame's GPU time taken by a thread that waits for each
+submission in turn (`GpuWatch`: from the submission, or from the GPU
+finishing the frame before where it was still drawing that one, to the
+GPU finishing it). `FRAME_BLOCKING=1` waits for each frame as before;
+`FRAME_DETAIL=1` prints each frame's GPU time and the clocks read, with
+their times. The window's own views (`frames`) still wait for each
+frame: their budget is the processor's, which the wait keeps apart
+from the GPU's, and their GPU figure is the interface's (0.01 to 4 ms).
+Three whole runs of the woods so paced: the overview 6.01, 6.04 and
+6.39 ms (tenths 5.79 to 5.97) at 1,266 to 1,537 MHz, the turned view
+9.30 to 9.55 at 1,427 to 1,502.
+
+**How to compare under it.** Read the clock line: two runs compare
+when their views were drawn at the same clock. A run whose clock reads
+far below 1,100 MHz in the woods is in the slow level (a slow processor,
+or `FRAME_BLOCKING`). Two builds' small differences are still best
+taken in one binary on alternate frames (`renderer`'s variant flag
+toggled from `frame_perf`'s loop, the quickest tenths of even and odd
+frames printed apart), paced as the app paces them.
+
+**The held soft-depth change by level.** 62a1d436's soft texels
+writing their depth (`soft-water-2`), timed in process on alternate
+frames (base: with the change; variant: `MG_VAR=softold`, before it;
+the A/A control `MG_VAR=none`), 160 frames a run, the woods turned
+and overview[^softlevels]. Quickest tenth and median, base against
+variant (ms):
+
+| Pacing, level | View | Runs | Tenth, base / variant | Tenth's difference | Median, base / variant | A/A tenth's difference |
+|---|---|---|---|---|---|---|
+| Each frame waited for, alone (934 to 1,091 MHz) | turned | 9 | 9.7 to 12.0 / 9.4 to 10.4 | +0.25 to +2.02 (median +1.17) | 12.3 to 17.7 / 11.6 to 11.9 (seven at 17.4 to 17.7) | -0.39 to +0.67 (7) |
+| As the app, 1,110 to 1,405 MHz | turned | 5 | 9.6 to 10.0 / 9.3 to 9.7 | +0.37 to +0.41 | 10.0 to 11.2 / 9.6 to 10.7 (+0.3 to +0.5) | -0.05 to -0.03 (3) |
+| As the app, 830 MHz (one run) | turned | 1 | 10.96 / 10.00 | +0.96 | 12.74 / 12.29 | |
+| As the app, 1,159 to 1,261 MHz | overview | 6 | 6.30 to 6.44 / 6.08 to 6.19 | +0.21 to +0.32 | +0.03 to +0.32 | -0.04 to +0.06 (3) |
+
+Waiting for each frame, alone, the change's frames took 17.5 ms in
+most runs against 11.8 before it, and with the change on both sides
+(the A/A) both took 17.2 to 17.7 in five of seven, while with the old code on both sides
+(`FRAME_ALT_ALL`, four runs) both took 11.0 to 11.8: a real cost at
+that clock, not one of alternating the frames. That is the morning's
+figure (a median of about 11.5 to 17, a tenth 9.5 against 11.4 to
+12.4). Paced as the app, it is 0.4 ms in the tenth, as the afternoon's
+runs at 900 to 1,600 MHz had it.
 
 ## Not covered
 
@@ -1012,4 +1123,6 @@ In short:
 [^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
 [^framecost]: game_shaders_frames_at_144 (FRAME_AREA=tdod and water), frames_at_144 and grass_frames_at_144, three runs alternated with 27b2e44b, v3.18.1 and each side of 6b26e702 built beside develop; render_area MG_TIME_RENDER with both paths on alternate frames; eu-stack samples (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)
+[^cause]: game_shaders_frames_at_144 (FRAME_AREA=tdod, FRAME_PARTS="overview, 4x MSAA, Shaders on", FRAME_DETAIL=1) at ee071b1c with the clock line and, built apart and never committed, a sleep before each frame (FRAME_GAP_MS) and the driver's GPU time of the process read about each frame; then at the woods-levels branch, paced as the app and with FRAME_BLOCKING=1 alternately; each run beside a read-only sampler of card1's pp_dpm_sclk, pp_dpm_mclk, gpu_busy_percent, mem_info_vram_used and every process's drm-engine-gfx (26 November 2026, 16:20 to 17:25, the load 2 to 23)
+[^softlevels]: fp-softab (4ef2d2c9 with target/retime/softab-variants.patch, never committed) with the test's pacing switched by FRAME_PACED (the woods-levels branch's GpuWatch) and FRAME_ALT_ALL (the variant on both sides), FRAME_COUNT=160; 39 runs, each beside the sampler; 30 runs of 72 frames before them with the binary as it was, whose medians differed by up to 4.6 ms between the A/A's two sides and are not used (26 November 2026, 16:49 to 17:21, the load 2 to 55)
 [^levels]: game_shaders_frames_at_144 (FRAME_AREA=tdod, "overview, 4x MSAA, Shaders on") built at 42027e27 and with its order's variants on alternate frames of one run; six runs with FRAME_MEMORY=1 beside a read-only sampler of the RX 9070 XT's pp_dpm_sclk, gpu_busy_percent, mem_info_vram_used and mem_info_gtt_used (26 November 2026)

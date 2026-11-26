@@ -5,7 +5,10 @@
 //! what the fix was about (the trigger) and without it (the control) on
 //! alternate frames of one run, each with its own renderer and targets,
 //! so that the machine's load and the GPU's clock level are the same for
-//! both and their difference is the cost. Its figures are an area's draw
+//! both and their difference is the cost. The frames are paced as the app
+//! paces them, one drawn while the next is encoded (`FRAME_BLOCKING=1`:
+//! each waited for, which lets the card's clocks settle low), and each
+//! view says the GPU's clock while it was timed. Its figures are an area's draw
 //! alone, not a window's frame (no interface): the scene posed, the
 //! particles moved on, the draws encoded (and the time the thread had the
 //! processor for them, beside the clock's), and the GPU drawing them (its
@@ -111,6 +114,57 @@ fn shot(gpu: &Gpu, targets: &Targets, name: &str) {
         .unwrap()
         .save(dir.join(format!("{name}.png")))
         .unwrap();
+}
+
+/// The timed frames paced as the app paces them, one on the GPU while
+/// the next is encoded (`FRAME_BLOCKING=1`: each waited for), each
+/// frame's GPU time taken by [`crate::GpuWatch`] (a second view's draw
+/// after an arm's frame too, so that it is not counted in the next).
+struct Pace {
+    watch: crate::GpuWatch,
+    submitted: Vec<wgpu::SubmissionIndex>,
+    timed: Vec<bool>,
+}
+
+impl Pace {
+    fn new(gpu: &Gpu) -> Pace {
+        Pace {
+            watch: crate::GpuWatch::start(&gpu.device),
+            submitted: Vec::new(),
+            timed: Vec::new(),
+        }
+    }
+
+    /// Before a frame is encoded: the one before last done.
+    fn before(&self, gpu: &Gpu) {
+        match self.submitted.len().checked_sub(2) {
+            Some(i) if !crate::blocking() => {
+                let _ = gpu.device.poll(wgpu::PollType::Wait {
+                    submission_index: Some(self.submitted[i].clone()),
+                    timeout: Some(Duration::from_secs(10)),
+                });
+            }
+            _ => wait(gpu),
+        }
+    }
+
+    /// What was drawn last submitted, at `at`: a timed frame or not.
+    fn submitted(&mut self, gpu: &Gpu, at: Instant, timed: bool) {
+        let index = gpu.queue.submit([]);
+        self.watch.submitted(index.clone(), at);
+        self.submitted.push(index);
+        self.timed.push(timed);
+        if crate::blocking() {
+            wait(gpu);
+        }
+    }
+
+    /// The timed frames' GPU times, in order.
+    fn finish(self, gpu: &Gpu) -> Vec<Duration> {
+        wait(gpu);
+        let took = self.watch.finish();
+        took.into_iter().zip(self.timed).filter_map(|(t, timed)| timed.then_some(t)).collect()
+    }
 }
 
 fn wait(gpu: &Gpu) {
@@ -262,10 +316,15 @@ struct Arm {
 }
 
 impl Arm {
-    fn frame(&mut self, gpu: &Gpu, game: &GameData, record: bool) {
+    /// A frame, waited for before and after where `pace` is `None` (its
+    /// GPU time is then not taken), else paced by it.
+    fn frame(&mut self, gpu: &Gpu, game: &GameData, record: bool, mut pace: Option<&mut Pace>) {
         let dt = 1.0 / FPS;
         let p = &mut self.pane;
-        wait(gpu);
+        match pace.as_deref() {
+            Some(pace) => pace.before(gpu),
+            None => wait(gpu),
+        }
         p.view.time += dt;
         let t0 = Instant::now();
         let mut frame = p.scene.scene(&p.model, &p.view);
@@ -276,8 +335,10 @@ impl Arm {
         self.renderer.render_targets(gpu, &game.resman, &frame, &p.camera, &p.targets);
         let t3 = Instant::now();
         let c3 = on_cpu();
-        wait(gpu);
-        let t4 = Instant::now();
+        match pace.as_deref_mut() {
+            Some(pace) => pace.submitted(gpu, t3, record),
+            None => wait(gpu),
+        }
         if record {
             self.t.scene.push(t1 - t0);
             self.t.particles.push(t2 - t1);
@@ -285,7 +346,6 @@ impl Arm {
             if let (Some(a), Some(b)) = (c2, c3) {
                 self.t.encode_cpu.push(b.saturating_sub(a));
             }
-            self.t.gpu.push(t4 - t3);
         }
         let d = self.renderer.drawn;
         self.chunks = d.chunks;
@@ -308,7 +368,10 @@ impl Arm {
                 b.scene.particles(&b.model, &b.view, &mut b.sims, dt, b.camera.view());
             let r = self.apart.as_mut().unwrap_or(&mut self.renderer);
             r.render_targets(gpu, &game.resman, &frame, &b.camera, &b.targets);
-            wait(gpu);
+            match pace {
+                Some(pace) => pace.submitted(gpu, Instant::now(), false),
+                None => wait(gpu),
+            }
         }
     }
 
@@ -317,7 +380,7 @@ impl Arm {
     fn settle(&mut self, gpu: &Gpu, game: &GameData) {
         let start = Instant::now();
         for n in 0.. {
-            self.frame(gpu, game, false);
+            self.frame(gpu, game, false, None);
             let d = self.renderer.drawn;
             let done = d.game_pending == 0 && d.textures_pending == 0;
             if (n >= 8 && done) || start.elapsed() > Duration::from_secs(120) {
@@ -342,14 +405,22 @@ fn alternate(view: &str, gpu: &Gpu, game: &GameData, arms: &mut [Arm]) {
         a.settle(gpu, game);
     }
     let from = load();
+    let clocks = mg_testkit::clocks::Clocks::start(crate::sclk_file(&gpu.device));
+    let mut pace = Pace::new(gpu);
+    let mut whose = Vec::new();
     for n in 0..count() {
         let order: Vec<usize> =
             if n % 2 == 0 { (0..arms.len()).collect() } else { (0..arms.len()).rev().collect() };
         for i in order {
-            arms[i].frame(gpu, game, true);
+            arms[i].frame(gpu, game, true, Some(&mut pace));
+            whose.push(i);
         }
     }
-    println!("  {view} (load {from} to {})", load());
+    for (i, took) in whose.into_iter().zip(pace.finish(gpu)) {
+        arms[i].t.gpu.push(took);
+    }
+    let clocks = clocks.finish();
+    println!("  {view} (load {from} to {}; {})", load(), mg_testkit::clocks::said(&clocks));
     for a in arms.iter() {
         let t = &a.t;
         println!(
