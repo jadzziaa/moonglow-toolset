@@ -340,6 +340,11 @@ impl<'r> Compiler<'r> {
         if result.code == 0 {
             let sources = read.iter().map(|(n, d)| (n.clone(), &d[..])).collect();
             output.warnings = crate::return_types::mismatches(name, &sources, &mut self.declared);
+            (output.warnings).extend(crate::return_types::included_entry(
+                name,
+                &sources,
+                &mut self.declared,
+            ));
             return Ok(output);
         }
         let mut message = if result.str_.is_null() {
@@ -355,6 +360,18 @@ impl<'r> Compiler<'r> {
                 format!("{name}.nss: compiler error {} (StrRef {})", result.code, -result.code);
         }
         Err(CompileError { code: result.code, message })
+    }
+
+    /// What to say of `name` (a script resref, without `.nss`) that has no
+    /// entry point of its own, and so is passed over as an include: an
+    /// include's `main` or `StartingConditional` that Aurora compiles as
+    /// it.
+    pub fn passed_over(&mut self, name: &str) -> Vec<CompileWarning> {
+        let resolver = &mut self.resolver;
+        let mut read = |n: &str| resolver(n, ResType::NSS);
+        let sources = crate::return_types::gather(name, &mut read, &mut self.declared);
+        let sources = sources.iter().map(|(n, d)| (n.clone(), &d[..])).collect();
+        crate::return_types::included_entry(name, &sources, &mut self.declared)
     }
 
     /// Sets the optimisation flags ([`optimize`]).

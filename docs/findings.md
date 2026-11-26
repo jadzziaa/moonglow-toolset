@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:52:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -3557,7 +3557,9 @@ as does a script that is only the `#include`; the built-in compiler
 over as an include. In the game Aurora's condition runs the include's
 `main` and fails, always: a script that returns nothing is a failed
 condition. Moonglow compiles the batch on one compiler a thread: the
-order of a batch changes no byte.
+order of a batch changes no byte. By the owner's ruling (2026-11-26)
+Moonglow keeps the script's own entry point and warns of each script
+whose include's entry point Aurora compiles in its place.
 
 - **Checked:** `aurora_scripts` (captures `script-compile-scale/`, made
   by `tools/aurora/capture_compile_scale.py` and

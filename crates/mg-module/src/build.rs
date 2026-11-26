@@ -895,13 +895,14 @@ pub fn compile_named_with(
                         // `StartingConditional`): nothing to compile or to
                         // store, as Aurora skips it. It is checked where it
                         // is included: on its own it may lean on what its
-                        // includer brings.
+                        // includer brings. (Aurora compiles an include's
+                        // entry point as it: said.)
                         Err(_)
                             if snapshot
                                 .get(k)
                                 .is_some_and(|src| !mg_script::outline::has_entry_point(src)) =>
                         {
-                            Ok((Vec::new(), None, Vec::new()))
+                            Ok((Vec::new(), None, c.passed_over(&name)))
                         }
                         Err(e) => Err(e),
                     };
@@ -1461,6 +1462,41 @@ mod tests {
         // Only what has no compiled script yet.
         let again = compile_scripts(&mut m, &rm, ScriptSelection::Uncompiled);
         assert_eq!(again.len(), 3, "the includes and the broken script");
+    }
+
+    /// An include's `main` that Aurora's Build would compile as the
+    /// script is warned of (the owner's ruling of 2026-11-26: Moonglow
+    /// keeps the script's own): a condition's include, and a script that
+    /// is only the `#include`, which is passed over with the warning.
+    #[test]
+    fn an_includes_main_that_aurora_compiles_is_warned_of() {
+        let mut base = MemContainer::new();
+        base.insert(
+            key("nwscript", ResType::NSS),
+            &b"#define ENGINE_NUM_STRUCTURES 0\nvoid PrintString(string s);\nint TRUE = 1;\n"[..],
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        let mut m = Module::new();
+        let lib = b"void Say() { PrintString(\"x\"); }\nvoid main() { Say(); }\n";
+        m.set(key("inc_lib", ResType::NSS), lib.to_vec());
+        m.set(
+            key("cond", ResType::NSS),
+            b"#include \"inc_lib\"\nint StartingConditional() { Say(); return 1; }\n".to_vec(),
+        );
+        m.set(key("only", ResType::NSS), b"#include \"inc_lib\"\n".to_vec());
+        let results = compile_scripts(&mut m, &rm, ScriptSelection::All);
+        assert!(results.iter().all(|r| r.result.is_ok()), "{results:?}");
+        let said: Vec<(String, Vec<&str>)> = (results.iter())
+            .map(|r| (r.script.to_string(), r.warnings.iter().map(|w| &w.message[..]).collect()))
+            .collect();
+        assert!(said[0].1.is_empty(), "the include compiles as itself: {said:?}");
+        assert_eq!(said[1].1.len(), 1, "{said:?}");
+        assert!(said[1].1[0].starts_with("inc_lib.nss(2): WARNING: inc_lib has a main"));
+        assert_eq!(said[2].1.len(), 1, "{said:?}");
+        assert!(said[2].1[0].contains("only has no main or StartingConditional"));
+        assert!(m.contains(&key("cond", ResType::NCS)) && !m.contains(&key("only", ResType::NCS)));
+        assert_eq!(distinct_warnings(&results).len(), 2);
     }
 
     /// Each script compiled says why: nothing remembered, its source

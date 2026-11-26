@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T20:37:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
 ---
 
 # Command-line tools
@@ -600,7 +600,8 @@ and nothing on standard error, for scripts, build pipelines and tools
   and `warnings`, each once however many scripts met it (with `script`,
   `line`, `message` and `scripts`, how many: a function's return type
   declared one way and defined another, as in the base game's
-  `x2_inc_cutscene`, which compiles as in Aurora; see
+  `x2_inc_cutscene`, which compiles as in Aurora, or an include's own
+  `main` that Aurora compiles in place of the script's; see
   [Scripts](07-scripts.md)); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,
   are in `notes`.

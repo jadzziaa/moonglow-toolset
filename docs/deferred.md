@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T10:33:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1241,31 +1241,26 @@ File › Project. What is left:
 
 Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
-log.
-
-- **"41 changed" after Aurora's Build (an include with a `main`):** the
-  one way of writing found where Aurora 8193.37 and the built-in compiler
-  make other bytes (`aurora_scripts::codegen_compiles_as_aurora_builds_it`;
-  line ends, haks, constant folding, switch, structs, vectors, a batch's
-  order and 1,036 of the base game's scripts make Aurora's) is a script
-  that includes a file with a `void main()` of its own: Aurora compiles
-  an `int StartingConditional()` script, and one that is only the
-  `#include`, as the include's `main`; Moonglow (neverwinter.nim
-  d20453e3) takes the script's own entry point and passes the other
-  over. In the game Aurora's runs the include's `main` and always fails
-  (`engine_include_entry`): Moonglow's is what was written. Waits on the
-  builder (are the 41 such conditions, their include a library with a
-  `main` for Aurora's editor?) and on the owner's ruling: keep Moonglow's
-  code and warn of the include's `main` (what the rule of matching
-  Aurora weighs against: Aurora's is broken in the game), or match
-  Aurora with a fenced patch as for return types. (S) (a builder's
-  report, November 2026)
-
+log. None waits now.
 
 ## Settled: as it is, by decision or by design
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **An include's own `main`: Moonglow's entry point kept, and warned
+  of** (the owner's word, 2026-11-26, "Compile: 1 (keep, warn)"; closing
+  the builder's "41 changed" after Aurora's Build): a script that
+  includes a file with a `void main()` of its own compiles, in Aurora
+  8193.37, to the include's `main` (an `int StartingConditional()`
+  script, or one that is only the `#include`; an include's
+  `StartingConditional` likewise for a script with none), which in the
+  game always fails as a condition (`engine_include_entry`). Moonglow
+  compiles the script's own, or nothing for a script with none, and
+  each such script is warned of in Compile All's log and `mg compile`
+  (`mg_script`'s `included_entry`; `aurora_scripts::codegen_compiles_as_aurora_builds_it`
+  holds the warned scripts to the ones Aurora builds otherwise).
+  ([Scripts](manual/07-scripts.md), [findings](findings.md))
 
 - **TGA textures compressed as read, PLT colored copies kept as RGBA8**
   (closing the performance audit's "TGA and PLT textures are
