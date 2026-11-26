@@ -28,3 +28,5 @@ Found by frame_perf::editors_at_scale (FRAME_VIEW picks a group: "typed line", "
 Test-building traps: variables.toml takes `table = "placeables"` (not `rows =`); a plugin menu command is offered on Advanced Search hits only when every ticked hit has a plugin target (module/area variables have none: restrict to placed objects); the Right Dock starts folded, push Action::ShowPanel(Panel::Cell) before looking for Choose Model…; Advanced Search hits are Labels containing " › ", not links.
 
 Timed again on a quiet machine (2026-11-26 00:00, final commit): spells.2da at full width is still +194 to +330 µs over its cut rest (the loaded runs' +9 was noise); Choose Model +52 to +120 µs; raw fields +79 to +80; the hak save's frames 3.8 to 5.5 ms and the typed line 4.1 to 5.2 ms on the large module, within.
+
+Correction (2026-11-26 03:30, load 3 to 5): spells.2da at full width is +58 to +82 µs and Choose Model +34 to +41. The 00:00 run read +194 to +330 because the load average was still 12 to 18 though top showed the processors idle: wait for the load average under 5, not for an idle snapshot.
