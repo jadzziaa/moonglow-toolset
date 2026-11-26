@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing (25 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:42:48Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -29,6 +29,9 @@ sources:
   - id: area084-again
     resource: crates/mg-ui/tests/frame_perf.rs
     title: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
+  - id: framecost
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'game_shaders_frames_at_144 (FRAME_AREA=tdod and water), frames_at_144 and grass_frames_at_144, three runs alternated with 27b2e44b, v3.18.1 and each side of 6b26e702 built beside develop; render_area MG_TIME_RENDER with both paths on alternate frames; eu-stack samples (25 November 2026)'
   - id: editor-perf
     resource: crates/mg-ui/tests/editor_perf.rs
     title: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
@@ -783,6 +786,142 @@ GPU's frame (15% of the discrete one's). 2× is offered only where every
 target's format takes it (`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`;
 without it wgpu allows 1 and 4).
 
+## The Shaders switch's cost, and the review's small slowdowns (25 November 2026)
+
+Three deferred entries on what a frame costs, read on the RX 9070 XT
+with `frame_perf` (release) and `render_area` (`MG_TIME_RENDER`),
+TDoD's woods with the builder's haks (`MOONGLOW_HAKS`). Other sessions
+loaded the machine throughout: 4 to 18 for the first sets, 26 to 61 for
+the last, where every encoding time doubled. Each figure is
+lowest / median / spread of three runs, builds alternated[^framecost].
+
+**How a change under a millisecond was read.** At load 4 to 12,
+`frame_perf`'s views of 20 to 30 ms move about 1 ms from run to run,
+the Shaders-off path too, which none of the changes touched. Its "on
+the processor" counts in the clock's ticks (about 1 ms). What resolved
+the changes was both code paths built into one `render_area`, taken
+in turn on alternate frames (a flag read once), with the medians of the
+draws' encoding compared within one run. The camera turns as the frames
+go, so odd and even frames are not quite the same work: a difference
+the size of the swing between runs' medians is not taken as real.
+
+**The woods seen whole, the switch on (the Shaders switch's dense-area
+entry).** Every draw of the game's set group 1 (bones, the framebuffer
+copies, the mask) and the zero vertex buffer again: 5,514 binds a frame
+each. Group 1 is now one bind group per kind (each stage's bones
+binding and size, whether it reads the framebuffer, whether it is
+shaded, the frame) and is set only where another is bound. The zeros
+are bound once per slot until a skin takes the slot
+(`the_zeros_are_bound_again_after_a_skin_took_their_slot`). That cut
+5,512 group 1 binds and 5,512 zero binds a frame, about 11,000 commands,
+and 0.9 to 1.0 ms of encoding in the alternate-frame comparison (medians
+26.77 to 25.75, 27.63 to 26.59, 29.44 to 28.55 ms in three runs).
+`m_texture` and `skinmesh` are now written as a draw's other values
+are, a small step. The pictures are the same: `render_area`'s woods,
+water and area092, seen whole, close and turned, the switch on and off
+(18 pictures), identical pixel for pixel with 27b2e44b's.
+
+What is left with the switch on is the game's programs themselves:
+5,500 to 7,500 pipeline changes a frame against about 3,200 off (a
+program per material kind), two groups set at each (the vertex program
+reads `texUnit0`, so group 2 is the material's), and the game's
+see-through draws, kept in runs by material, change chunk 21,800 times
+against 5,900 off. `frame_perf`'s parts at load 2 to 9 (27b2e44b, then
+this work):
+
+| Woods, 4× MSAA | Before | After |
+|---|---|---|
+| Seen whole, off, encoded | 12.28 / 13.69 / 1.47 | 12.80 / 13.61 / 1.23 |
+| Seen whole, on, encoded | 16.95 / 18.06 / 1.61 | 16.10 / 17.78 / 1.75 |
+| Turned, off, encoded | 18.08 / 18.26 / 0.92 | 19.17 / 19.58 / 2.67 |
+| Turned, on, encoded | 28.14 / 28.44 / 1.01 | 29.14 / 30.68 / 3.09 |
+
+Inside the spread either way, as the off rows show. The window's frame
+with the wheel turning, seen whole, the switch on, pointed the other
+way: 17.49 / 17.58 / 1.97 before and 19.54 / 20.77 / 19.62 after (two of
+the three runs after above all three before; off level, 14.46 / 17.58
+against 14.71 / 17.94). Timed again at load 32 to 61, every view took
+twice as long (off 34 to 41 ms before, 41 to 49 after, the switch on 50
+to 58 either way). So the 1.0 ms is `render_area`'s encoding, in the
+alternate-frame comparison; the window's frame did not confirm it, and
+in one set pointed the other way. The bar (on no
+slower than off) is not cleared: on 16.1 against 12.8 seen whole, 29.1
+against 19.2 turned.
+
+Tried and dropped: the chunk as part of the game's see-through state
+(slower: more pipeline changes than the chunk changes it saved); a run
+split into its chunks' parts where nothing met lies between (chunk
+changes 21,800 to 16,500, the encoding's medians 0.4 to 0.5 ms less in
+three runs, the lowest figures one way and the other: inside the
+spread). Not tried: the meshes' indices in one buffer for all chunks,
+which would take a chunk change down to a vertex buffer alone. By the
+trial before it, 5,300 fewer chunk changes were worth 0.4 to 0.5 ms,
+so halving what 21,800 cost would be about 1 ms at most, against a gap
+of 3.3 ms seen whole: a change to how every mesh is stored, for less
+than the bar.
+
+**The water view, the switch on (the 0.9 ms entry).** The gap is now
+about 0.3 ms of the draws' encoding, not 0.9: lake seen whole, 4× MSAA,
+0.85 / 0.90 off against 1.19 / 1.26 on (`render_area`: 0.66 against
+0.92 to 0.97); the window's frame with the wheel turning 1.81 / 2.17 off
+against 2.19 / 2.43 on, 2.06 against 2.44 at load 61, inside the budget.
+The entry's ideas do not apply: these programs read neither `m_normal`
+nor `m_mvp`, and Moonglow's own path works out the same inverse a
+draw. What the 0.3 ms is: the game's programs' own pipelines and
+material groups, as in the woods (a pipeline and two groups per
+material kind, the pipelines looked up a draw); the profile shows no
+single part apart from the same functions as with the switch off. The
+work above changed the water by nothing measurable (medians 0.99 to
+0.98, 1.17 to 1.14).
+
+**The review's small slowdowns, against the build it timed** (develop
+at a46ba28a, version 3.18.1, built beside this one; alternated, load
+10 to 39):
+
+| View | 3.18.1 | Now |
+|---|---|---|
+| Area092 turned, encoded | 2.28 / 2.39 / 2.02 | 1.86 / 1.89 / 3.28 |
+| Area092 turned, on the processor | 1.99 / 1.99 / 1.99 | 1.37 / 1.63 / 3.60 |
+| Grass field close, no grass, frame | 0.98 (load 10.5) | 1.17 (load 9.8) |
+| The same, wheel, at load 16 to 21 | 2.21 / 2.25 / 0.05 | 2.94 / 3.25 / 1.20 |
+| Grass field close, off, GPU (load 16 to 21) | 3.52 / 3.53 / 0.09 | 3.74 / 3.76 / 0.05 |
+| Grass field close, on, encoded | 0.44 / 0.45 / 0.90 | 0.62 / 0.68 / 0.47 |
+| Woods turned, off, GPU | 6.62 / 6.73 / 1.69 | 7.70 / 9.40 / 2.01 |
+| Woods turned, off, GPU's quickest tenth | 6.21 to 7.08 | 7.30 to 8.87 |
+
+Area092 is quicker than in 3.18.1 now.
+
+The grass field close up is slower in every pair, not only the calmest.
+Timed again at load 16 to 21 (three runs, alternated), the window's
+frames without grass (pointer, idle and wheel) took 1.62 to 2.50 ms in
+3.18.1 against 2.63 to 4.14 now, and the close view's GPU 3.52 to 3.61 against 3.74 to 3.79. The
+two have different causes. The GPU's step was bisected over develop's
+first-parent commits (old, middle and new alternated, three rounds a
+step, load 11 to 30) to dd8d0bc1 and 03340a65, the next merge. Timed
+again four rounds each, alternated: 3.47 to 3.63 ms before dd8d0bc1,
+3.60 to 3.70 at it, 3.68 to 3.75 at 03340a65, which changes nothing
+that draws (its renderer-side change is a test of a DDS header). The
+step is dd8d0bc1, grass and see-through meshes taking the shadows
+through a mask of the shadows laid and read after them, as in the
+client. Its own measurement was 0.3 to 0.6 ms of GPU in area084 seen
+close. It is kept: it is the client's look.
+
+The window's frame did not bisect. Its old, middle and new figures
+crossed at every step, at load 11 to 30: 3.18.1's ranged from 0.83 to
+3.22 ms within one step. The review saw it as waiting rather than work
+(less on the processor than before), and a frame that waits grows with
+the machine's load. It is left in the deferred list for a calm machine.
+
+The woods turned with Moonglow's shader take about
+1 ms more of the GPU, beyond the spread in the quickest tenth. Built on
+each side of 6b26e702 ("See-through draws of a material are drawn chunk
+by chunk", 10 November) and alternated (load 27 to 42), the quickest
+tenth was 7.27 to 7.90 before it and 8.69 to 9.64 after: that commit is
+the step, as its own message measured (8.3 where 7.3, more material
+changes). It is kept: it took 1.5 to 2.4 ms off the processor's
+encoding of the same views, and that frame waits on the processor (19
+ms encoded against 8 of GPU).
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -810,4 +949,5 @@ In short:
 [^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
 [^texmem]: frames_at_144 (FRAME_VIEW=area, FRAME_DETAIL, FRAME_MEMORY, FRAME_UNCOMPRESSED, FRAME_SAMPLES) on area092 and TDoD's woods, v2.13.3 and v3.0.0 built beside develop, with and without compression and the fix (25 November 2026)
 [^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
+[^framecost]: game_shaders_frames_at_144 (FRAME_AREA=tdod and water), frames_at_144 and grass_frames_at_144, three runs alternated with 27b2e44b, v3.18.1 and each side of 6b26e702 built beside develop; render_area MG_TIME_RENDER with both paths on alternate frames; eu-stack samples (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

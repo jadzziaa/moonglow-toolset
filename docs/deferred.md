@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:59:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:43:45Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -189,20 +189,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **The animation step could follow what a picture costs:** a slow GPU
     stepping less often while the window is in front, measured with the
     GPU's timestamps (not on every backend). (M)
-- **Small slowdowns the timing run of 10 November did not trace:**
-  against the review's figures of 9 November (one run each; these the
-  lowest of three, beyond their spread), `frame_perf`'s area092 turned,
-  its draws encoded 2.18 ms where 1.95 (on the processor 1.85 where
-  1.58); the grass test's field close up without grass 1.03 ms where
-  0.86, and its draws encoded with the Shaders switch on 0.58 where 0.41
-  (on the processor less than before: waiting, not work); TDoD's woods
-  turned with Moonglow's own shader, the GPU 8.3 ms where 7.2 (more
-  material changes since its see-through runs keep to a chunk, against
-  1.4 ms less encoding). Each is under 2.2 ms a frame, inside the
-  budget; a bisect of the fix pass's merges, three runs a step, would
-  name the commits. Left as smaller than a run of the review moves
-  between sessions. (S) (the review of November 2026, [its
-  fixes](review-2026-11/fixes.md))
+- **The grass field's window frame close up, slower than in 3.18.1:**
+  the grass test's field close up without grass, the window's frames
+  (pointer, idle, wheel), took 1.17 to 1.25 ms where 3.18.1 took 0.98
+  to 1.02 (load about 10), and 2.63 to 4.14 where 1.62 to 2.50 at load
+  16 to 21. A bisect over develop's first-parent commits (old, middle
+  and new alternated, three rounds a step) did not settle it, because
+  the three crossed at every step at load 11 to 30. The review saw it as
+  waiting rather than work. The rest of the old entry is settled: area092
+  is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
+  taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
+  frames note](research/notes_frames.md) of 25 November says. (S, waits
+  on a calm machine: load under 5 for the bisect) (the review of
+  November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
   show each change. The reviewer's run of 10 November timed every view
@@ -521,7 +520,28 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     encoding of the pass (29% of the frame's samples), placing the draws
     in batches (16% with its look for draws met), writing the frame's
     values (12%), sorting (9%), the reach of the lights (8%); the game's
-    see-through draws still change chunk at 13,900 draws seen whole. (M)
+    see-through draws still change chunk at 13,900 draws seen whole.
+    Taken apart again on 25 November ([the frames
+    note](research/notes_frames.md), 25 November): the game's draws set
+    group 1 and the zero vertex buffer again at every draw (5,514 binds
+    each seen whole); now each is set only where another is bound, about
+    11,000 commands and 1.0 ms of encoding less, measured as both paths
+    on alternate frames of one `render_area` run; `frame_perf` at load 2
+    to 9 cannot tell 1 ms apart (draws encoded seen whole, on, 16.95
+    before and 16.1 after; turned 28.1 and 29.1; the window's frame with
+    the wheel turning seen whole, on, 17.5 before and 19.5 after, not
+    confirmed either way). Draws encoded seen whole 16.1 ms on against
+    12.8 off, turned 29.1 against 19.2 (the lowest of three). What is left is the game's programs
+    themselves: 5,500 to 7,500 pipeline changes against 3,200 off, two
+    groups set at each (the vertex program reads `texUnit0`, so group 2
+    is the material's), and the game's see-through runs by material
+    changing chunk 21,800 times against 5,900. Tried and dropped: the
+    chunk in their state (slower), a run split by chunk (inside the
+    spread). Left, as a change to how every mesh is stored for less
+    than the gap: the meshes' indices in one buffer for every chunk, so
+    that a chunk change binds a vertex buffer alone (5,300 fewer chunk
+    changes were worth 0.4 to 0.5 ms; halving the cost of 21,800 would
+    be about 1 ms at most, against 3.3 seen whole). (M)
   - A program whose uniforms can't be split falls back to Moonglow's
     shader, reported. Since 2026-11-02 a block a program names besides
     its loose uniforms (`uniform Name { … };`) is split with them; what
@@ -571,13 +591,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     2026-11-25; Lighten fades no more than the others, as the old
     reading's edge made it seem). Unsettled: the depth lookup, the
     multisampled depth's resolve, or the camera. (S)
-  - **The switch on still costs the water view about 0.9 ms of
-    encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
-    budget by 0.4): about 0.75 ms the draws' own values (the material's
-    template copied, `m_mv`, `m_mvp` and `m_normal` with an inverse each
-    draw), the upload 0.09 ms, the submit 0.07 ms. `m_normal` from the
-    3×3 part, or values that the camera alone changes kept per instance
-    and multiplied in the vertex program, would cut it. (M)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): the
   wings are likely explained and fixed on 2026-11-10. Wings a creature
@@ -1256,7 +1269,8 @@ is not taken for a new gap.
 
 - **TGA textures compressed as read, PLT colored copies kept as RGBA8**
   (closing the performance audit's "TGA and PLT textures are
-  uncompressed", 2026-11-25): a PLT's layers meet in sharp edges between
+  uncompressed", 2026-11-25; kept off by the owner's word, 2026-11-25,
+  shown the crops and the memory it would save): a PLT's layers meet in sharp edges between
   unrelated colors inside a 4×4 block, which BC blurs (up to 72 of 255
   in a picture of dyed armor, the trim and rivets dulled at 4×); a copy
   is made for each object's colors. The cost: an area of many creatures
