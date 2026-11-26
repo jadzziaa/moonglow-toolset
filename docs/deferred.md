@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T08:12:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T08:25:03Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -262,64 +262,51 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   renderer change).
   The editors' have theirs since 26 November
   (`frame_perf::editors_at_scale`, [the log](log.md)); what they leave,
-  timed again on a quiet machine at the final commit (26 November
-  00:00, the processors about 93% idle; three runs, each view against
-  its rest): `spells.2da` at its full width, +194 to +330 µs over the
-  same rows cut to the 26 columns in sight (the cells out of sight
-  sideways are one place a run since 26 November, which the loaded
-  runs had read as +9; the rest of the cost is in the 55 columns'
-  cells in sight and their headers, not taken apart yet); Choose Model
-  open over 82,856 models, +52 to +120 µs (its rows in sight alone are
-  laid out; what is left is around the line); the raw fields view
-  with an area's Placeable List of 3,000 opened, +79 to +80 µs over
-  20: each item out of sight is still asked whether it is open (an id
-  made and egui's memory looked up, 3,000 a frame), and passing them
+  timed again at the final commit, three runs each, each view against
+  its rest (the line 70 µs). Truly quiet (26 November 03:23 to 03:35,
+  the load 3 to 5, the encoding job paused): `spells.2da` at its full
+  width +58 to +82 µs over the same rows cut to the 26 columns in sight
+  (at the line; the cells out of sight sideways are one place a run
+  since 26 November; a run at 00:00, the processors idle but the load
+  still 12 to 18, had read +194 to +330); Choose Model open over 82,856
+  models +34 to +41 (within). At 00:00 (load 12 to 18): the raw fields
+  view with an area's Placeable List of 3,000 opened, +79 to +80 µs
+  over 20: each item out of sight is still asked whether it is open (an
+  id made and egui's memory looked up, 3,000 a frame), and passing them
   over in blocks needs to know which are open without asking, which
-  egui's memory can't say: left, beyond a local change. Within on the
-  quiet machine: a hak's Save with the large module open (the click
-  0.8 to 0.9 ms, its frames until saved 3.8 to 5.5 ms), the typed line
-  (2.5 to 3.6 ms on the small module, 4.1 to 5.2 on the large), the
-  Claims Table (+26 to +31 µs), the conversation's Search of 20,000
-  (+37 to +43 µs, Find's click 3.8 to 4.3 ms), Build Module's 20,000
-  (+11 to +22), Custom Content (−100 to +23), `nwscript.nss` (−2 to
-  +5), the Variables window (+2 to +61), the module tree (−32 to −28).
+  egui's memory can't say: left, beyond a local change; within then: a
+  hak's Save with the large module open (the click 0.8 to 0.9 ms, its
+  frames until saved 3.8 to 5.5 ms), the typed line (2.5 to 3.6 ms on
+  the small module, 4.1 to 5.2 on the large), the Claims Table (+26 to
+  +31 µs), the conversation's Search of 20,000 (+37 to +43 µs, Find's
+  click 3.8 to 4.3 ms), Build Module's 20,000 (+11 to +22), Custom
+  Content (−100 to +23), `nwscript.nss` (−2 to +5), the Variables
+  window (+2 to +61), the module tree (−32 to −28).
   The NUI Creator's and the script editor's have theirs since 26
   November (`nui_perf::the_creator_at_scale`, `NUI_VIEW` picks its
   groups, and `editor_perf::scripts_at_scale`, `EDITOR_VIEW`; [the
-  log](log.md)). No quiet window came (an encoding job and other
-  sessions' builds kept the load at 28 to 33, the processors 23 to 44%
-  idle, the rests' two runs up to 2.2 ms apart), so the final figures
-  are loaded, lowest of three then the spread, each view against its
-  own rest; "at load 12" is one run at 00:56, the lowest load reached
-  (not 85% idle, and before the form parts' last change): what they
-  leave, beyond a local change: the column of 1,000
-  rows +2.5 (to +6.6) ms (frames 3.2 to 8.3; before +5.0 to +18.2, and
-  +0.83 at load 12, about 1.4 ms a frame): each frame still
+  log](log.md)), timed truly quiet at their final commit (26 November
+  03:23 to 03:35, the load 3 to 5; three runs). What they leave, beyond
+  a local change: the column of 1,000 rows +826 to +867 µs (about 1.4
+  ms a frame; +5.0 to +18.2 ms before, loaded): each frame still
   measures the whole window for the group's scroll extent and walks it
   for pictures and strings; the combo of 10,000 entries in Interact
-  +450 (to +2,392) µs (+186 at load 12): Interact compares the window and
-  its settings with the session's twice a frame, besides those walks;
-  Design of 511 controls eight deep +345 (to +1,733) µs (+346 at
-  load 12; +2.0 to +2.4 ms before; the canvas drawing 239 more
-  containers than the shallow window); a
-  key a frame in Choose Image's Find +2.9 (to +3.5) ms, frames 3.5 to
-  4.8 ms (+1.4 at load 12), every one of 129,689 picture names searched for
-  each key, under the budget. A cache of the walks across frames needs
-  a signal that the window changed, which a window edited in place
-  doesn't give. Over in every run, cause not found: Search Results of
-  10,000 lines, +128 (to +1,797) µs (+387 at load 26; the module tree
-  of 8,000 scripts takes most of the frame, in its rest too). Near the line, to time again on a quiet machine (the
-  loaded spread crosses it): two Creator tabs side by side (−428 to
-  +1,139; +71 at load 12, its rest's noise 44), Split source as a
-  picture's name is typed (−919 to +111; +7), the Bindings page of 60
-  binds (−130 to +1,077; +22), the list's cell of 5,000 rows (+30 to
-  +514; +53) and New Bind open on it (−76 to +934; +215 to +229 before
-  its draft's type was kept between frames, not confirmed under the
-  line), Open Script with All
-  Resources (−10 to +188) and the completion list at a huge script's
-  end (−199 to +175). Within at that load: 2,000 findings (−1,886 to
-  −486), Choose Image with a name typed (−195 to +106), a plugin
-  panel's choice of 2,000 options (−13 to +6).
+  +160 to +197 µs: Interact compares the window and its settings with
+  the session's twice a frame, besides those walks; Design of 511
+  controls eight deep +356 to +372 µs (+2.0 to +2.4 ms before, loaded;
+  the canvas drawing 239 more containers than the shallow window); a
+  key a frame in Choose Image's Find +1.34 to +1.61 ms, every one of
+  129,689 picture names searched for each key, under the budget. A
+  cache of the walks across frames needs a signal that the window
+  changed, which a window edited in place doesn't give. Within: two
+  Creator tabs side by side (+13 to +23), Split source as a picture's
+  name is typed (−0 to +3), the Bindings page of 60 binds (+10 to +11),
+  the list's cell of 5,000 rows (+17 to +23) and New Bind open on it
+  (+12 to +18), 2,000 findings (−127 to −109), Choose Image with a name
+  typed (−35 to −25), Search Results of 10,000 lines (+4 to +10; the
+  loaded runs' "over in every run" was the load), Open Script with All
+  Resources (+1 to +9), the completion list at a huge script's end (+12
+  to +18), a plugin panel's choice of 2,000 options (+5 to +6).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories
