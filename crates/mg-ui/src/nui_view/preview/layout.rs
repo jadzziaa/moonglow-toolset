@@ -35,7 +35,7 @@ impl Measured {
 
     /// Whether what is kept at `key` (a size, or a plan) is to be worked
     /// out again and compared, once a pass.
-    fn to_check(&mut self, plan: bool, key: (usize, usize)) -> bool {
+    fn due_check(&mut self, plan: bool, key: (usize, usize)) -> bool {
         cfg!(debug_assertions) && self.carried && self.checked.insert((plan, key.0, key.1))
     }
 }
@@ -73,7 +73,7 @@ pub(super) fn plan(
     let key = (std::ptr::from_ref(node) as usize, depth.min(33));
     let found = kept.borrow().plans.get(&key).cloned();
     if let Some(plan) = found {
-        if kept.borrow_mut().to_check(true, key) {
+        if kept.borrow_mut().due_check(true, key) {
             assert_eq!(*plan, make(), "a kept plan of a window that changed");
         }
         return plan;
@@ -97,7 +97,7 @@ pub(super) fn natural(
     let kept = kept.filter(|_| row.is_none());
     let key = (std::ptr::from_ref(node) as usize, depth.min(33));
     if let Some(size) = kept.and_then(|k| k.borrow().naturals.get(&key).copied()) {
-        if kept.is_some_and(|k| k.borrow_mut().to_check(false, key)) {
+        if kept.is_some_and(|k| k.borrow_mut().due_check(false, key)) {
             let again = measure(node, s, row, depth, kept);
             assert_eq!(size, again, "a kept size of a window that changed");
         }
