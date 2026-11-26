@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T19:52:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:18:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -300,11 +300,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   screen while the view and the rings stand, not yet timed quietly),
   and 0.4 to 0.7 ms more at rest after a drag and its undo than before
   it (measured before these changes, cause not found, not timed again);
-  in a drag +3.3 to +3.5 ms (from +8.3), most of it their boxes' 480,000
-  vertices made anew each frame as the drag poses them (Engine and
-  Rendering's task: the renderer is to draw selection boxes instanced,
-  the hand-off in the area view's overlay code agreed with Interface
-  first); every tile of a hilly area selected, its outlines
+  in a drag +2.1 to +2.3 ms (from +8.3, then +3.3 to +3.5; 26 November,
+  the load 10 to 15, three rounds alternated with develop's +3.5 to
+  +5.5): the boxes are drawn in the picture now (`Scene::boxes`, 5,000
+  copies a frame, no egui vertices), and what is left is the drag of
+  5,000 itself, not attributed by a stack sample (`eu-stack`: the
+  picture's draw fills both drags' frames, the boxes' copies and the
+  overlays a few samples each); every tile of a hilly area selected, its outlines
   put on screen each frame the camera turns (0.8 to 1.1 ms); and the
   Position menu's walkmesh items, untimed, since the scratch module has
   no `[bake]` (a project with one would time them).
