@@ -151,9 +151,12 @@ impl Gpu {
         self.device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
     }
 
-    /// Reads an RGBA8 texture back (rows top first, as rendered).
+    /// Reads an RGBA8 texture back (rows top first, as rendered), waiting
+    /// up to two minutes for the GPU: a software rasterizer (Windows' WARP
+    /// on a busy CI runner) can take longer than the startup check's 10
+    /// seconds over a large scene.
     pub fn read_rgba(&self, texture: &wgpu::Texture) -> Rgba {
-        self.try_read_rgba(texture).expect("texture read back")
+        self.read_rgba_within(texture, Duration::from_secs(120)).expect("texture read back")
     }
 
     /// [`Gpu::read_rgba`], saying what failed rather than panicking (a GPU
@@ -161,6 +164,10 @@ impl Gpu {
     /// mapped): for the startup check ([`crate::probe`]), on a driver that
     /// may be what is wrong.
     pub fn try_read_rgba(&self, texture: &wgpu::Texture) -> Result<Rgba, String> {
+        self.read_rgba_within(texture, Duration::from_secs(10))
+    }
+
+    fn read_rgba_within(&self, texture: &wgpu::Texture, wait: Duration) -> Result<Rgba, String> {
         let (w, h) = (texture.width(), texture.height());
         let unpadded = w as usize * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -189,10 +196,7 @@ impl Gpu {
         let (tx, rx) = channel();
         slice.map_async(wgpu::MapMode::Read, move |r| drop(tx.send(r)));
         self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(index),
-                timeout: Some(Duration::from_secs(10)),
-            })
+            .poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: Some(wait) })
             .map_err(|e| format!("the GPU did not finish: {e}"))?;
         rx.recv_timeout(Duration::from_secs(1))
             .map_err(|_| "the read-back buffer was not mapped".to_string())?

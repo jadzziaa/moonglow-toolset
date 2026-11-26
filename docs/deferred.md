@@ -150,7 +150,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its draws
   encoded in 6.1 ms (7.4); TDoD's synthetic
   woods (33,000 meshes in sight, 25,000 draws of meshes mostly drawn
-  once each) 14 to 31 ms, as before. Done that day: the lights' sets
+  once each) 14 to 31 ms, as before (its overview with 4x MSAA and the
+  Shaders on lands in one of two GPU levels from run to run, the code
+  unchanged: the median pinned near 11.2 ms and the quickest tenth 6.8
+  to 8.0, or a median of 6 to 8.5 and a tenth of 5.3 to 6.9; the slow
+  level goes with the card's automatic clocks settling low, not with
+  memory. Compare two builds in one run on alternate frames, or by many
+  runs sorted by level; [the frames note](research/notes_frames.md), 26
+  November). Done that day: the lights' sets
   numbered as a mesh's lights are chosen and a mesh's choice found by
   its place among the scene's meshes, the sun's shadows planned and the
   game's solid draws sorted on threads beside the other work (the
@@ -518,6 +525,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   how every see-through mesh's soft texels overlap (grass, leaves,
   decals over decals), which wants a reading of its own in the client
   before it changes. M. (The framebuffer's copies entry, 2026-11-26)
+  That reading is made (`soft::reading_soft_depth`): the client's soft
+  texels write their depth above alpha 0.2. A change that wrote it so
+  (kept on the `soft-water` branch for after 5.4.0) matched the client
+  (cards in front of water 25.5 to 16.3 off its picture, in front of
+  particles 62.4 to 20.4) but was held out of the release for its cost,
+  timed by an in-process A/B (alternate frames, so both builds share
+  the GPU's clock level; an A/A control flat, 12.61 against 12.37):
+  TDoD's woods turned, quickest tenth 9.5 to 9.6 ms before against
+  11.4 to 12.4 after, about 2.5 ms (median about 11.5 to 17); the woods
+  overview 0.15 to 0.5 ms; the grass, water and area092 views within
+  0.05. Deferred for its consequence, a cost too high for the look.
+  Cheaper ways to try: write depth only where a soft part stands in
+  front of a mesh that reads the copy (shiny water, the particles); a
+  depth pre-pass of the soft parts; and see whether the discard with a
+  depth write loses early depth testing for the meshes drawn after.
+  (2026-11-26)
 
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
@@ -1960,7 +1983,7 @@ is not taken for a new gap.
   copy a frame, and still nothing for a picture drawn once (a thumbnail,
   a preview), which has no frame before. (Settled with the deferred
   entries "The framebuffer's copies" and The Domains of Dread's
-  fountain, 2026-11-26.)
+  fountain, 2026-11-26; left unbuilt: the owner's word, 2026-11-26.)
 - **What stays with Moonglow's own shader with the Shaders switch on:**
   the sky's fade, unlit markers, shiny water without the targets'
   framebuffer copies (thumbnails, previews), textures that only ripple

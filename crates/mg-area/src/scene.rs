@@ -1578,8 +1578,15 @@ impl AreaScene {
                 poses.push((nodes, local, pose.clone()));
                 pose
             };
+            // (A tile that failed is left out with its grass: its ground
+            // isn't drawn, and the tufts would stand over nothing.)
+            let tile_failed = |i: usize| match self.tiles.get(i) {
+                Some(Some(l)) => failed(Arc::as_ptr(l) as usize),
+                _ => area.tiles[i].model.as_ref().is_some_and(|m| self.broken.contains(m)),
+            };
+            let left_out = |i: usize| is_hidden(i) || tile_failed(i);
             let tile = |i: usize, level: usize| {
-                let grass = self.tile_grass[i].as_ref().filter(|_| !is_hidden(i))?;
+                let grass = self.tile_grass[i].as_ref().filter(|_| !left_out(i))?;
                 let model = grass.levels[level.min(grass.levels.len() - 1)].clone();
                 let transform = area.tiles[i].transform();
                 let pose = (sway != Vec3::ZERO).then(|| swayed(&model, transform));
@@ -1592,7 +1599,7 @@ impl AreaScene {
                     // else its tiles at the same level, the same tufts.)
                     GrassDraw::Chunk(key, tiles) => {
                         let whole = self.chunk_made(area, key, &tiles);
-                        match whole.filter(|_| !tiles.iter().any(|&i| is_hidden(i))) {
+                        match whole.filter(|_| !tiles.iter().any(|&i| left_out(i))) {
                             Some(c) => instances.push(Instance {
                                 grass: true,
                                 ..Instance::new(c.model.clone(), c.at)

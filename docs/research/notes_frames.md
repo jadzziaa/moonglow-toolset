@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing, the Shaders switch's cost in the woods and the water and the review's small slowdowns (25 November), the woods test's two GPU levels (26 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T05:42:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T11:40:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -32,6 +32,9 @@ sources:
   - id: framecost
     resource: crates/mg-ui/tests/frame_perf.rs
     title: 'game_shaders_frames_at_144 (FRAME_AREA=tdod and water), frames_at_144 and grass_frames_at_144, three runs alternated with 27b2e44b, v3.18.1 and each side of 6b26e702 built beside develop; render_area MG_TIME_RENDER with both paths on alternate frames; eu-stack samples (25 November 2026)'
+  - id: levels
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'game_shaders_frames_at_144 (FRAME_AREA=tdod, "overview, 4x MSAA, Shaders on") built at 42027e27 and with its order''s variants on alternate frames of one run; six runs with FRAME_MEMORY=1 beside a read-only sampler of the RX 9070 XT''s pp_dpm_sclk, gpu_busy_percent, mem_info_vram_used and mem_info_gtt_used (26 November 2026)'
   - id: editor-perf
     resource: crates/mg-ui/tests/editor_perf.rs
     title: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
@@ -922,6 +925,64 @@ changes). It is kept: it took 1.5 to 2.4 ms off the processor's
 encoding of the same views, and that frame waits on the processor (19
 ms encoded against 8 of GPU).
 
+## The woods test's two GPU levels (26 November 2026)
+
+`game_shaders_frames_at_144`'s woods overview with 4x MSAA and the
+Shaders on (TDoD's haks) lands in one of two levels from run to run,
+the code unchanged[^levels]. In the slow one the GPU's median is pinned
+at 11.1 to 11.4 ms and its quickest tenth is 6.8 to 8.0; in the quick
+one the median is 6 to 8.5 and the tenth 5.3 to 6.9. The same binary
+falls in either, at load 2 as at load 50. Two builds timed in separate
+runs can differ by 1.8 ms in the tenth (7.99 against 6.18) with
+nothing between them but the level: that is how 94db6613 (the late
+see-through draws after the others) was first read as costing 1.8 ms.
+
+**The order costs nothing.** Built into one binary, 42027e27's order on
+even frames and a variant on odd ones, the quickest tenths agreed within
+0.3 ms in every run (base / variant): the same order both times 6.83 /
+6.68, 7.97 / 7.82, 5.79 / 5.85; the late draws back among the others
+6.47 / 6.67, 6.23 / 6.18, 6.79 / 6.86; the copy at the first see-through
+draw 7.93 / 7.78, 5.98 / 6.00, 7.27 / 7.56; both, the order before
+94db6613, 7.90 / 7.43, 5.86 / 5.82; the four late meshes (TDoD's
+waterfall, `mtr_fm01_0475`, a flow map with `sample_framebuffer 2`) not
+drawn 6.17 / 6.18, 6.07 / 6.29, 6.41 / 6.36; the late water drawn right
+after the solid draws 6.88 / 6.87, 5.49 / 5.48. Two checks show the
+method works. A debug count showed the late draws' place alternating
+frame by frame (16,758, then 15,531). With every soft part left out the
+odd frames took 4.78 against 7.93, at load 52. In whole runs of one
+order each, 42027e27's order got 7.05, 5.37 and 5.31, and the order
+before 94db6613 got 5.88, 6.87 and 5.66.
+
+**The slow level goes with low clocks, not with memory.** Six runs of
+42027e27, with the card's clock, its busy share, its VRAM and its GTT
+read every 0.2 s beside each run (read only; nothing set):
+
+| Run | Load | GPU median / tenth (ms) | Encoded (ms) | Clock, median (max) MHz | Busy | VRAM during (GiB) | GTT during (GiB) |
+|---|---|---|---|---|---|---|---|
+| 1 | 44 | 10.66 / 6.74 | 83.6 | 288 (814) | 4% | 6.90 | 0.32 |
+| 2 | 10 | 7.06 / 6.14 | 21.6 | 963 (1,183) | 29% | 7.01 | 0.34 |
+| 3 | 35 | 6.33 / 5.81 | 20.4 | 1,321 (1,549) | 37% | 7.39 | 0.39 |
+| 4 | 29 | 5.96 / 5.79 | 24.5 | 1,514 (1,607) | 24% | 7.73 | 0.40 |
+| 5 | 31 | 11.17 / 7.44 | 18.8 | 815 (1,046) | 38% | 6.91 | 0.32 |
+| 6 | 34 | 7.14 / 6.27 | 17.9 | 948 (1,325) | 35% | 6.91 | 0.33 |
+
+The two slow runs (1 and 5) had the two lowest clocks: 288 and 815 MHz,
+against 948 to 1,514 MHz in the quick ones. The GTT stayed at 0.32 to 0.40 GiB in
+every run and the VRAM at 6.9 to 7.7 of 16 GiB. `FRAME_MEMORY` said
+1,580 MiB allocated each time. Nothing was pushed into system memory.
+The frame keeps the GPU busy for a fraction of the time (a frame is
+encoded in 18 to 84 ms and drawn in 6 to 11), so the driver's automatic
+clocks settle low or high for the run. A sample every 0.2 s against
+frames of 20 to 80 ms reads the clock only roughly, and run 5 was slow
+at a clock close to run 6's: the link is the clock, not one figure.
+
+**How to compare under it.** Don't compare one run with another. Either
+build both paths into one binary and switch on alternate frames
+(`renderer`'s variant flag toggled from `frame_perf`'s loop, the
+quickest tenths of even and odd frames printed apart), or take many
+runs of each, sort them by level (the median pinned near 11.2 ms or
+not), and compare within a level.
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -951,3 +1012,4 @@ In short:
 [^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
 [^framecost]: game_shaders_frames_at_144 (FRAME_AREA=tdod and water), frames_at_144 and grass_frames_at_144, three runs alternated with 27b2e44b, v3.18.1 and each side of 6b26e702 built beside develop; render_area MG_TIME_RENDER with both paths on alternate frames; eu-stack samples (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)
+[^levels]: game_shaders_frames_at_144 (FRAME_AREA=tdod, "overview, 4x MSAA, Shaders on") built at 42027e27 and with its order's variants on alternate frames of one run; six runs with FRAME_MEMORY=1 beside a read-only sampler of the RX 9070 XT's pp_dpm_sclk, gpu_busy_percent, mem_info_vram_used and mem_info_gtt_used (26 November 2026)
