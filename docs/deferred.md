@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T02:13:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -186,21 +186,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The performance audit's leftovers** ([the audit](performance-audit.md)
   of 2026-11-01; beyond what it was asked, filed by the owner's word the
   same day):
-  - **A setting for MSAA:** 4× is fixed (`model_view::SAMPLES`). Off
-    saves about a tenth of an integrated GPU's picture and 107 MB of
-    targets a view at 3440×1400 (27 MB at 50% resolution); the renderer
-    is made anew on a change. (M)
-  - **TGA and PLT textures are uncompressed** (RGBA8: Tyrants of the
-    Moonsea's 70 of 96 MB of textures). Compressing them on the CPU as
-    they are read would take a quarter to an eighth of that, at a cost
-    in reading time (the encoder is there since 2026-11-10,
-    `mg_image::encode::compress`; what it costs a module's load is not
-    measured). (M)
   - **The animation step could follow what a picture costs:** a slow GPU
     stepping less often while the window is in front, measured with the
     GPU's timestamps (not on every backend). (M)
-  - **An area's opening to its last texture** is about 50 ms longer since
-    3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
 - **Small slowdowns the timing run of 10 November did not trace:**
   against the review's figures of 9 November (one run each; these the
   lowest of three, beyond their spread), `frame_perf`'s area092 turned,
@@ -1255,6 +1243,16 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **TGA textures compressed as read, PLT colored copies kept as RGBA8**
+  (closing the performance audit's "TGA and PLT textures are
+  uncompressed", 2026-11-25): a PLT's layers meet in sharp edges between
+  unrelated colors inside a 4×4 block, which BC blurs (up to 72 of 255
+  in a picture of dyed armor, the trim and rivets dulled at 4×); a copy
+  is made for each object's colors. The cost: an area of many creatures
+  keeps its PLTs' memory (moonseabattle 156.7 MiB of textures, 45.2
+  with them compressed). Compressing them without the loss would need a
+  BC7 encoder. ([the frames note](research/notes_frames.md))
 
 - **The previews' shadows: the model viewer's alone** (the owner's
   word, 2026-11-02): the model viewer's model casts the sun's shadow on

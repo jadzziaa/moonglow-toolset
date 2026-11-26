@@ -797,3 +797,116 @@ fn a_paste_s_ghost_beside_a_placement() {
     h.render().expect("render").save(dir.join("placement.png")).unwrap();
     eprintln!("{}", dir.display());
 }
+
+/// A look at creatures in PLT clothing and armor close up, for BC's
+/// error on a PLT's layer edges: the stock bandits and commoners in a row,
+/// with the compression as read on, or off with `MG_UNCOMPRESSED`
+/// (`target/test-output/ui-plt-creatures/{on,off}.png`).
+#[test]
+#[ignore = "a look at creatures in PLT clothing close up (MG_UNCOMPRESSED for RGBA8)"]
+fn look_plt_creatures() {
+    use glam::Vec3;
+    use mg_module::instances::{Placement, Placing, instance};
+    const CREATURES: [&str; 8] = [
+        "nw_bandit001",
+        "nw_bandit002",
+        "nw_bandit003",
+        "nw_bandit005",
+        "nw_bandit007",
+        "nw_commale",
+        "nw_comfemale",
+        "nw_bartender",
+    ];
+    let place = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        // (Each worn item dyed with colors far apart on each layer, as a
+        // builder dyes them: a PLT's layer edges between unrelated colors,
+        // BC's worst case.)
+        let dye = |s: &mut mg_gff::Struct, seed: u32, fields: &[&str]| {
+            for (i, field) in fields.iter().enumerate() {
+                let color = (seed * 37 + i as u32 * 61) % 176;
+                s.set(field, mg_gff::Value::Byte(color as u8));
+            }
+        };
+        let items = |r: ResRef| {
+            let key = ResKey::new(r, ResType::UTI);
+            let mut root =
+                game.resman.get(&key).ok().and_then(|d| mg_gff::Gff::read(&d).ok())?.root;
+            let seed = r.as_str().unwrap_or_default().bytes().map(u32::from).sum::<u32>();
+            let layers = [
+                "Cloth1Color",
+                "Cloth2Color",
+                "Leather1Color",
+                "Leather2Color",
+                "Metal1Color",
+                "Metal2Color",
+            ];
+            dye(&mut root, seed, &layers);
+            Some(root)
+        };
+        let placing = Placing { game, item: &items };
+        let list = CREATURES
+            .iter()
+            .enumerate()
+            .map(|(i, bp)| {
+                let key = ResKey::parse(bp, ResType::UTC).unwrap();
+                let mut root = mg_gff::Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+                let body = ["Color_Skin", "Color_Hair", "Color_Tattoo1", "Color_Tattoo2"];
+                dye(&mut root, 11 + i as u32 * 7, &body);
+                // (A human of parts, its armor and clothes PLTs: the
+                // blueprints' own appearances are whole models with DDS
+                // textures.)
+                root.set("Appearance_Type", mg_gff::Value::Word(6));
+                let at = Placement {
+                    position: [12.0 + i as f32, 20.0, 0.0],
+                    rotation: std::f32::consts::PI,
+                };
+                instance(&placing, ResType::UTC, &root, at, &[]).unwrap()
+            })
+            .collect();
+        git.root.set("Creature List", mg_gff::Value::List(list));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut app, _, area)) = area_app("plt-creatures", "ttr01", None, 4, None, &place) else {
+        return;
+    };
+    // (A device with BC textures, as the desktop app asks for one: the
+    // tests' own has none, so nothing is compressed on it.)
+    let mut setup = egui_kittest::wgpu::default_wgpu_setup();
+    if let egui_wgpu::WgpuSetup::CreateNew(new) = &mut setup {
+        new.device_descriptor = std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
+            required_features: adapter.features() & mg_ui::OPTIONAL_FEATURES,
+            required_limits: adapter.limits(),
+            ..Default::default()
+        });
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(setup),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    // (Set before the first frame reads a texture: a material keeps the
+    // texture it was made with.)
+    let on = std::env::var_os("MG_UNCOMPRESSED").is_none();
+    let gpu = &app.viewport.as_ref().expect("a viewport with the render state").gpu;
+    gpu.set_compress_read_textures(on);
+    assert_eq!(gpu.compresses_read_textures(), on && gpu.bc_textures());
+    let mut h = area_gpu_harness(app, rs, 1800.0, 1000.0);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection.clear();
+    if let Some(o) = view.orbit.as_mut() {
+        // (`MG_AT` the x of the creature looked at, 12 to 19; `MG_DISTANCE`.)
+        let var = |name: &str, or: f32| {
+            std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(or)
+        };
+        o.target = Vec3::new(var("MG_AT", 15.5), 20.0, 1.2);
+        (o.distance, o.yaw, o.pitch) = (var("MG_DISTANCE", 5.5), -1.57, 0.15);
+    }
+    settle(&mut h);
+    h.run_steps(20);
+    settle(&mut h);
+    let dir = mg_testkit::scratch_dir("ui-plt-creatures");
+    let name = if on { "on.png" } else { "off.png" };
+    h.render().expect("render").save(dir.join(name)).unwrap();
+}

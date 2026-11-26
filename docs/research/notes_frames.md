@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart (25 November), what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), the largest stock area seen whole taken apart (30 October) and again (2 November), the script editor on nwscript.nss (2 November), High shadows' first frame with the stencil volumes made apart, textures compressed as read, the opening's wait and anti-aliasing (25 November), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T16:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -20,6 +20,9 @@ sources:
   - id: area084
     resource: crates/mg-corpus-tests/examples/render_area.rs
     title: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
+  - id: texmem
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'frames_at_144 (FRAME_VIEW=area, FRAME_DETAIL, FRAME_MEMORY, FRAME_UNCOMPRESSED, FRAME_SAMPLES) on area092 and TDoD''s woods, v2.13.3 and v3.0.0 built beside develop, with and without compression and the fix (25 November 2026)'
   - id: volumes-apart
     resource: crates/mg-ui/tests/frame_perf.rs
     title: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
@@ -627,6 +630,159 @@ R10): the 238.5 MiB left are the module's own first area's view
 (aquarium001, its tab still open), the one view the renderer still
 keeps something for.
 
+## Textures compressed as read, the opening's wait and anti-aliasing (25 November 2026)
+
+Three of the performance audit's leftovers, read with `frame_perf`
+(release, the RX 9070 XT unless named; another session's UI tests
+loaded the machine to 9 to 18 throughout, so single runs scatter and the
+lowest of each set is the one to compare)[^texmem].
+
+**TGA textures compressed as they are read; PLTs kept.** The encoder
+(`mg_image::encode`) took 72 ms a megapixel for BC1 and 80 to 192 for
+BC3 on one thread. Its quick effort (one refit, no raw-ends candidate;
+the alpha's six-step mode only for blocks that hold 0 or 255) halves
+that, and block rows on rayon's threads bring it to 4.0 to 4.7 ms a
+megapixel for BC1 and 5.6 to 5.8 for BC3. The quick effort's error is
+within 1.5 times the best's (`the_quick_effort_stays_near_the_best`).
+Area092 (Tyrants of the Moonsea, `FRAME_MEMORY=1`) reads about 142
+textures, of which 9 TGAs become BC1 and 4 BC3 (a 900² sky took 19 ms
+on one thread); its 24 colored PLT copies stay RGBA8 (below): its
+textures go from 31.2 to 21.2 MiB (17.9 with the PLTs compressed too).
+TDoD's woods are unchanged: of their 968.9 MiB of textures all but 16
+small RGBA8 ones are DDS, and none of those 16 is large enough. What is compressed: a texture read
+as RGBA8 into a material's first slot (a TGA picture, a cutout or
+see-through texture by its alpha: BC1 when every texel is opaque, else
+BC3), with both sides multiples of 4 and the smaller at
+least 64 (`texture::COMPRESSED_FROM`). Not: the normal, specular and
+roughness maps of slots 1 and up (both areas read none as RGBA8, and the
+encoder makes neither BC4 nor BC5), PLTs' colored copies, particles'
+pictures and those a TXI adds (`blending additive`; below for each),
+procedural textures (TXI
+`proceduretype`), and the UI's pictures (egui's, not the renderer's).
+A device without `TEXTURE_COMPRESSION_BC` keeps RGBA8. The reading is
+on the renderer's reader threads already, so nothing new went
+off-thread; what it adds to the opening is below.
+
+Shots of area092 and area026 (`FRAME_SHOTS=1`) with and without
+differed less than two runs of one build do, but for area026's floor
+close up: green and magenta blotches on the floor around a placeable's
+glow, the same in two runs of each build (the runs of one build match
+bit for bit there; the compressed build differs from the uncompressed
+by up to 38 of 255, 3,488 pixels of a 300×200 crop greener against red
+by more than 8). The glow is a particle emitter's, Lighten (added to
+what is behind), its picture `fxpa_lensflare`, a white flare in pure
+grays on black (64², compressed to BC1). Left uncompressed alone, the
+blotches go; the best effort (3,575 pixels) and BC3 (3,488: its color
+block is BC1's) keep them. The cause: BC1's 565 colors cannot hold a
+dark gray (5 bits of red and blue, 6 of green), so each texel of the
+flare's dark rim takes a tint of a few levels, and where many
+particles are added, layer on layer and scaled by their colors, the
+tints add up to blotches. So a particle's picture, and one a TXI adds,
+are kept as stored (`Role::compressed`; tests
+`only_pictures_drawn_over_what_is_behind_are_compressed` and the kinds
+of `a_texture_compressed_as_it_is_read_keeps_what_is_known_of_it`).
+After it, area026's crop matches the uncompressed build's in two runs,
+and the whole close view differs from it by a mean of 0.007 to 0.009
+of 255, as two uncompressed runs differ by 0.006. What it costs:
+area026's textures 4.6 to 4.9 MiB, area092's 17.7 to 17.9 (of 31.2
+uncompressed, on develop at 03340a65); area092's opening was whole
+after 111 to 129 ms in five runs (median 121) against 122 before it.
+
+PLTs' colored copies were compressed at first (BC3 or BC1), with the
+largest errors of all: `pmh0_chest*` copies up to 82 to 167 of 255 at a
+texel, a mean of up to 7.5. A PLT's layers (skin, hair, cloth, leather,
+metal, tattoos) are colored apart, so unrelated colors meet in sharp
+edges inside a 4×4 block, which BC's two colors a block can't hold. To
+see it, `look_plt_creatures` (mg-ui's `looks.rs`, ignored) stands eight
+humans of parts in a row, their armor and clothes dyed with colors far
+apart on each layer, and draws them close up on a device with BC (the
+UI tests' own device has none, so nothing is compressed in them). Two
+runs of each build match bit for bit; compressed against uncompressed,
+the crop differed by up to 72 of 255 (mean 0.33, 590 pixels greener),
+and at 4× the plates' edges were softened, the iridescent metal trim
+flattened and the rivets dulled; at 1× it is hard to see. The copies
+are now kept as stored (`Role::compressed`'s `plt`, a name in colors;
+the unit test's PLT row and the load test's colored copy), and the crop
+matches the uncompressed build's (one view; the other's 0.004 mean is a
+weapon's TGA). What it costs, `FRAME_AREAS` on the campaign's areas
+with the most creatures (one run each, the machine at a load of 13 to
+15; textures allocated after the area opened, MiB):
+
+| Area | Creatures | RGBA8 | PLTs kept | PLTs compressed |
+|---|---|---|---|---|
+| moonseabattle | 65 | 160.1 | 156.7 | 45.2 |
+| zhentkeepwar | 67 | 36.5 | 35.2 | 29.0 |
+| area089 | 55 | 28.1 | 22.1 | 19.4 |
+| area092 | | 31.2 | 21.2 | 17.9 |
+
+Moonseabattle's 933 textures are mostly PLT copies (its creatures in
+their own colors), so keeping them gives back nearly all of what
+compression saved there: 111.5 MiB. That is the price of the picture;
+the copies are as the game composes them, and a PLT compressed without
+the loss would need an encoder that keeps more colors a block (BC7),
+which Moonglow doesn't have. Area092's opening with them kept: whole
+after 113 to 126 ms in three runs.
+
+**The opening's extra 50 ms.** `FRAME_VIEW=area FRAME_DETAIL=1`,
+area092 with the Shaders off, the old tags built from `git archive`
+with their own target folders and the same timing patched in (three
+runs each; shown after, then whole after):
+
+| Build | Shown | Whole |
+|---|---|---|
+| v2.13.3 | 75 to 82 ms | 102 to 110 ms |
+| v3.0.0 | 83 ms | 174 to 175 ms |
+| develop, RGBA8 | | 175 to 177 ms |
+| develop, compressed | | 174 to 183 ms |
+| fixed, RGBA8 | 84 to 91 ms | 105 to 119 ms (median 111) |
+| fixed, compressed | 79 to 111 ms | 112 to 160 ms (median 122) |
+
+(The fixed build's rows: five runs of each, taken in turn, the machine
+at a load of 6 to 10.)
+
+Every texture was read long before the last one showed: after the
+area was first shown, the picture was drawn again only at the
+animation's 40 ms steps, which two waits of about 45 ms each took.
+v2.13.3 drew it within a frame. Ruled out: the harness's frame time
+(v2.13.3 with 1/144 still 103 to 113 ms) and the test's drag (175
+without it). A bisection over develop's merges named "wave 5d: editors
+and bulk editing", which touched neither the renderer nor the area
+view; one merge before it gave 110 and 156 ms in its two runs, so the
+step was there before, by timing. The fix: the view draws again as soon
+as every texture asked for is read and some were missing from the last
+picture (`Renderer::textures_still_read`). The model viewer reads its
+textures in the frame (only the area view reads them apart), so it never
+waited for them.
+Test `an_area_is_drawn_again_as_soon_as_its_textures_are_read` fails
+without it. Compression costs the opening about 10 ms (the medians),
+the last textures' encoding on the reader threads; the frames are not
+longer for it (the longest 10.2 to 11.0 ms either way). It stays on: it
+is paid once an area, off the window's thread, for 13.3 MiB of
+area092's textures kept. Area026 is whole after 33 to 45 ms either way.
+TDoD's woods (`game_shaders_frames_at_144`, two runs each, after the
+fix) were whole after 549 to 555 ms with the Shaders on and 569 to 703
+with them off, against 545 to 560 before: their opening is the DDS
+textures' reading, which the step never held back.
+
+**Anti-aliasing** (Options' Anti-aliasing, `FRAME_SAMPLES`), area092
+at 3440×1400 (the GPU time of `frames_at_144`'s "turning idle" row,
+the camera turning with the pointer still; the memory allocated at its
+"overview" row; three runs on the RX 9070 XT, two on the Radeon 610M,
+the integrated GPU):
+
+| Samples | RX 9070 XT | allocated | 610M | allocated |
+|---|---|---|---|---|
+| 1 (Off) | 2.44 ms | 210 MiB | 27.0 ms | 274 MiB |
+| 2 | 2.89 ms | 292 MiB | 29.2 ms | 380 MiB |
+| 4 | 2.88 ms | 403 MiB | 30.4 ms | 494 MiB |
+
+At 4× the color target holds 108.8 MiB and the depth and stencil 110.7;
+at 2× 54.5 and 55.4; at 1× the depth 27.8 and no color target or
+resolve. Off saves about 192 MiB a view and a tenth of the integrated
+GPU's frame (15% of the discrete one's). 2× is offered only where every
+target's format takes it (`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`;
+without it wgpu allows 1 and 4).
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
@@ -652,5 +808,6 @@ In short:
 [^area084]: render_area MG_TIME_RENDER on Tyrants of the Moonsea's area084, its stacks sampled with eu-stack (30 October 2026)
 [^area084-again]: sound_ranges_frames_at_144 and game_shaders_frames_at_144 (with the builder's haks), and render_area MG_TIME_RENDER on area084, on the RX 9070 XT and the Radeon 610M, before and after, its stacks sampled with eu-stack (2 November 2026)
 [^editor-perf]: editing_a_huge_script on the game's nwscript.nss, before and after the lines laid out one at a time, its stacks sampled with eu-stack (2 November 2026)
+[^texmem]: frames_at_144 (FRAME_VIEW=area, FRAME_DETAIL, FRAME_MEMORY, FRAME_UNCOMPRESSED, FRAME_SAMPLES) on area092 and TDoD's woods, v2.13.3 and v3.0.0 built beside develop, with and without compression and the fix (25 November 2026)
 [^volumes-apart]: sound_ranges_frames_at_144 with FRAME_SHADOW_QUALITY=high, Fast and High, before and after the stencil volumes were made apart, and FRAME_MEMORY=labels after the area closed (25 November 2026)
 [^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

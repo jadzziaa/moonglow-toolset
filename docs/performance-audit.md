@@ -3,7 +3,7 @@ type: Report
 title: 'Audit: frames and GPU memory after 3.0.0, and on weaker hardware'
 description: A dated record (2026-11-01, develop at 3.1.4) of an audit prompted by reports that performance fell and video memory rose since 3.0.0 - how frames and the GPU's memory were measured (v2.13.3, v3.0.0 and develop side by side; a discrete and an integrated GPU), what was found (no frame or memory regression since 2.13.3; views, textures and memory blocks held for good, an idle window drawing 25 pictures a second, a fill-bound picture on an integrated GPU), what was fixed with numbers before and after, and what is left with its cost.
 tags: [performance, gpu, memory, renderer, area-view, audit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T04:54:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T01:48:00Z }
 sources:
   - id: owner
     resource: human:august
@@ -176,16 +176,27 @@ say what each costs.
 - **A setting for MSAA**: 4× is fixed (`model_view::SAMPLES`). Off saves
   about 10% of an integrated GPU's picture and 107 MB of targets a view at
   3440×1400 (27 MB at 50% resolution), and needs the renderer made anew on
-  a change (M). Area view resolution does more for less; left.
+  a change (M). Area view resolution does more for less; left. (Done
+  25 November: Options › Area › Anti-aliasing, Off, 2× or 4×; Off saved
+  192 MiB a view and a tenth of the integrated GPU's picture;
+  [the frames note](research/notes_frames.md).)
 - **Uncompressed textures**: TGA and PLT are RGBA8 (Tyrants of the
   Moonsea's 70 of 96 MB). Compressing them on the CPU as they are read
   would take a quarter to an eighth of that, at a cost in reading time
-  and a new encoder (M).
+  and a new encoder (M). (Done 25 November for TGAs: compressed to BC1
+  or BC3 as read, area092's textures 31.2 to 21.2 MiB for about 10 ms
+  more of its opening. PLTs' colored copies are kept as RGBA8: BC blurs
+  their layers' sharp edges, and an area of many creatures, such as
+  moonseabattle, keeps nearly all of its 160 MiB;
+  [the frames note](research/notes_frames.md).)
 - **The animation step could follow what a picture costs** (a slow GPU
   stepping less often while the window is in front), measured with the
   GPU's timestamps (M; not on every backend).
 - **An area's opening** to its last texture is about 50 ms longer since
-  3.0.0 (area092: 112 to 165 ms); not taken apart.
+  3.0.0 (area092: 112 to 165 ms); not taken apart. (Taken apart 25
+  November: the picture was drawn again only at the animation's 40 ms
+  steps once every texture was read; it now is at once: median 111 ms
+  with RGBA8 textures, 122 compressed.)
 - **The model viewer playing an animation** asks for a frame at once,
   every frame, while the window has the focus (as the display refreshes:
   144 a second here); a step as the area view's would do (S). (Done

@@ -113,6 +113,13 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
         "the screen's size in the View popover (\"1920 × 1080\"), data",
     ),
     (
+        "crates/mg-ui/src/options.rs",
+        '×',
+        1,
+        Proportional,
+        "Anti-aliasing's samples a pixel (\"4×\"), as games name them",
+    ),
+    (
         "crates/mg-ui/src/tile_select.rs",
         '↺',
         6,

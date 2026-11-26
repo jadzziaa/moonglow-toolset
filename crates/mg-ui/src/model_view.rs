@@ -25,7 +25,8 @@ use mg_resman::ResKey;
 use crate::Moonglow;
 use crate::area_view::{Orbit, Wheel};
 
-/// Multisampling for 3D views.
+/// Multisampling for 3D views, unless Options › Area › Anti-aliasing
+/// asks for less ([`Viewport3d::set_samples`]).
 pub(crate) const SAMPLES: u32 = 4;
 
 /// How often a model that moves (an animation played, particles, dangly
@@ -48,6 +49,9 @@ pub struct Viewport3d {
     textures_from: Option<Arc<GameAssets>>,
     /// The model viewer's ground ([`ground_model`]), made once.
     ground: Option<Arc<GpuModel>>,
+    /// The samples a pixel the GPU takes for the views' targets
+    /// ([`Viewport3d::sample_counts`]), found once.
+    sample_counts: Vec<u32>,
 }
 
 /// The game data as a source of textures read apart.
@@ -106,10 +110,13 @@ impl Viewport3d {
         if render_state.adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu {
             renderer.set_stale_textures_kept(mg_render::STALE_TEXTURES_KEPT_INTEGRATED);
         }
+        let sample_counts =
+            gpu.sample_counts(&render_state.adapter, wgpu::TextureFormat::Rgba8Unorm);
         Viewport3d {
             render_state,
             gpu,
             renderer,
+            sample_counts,
             configured: false,
             textures_from: None,
             ground: None,
@@ -143,6 +150,33 @@ impl Viewport3d {
         self.renderer.read_textures_apart(&self.gpu, None);
     }
 
+    /// Of [`mg_render::SAMPLE_COUNTS`], those the 3D views can be drawn
+    /// with on this GPU (Options › Area › Anti-aliasing offers them).
+    pub(crate) fn sample_counts(&self) -> &[u32] {
+        &self.sample_counts
+    }
+
+    /// The samples a pixel the 3D views draw with.
+    pub(crate) fn samples(&self) -> u32 {
+        self.renderer.sample_count()
+    }
+
+    /// Draws the 3D views with `samples` samples a pixel from now on: the
+    /// renderer made anew (its pipelines are made for a count; the
+    /// textures, the game's programs and the stencil volumes are read and
+    /// made again as they are drawn), the textures read apart from the
+    /// next view drawn. The views' targets are made anew by the caller
+    /// (`Moonglow::let_go_of_view_targets`).
+    pub(crate) fn set_samples(&mut self, samples: u32) {
+        let mut renderer = Renderer::new(&self.gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        if self.render_state.adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu {
+            renderer.set_stale_textures_kept(mg_render::STALE_TEXTURES_KEPT_INTEGRATED);
+        }
+        self.renderer = renderer;
+        self.configured = false;
+        self.textures_from = None;
+    }
+
     /// Whether textures are read apart from `game` ([`Self::textures_from`]).
     pub(crate) fn holds(&self, game: &Arc<mg_rules::GameData>) -> bool {
         self.textures_from.as_ref().is_some_and(|from| Arc::ptr_eq(&from.0, game))
@@ -160,7 +194,8 @@ impl Viewport3d {
         if held.as_ref().is_some_and(|(t, _)| t.size == (w, h)) {
             return;
         }
-        let targets = Targets::new(&self.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
+        let samples = self.renderer.sample_count();
+        let targets = Targets::new(&self.gpu, wgpu::TextureFormat::Rgba8Unorm, samples, w, h);
         let mut egui_renderer = self.render_state.renderer.write();
         let id = match held.take() {
             Some((_, id)) => {
@@ -1453,6 +1488,12 @@ impl ModelView {
         self.gpu_renders
     }
 
+    /// The samples a pixel its picture is drawn with (Options › Area ›
+    /// Anti-aliasing), where it has targets.
+    pub fn picture_samples(&self) -> Option<u32> {
+        self.targets.as_ref().map(|(t, _)| t.samples)
+    }
+
     /// Its picture drawn anew at the next frame, though nothing it is
     /// drawn from changed (the textures read again at another size).
     pub(crate) fn redraw_picture(&mut self) {
@@ -2101,7 +2142,7 @@ pub struct Thumbnails {
     flushed: Option<u64>,
     /// What every picture is drawn into, before it is resolved into a
     /// texture of its own.
-    targets: Option<Targets>,
+    pub(crate) targets: Option<Targets>,
     /// Reusable destination texture when a thumbnail returns `Waiting` or empty.
     scratch: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// How many pictures have been drawn.
@@ -2364,6 +2405,13 @@ impl Thumbnails {
     #[doc(hidden)]
     pub fn asked(&self) -> usize {
         self.pictures.len() + self.pictures.wanted().len()
+    }
+
+    /// The samples a pixel the pictures are drawn with (Options › Area ›
+    /// Anti-aliasing), where targets are held.
+    #[doc(hidden)]
+    pub fn picture_samples(&self) -> Option<u32> {
+        self.targets.as_ref().map(|t| t.samples)
     }
 
     /// The creatures' pictures in other appearances made (a gallery's
@@ -3132,10 +3180,9 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
     // multisampled and depth targets, nine times its picture's memory.)
     let size = THUMBNAIL;
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let targets = app
-        .thumbnails
-        .targets
-        .get_or_insert_with(|| Targets::new(&vp.gpu, format, SAMPLES, size, size));
+    let targets = app.thumbnails.targets.get_or_insert_with(|| {
+        Targets::new(&vp.gpu, format, vp.renderer.sample_count(), size, size)
+    });
     let (picture, view) = app.thumbnails.scratch.take().unwrap_or_else(|| {
         let picture = vp.gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("thumbnail"),

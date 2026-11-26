@@ -619,6 +619,49 @@ fn reload_resources_reads_an_area_again_on_a_thread() {
     assert_eq!(differ, 0, "{differ} pixels differ");
 }
 
+/// Textures read apart (as the desktop app reads them) are shown in the
+/// first frame after the last of them is read, not at the animations'
+/// next step: the frames a 60th of a second apart, a picture drawn while
+/// textures were being read is drawn again at once when all are, though
+/// its step (40 ms) is not due. (Waiting for it kept Tyrants of the
+/// Moonsea's largest area's opening two steps longer than its reading:
+/// 175 ms where 110.)
+#[test]
+fn an_area_is_drawn_again_as_soon_as_its_textures_are_read() {
+    let Some((app, rs, area)) = area_app("textures-at-once", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(6);
+    h.state_mut().background_jobs = true;
+    let mut redrawn = 0;
+    for _ in 0..3 {
+        // (Read anew, apart, the camera moved a little: the next picture
+        // waits for them.)
+        h.state_mut().viewport.as_mut().unwrap().renderer.clear_textures();
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.orbit.as_mut().unwrap().distance *= 1.01;
+        h.run_steps(1);
+        let pending = |h: &Harness<'_, Moonglow>| {
+            h.state().viewport.as_ref().unwrap().renderer.drawn.textures_pending
+        };
+        assert!(pending(&h) > 0, "the picture waits for its textures");
+        let started = std::time::Instant::now();
+        while h.state_mut().viewport.as_mut().unwrap().renderer.textures_still_read() > 0 {
+            assert!(started.elapsed() < std::time::Duration::from_secs(30), "not read");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let pictures = h.state().area_views[&area].pictures;
+        h.run_steps(1);
+        if h.state().area_views[&area].pictures > pictures {
+            redrawn += 1;
+        }
+    }
+    h.state_mut().background_jobs = false;
+    assert_eq!(redrawn, 3, "drawn again in the frame after the last texture was read");
+}
+
 /// Another module with an area of the same name shows its own area, not
 /// the one of the module open before (Jasperre's report: both modules'
 /// `area001`, the first's shown and edited in the second, until Moonglow

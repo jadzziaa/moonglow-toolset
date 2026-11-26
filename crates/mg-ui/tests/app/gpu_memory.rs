@@ -159,6 +159,75 @@ fn the_area_view_resolution_draws_the_picture_at_a_share_of_its_pixels() {
     assert_eq!(size(&h), (w, hh));
 }
 
+/// Options › Area › Anti-aliasing: the area's picture drawn with one
+/// sample a pixel (no resolve: wgpu refuses one on a single sample), the
+/// renderer made anew for it and the picture drawn again, its edges
+/// stepped where four smooth them; four again once 4× is chosen. (Two,
+/// where the adapter takes it, in `mg-render`'s `render.rs`.)
+#[test]
+fn anti_aliasing_draws_the_area_with_the_samples_chosen() {
+    let Some((mut h, area)) = area_harness("anti-aliasing") else { return };
+    settle(&mut h);
+    let offered = h.state().viewport.as_ref().unwrap().renderer.sample_count();
+    let samples = |h: &Harness<'_, Moonglow>| {
+        let renderer = h.state().viewport.as_ref().unwrap().renderer.sample_count();
+        (renderer, h.state().area_views[&area].picture_samples())
+    };
+    assert_eq!(samples(&h), (offered, Some(offered)), "four unless chosen, as the GPU takes them");
+    let dir = mg_testkit::scratch_dir("anti-aliasing");
+    let four = h.render().unwrap();
+    four.save(dir.join("four.png")).unwrap();
+    let pictures = h.state().area_views[&area].pictures;
+    h.state_mut().settings.anti_aliasing = Some(1);
+    settle(&mut h);
+    h.run_steps(3);
+    assert_eq!(samples(&h), (1, Some(1)));
+    assert!(h.state().area_views[&area].pictures > pictures, "drawn again");
+    let one = h.render().unwrap();
+    one.save(dir.join("one.png")).unwrap();
+    if offered > 1 {
+        let differ = four.pixels().zip(one.pixels()).filter(|(a, b)| a != b).count();
+        assert!(differ > 100, "the edges stepped: {differ} pixels differ");
+    }
+    h.state_mut().settings.anti_aliasing = None;
+    settle(&mut h);
+    h.run_steps(3);
+    assert_eq!(samples(&h), (offered, Some(offered)), "as it was");
+}
+
+/// The other 3D views follow Anti-aliasing too: the palette's pictures
+/// (thumbnails, made again) and the model viewer, with one sample a pixel
+/// and then four again.
+#[test]
+fn anti_aliasing_draws_the_thumbnails_and_the_model_viewer_alike() {
+    let Some((mut h, _)) = area_harness("anti-aliasing-others") else { return };
+    {
+        let app = h.state_mut();
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.palette.filter = "plc_chest".into();
+        app.settings.palette_gallery = true;
+        show_palette(app);
+    }
+    settle(&mut h);
+    let offered = h.state().viewport.as_ref().unwrap().renderer.sample_count();
+    assert_eq!(h.state().thumbnails.picture_samples(), Some(offered), "the chests' pictures");
+    h.state_mut().settings.anti_aliasing = Some(1);
+    settle(&mut h);
+    assert_eq!(h.state().thumbnails.waiting(), 0, "made again");
+    assert_eq!(h.state().thumbnails.picture_samples(), Some(1), "made again with one");
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let model = |h: &Harness<'_, Moonglow>| h.state().model_views[&source].picture_samples();
+    assert_eq!(model(&h), Some(1), "the model viewer with one");
+    h.state_mut().settings.anti_aliasing = None;
+    settle(&mut h);
+    h.run_steps(3);
+    assert_eq!(model(&h), Some(offered), "and four again");
+}
+
 /// The model viewer playing an animation asks for frames while the window
 /// has the focus, a step at a time as the area view's animations step (it
 /// asked for one at once, every frame), and none behind another program's

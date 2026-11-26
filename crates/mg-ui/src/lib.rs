@@ -2366,6 +2366,25 @@ impl Moonglow {
                 view.redraw_picture();
             }
         }
+        // (Options › Area › Anti-aliasing changed: the renderer made anew
+        // for the count, the views' targets and the pictures made again.)
+        if let Some(vp) = self.viewport.as_ref() {
+            let samples = options::samples_drawn(self.settings.anti_aliasing, vp.sample_counts());
+            if vp.samples() != samples {
+                self.thumbnails.forget(self.viewport.as_ref());
+                self.thumbnails.targets = None;
+                self.let_go_of_view_targets();
+                if let Some(vp) = self.viewport.as_mut() {
+                    vp.set_samples(samples);
+                }
+                for view in self.area_views.values_mut() {
+                    view.redraw_picture();
+                }
+                for view in self.model_views.values_mut() {
+                    view.redraw_picture();
+                }
+            }
+        }
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = shaders;
             // (Once: the programs' cache folder, and a frame asked for when

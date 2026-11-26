@@ -118,6 +118,56 @@ fn half(data: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
     (out, nw, nh)
 }
 
+/// The smaller side, pixels, from which a texture read as RGBA is
+/// compressed as it is read ([`compressed`]). A smaller one takes 21 KB
+/// or less with its levels, and is the likeliest to be stretched over a
+/// surface, where BC's 4×4 blocks would show.
+pub const COMPRESSED_FROM: u32 = 64;
+
+/// A texture read as RGBA8 (a TGA; the renderer keeps a PLT's colored
+/// copies, a particle's and an additive one as they are) compressed for a
+/// 3D view as it is read: BC3 where its alpha is used (a texel under 255:
+/// cut-outs and see-through textures keep their alpha, the cut's 0 and
+/// 255 exact), BC1 where it isn't; with the encoder's quick effort, as
+/// reading time counts more than the last of its error. At most
+/// [`Gpu::texture_limit`] a side (halved before, not encoded and left
+/// out). `None`, uploaded as it is: where the device doesn't compress
+/// ([`Gpu::compresses_read_textures`]: no BC, or switched off), a
+/// texture already compressed (a DDS), one under [`COMPRESSED_FROM`] or
+/// whose sides are not whole blocks.
+pub fn compressed(gpu: &Gpu, tex: &Texture, mipmaps: bool) -> Option<Texture> {
+    if !gpu.compresses_read_textures() {
+        return None;
+    }
+    compress_read(tex, mipmaps, gpu.texture_limit())
+}
+
+/// [`compressed`], on a device that compresses, within `limit`.
+pub(crate) fn compress_read(tex: &Texture, mipmaps: bool, limit: Option<u32>) -> Option<Texture> {
+    if tex.format != Format::Rgba8 {
+        return None;
+    }
+    let (mut w, mut h) = (tex.width, tex.height);
+    let first = tex.mips.first().filter(|l| l.len() == w as usize * h as usize * 4)?;
+    let mut data = first.clone();
+    while limit.is_some_and(|l| w.max(h) > l) && (w > 1 || h > 1) {
+        (data, w, h) = half(&data, w, h);
+    }
+    if w.min(h) < COMPRESSED_FROM || !w.is_multiple_of(4) || !h.is_multiple_of(4) {
+        return None;
+    }
+    if !tex.has_alpha {
+        for px in data.as_chunks_mut::<4>().0 {
+            px[3] = 255;
+        }
+    }
+    let alpha = data.as_chunks::<4>().0.iter().any(|p| p[3] < 255);
+    let format = if alpha { Format::Bc3 } else { Format::Bc1 };
+    let image = mg_image::Rgba { width: w, height: h, data };
+    let quick = mg_image::encode::Effort::Quick;
+    Some(mg_image::encode::compress_with(&image, format, mipmaps, false, quick))
+}
+
 impl GpuTexture {
     /// [`GpuTexture::upload`], or why the GPU won't take it (a size it
     /// can't hold, data it refuses), instead of the device's error, which
@@ -551,6 +601,58 @@ mod tests {
         let mixed = GpuTexture::upload_cube(&gpu, "cube", &mixed);
         assert_eq!(mixed.texture.format(), wgpu::TextureFormat::Rgba8Unorm);
         assert_eq!(size(&mixed), (16, 5));
+    }
+
+    /// A texture read as RGBA is compressed to BC1 where its alpha isn't
+    /// used and to BC3 where it is, with its levels (or one, as asked),
+    /// within the limit, the cut's 0 and 255 exact and the rest within
+    /// BC's error; a small one, one whose sides are not whole blocks and
+    /// a DDS stay as they are.
+    #[test]
+    fn a_texture_read_as_rgba_is_compressed_by_its_alpha() {
+        let image = |w: u32, h: u32, alpha: fn(u32, u32) -> u8| {
+            let mut img = mg_image::Rgba::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    let i = ((y * w + x) * 4) as usize;
+                    img.data[i..i + 4].copy_from_slice(&[
+                        (x * 3) as u8,
+                        (y * 2) as u8,
+                        70,
+                        alpha(x, y),
+                    ]);
+                }
+            }
+            img
+        };
+        let opaque = image(128, 64, |_, _| 255);
+        let t = compress_read(&opaque.clone().into_texture(true), true, None).unwrap();
+        assert_eq!((t.format, t.mips.len(), t.has_alpha), (Format::Bc1, 8, false));
+        let cut = image(64, 64, |x, y| if (x + y) % 3 == 0 { 0 } else { 255 });
+        let t = compress_read(&cut.clone().into_texture(true), false, None).unwrap();
+        assert_eq!((t.format, t.mips.len(), t.has_alpha), (Format::Bc3, 1, true));
+        let back = mg_image::bc::decode(Format::Bc3, 64, 64, &t.mips[0]);
+        for (p, q) in cut.data.as_chunks::<4>().0.iter().zip(back.as_chunks::<4>().0) {
+            assert_eq!(p[3], q[3], "the cut exact");
+            for k in 0..3 {
+                assert!((i32::from(p[k]) - i32::from(q[k])).abs() <= 24, "{p:?} {q:?}");
+            }
+        }
+        // (A 24-bit TGA's alpha means nothing: BC1, whatever it holds.)
+        let t = compress_read(&cut.clone().into_texture(false), true, None).unwrap();
+        assert_eq!(t.format, Format::Bc1);
+        // Within the limit: halved before.
+        let large = image(256, 128, |_, _| 255);
+        let t = compress_read(&large.into_texture(true), true, Some(128)).unwrap();
+        assert_eq!((t.width, t.height, t.mips.len()), (128, 64, 8));
+        assert!(
+            compress_read(&opaque.clone().into_texture(true), true, Some(32)).is_none(),
+            "under the floor"
+        );
+        assert!(compress_read(&image(32, 32, |_, _| 255).into_texture(true), true, None).is_none());
+        assert!(compress_read(&image(66, 64, |_, _| 255).into_texture(true), true, None).is_none());
+        let dds = mg_image::encode::compress(&opaque, Format::Bc1, true, false);
+        assert!(compress_read(&dds, true, None).is_none(), "already compressed");
     }
 
     #[test]

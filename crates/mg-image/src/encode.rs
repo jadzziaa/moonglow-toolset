@@ -32,14 +32,45 @@ use crate::{Format, Rgba, Texture};
 /// # Panics
 /// For a format other than BC1 or BC3.
 pub fn compress(image: &Rgba, format: Format, mipmaps: bool, punch_through: bool) -> Texture {
+    compress_with(image, format, mipmaps, punch_through, Effort::Best)
+}
+
+/// How hard the encoder looks for each block's endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Effort {
+    /// Every candidate below: what a texture written to a file is
+    /// encoded with ([`compress`]).
+    #[default]
+    Best,
+    /// A color block's ends inset on its principal axis and one least
+    /// squares refit (two candidates where the best tries up to nine),
+    /// an alpha block's ends and, where it holds 0 or 255 beside other
+    /// values, the six-step mode's (two where the best tries up to
+    /// twenty-five): about a third of the time for BC1 and a sixth for
+    /// BC3, a little more error. For textures encoded as they are read
+    /// (the 3D views' TGAs and PLTs), where reading time counts.
+    Quick,
+}
+
+/// [`compress`], with the effort given.
+///
+/// # Panics
+/// For a format other than BC1 or BC3.
+pub fn compress_with(
+    image: &Rgba,
+    format: Format,
+    mipmaps: bool,
+    punch_through: bool,
+    effort: Effort,
+) -> Texture {
     assert!(matches!(format, Format::Bc1 | Format::Bc3), "only BC1 and BC3 are encoded");
     let alpha = format == Format::Bc3 || punch_through;
-    let mut levels = vec![encode_level(image, format, punch_through)];
+    let mut levels = vec![encode_level(image, format, punch_through, effort)];
     if mipmaps {
         let mut level = image.clone();
         while level.width > 1 || level.height > 1 {
             level = halve(&level, alpha);
-            levels.push(encode_level(&level, format, punch_through));
+            levels.push(encode_level(&level, format, punch_through, effort));
         }
     }
     let alpha_mean = match format {
@@ -99,13 +130,17 @@ pub fn halve(image: &Rgba, alpha: bool) -> Rgba {
     out
 }
 
-/// One level's blocks.
-fn encode_level(image: &Rgba, format: Format, punch_through: bool) -> Vec<u8> {
+/// One level's blocks: its rows of blocks on rayon's threads, a level of
+/// many (a 900-pixel sky took 19 ms on one thread, on the critical path of
+/// an area's opening, where its other textures were read).
+fn encode_level(image: &Rgba, format: Format, punch_through: bool, effort: Effort) -> Vec<u8> {
+    use rayon::prelude::*;
     let (w, h) = (image.width.max(1) as usize, image.height.max(1) as usize);
     let (bw, bh) = (w.div_ceil(4), h.div_ceil(4));
-    let mut out = Vec::with_capacity(format.level_size(w as u32, h as u32));
-    for by in 0..bh {
-        for bx in 0..bw {
+    let block = format.block_bytes().unwrap_or(8);
+    let mut out = vec![0u8; bw * bh * block];
+    let row = |(by, out): (usize, &mut [u8])| {
+        for (bx, dest) in out.chunks_exact_mut(block).enumerate() {
             // A block past the picture's edge repeats its last texels.
             let mut px = [[0u8; 4]; 16];
             for (i, p) in px.iter_mut().enumerate() {
@@ -120,18 +155,24 @@ fn encode_level(image: &Rgba, format: Format, punch_through: bool) -> Vec<u8> {
                     for (a, p) in a.iter_mut().zip(&px) {
                         *a = p[3];
                     }
-                    out.extend_from_slice(&alpha_block(&a));
-                    out.extend_from_slice(&color_block(&px, Mode::Bc3));
+                    dest[..8].copy_from_slice(&alpha_block(&a, effort));
+                    dest[8..].copy_from_slice(&color_block(&px, Mode::Bc3, effort));
                 }
                 _ => {
                     let mode = match punch_through && px.iter().any(|p| p[3] < 128) {
                         true => Mode::PunchThrough,
                         false => Mode::Opaque,
                     };
-                    out.extend_from_slice(&color_block(&px, mode));
+                    dest.copy_from_slice(&color_block(&px, mode, effort));
                 }
             }
         }
+    };
+    // (A small level on this thread: handing it out costs more.)
+    if bw * bh < 1024 {
+        out.chunks_exact_mut(bw * block).enumerate().for_each(row);
+    } else {
+        out.par_chunks_exact_mut(bw * block).enumerate().with_min_len(4).for_each(row);
     }
     out
 }
@@ -224,7 +265,7 @@ fn consider(
 }
 
 /// Encodes a color block.
-fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
+fn color_block(px: &[[u8; 4]; 16], mode: Mode, effort: Effort) -> [u8; 8] {
     let hidden: u16 = match mode {
         Mode::PunchThrough => (0..16).filter(|&i| px[i][3] < 128).fold(0, |m, i| m | 1 << i),
         _ => 0,
@@ -284,7 +325,10 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
     let (lo, hi) =
         visible.iter().map(proj).fold((f32::MAX, f32::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
     let at = |t: f32| [0, 1, 2].map(|k| mean[k] + axis[k] * t);
-    consider(px, hidden, mode, (to565(at(hi)), to565(at(lo))), &mut best);
+    let quick = effort == Effort::Quick;
+    if !quick {
+        consider(px, hidden, mode, (to565(at(hi)), to565(at(lo))), &mut best);
+    }
     // A little inside the ends too (the extremes are often a texel or two).
     let inset = (hi - lo) / 16.0;
     consider(px, hidden, mode, (to565(at(hi - inset)), to565(at(lo + inset))), &mut best);
@@ -294,7 +338,7 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
         Mode::PunchThrough => [1.0, 0.0, 0.5, 0.0],
         _ => [1.0, 0.0, 2.0 / 3.0, 1.0 / 3.0],
     };
-    for _ in 0..3 {
+    for _ in 0..if quick { 1 } else { 3 } {
         let (_, c0, c1, idx) = best;
         let (mut aa, mut ab, mut bb) = (0f32, 0f32, 0f32);
         let (mut ax, mut bx) = ([0f32; 3], [0f32; 3]);
@@ -320,6 +364,9 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
         let e1 = [0, 1, 2].map(|k| (bx[k] * aa - ax[k] * ab) / det);
         let (q0, q1) = (to565(e0), to565(e1));
         consider(px, hidden, mode, (q0, q1), &mut best);
+        if quick {
+            break;
+        }
         if (best.1, best.2) == (c0, c1) || (best.1, best.2) == (c1, c0) {
             // (No better: try the neighbors of the refit's 565 values.)
             for (d0, d1) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
@@ -394,7 +441,7 @@ fn exact_channel_palette(a0: u8, a1: u8) -> [i32; 8] {
 }
 
 /// Encodes a BC3 alpha block: both modes tried, the better kept.
-fn alpha_block(a: &[u8; 16]) -> [u8; 8] {
+fn alpha_block(a: &[u8; 16], effort: Effort) -> [u8; 8] {
     let score = |a0: u8, a1: u8| -> (u32, [u8; 16]) {
         // (Scored against the decoder's values, rounded down as
         // bc::decode gives them, and in 35ths against the exact ones,
@@ -428,8 +475,9 @@ fn alpha_block(a: &[u8; 16]) -> [u8; 8] {
     // Eight steps between the ends (a0 > a1), the ends drawn in by a
     // few levels too (a texel or two at an end costs less than every
     // step between).
+    let quick = effort == Effort::Quick;
     if max > min {
-        let reach = ((max - min) / 8).min(3);
+        let reach = if quick { 0 } else { ((max - min) / 8).min(3) };
         for d0 in 0..=reach {
             for d1 in 0..=reach {
                 if max - d0 > min + d1 {
@@ -451,8 +499,12 @@ fn alpha_block(a: &[u8; 16]) -> [u8; 8] {
             any_inner = true;
         }
     }
-    if any_inner {
-        let reach = ((hi - lo) / 6).min(2);
+    // (Quick: the six-step mode only where the block holds 0 or 255
+    // beside other values: without them, or with only them, the eight
+    // steps' ends are as exact.)
+    let six = !quick || (any_inner && a.iter().any(|&v| v == 0 || v == 255));
+    if six && any_inner {
+        let reach = if quick { 0 } else { ((hi - lo) / 6).min(2) };
         for d0 in 0..=reach {
             for d1 in 0..=reach {
                 if lo + d0 <= hi - d1 {
@@ -460,7 +512,7 @@ fn alpha_block(a: &[u8; 16]) -> [u8; 8] {
                 }
             }
         }
-    } else {
+    } else if six {
         consider(0, 0);
     }
     let (_, a0, a1, idx) = best;
@@ -541,7 +593,7 @@ mod tests {
         for (i, v) in a.iter_mut().enumerate() {
             *v = [0, 255, 100, 120][i % 4];
         }
-        let b = alpha_block(&a);
+        let b = alpha_block(&a, Effort::Best);
         assert!(b[0] <= b[1], "six-step mode: {b:?}");
         let mut block = b.to_vec();
         block.extend_from_slice(&[0; 8]);
@@ -549,7 +601,7 @@ mod tests {
         let got: Vec<u8> = back.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
         assert_eq!(&got[..4], &[0, 255, 100, 120]);
         let ramp: [u8; 16] = std::array::from_fn(|i| (i * 17) as u8);
-        let b = alpha_block(&ramp);
+        let b = alpha_block(&ramp, Effort::Best);
         assert!(b[0] > b[1], "eight-step mode: {b:?}");
         let mut block = b.to_vec();
         block.extend_from_slice(&[0; 8]);
@@ -590,5 +642,67 @@ mod tests {
         assert_eq!(p[3], 128);
         let plain = halve(&img, false);
         assert_eq!(plain.pixel(0, 0), [100, 50, 128, 128]);
+    }
+
+    /// The squared error of a texture's largest level against a picture,
+    /// every channel, per texel.
+    fn error(img: &Rgba, t: &Texture) -> f64 {
+        let back = decode(t.format, img.width, img.height, &t.mips[0]);
+        let sum: u64 = img
+            .data
+            .iter()
+            .zip(&back)
+            .map(|(&a, &b)| (i64::from(a) - i64::from(b)).pow(2) as u64)
+            .sum();
+        sum as f64 / (img.width * img.height) as f64
+    }
+
+    /// The quick effort leaves a little more error than the best, not
+    /// much more, in both formats; a cut-out's edge stays exact.
+    #[test]
+    fn the_quick_effort_stays_near_the_best() {
+        let img = picture(64, 64, |x, y| {
+            let n = (x * 7 + y * 13) ^ (x * y);
+            [(x * 4) as u8, (y * 3 + n % 9) as u8, ((x + y) * 2) as u8, ((x * 5 + y) % 256) as u8]
+        });
+        for format in [Format::Bc1, Format::Bc3] {
+            let best = error(&img, &compress(&img, format, false, false));
+            let quick = error(&img, &compress_with(&img, format, false, false, Effort::Quick));
+            assert!(quick <= best * 1.5 + 1.0, "{format:?}: quick {quick}, best {best}");
+        }
+        let cut = picture(16, 16, |x, y| {
+            [(x * 16) as u8, 90, (y * 16) as u8, if (x + y) % 5 == 0 { 0 } else { 255 }]
+        });
+        let t = compress_with(&cut, Format::Bc3, true, false, Effort::Quick);
+        let back = decode(Format::Bc3, 16, 16, &t.mips[0]);
+        for (p, q) in cut.data.as_chunks::<4>().0.iter().zip(back.as_chunks::<4>().0) {
+            assert_eq!(p[3], q[3], "{p:?} {q:?}");
+        }
+    }
+
+    /// `ENCODE_SPEED=<TGA files>` (separated by commas): how long each
+    /// effort takes a megapixel, with every level (run in release).
+    #[test]
+    #[ignore]
+    fn encode_speed() {
+        let Ok(files) = std::env::var("ENCODE_SPEED") else { return };
+        for file in files.split(',') {
+            let data = std::fs::read(file).unwrap();
+            let t = crate::read(mg_core::ResType::TGA, &data).unwrap();
+            let img = t.to_rgba();
+            let mp = f64::from(img.width * img.height) / 1e6;
+            for format in [Format::Bc1, Format::Bc3] {
+                for effort in [Effort::Best, Effort::Quick] {
+                    let at = std::time::Instant::now();
+                    let c = compress_with(&img, format, true, false, effort);
+                    let took = at.elapsed().as_secs_f64() * 1000.0;
+                    println!(
+                        "{file} {format:?} {effort:?}: {:.1} ms a megapixel, error {:.1}",
+                        took / mp,
+                        error(&img, &c)
+                    );
+                }
+            }
+        }
     }
 }
