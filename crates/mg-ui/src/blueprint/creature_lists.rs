@@ -206,8 +206,12 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let all = super::by_name_kept(ui.ctx(), "feats", &all);
     let targets = f.list_targets();
     let total = targets.len();
-    // Each feat any of them has, and how many have it.
-    let merged = lists::merged(&targets, "FeatList", lists::feat);
+    // Each feat any of them has, and how many have it (kept while the
+    // targets are: merged each frame, 100 creatures' took 25 µs).
+    let merged =
+        super::kept_for(ui.ctx(), egui::Id::new(("utc-feats-merged", key)), &targets, &(), || {
+            Arc::new(lists::merged(&targets, "FeatList", lists::feat))
+        });
     let have: std::collections::HashMap<i64, usize> =
         merged.iter().map(|m| (m.key, m.having.len())).collect();
     let having = |row: usize| have.get(&(row as i64)).copied().unwrap_or(0);
@@ -1048,19 +1052,26 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     let targets = f.list_targets();
     // The spellcasting classes any of them has, in the first one's order,
     // then the others', with how many have each.
-    let mut caster_classes: Vec<(i64, usize)> = Vec::new();
-    for t in targets.iter() {
-        for c in t.list("ClassList") {
-            let Some(row) = lists::class(c) else { continue };
-            if game.spell_slots(&t.at, c).is_none() {
-                continue;
-            }
-            match caster_classes.iter_mut().find(|(r, _)| *r == row) {
-                Some((_, n)) => *n += 1,
-                None => caster_classes.push((row, 1)),
+    // (Kept while the targets and the load order are: read each frame,
+    // 100 creatures' classes took 35 µs.)
+    let id = egui::Id::new(("utc-caster-classes", key));
+    let load_order = f.app.load_order;
+    let caster_classes = super::kept_for(ui.ctx(), id, &targets, &load_order, || {
+        let mut caster_classes: Vec<(i64, usize)> = Vec::new();
+        for t in targets.iter() {
+            for c in t.list("ClassList") {
+                let Some(row) = lists::class(c) else { continue };
+                if game.spell_slots(&t.at, c).is_none() {
+                    continue;
+                }
+                match caster_classes.iter_mut().find(|(r, _)| *r == row) {
+                    Some((_, n)) => *n += 1,
+                    None => caster_classes.push((row, 1)),
+                }
             }
         }
-    }
+        Arc::new(caster_classes)
+    });
     if caster_classes.is_empty() {
         ui.weak("None of the creatures' classes casts spells.");
         return;

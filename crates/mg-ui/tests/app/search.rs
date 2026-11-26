@@ -682,7 +682,7 @@ fn advanced_search_edits_objects_of_several_areas_and_the_items_they_hold_togeth
     let together = |h: &Harness<'_, Moonglow>| -> Option<Vec<(ResRef, GffPath)>> {
         h.state().dock.iter_all_tabs().find_map(|(_, t)| match t {
             Tab::Instances { objects } => {
-                let mut o = objects.clone();
+                let mut o = objects.to_vec();
                 o.sort();
                 Some(o)
             }

@@ -1473,7 +1473,8 @@ fn a_tab_of_objects_in_several_areas_opens_again_with_the_module() {
         objects: vec![
             (start, GffPath::root().item("Placeable List", 1)),
             (field, GffPath::root().item("Placeable List", 0)),
-        ],
+        ]
+        .into(),
     };
     let mut h = window_harness(app);
     h.state_mut().open_module(&path);

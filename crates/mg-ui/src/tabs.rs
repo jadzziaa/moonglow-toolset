@@ -73,7 +73,7 @@ pub enum Tab {
     /// Several objects of one type placed in areas (one or several),
     /// edited together: each its area and its path in the area's GIT (an
     /// object in a GIT list, or an item one holds).
-    Instances { objects: Vec<(mg_core::ResRef, mg_edit::GffPath)> },
+    Instances { objects: std::sync::Arc<[(mg_core::ResRef, mg_edit::GffPath)]> },
     /// An object placed in an area (its entry in the area's GIT), in its
     /// Properties editor.
     Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
@@ -443,7 +443,11 @@ impl Tab {
         match self {
             Tab::Area(r) | Tab::AreaProperties(r) => area(r),
             Tab::Instance { area: r, .. } | Tab::InstanceModel { area: r, .. } => area(r),
-            Tab::Instances { objects } => objects.iter_mut().for_each(|(r, _)| area(r)),
+            Tab::Instances { objects } => {
+                let mut moved = objects.to_vec();
+                moved.iter_mut().for_each(|(r, _)| area(r));
+                *objects = moved.into();
+            }
             Tab::AreasProperties(areas) => areas.iter_mut().for_each(area),
             Tab::Script(k)
             | Tab::Nui(k)
@@ -1862,7 +1866,8 @@ mod tests {
         use mg_core::ResRef;
         let (a, b) = (ResRef::from_str("start").unwrap(), ResRef::from_str("field").unwrap());
         let p = mg_edit::GffPath::root().item("Creature List", 0);
-        let tab = Tab::Instances { objects: vec![(a, p.clone()), (b, p.clone()), (a, p.clone())] };
+        let tab =
+            Tab::Instances { objects: [(a, p.clone()), (b, p.clone()), (a, p.clone())].into() };
         let are = |r: ResRef| ResKey::new(r, ResType::ARE);
         assert_eq!(tab.tree_keys(), [are(a), are(b)]);
         assert!(tab.shows_any(&[are(b)]), "the second area gone");
@@ -1879,7 +1884,7 @@ mod tests {
         moved.retarget(&|k: ResKey| (k == are(b)).then(|| are(cave)));
         assert_eq!(
             moved,
-            Tab::Instances { objects: vec![(a, p.clone()), (cave, p.clone()), (a, p)] }
+            Tab::Instances { objects: [(a, p.clone()), (cave, p.clone()), (a, p)].into() }
         );
     }
 }

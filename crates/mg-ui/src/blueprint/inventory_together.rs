@@ -38,27 +38,58 @@ fn bags(t: &lists::Target, holder: Holder) -> Vec<(GffPath, &[Struct])> {
     }
 }
 
-/// The items the targets hold, counted once for a page's rows: how many
-/// of each blueprint each target holds, and every target's items of each
-/// (for the flags they have).
-struct Holdings<'a> {
+/// The items the targets hold, counted once for a page's rows: every
+/// item blueprint any of them holds, in the first one's order; how many
+/// of each each target holds, and the state of each of the page's flags
+/// on all of their items of each. Kept while the targets are (the
+/// review's B20: counted each frame, 100 creatures of 20 items took
+/// 0.8 ms before their flags and numbers were).
+struct Holdings {
+    merged: Vec<lists::Merged<ResRef>>,
+    /// Each merged row's count: the first holder's, and whether others
+    /// hold another number of it.
+    numbers: Vec<(usize, bool)>,
     counts: Vec<std::collections::HashMap<ResRef, usize>>,
-    of: std::collections::HashMap<ResRef, Vec<&'a Struct>>,
+    /// Each blueprint's flags, in the order asked: (on, mixed), as
+    /// [`inventory::flag_state`] says.
+    flags: std::collections::HashMap<ResRef, Vec<(bool, bool)>>,
 }
 
-impl<'a> Holdings<'a> {
-    /// Of each target's items (`items`, a target's bags in one).
-    fn of(items: &[Vec<&'a Struct>]) -> Holdings<'a> {
-        let mut h = Holdings { counts: Vec::with_capacity(items.len()), of: Default::default() };
+impl Holdings {
+    /// Of each target's items (`items`, a target's bags in one), with the
+    /// state of each of `flags`.
+    fn of(items: &[Vec<&Struct>], flags: &[&str]) -> Holdings {
+        let mut counts = Vec::with_capacity(items.len());
+        let mut of: std::collections::HashMap<ResRef, Vec<&Struct>> = Default::default();
         for held in items {
-            let mut counts = std::collections::HashMap::new();
+            let mut count = std::collections::HashMap::new();
             for &e in held {
                 let Some(r) = lists::item_of(e) else { continue };
-                *counts.entry(r).or_insert(0) += 1;
-                h.of.entry(r).or_default().push(e);
+                *count.entry(r).or_insert(0) += 1;
+                of.entry(r).or_default().push(e);
             }
-            h.counts.push(counts);
+            counts.push(count);
         }
+        let flags = (of.into_iter())
+            .map(|(r, of_it)| {
+                let states =
+                    flags.iter().map(|flag| inventory::flag_state(of_it.iter().copied(), flag));
+                (r, states.collect())
+            })
+            .collect();
+        let mut h = Holdings {
+            merged: lists::merge_refs(items, lists::item_of),
+            numbers: Vec::new(),
+            counts,
+            flags,
+        };
+        h.numbers = (h.merged.iter())
+            .map(|m| {
+                let counts = h.held(m.key);
+                let first = m.having.first().map_or(0, |&i| counts[i]);
+                (first, counts.iter().any(|c| *c != first && *c > 0))
+            })
+            .collect();
         h
     }
 
@@ -67,9 +98,10 @@ impl<'a> Holdings<'a> {
         self.counts.iter().map(|c| c.get(&r).copied().unwrap_or(0)).collect()
     }
 
-    /// Every target's items of blueprint `r`.
-    fn items(&self, r: ResRef) -> &[&'a Struct] {
-        self.of.get(&r).map_or(&[], Vec::as_slice)
+    /// The state of flag `i` (of those [`Holdings::of`] was given) on all
+    /// the items of blueprint `r`: (on, mixed).
+    fn flag(&self, r: ResRef, i: usize) -> (bool, bool) {
+        self.flags.get(&r).and_then(|s| s.get(i)).copied().unwrap_or((false, false))
     }
 }
 
@@ -136,13 +168,22 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
         .iter()
         .map(|t| bags(t, holder).into_iter().flat_map(|(_, items)| items).collect())
         .collect();
-    let merged = lists::merge_refs(&lists_of, lists::item_of);
-    let holdings = Holdings::of(&lists_of);
     let flags: &[(&'static str, &str)] = match holder {
         Holder::Creature => &ITEM_FLAGS,
         Holder::Store => &[("Infinite", "The store never runs out of it")],
         Holder::Placeable => &[],
     };
+    let holdings: std::sync::Arc<Holdings> = super::kept_for(
+        ui.ctx(),
+        egui::Id::new(("inventory-together-held", key)),
+        &targets,
+        &holder,
+        || {
+            let labels: Vec<&str> = flags.iter().map(|(flag, _)| *flag).collect();
+            std::sync::Arc::new(Holdings::of(&lists_of, &labels))
+        },
+    );
+    let merged = &holdings.merged;
     let mut adds: Vec<Added> = Vec::new();
     let mut pasted = false;
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
@@ -187,16 +228,14 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                     }
                     ui.label("");
                     ui.end_row();
-                    for m in &merged {
+                    for (m, &(first, others)) in merged.iter().zip(&holdings.numbers) {
                         let r = m.key;
                         super::row(ui, |ui| {
                             ui.label(name_of(r)).on_hover_text(r.to_string());
                             super::entry_mark(ui, m.having.len(), total);
                         });
-                        let counts = holdings.held(r);
-                        let first = counts[m.having[0]];
                         super::row(ui, |ui| {
-                            if counts.iter().any(|c| *c != first && *c > 0) {
+                            if others {
                                 super::mixed_mark(
                                     ui,
                                     "They hold other numbers of it: this is the first's",
@@ -204,9 +243,8 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                             }
                             ui.label(format!("×{first}"));
                         });
-                        for (flag, tip) in flags {
-                            let of_it = holdings.items(r);
-                            let (on, mixed) = inventory::flag_state(of_it.iter().copied(), flag);
+                        for (i, (flag, tip)) in flags.iter().enumerate() {
+                            let (on, mixed) = holdings.flag(r, i);
                             let mut v = on;
                             let r_box = ui
                                 .add(mg_uikit::Checkbox::new(&mut v, "").indeterminate(mixed))
@@ -239,7 +277,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                                     .clicked()
                             {
                                 let mut out = lists::Outcome::default();
-                                for (t, c) in targets.iter().zip(&counts) {
+                                for (t, c) in targets.iter().zip(&holdings.held(r)) {
                                     if *c > 0 {
                                         continue;
                                     }
@@ -406,7 +444,7 @@ fn set_flag(
 fn equipment(
     f: &mut Form<'_>,
     ui: &mut Ui,
-    targets: &[lists::Target],
+    targets: &std::sync::Arc<Vec<lists::Target>>,
     names: &std::collections::HashMap<ResRef, String>,
     chosen: Option<ResRef>,
     equip: &mut Option<(u32, ResRef)>,
@@ -417,17 +455,11 @@ fn equipment(
     // (In a narrow room, the Properties panel's: the buttons on a row under
     // the slot's item.)
     let narrow = super::narrow(ui);
+    let worn_in = worn_in(ui, f.key, targets);
     mg_uikit::with_rows(ui, |ui| {
         let grid = egui::Grid::new(("equipment-together", f.key, narrow));
         grid.num_columns(if narrow { 2 } else { 3 }).striped(true).show(ui, |ui| {
-            for (bit, slot) in SLOTS {
-                let worn: Vec<Option<ResRef>> = targets
-                    .iter()
-                    .map(|t| {
-                        let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
-                        lists::item_of(e)
-                    })
-                    .collect();
+            for ((bit, slot), worn) in SLOTS.into_iter().zip(worn_in.iter()) {
                 ui.label(slot);
                 super::row(ui, |ui| {
                     if worn.iter().any(|w| *w != worn[0]) {
@@ -471,6 +503,24 @@ fn equipment(
     });
 }
 
+/// What each target wears in each of [`SLOTS`], in their order: kept
+/// while the targets are (the review's B20: read each frame, 100
+/// creatures' slots took 0.1 ms).
+fn worn_in(
+    ui: &Ui,
+    key: mg_resman::ResKey,
+    targets: &std::sync::Arc<Vec<lists::Target>>,
+) -> std::sync::Arc<Vec<Vec<Option<ResRef>>>> {
+    super::kept_for(ui.ctx(), egui::Id::new(("equipment-together-worn", key)), targets, &(), || {
+        let worn = |t: &lists::Target, bit: u32| {
+            let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
+            lists::item_of(e)
+        };
+        let slots = SLOTS.iter().map(|(bit, _)| targets.iter().map(|t| worn(t, *bit)).collect());
+        std::sync::Arc::new(slots.collect())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,11 +553,11 @@ mod tests {
         let lists_of: Vec<Vec<&Struct>> = (targets.iter())
             .map(|t| bags(t, Holder::Creature).into_iter().flat_map(|(_, items)| items).collect())
             .collect();
-        let holdings = Holdings::of(&lists_of);
-        let merged = lists::merge_refs(&lists_of, lists::item_of);
+        let holdings = Holdings::of(&lists_of, &["Dropable", "Pickpocketable"]);
+        let merged = &holdings.merged;
         let slices: Vec<&[Struct]> = targets.iter().map(|t| t.list("ItemList")).collect();
-        assert_eq!(merged, lists::merge(&slices, lists::item_of));
-        for m in &merged {
+        assert_eq!(*merged, lists::merge(&slices, lists::item_of));
+        for m in merged {
             let r = m.key;
             let a_row_at_a_time: Vec<usize> = (targets.iter())
                 .map(|t| t.list("ItemList").iter().filter(|e| lists::item_of(e) == Some(r)).count())
@@ -519,11 +569,20 @@ mod tests {
                 .copied()
                 .filter(|e| lists::item_of(e) == Some(r))
                 .collect();
-            assert_eq!(holdings.items(r), of_it, "{r}");
+            for (i, flag) in ["Dropable", "Pickpocketable"].iter().enumerate() {
+                let each = inventory::flag_state(of_it.iter().copied(), flag);
+                assert_eq!(holdings.flag(r, i), each, "{r} {flag}");
+            }
         }
         let potion = ResRef::from_str("potion").unwrap();
         assert_eq!(holdings.held(potion), [2, 1, 0]);
+        // (The first holds two, the second one: another number.)
+        let at = merged.iter().position(|m| m.key == potion).unwrap();
+        assert_eq!(holdings.numbers[at], (2, true));
         assert_eq!(holdings.held(ResRef::from_str("none").unwrap()), [0, 0, 0]);
+        // (Two potions of three set Dropable: mixed. None sets Pickpocketable.)
+        assert_eq!(holdings.flag(potion, 0), (false, true));
+        assert_eq!(holdings.flag(potion, 1), (false, false));
         // A store's pages: each its own bag, at its own path.
         let mut store = Struct::new(0);
         let page = |id: u32, items: Vec<Struct>| {

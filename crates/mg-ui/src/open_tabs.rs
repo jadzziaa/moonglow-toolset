@@ -548,7 +548,8 @@ fn parse_tab(text: &str) -> Option<Want> {
             objects: parse_list(rest, |o| {
                 let (area, path) = area_and(o)?;
                 Some((area, parse_path(&path)?))
-            })?,
+            })?
+            .into(),
         },
         "tile" => {
             let (tileset, tile) = area_and(rest)?;
@@ -819,7 +820,7 @@ impl Moonglow {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
                 vec![(*area, path.clone())]
             }
-            Tab::Instances { objects } => objects.clone(),
+            Tab::Instances { objects } => objects.to_vec(),
             _ => return Some(tab),
         };
         let ws = self.ws.as_ref()?;
@@ -843,7 +844,7 @@ impl Moonglow {
         Some(match tab {
             Tab::Instance { .. } => Tab::Instance { area, path: first },
             Tab::InstanceModel { .. } => Tab::InstanceModel { area, path: first },
-            _ => Tab::Instances { objects: again },
+            _ => Tab::Instances { objects: again.into() },
         })
     }
 
@@ -1078,7 +1079,7 @@ impl Moonglow {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {
                 vec![(*area, path.clone())]
             }
-            Tab::Instances { objects } => objects.clone(),
+            Tab::Instances { objects } => objects.to_vec(),
             _ => return,
         };
         for (area, path) in &places {
@@ -1637,10 +1638,10 @@ mod tests {
             Tab::instances(area, vec![path.clone(), GffPath::root().item("Door List", 0)]),
             // (Of several areas, each object its area's: a held item too.)
             Tab::Instances {
-                objects: vec![
+                objects: std::sync::Arc::from([
                     (area, path.clone()),
                     (ResRef::from_str("cave").unwrap(), path.item("ItemList", 2)),
-                ],
+                ]),
             },
             Tab::Tile { tileset: ResRef::from_str("ttr01").unwrap(), tile: 12 },
         ];
