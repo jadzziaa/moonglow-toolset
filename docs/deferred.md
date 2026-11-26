@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T11:22:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:34:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -222,29 +222,38 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its fix's commit: left as beyond what the reviewer's run was asked
   (at most eight new views, the largest costs). The area editor's have
   theirs since 25 November (`frame_perf::area_editor_at_scale`, [the
-  log](log.md)); what they leave, each beyond a local change: with 5,000
-  placeables selected, the Properties panel, 2.2 to 2.9 ms a frame (its
-  form of all of them 1.4 to 1.8, `follow::window_id` for each object
-  0.6), and 0.4 to 0.7 ms more at rest after a drag and its undo than
-  before it (not found); in a drag their boxes, made anew each frame as the drag
-  poses them (3 ms; kept at rest); every tile of a hilly area selected,
-  its outlines put on screen each frame the camera turns (0.8 to 1.1
-  ms); and the Position menu's walkmesh items, untimed, since the
-  scratch module has no `[bake]` (a project with one would time them).
+  log](log.md)); what they leave, timed in a quiet slot (26 November
+  07:10, the load 3 to 4, three runs): with 5,000 placeables selected,
+  +0.54 to +0.80 ms a frame at rest (from +2.07; the Properties panel
+  keeps its objects' places and counts their items anew only when they
+  change), most of it their turning rings, 96 pieces each (now kept on
+  screen while the view and the rings stand, not yet timed quietly),
+  and 0.4 to 0.7 ms more at rest after a drag and its undo than before
+  it (measured before these changes, cause not found, not timed again);
+  in a drag +3.3 to +3.5 ms (from +8.3), most of it their boxes' 480,000
+  vertices made anew each frame as the drag poses them (whether the
+  renderer should draw selection boxes is Engine and Rendering's
+  question, open); every tile of a hilly area selected, its outlines
+  put on screen each frame the camera turns (0.8 to 1.1 ms); and the
+  Position menu's walkmesh items, untimed, since the scratch module has
+  no `[bake]` (a project with one would time them).
   The blueprint editors' have theirs since 26 November
   (`frame_perf::blueprint_editors_at_scale`, [the log](log.md)); what
-  they leave, at a load of 4 to 5 (lowest of three runs, then the
-  spread): the first openings that list the install's resources, each
-  a walk of every layer's names that a per-type index in `mg-resman`
-  would shorten, beyond a local change: Select Texture's first in a load
-  order 27 ms (to 27.5; 135,094 textures), Select Portrait's 9.9 (to
-  12.4) with the install's portraits.2da and 18.8 (to 23.2) with 32,000
-  rows (likely each row's picture looked for in every layer), an item's
-  Appearance page of 999 icons 8.4 (to 8.9); a letter typed in Select
-  Texture's Find 6.4 (to 9.6) ms, at the budget (every name searched in
-  that frame); that page of 999 icons +145 (to 197) µs over the same
-  with 142 (likely each icon out of sight given its room one by one: a
-  layout by lines would change how the wrapped grid is laid out); the
+  they leave, timed in the same slot: Select Texture's first opening
+  11.7 to 12.6 ms (from 27; 135,094 textures, their names sorted as
+  numbers) and a letter typed in its Find 6.0 to 6.3 (within the
+  budget: it looks among what the last filter found); Select Portrait's
+  opening 4.8 ms with the install's portraits.2da (from 9.9) and 8.1 to
+  8.6 with 32,000 rows (from 18.8; the portraits' names gathered in one
+  walk); an item's Appearance page of 999 icons opened in 8.75 to 8.87
+  ms (its icons' numbers 1.8, the grid 1.1 to 1.3, the rest the
+  window's first frame), and +145 (to 197) µs at rest over the same
+  with 142: each icon out of sight is given its room one by one, and
+  skipping them by lines changed which icons share a line (icons in
+  sight are laid out at their own sizes, those out of sight at the
+  first one's), so it waits on a ruling for a visible change, a cell of
+  one size for every icon (test
+  `a_whole_item_s_icons_keep_their_places_scrolled_through`); the
   Custom palette with 8,000 items found against 100, List +105 (to 108),
   Gallery +150 (to 168) (likely a header built each frame for every
   category holding a find, in sight or not: laying the palette's tree
