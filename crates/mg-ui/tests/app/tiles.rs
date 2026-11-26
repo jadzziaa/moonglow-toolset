@@ -5922,10 +5922,20 @@ fn other_brushes_on_an_object_today() {
         }
         h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
         h.run_steps(2);
-        let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
-        press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+        // (Where the chest and the drag's end are on the screen, taken
+        // again once the window's own work is done before each drag: the
+        // view's camera or the chest's place, settled late on a busy
+        // machine, would have every drag start beside the chest.)
+        let ends = |h: &mut Harness<'_, Moonglow>| {
+            settle(h);
+            let on = screen(h, area, chest_at(h, area, 0) + Vec3::Z * 0.3);
+            (on, screen(h, area, Vec3::new(25.0, 25.0, 0.0)))
+        };
+        let (on, to) = ends(&mut h);
+        press_drag(&mut h, on, to, egui::Modifiers::NONE);
         // (So may the Eraser's drag choose the chest's tile as it was:
         // undone and dragged again.)
+        let mut tries = vec![changed(&mut h)];
         for _ in 0..5 {
             if mode != "Eraser" || changed(&mut h).contains(&5) {
                 break;
@@ -5934,7 +5944,13 @@ fn other_brushes_on_an_object_today() {
                 h.state_mut().ws.as_mut().unwrap().undo().unwrap();
                 h.run_steps(3);
             }
-            press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+            let (on, to) = ends(&mut h);
+            press_drag(&mut h, on, to, egui::Modifiers::NONE);
+            tries.push(changed(&mut h));
+        }
+        if mode == "Eraser" && !changed(&mut h).contains(&5) {
+            // (Said when it fails: the tiles each drag changed.)
+            eprintln!("Eraser drags from the chest's tile 5, the tiles each changed: {tries:?}");
         }
         let drag = outcome(&mut h);
         table.push(format!("{mode} | click: {click} | press-drag: {drag}"));
