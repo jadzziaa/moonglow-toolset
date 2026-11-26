@@ -313,10 +313,24 @@ impl<K: Copy + Eq + Hash + std::fmt::Debug> PaintedPictures<K> {
     /// `key`'s picture shown this frame, as its cell shows it.
     pub fn get(&mut self, key: K) -> Picture<'_> {
         self.pictures.show(key, |_| false);
-        match self.pictures.get(&key) {
+        self.peek(&key)
+    }
+
+    /// `key`'s picture as it stands, without asking for it or counting it
+    /// shown (a tip, a status line, a check): `Waiting` where none is made.
+    pub fn peek(&self, key: &K) -> Picture<'_> {
+        match self.pictures.get(key) {
             Some(PaintedPicture(Ok(texture))) => Picture::Ready(texture.id()),
             Some(PaintedPicture(Err(reason))) => Picture::Failed(reason),
             None => Picture::Waiting,
+        }
+    }
+
+    /// Why `key` has no picture, where it failed (see [`peek`](Self::peek)).
+    pub fn failed(&self, key: &K) -> Option<&str> {
+        match self.peek(key) {
+            Picture::Failed(reason) => Some(reason),
+            _ => None,
         }
     }
 
@@ -497,6 +511,30 @@ mod tests {
         frame(&mut p, &mut painter, &[3]);
         assert_eq!(asked.borrow().last(), Some(&(3, true)));
         assert!(matches!(p.get(3), Picture::Failed(r) if r.starts_with("Not drawn")));
+    }
+
+    /// A failure's reason is read whenever, not only while the picture is
+    /// asked for: reading it asks for nothing and shows nothing.
+    #[test]
+    fn a_failure_is_read_without_asking() {
+        let ctx = egui::Context::default();
+        let mut p: PaintedPictures<u32> = PaintedPictures::default();
+        let mut painter = |key: u32, _| match key {
+            1 => Painted::Ready(egui::ColorImage::filled([2, 2], egui::Color32::RED)),
+            _ => Painted::Failed("no model".into()),
+        };
+        p.begin_frame();
+        for k in [1, 2] {
+            let _ = p.get(k);
+        }
+        p.pump(&ctx, &mut painter, Budget::default(), PICTURES_KEPT);
+        p.begin_frame();
+        assert_eq!(p.failed(&2), Some("no model"));
+        assert_eq!(p.failed(&1), None);
+        assert!(matches!(p.peek(&1), Picture::Ready(_)));
+        assert!(matches!(p.peek(&7), Picture::Waiting));
+        assert_eq!((p.failed(&7), p.pictures.shown_now()), (None, 0));
+        assert!(p.pictures.wanted().is_empty(), "nothing asked for");
     }
 
     /// A texture the painter drew is shown as its own, and handed back when

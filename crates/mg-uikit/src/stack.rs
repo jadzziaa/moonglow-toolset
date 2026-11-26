@@ -232,11 +232,16 @@ pub struct StackDrop<'a, P> {
 impl<P: Copy + PartialEq> StackDrop<'_, P> {
     /// Where `dragged` lands with the pointer at `pos`, and the rectangle
     /// to outline there ([`paint_drop_preview`]); none outside the pane or
-    /// over the section it is alone in.
+    /// over the section it is alone in. A pane with no sections takes it
+    /// anywhere, the whole pane outlined: its one section
+    /// ([`StackLayout::apply`] on an empty stack).
     pub fn target(&self, dragged: P, pos: Pos2) -> Option<(StackZone, Rect)> {
         let pane = self.pane;
         if !pane.contains(pos) {
             return None;
+        }
+        if self.sections.is_empty() {
+            return Some((StackZone::Into { col: 0, sec: 0 }, pane));
         }
         for b in self.sections {
             let bar = b.rect.with_max_y((b.rect.top() + self.bar_height).min(b.rect.bottom()));
@@ -389,8 +394,9 @@ pub fn stack_rects(column: Rect, heights: &[f32]) -> Vec<Rect> {
 
 /// A seam between stacked sections dragged ([`stack_seams`]): the line
 /// under section `index`, and every section's height with that one and
-/// the one under it changed (their sum kept, each at least
-/// [`SECTION_LEAST`] or half of it).
+/// the one under it changed (their sum kept, each at least its least,
+/// [`SECTION_LEAST`] unless [`stack_seams_least`] names its own, or
+/// half of the two).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeamDrag {
     pub index: usize,
@@ -405,6 +411,21 @@ pub struct SeamDrag {
 pub fn stack_seams(
     ui: &egui::Ui,
     rects: &[Rect],
+    salt: impl std::hash::Hash + std::fmt::Debug + Copy,
+    fixed: impl Fn(usize) -> bool,
+) -> Option<SeamDrag> {
+    stack_seams_least(ui, rects, &[], salt, fixed)
+}
+
+/// [`stack_seams`] with each section's own least height, from the top
+/// (`leasts`, as [`stack_heights`] takes them; [`SECTION_LEAST`] past
+/// their end): a seam's drag stops where either section beside it would
+/// be less (each least held to half of the two where they have not the
+/// room).
+pub fn stack_seams_least(
+    ui: &egui::Ui,
+    rects: &[Rect],
+    leasts: &[f32],
     salt: impl std::hash::Hash + std::fmt::Debug + Copy,
     fixed: impl Fn(usize) -> bool,
 ) -> Option<SeamDrag> {
@@ -423,15 +444,21 @@ pub fn stack_seams(
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
         let (Some(at), true) = (seam.interact_pointer_pos(), seam.dragged()) else { continue };
-        let pair = rects[i].height() + rects[i + 1].height();
-        let least = SECTION_LEAST.min(pair / 2.0);
-        let upper = (at.y - rects[i].top()).clamp(least, pair - least);
-        let mut heights: Vec<f32> = rects.iter().map(Rect::height).collect();
-        heights[i] = upper;
-        heights[i + 1] = pair - upper;
-        drag = Some(SeamDrag { index: i, heights });
+        drag = Some(seam_dragged(rects, leasts, i, at.y));
     }
     drag
+}
+
+/// The heights with the seam under section `index` of `rects` dragged to
+/// `y` ([`stack_seams_least`]).
+fn seam_dragged(rects: &[Rect], leasts: &[f32], index: usize, y: f32) -> SeamDrag {
+    let pair = rects[index].height() + rects[index + 1].height();
+    let least = |i: usize| leasts.get(i).copied().unwrap_or(SECTION_LEAST).min(pair / 2.0);
+    let upper = (y - rects[index].top()).clamp(least(index), pair - least(index + 1));
+    let mut heights: Vec<f32> = rects.iter().map(Rect::height).collect();
+    heights[index] = upper;
+    heights[index + 1] = pair - upper;
+    SeamDrag { index, heights }
 }
 
 /// The seam between two columns at `x` in `pane` (a drag alone, 3 points
@@ -655,6 +682,48 @@ mod tests {
         assert_eq!(at(true, Properties, 10.0, 300.0), Some(StackZone::Column { last: false }));
         assert_eq!(at(true, Properties, 295.0, 100.0), Some(StackZone::Column { last: true }));
         assert_eq!(at(true, Properties, 400.0, 100.0), None, "outside the pane");
+    }
+
+    #[test]
+    fn an_empty_stack_takes_a_drop_as_its_one_section() {
+        let pane = r(0.0, 0.0, 300.0, 600.0);
+        for new_columns in [false, true] {
+            let drop = StackDrop::<P> { pane, sections: &[], bar_height: 24.0, new_columns };
+            for pos in [pane.center(), pane.left_top() + egui::vec2(5.0, 5.0)] {
+                let (zone, preview) =
+                    drop.target(Properties, pos).expect("a drop on the empty stack");
+                assert_eq!(preview, pane);
+                let empty = StackLayout::<P>::default();
+                let rules = StackRules { all: &[], most_columns: 2, default: StackLayout::default };
+                assert_eq!(
+                    empty.apply(&rules, Properties, zone).columns,
+                    vec![vec![vec![Properties]]]
+                );
+            }
+            assert_eq!(drop.target(Properties, egui::pos2(400.0, 10.0)), None, "outside the pane");
+        }
+        let docks = DockDrop::new()
+            .dock(1, StackDrop::<P> { pane, sections: &[], bar_height: 24.0, new_columns: false });
+        assert_eq!(docks.target(Preview, pane.center()).map(|t| t.dock), Some(1));
+    }
+
+    /// A seam's drag stops at each section's own least, 80 where it names
+    /// none, half of the two where they have not the room; the first
+    /// section's 55% share kept to by the heights.
+    #[test]
+    fn a_seam_stops_at_each_section_s_own_least() {
+        let column = r(0.0, 0.0, 200.0, 601.0);
+        let rects = stack_rects(column, &stack_heights(600.0, &[0.55, 0.45], &[90.0, 120.0]));
+        assert_eq!(rects[0].height(), 330.0);
+        let leasts = [90.0, 120.0];
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 10.0).heights, [90.0, 510.0]);
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 590.0).heights, [480.0, 120.0]);
+        assert_eq!(seam_dragged(&rects, &[], 0, 10.0).heights, [80.0, 520.0]);
+        assert_eq!(seam_dragged(&rects, &leasts, 0, 200.0).heights, [200.0, 400.0]);
+        let short = stack_rects(column, &[100.0, 60.0]);
+        assert_eq!(seam_dragged(&short, &leasts, 0, 0.0).heights, [80.0, 80.0]);
+        let three = stack_rects(column, &stack_heights(600.0, &[1.0, 1.0, 1.0], &[]));
+        assert_eq!(seam_dragged(&three, &[0.0, 0.0, 150.0], 1, 10.0).heights, [200.0, 0.0, 400.0]);
     }
 
     #[test]
