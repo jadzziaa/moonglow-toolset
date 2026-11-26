@@ -2438,7 +2438,14 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
     // first out, a gallery of thousands dragged to its end had every row
     // seen for a frame read, uploaded and dropped before those in sight.)
     let asked: std::collections::HashSet<Kept> = wanted.iter().copied().collect();
-    app.thumbnails.ready.retain(|k, _| asked.contains(k));
+    // (Let go of on a thread of their own: their models' buffers and
+    // textures, dropped on the window's, took 57 ms in a frame of a
+    // gallery dragged past hundreds of rows.)
+    let gone: Vec<Ready> =
+        app.thumbnails.ready.extract_if(|k, _| !asked.contains(k)).map(|(_, r)| r).collect();
+    if !gone.is_empty() {
+        std::thread::spawn(move || drop(gone));
+    }
     if let Some(reader) = &app.thumbnails.reader {
         for kept in reader.keep(&asked) {
             app.thumbnails.loading.remove(&kept);
