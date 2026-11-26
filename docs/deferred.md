@@ -161,7 +161,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its draws
   encoded in 6.1 ms (7.4); TDoD's synthetic
   woods (33,000 meshes in sight, 25,000 draws of meshes mostly drawn
-  once each) 14 to 31 ms, as before. Done that day: the lights' sets
+  once each) 14 to 31 ms, as before (its overview with 4x MSAA and the
+  Shaders on lands in one of two GPU levels from run to run, the code
+  unchanged: the median pinned near 11.2 ms and the quickest tenth 6.8
+  to 8.0, or a median of 6 to 8.5 and a tenth of 5.3 to 6.9; the slow
+  level goes with the card's automatic clocks settling low, not with
+  memory. Compare two builds in one run on alternate frames, or by many
+  runs sorted by level; [the frames note](research/notes_frames.md), 26
+  November). Done that day: the lights' sets
   numbered as a mesh's lights are chosen and a mesh's choice found by
   its place among the scene's meshes, the sun's shadows planned and the
   game's solid draws sorted on threads beside the other work (the
