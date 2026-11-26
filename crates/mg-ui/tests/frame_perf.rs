@@ -29,8 +29,10 @@
 //! the GPU holds after each view (and what of it), `FRAME_KEEP_TEXTURES=1`
 //! keeps the textures of what was shown before an area opens, and
 //! `FRAME_STALE_KEPT=<MiB>` keeps that much of those not drawn lately, and
-//! `FRAME_TEXTURE_LIMIT=<pixels>` is Options › Area › Largest textures.
-//! (With another program drawing, the game say,
+//! `FRAME_TEXTURE_LIMIT=<pixels>` is Options › Area › Largest textures,
+//! and `FRAME_UNCOMPRESSED=1` uploads TGAs and PLTs as RGBA8, not
+//! compressed as they are read, and `FRAME_SAMPLES=1` (or `2`) is
+//! Options › Area › Anti-aliasing Off (or 2×). (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
@@ -1038,6 +1040,8 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
     }
     // (`FRAME_SHADOW_QUALITY=high`: the area views' shadows as stencil
     // volumes, Options › Area's High.)
+    // (`FRAME_SAMPLES=1` or `2`: Options › Area › Anti-aliasing.)
+    app.settings.anti_aliasing = std::env::var("FRAME_SAMPLES").ok().and_then(|n| n.parse().ok());
     if std::env::var("FRAME_SHADOW_QUALITY").is_ok_and(|q| q.eq_ignore_ascii_case("high")) {
         app.settings.shadow_quality = mg_ui::settings::ShadowQuality::High;
     }
@@ -1145,6 +1149,11 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     // area a module opens itself was drawn as it opened. With
     // `FRAME_KEEP_TEXTURES`, those of what was shown before kept, as a
     // session keeps them.)
+    // (`FRAME_UNCOMPRESSED=1`: the TGAs and PLTs uploaded as RGBA8, as
+    // before 2026-11-25, not compressed as they are read.)
+    if let Some(vp) = h.state_mut().viewport.as_mut() {
+        vp.gpu.set_compress_read_textures(std::env::var_os("FRAME_UNCOMPRESSED").is_none());
+    }
     if let Some(vp) = h.state_mut().viewport.as_mut()
         && std::env::var_os("FRAME_KEEP_TEXTURES").is_none()
     {
@@ -1169,6 +1178,22 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         }
         let drawn = app.viewport.as_ref().map(|v| v.renderer.drawn).unwrap_or_default();
         let pending = drawn.textures_pending + drawn.volumes_pending;
+        // (`FRAME_DETAIL`: each frame of the opening, what the view had and
+        // waited for by its end.)
+        if r.detail {
+            println!(
+                "      opening frame at {:.1} ms, {:.1} ms: shown {}, {} pictures, \
+                 {} textures waited for ({} read), {} volumes, {} programs",
+                ms(begun.elapsed()),
+                ms(took),
+                view.is_some_and(|v| v.model.is_some()),
+                view.map_or(0, |v| v.pictures),
+                drawn.textures_pending,
+                app.viewport.as_ref().map_or(0, |v| v.renderer.textures_read()),
+                drawn.volumes_pending,
+                drawn.game_pending,
+            );
+        }
         if drawn.volumes_pending > 0 {
             volumes_from.get_or_insert(begun.elapsed());
             volumes_until = Some(begun.elapsed());

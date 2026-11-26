@@ -1212,6 +1212,12 @@ impl AreaView {
         self.targets.as_ref().map(|(t, _)| t.size)
     }
 
+    /// The samples a pixel its picture is drawn with (Options › Area ›
+    /// Anti-aliasing), where it has targets.
+    pub fn picture_samples(&self) -> Option<u32> {
+        self.targets.as_ref().map(|(t, _)| t.samples)
+    }
+
     /// Whether its picture's targets are held (drawn into, and shown).
     pub fn holds_targets(&self) -> bool {
         self.targets.is_some()
@@ -3965,7 +3971,13 @@ fn viewport(
         sound_ranges: sound_ranges.clone(),
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
+    // (Every texture the picture waited for read: drawn again now, not at
+    // the next step.)
+    let read_all = vp.renderer.drawn.textures_pending > 0
+        && vp.renderer.textures_still_read() == 0
+        && vp.renderer.textures_read() != view.textures_drawn;
     let kept = !follows
+        && !read_all
         && view.targets.as_ref().is_some_and(|(t, _)| t.size == (w, h))
         && view.drawn.as_ref().is_some_and(|(was, _)| *was == from)
         && since.is_some_and(|s| (0.0..ANIMATION_STEP).contains(&s));

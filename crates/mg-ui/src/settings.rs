@@ -748,6 +748,9 @@ pub struct Settings {
     /// pixels the area views draw their pictures at, percent (shown
     /// stretched to the view); `None`, all of them.
     pub area_resolution: Option<u8>,
+    /// Options › Area › Anti-aliasing: the samples a pixel the 3D views
+    /// draw with (1, off; 2), where the GPU takes them; `None`, four.
+    pub anti_aliasing: Option<u8>,
     /// Options › Area › Keep animating behind other windows: the 3D views'
     /// animations go on while another program's window has the focus
     /// (else they hold still there, sparing the GPU).
@@ -1955,11 +1958,17 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"no_shadows":false}"#).unwrap();
         assert_eq!(old.texture_limit, None);
         assert_eq!(old.area_resolution, None, "every pixel unless chosen");
-        let chosen =
-            Settings { texture_limit: Some(512), area_resolution: Some(50), ..Settings::default() };
+        assert_eq!(old.anti_aliasing, None, "four samples unless chosen");
+        let chosen = Settings {
+            texture_limit: Some(512),
+            area_resolution: Some(50),
+            anti_aliasing: Some(1),
+            ..Settings::default()
+        };
         let back: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
         assert_eq!((back.texture_limit, back.area_resolution), (Some(512), Some(50)));
+        assert_eq!(back.anti_aliasing, Some(1));
         // Animations hold still behind other windows unless kept going.
         assert!(!old.animate_unfocused);
         // A middle drag turns the area view unless asked to move it.
@@ -2864,15 +2873,16 @@ mod tests {
             let retired = ["toolbar_icons_only", "test_without_steam"];
             let kept: Vec<_> =
                 old.into_iter().filter(|(n, _)| !retired.contains(&n.as_str())).collect();
-            // (Six fields came after the file, two from develop's
-            // Builders' asks, M5's W1's, 5.2.0's W6's Smooth scrolling,
-            // W7's Colored icons and W5's Show declarations in tips:
-            // written at their defaults, the rest as it was.)
+            // (Seven fields came after the file, Anti-aliasing, two from
+            // develop's Builders' asks, M5's W1's, 5.2.0's W6's Smooth
+            // scrolling, W7's Colored icons and W5's Show declarations in
+            // tips: written at their defaults, the rest as it was.)
             let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
                 .expect("fields")
                 .into_iter()
                 .partition(|(n, _)| !kept.iter().any(|(k, _)| k == n));
             let defaults = [
+                ("anti_aliasing", "None"),
                 ("tree_tags", "false"),
                 ("tree_extensions", "false"),
                 ("appearance_portrait", "false"),

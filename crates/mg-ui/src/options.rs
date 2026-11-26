@@ -165,6 +165,7 @@ pub struct OptionsDraft {
     pub shadow_quality: crate::settings::ShadowQuality,
     pub texture_limit: Option<u16>,
     pub area_resolution: Option<u8>,
+    pub anti_aliasing: Option<u8>,
     pub animate_unfocused: bool,
     pub middle_drag_moves: bool,
     pub edit_group_tiles: bool,
@@ -337,6 +338,7 @@ impl OptionsDraft {
             shadow_quality: s.shadow_quality,
             texture_limit: s.texture_limit,
             area_resolution: s.area_resolution,
+            anti_aliasing: s.anti_aliasing,
             animate_unfocused: s.animate_unfocused,
             middle_drag_moves: s.middle_drag_moves,
             edit_group_tiles: s.edit_group_tiles,
@@ -460,6 +462,7 @@ impl OptionsDraft {
             shadow_quality,
             texture_limit,
             area_resolution,
+            anti_aliasing,
             animate_unfocused,
             middle_drag_moves,
             edit_group_tiles,
@@ -588,6 +591,7 @@ impl OptionsDraft {
             shadow_quality: self.shadow_quality,
             texture_limit: self.texture_limit,
             area_resolution: self.area_resolution,
+            anti_aliasing: self.anti_aliasing,
             animate_unfocused: self.animate_unfocused,
             middle_drag_moves: self.middle_drag_moves,
             edit_group_tiles: self.edit_group_tiles,
@@ -754,6 +758,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let this_run = app.settings.user_dir_this_run.clone();
     let drawing_with = app.drawing_with.clone();
     let passes_over = app.renderer_check.passes_over.clone();
+    // (What Anti-aliasing offers: the counts this GPU takes.)
+    let sample_counts = app.viewport.as_ref().map_or(vec![1, 4], |vp| vp.sample_counts().to_vec());
     let updates_here = app.updates.here(app.settings.update_checked);
     let mut browse = None;
     let mut close = false;
@@ -1011,6 +1017,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 });
                 texture_limit_choice(ui, &mut draft.texture_limit);
                 area_resolution_choice(ui, &mut draft.area_resolution);
+                anti_aliasing_choice(ui, &mut draft.anti_aliasing, &sample_counts);
                 ui.check_box(&mut draft.animate_unfocused, "Keep animating behind other windows")
                     .on_hover_text(
                         "Keep playing animations while another program has the focus. Off \
@@ -1397,6 +1404,32 @@ fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
             .on_hover_text(
                 "For a slow GPU: draw the area views at this share of the screen's pixels",
             );
+    });
+}
+
+/// The samples a pixel Options › Area › Anti-aliasing draws the 3D views
+/// with (`None`: four), as `offered` takes them: the most of those
+/// offered up to the count chosen.
+pub(crate) fn samples_drawn(chosen: Option<u8>, offered: &[u32]) -> u32 {
+    let wanted = chosen.map_or(4, u32::from);
+    offered.iter().copied().filter(|&n| n <= wanted).max().unwrap_or(1)
+}
+
+/// Options › Area › Anti-aliasing: the samples a pixel the 3D views draw
+/// with, of those the GPU takes (`offered`), for a GPU that draws them
+/// slowly.
+fn anti_aliasing_choice(ui: &mut Ui, samples: &mut Option<u8>, offered: &[u32]) {
+    let name = |s: &Option<u8>| match s.map_or(4, u32::from) {
+        1 => "Off".to_string(),
+        n => format!("{n}×"),
+    };
+    let choices: Vec<Option<u8>> = offered.iter().map(|&n| (n != 4).then_some(n as u8)).collect();
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Anti-aliasing");
+        crate::widgets::dropdown("anti-aliasing")
+            .selected_text(name(samples))
+            .show(ui, samples, &choices, name)
+            .on_hover_text("For a slow GPU: smooth the 3D views' edges less, or not at all");
     });
 }
 
@@ -2635,7 +2668,10 @@ mod tests {
         d.texture_limit = Some(512);
         assert_eq!(d.area_resolution, None, "every pixel unless asked");
         d.area_resolution = Some(75);
+        assert_eq!(d.anti_aliasing, None, "four samples unless asked");
+        d.anti_aliasing = Some(2);
         let t = d.apply(&s);
+        assert_eq!(t.anti_aliasing, Some(2));
         assert_eq!(t.shadow_quality, ShadowQuality::High);
         assert_eq!((t.texture_limit, t.area_resolution), (Some(512), Some(75)));
         assert!(t.no_spawn_markers && !t.no_door_arrows);
