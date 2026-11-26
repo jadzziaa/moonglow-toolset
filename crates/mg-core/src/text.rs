@@ -96,6 +96,20 @@ impl Needle {
         self.finds_in(&[folded])
     }
 
+    /// Whether everything it finds, `wider` finds too: each of `wider`'s
+    /// words is in one of its own (a key typed after them), so a list can
+    /// look for it among what `wider` found rather than in every name.
+    pub fn narrows(&self, wider: &Needle) -> bool {
+        self.in_order == wider.in_order
+            && wider.words.iter().all(|w| match self.in_order {
+                true => self.words.iter().any(|n| {
+                    let mut letters = n.chars();
+                    w.chars().all(|c| letters.any(|x| x == c))
+                }),
+                false => self.words.iter().any(|n| n.contains(w.as_str())),
+            })
+    }
+
     /// Whether it looks for a single word.
     pub fn is_single_word(&self) -> bool {
         self.words.len() == 1
@@ -421,6 +435,42 @@ mod tests {
         assert_eq!(line_of(text, usize::MAX), 4, "past the end: the last line");
         assert_eq!(line_of(b"", 0), 1);
         assert_eq!(line_ends(text), 3);
+    }
+
+    /// A filter narrows another where everything it finds the other finds:
+    /// a key typed after it, a word added, its words in another order; not
+    /// a key taken back, a word split in two, or a search by letters in
+    /// order against one by words. Over a few names, what it finds is
+    /// within what the wider finds wherever it says it narrows.
+    #[test]
+    fn a_filter_narrows_another_only_where_it_finds_within_it() {
+        let n = Needle::new;
+        assert!(n("gui_errorq").narrows(&n("gui_error")));
+        assert!(n("gui_error").narrows(&n("gui_error")));
+        assert!(n("Sword iron").narrows(&n("iron")));
+        assert!(n("iron sword").narrows(&n("sword IRON")));
+        assert!(n("anything").narrows(&n("")));
+        assert!(!n("gui_erro").narrows(&n("gui_error")));
+        assert!(!n("gui error").narrows(&n("gui_error")));
+        assert!(!n("").narrows(&n("a")));
+        assert!(n("lngswd").letters_in_order().narrows(&n("lsw").letters_in_order()));
+        assert!(!n("lngswd").letters_in_order().narrows(&n("lsw")));
+        assert!(!n("lsw").narrows(&n("lsw").letters_in_order()));
+        let names = ["gui_error", "gui_errorq", "iron sword", "longsword", "árbol", "lsw"];
+        let filters = ["", "gui", "gui_error", "gui error", "sword", "iron sword", "lsw", "arb"];
+        for wide in filters {
+            for narrow in filters {
+                for in_order in [false, true] {
+                    let pick = |t| if in_order { n(t).letters_in_order() } else { n(t) };
+                    let (w, x) = (pick(wide), pick(narrow));
+                    if x.narrows(&w) {
+                        for name in names {
+                            assert!(!x.finds(name) || w.finds(name), "{narrow:?} {wide:?} {name}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// A color's hex digits: either case; another length, a letter past

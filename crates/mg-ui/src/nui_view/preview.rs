@@ -22,8 +22,8 @@ mod stage;
 mod text_controls;
 mod typeset;
 
-pub(super) use layout::window_size;
 use layout::*;
+pub(super) use layout::{Measured, window_size};
 use node::{Bar, Control, Renderer, scroll_by};
 #[cfg(test)]
 use picture::image_rect;

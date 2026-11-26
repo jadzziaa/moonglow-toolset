@@ -861,6 +861,47 @@ fn a_window_resized_on_the_canvas_is_one_undo_step() {
     }
 }
 
+/// What the canvas works out of the window (its layout, the pictures and
+/// strings it names) is kept from one frame to the next while nothing can
+/// have changed the window, and worked out again after an edit on the
+/// canvas, an Undo made in the module between frames, and in Interact;
+/// what is drawn follows each (in a debug build, as the tests run, each
+/// value kept is also worked out again and compared).
+#[test]
+fn the_canvas_keeps_its_layout_only_while_the_window_is_unchanged() {
+    let mut h = harness();
+    h.run();
+    let kept = |h: &Harness<'_, Moonglow>| h.state().nui_kept(&key());
+    let closes = |h: &Harness<'_, Moonglow>| h.query_all_by_label("Canvas Button · Close").count();
+    let (generation, carried) = kept(&h);
+    h.run_steps(6);
+    let (now, carried_now) = kept(&h);
+    assert_eq!(now, generation, "frames that change nothing are of one generation");
+    assert!(carried_now >= carried + 5, "the layout kept: {carried} then {carried_now}");
+    // An edit on the canvas: a control duplicated.
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    h.run();
+    assert!(kept(&h).0 > now, "a new generation after the edit");
+    assert_eq!(closes(&h), 2, "the duplicate drawn");
+    let edited = kept(&h).0;
+    h.run_steps(4);
+    assert_eq!(kept(&h).0, edited, "and kept again once nothing changes");
+    // Undo in the module, between frames.
+    undo(&mut h);
+    assert!(kept(&h).0 > edited, "a new generation after Undo");
+    assert_eq!(closes(&h), 1, "the duplicate gone from the canvas");
+    // Interact: a session of the same window, kept with it.
+    nui_click(&mut h, "Interact");
+    h.run();
+    assert!(h.state().nui_interacts(&key()));
+    let interacting = kept(&h).0;
+    h.run_steps(4);
+    assert_eq!(kept(&h).0, interacting, "Interact's frames that change nothing");
+    assert_eq!(closes(&h), 1);
+}
+
 #[test]
 fn keys_duplicate_move_delete_undo_and_redo() {
     let mut h = harness();

@@ -181,6 +181,22 @@ fn look(disabled: bool, mode: usize, encouraged: bool) -> &'static str {
     }
 }
 
+/// The skin's key of a section's text color in a look (`button.text_hover`),
+/// named without a string made for each control drawn.
+fn text_color(section: &'static str, look: &'static str) -> &'static str {
+    macro_rules! keys {
+        ($($s:literal)*) => {
+            match (section, look) {
+                $(($s, "hover") => concat!($s, ".text_hover"),
+                ($s, "active") => concat!($s, ".text_active"),)*
+                $(($s, _) => concat!($s, ".text_normal"),)*
+                _ => "text.text_normal",
+            }
+        };
+    }
+    keys!("button" "selectable" "checkbox" "edit" "combo" "text")
+}
+
 /// The skin's section that colors a kind's text.
 fn text_section(ty: &str) -> &'static str {
     match ty {
@@ -381,7 +397,7 @@ impl Renderer<'_> {
         let a = self.assets;
         let default_color = a.color("text.color", Color32::WHITE);
         let text_section = text_section(ty);
-        let default_color = a.color(&format!("{text_section}.text_{state_key}"), default_color);
+        let default_color = a.color(text_color(text_section, state_key), default_color);
         let fg = rgba(val(&node["foreground_color"], s, row), default_color) * tint;
         let font = localized_string(&node["font"], s, row, a);
         let font = if font.is_empty() { self.window_font } else { &font };
@@ -625,5 +641,22 @@ impl Renderer<'_> {
             horizontal,
             Color32::WHITE,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each kind's text color key in each look is the one the skin names.
+    #[test]
+    fn a_text_color_key_is_its_section_and_look() {
+        for ty in ["button", "button_image", "button_select", "check", "textedit", "combo", "label"]
+        {
+            for (disabled, mode) in [(false, 1), (false, 2), (false, 3), (true, 2)] {
+                let (section, look) = (text_section(ty), look(disabled, mode, false));
+                assert_eq!(text_color(section, look), format!("{section}.text_{look}"));
+            }
+        }
     }
 }

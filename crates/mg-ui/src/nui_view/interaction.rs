@@ -15,7 +15,17 @@ pub(super) struct Session {
     pub last_event: String,
     pub closed: bool,
     pub row_values: std::collections::BTreeMap<(String, usize), Value>,
+    /// The window's generation it was last found to be of
+    /// (`State::window_gen`), so that a frame of the same one compares
+    /// nothing; and a stamp its window or settings take again each time
+    /// they change, which no other session shares (what is kept of the
+    /// window it draws is kept under it).
+    proven: u64,
+    pub revision: u64,
 }
+
+/// The next session's or change's stamp ([`Session::revision`]).
+static STAMPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 pub(super) struct Change {
     pub path: String,
@@ -75,7 +85,9 @@ impl WindowMove {
 }
 
 impl Session {
-    pub(super) fn new(doc: &Value, settings: &Settings) -> Self {
+    /// A session of `doc` and `settings`, the window of the generation
+    /// `generation` where that is known (`trusted`).
+    pub(super) fn new(doc: &Value, settings: &Settings, generation: Option<u64>) -> Self {
         let mut session = Self {
             source: doc.clone(),
             initial: settings.clone(),
@@ -84,13 +96,37 @@ impl Session {
             last_event: String::new(),
             closed: false,
             row_values: Default::default(),
+            proven: generation.unwrap_or(u64::MAX),
+            revision: 0,
         };
         session.dispatch("open", "", None, 0);
+        session.touch();
         session
     }
 
-    pub(super) fn matches(&self, doc: &Value, settings: &Settings) -> bool {
-        &self.source == doc && &self.initial == settings
+    /// Whether it is a session of `doc` and `settings`, the window of the
+    /// generation `generation` where that is known: compared only once a
+    /// generation (a combo of 10,000 entries was compared twice a frame).
+    pub(super) fn matches(
+        &mut self,
+        generation: Option<u64>,
+        doc: &Value,
+        settings: &Settings,
+    ) -> bool {
+        if generation.is_some_and(|g| g == self.proven) {
+            debug_assert!(&self.source == doc && &self.initial == settings, "a window changed");
+            return true;
+        }
+        let same = &self.source == doc && &self.initial == settings;
+        if let Some(generation) = generation.filter(|_| same) {
+            self.proven = generation;
+        }
+        same
+    }
+
+    /// Its window or settings changed.
+    fn touch(&mut self) {
+        self.revision = STAMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The client writes the constrained dimensions back to a geometry bind.
@@ -102,13 +138,17 @@ impl Session {
         let size = preview::window_size(&self.doc, &self.settings);
         let Some(bind) = self.doc["geometry"]["bind"].as_str() else { return };
         let Some(binding) = self.settings.bindings.get_mut(bind) else { return };
-        if binding.value.is_object() {
+        if binding.value.is_object()
+            && (binding.value["w"] != json!(size.x) || binding.value["h"] != json!(size.y))
+        {
             set(&mut binding.value, "w", json!(size.x));
             set(&mut binding.value, "h", json!(size.y));
+            self.touch();
         }
     }
 
     pub(super) fn collapse(&mut self, collapsed: bool) {
+        self.touch();
         if let Some(bind) = self.doc["collapsed"]["bind"].as_str().map(str::to_owned) {
             if let Some(binding) = self.settings.bindings.get_mut(&bind) {
                 binding.value = json!(collapsed);
@@ -120,6 +160,7 @@ impl Session {
     }
 
     pub(super) fn apply(&mut self, change: Change) {
+        self.touch();
         let Some(node) = self.doc.pointer_mut(&change.path) else { return };
         let id = node["id"].as_str().map_or_else(|| design::node_name(node), str::to_owned);
         let clicked = !change.normalization
@@ -174,6 +215,7 @@ impl Session {
         row: Option<usize>,
         depth: usize,
     ) {
+        self.touch();
         if depth >= 32 {
             self.last_event = "Action recursion stopped; look at the watch handlers".into();
             return;

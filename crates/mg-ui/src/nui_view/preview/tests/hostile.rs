@@ -403,7 +403,7 @@ fn gestures_and_actions_leave_odd_windows_alone() {
         }
         let mut target = doc.clone();
         states(&doc).remove(8).window_move.unwrap().apply(&mut target);
-        let mut session = interaction::Session::new(&doc, &s);
+        let mut session = interaction::Session::new(&doc, &s, None);
         session.constrain_geometry();
         session.collapse(true);
         session.collapse(false);

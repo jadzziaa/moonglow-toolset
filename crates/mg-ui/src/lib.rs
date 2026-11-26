@@ -3635,6 +3635,15 @@ impl Moonglow {
         self.nui_views.get(key).map_or(0, nui_view::copies)
     }
 
+    /// NUI window `key`'s generation (one more for each frame in which it
+    /// may have changed), and how many times its canvas drew with the
+    /// layout kept from the frame before. For the tests (batch 5 of the
+    /// timing views).
+    #[doc(hidden)]
+    pub fn nui_kept(&self, key: &ResKey) -> (u64, usize) {
+        self.nui_views.get(key).map_or((0, 0), nui_view::kept)
+    }
+
     /// Where NUI window `key`'s designer keeps its working copy's words (the
     /// window's, its root's, each variant's): the same from frame to frame
     /// while nothing copies them. For the tests (M4's U18 review).

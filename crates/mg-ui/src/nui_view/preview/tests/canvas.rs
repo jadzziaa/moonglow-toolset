@@ -175,7 +175,7 @@ fn whole_window_view_changes_only_root_and_reset_restores_it() {
         extra: Default::default(),
     });
     let doc = mg_nui::window();
-    let mut session = interaction::Session::new(&doc, &settings);
+    let mut session = interaction::Session::new(&doc, &settings, None);
     session.row_values.insert(("old_list".into(), 0), true.into());
     session.dispatch("click", "details_button", None, 0);
     let mut expected = doc.clone();
@@ -183,7 +183,7 @@ fn whole_window_view_changes_only_root_and_reset_restores_it() {
     assert_eq!(session.doc, expected);
     assert!(session.row_values.is_empty());
     assert_eq!(settings.variants["details"]["value"], "Details");
-    assert_eq!(interaction::Session::new(&doc, &settings).doc, doc);
+    assert_eq!(interaction::Session::new(&doc, &settings, None).doc, doc);
 }
 
 #[test]
