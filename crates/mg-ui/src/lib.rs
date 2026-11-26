@@ -994,6 +994,11 @@ pub struct Moonglow {
     /// Why a side editor's document could not be saved, the last time it
     /// was tried: said in its closing question and under its editor.
     pub(crate) side_failed: Option<(Tab, String)>,
+    /// What waits for the module's Save's haks to be written (their jobs,
+    /// one after another), while they are: the plugins told of the save,
+    /// and what the save was for (Test Module, Exit, another module...).
+    /// Each is given whether every hak was saved ([`Moonglow::when_saved`]).
+    pub(crate) saved_waits: Option<Vec<hak_view::AfterSave>>,
     /// The actions of the batch `run_actions` runs that have not run yet.
     pub(crate) batch_rest: Vec<Action>,
     /// The side editor (or the talk table's) under the pointer, as drawn
@@ -1883,6 +1888,7 @@ impl Moonglow {
             side_closing: Default::default(),
             side_then: None,
             side_failed: None,
+            saved_waits: None,
             batch_rest: Vec::new(),
             undo_under_pointer: None,
             undo_keys: None,
@@ -5202,6 +5208,95 @@ impl Moonglow {
         }
     }
 
+    /// What [`Action::SaveThen`] does once the module is saved and its
+    /// haks written (`logged`: the log's length as it began): with the
+    /// module's save failed, its question again, saying why; with nothing
+    /// unsaved, `next`; with only an editor beside it unsaved (a hak whose
+    /// write failed, was canceled, or the module's Save does not write),
+    /// that editor's question, then `next`.
+    fn saved_then(&mut self, next: Action, logged: usize) {
+        let module_unsaved = self.has_unsaved_work() && !self.only_side_unsaved();
+        // (The module's save failed, said in the log: its question
+        // again, saying why, rather than nothing and the Exit
+        // dropped. Not where nothing failed: Save As's dialog
+        // canceled.)
+        let failed = (self.log.entries[logged.min(self.log.entries.len())..].iter())
+            .rev()
+            .find(|(level, _)| *level == Level::Error)
+            .map(|(_, m)| m.clone());
+        if module_unsaved && let Some(why) = failed {
+            self.module_failed = Some(why);
+            self.confirm_discard = Some(next);
+        } else if !self.has_unsaved_work() {
+            self.run_now(next);
+        } else if self.only_side_unsaved() {
+            // (Saved, but for an editor beside it that the module's
+            // Save does not save, a new hak say, or a hak that could not
+            // be written: its question (why, for that one), then what
+            // was asked for.)
+            self.ask_side_docs(next);
+        }
+    }
+
+    /// Runs `then` once the module's Save's haks are written (given
+    /// whether every one was saved): at once where none is being written.
+    pub(crate) fn when_saved(&mut self, then: impl FnOnce(&mut Moonglow, bool) + 'static) {
+        match &mut self.saved_waits {
+            Some(waits) => waits.push(Box::new(then)),
+            None => then(self, true),
+        }
+    }
+
+    /// Whether a hak is being written (the module's Save's, or the hak
+    /// editor's own), said in the log if so: no save starts meanwhile, nor
+    /// what would follow it (which would read the file half-written).
+    fn refuse_save_under_hak(&mut self) -> bool {
+        let writing = self.job.as_ref().filter(|j| j.title == hak_view::SAVE_JOB);
+        let Some(title) = writing
+            .map(|j| j.title.clone())
+            .or_else(|| self.saved_waits.as_ref().map(|_| hak_view::SAVE_JOB.to_string()))
+        else {
+            return false;
+        };
+        self.log
+            .warn(format!("{title} is still running: wait for it to finish, or cancel it, first"));
+        true
+    }
+
+    /// The module's Save's haks (`haks`, each with unsaved changes and saved
+    /// with it), written one after another as jobs, and then what waits for
+    /// them ([`Moonglow::when_saved`]): the plugins told of the save first
+    /// (`module_saved`). Written inside the frame, a hak of gigabytes stood
+    /// the window still.
+    fn save_haks(&mut self, haks: Vec<u32>, module_saved: bool) {
+        if !haks.is_empty() && self.saved_waits.is_none() {
+            self.saved_waits = Some(Vec::new());
+        }
+        if module_saved {
+            self.when_saved(|app, _| app.plugins_module_saved());
+        }
+        self.save_next_hak(haks.into(), true);
+    }
+
+    /// The next of the module's Save's haks written ([`Moonglow::save_haks`]),
+    /// or, with none left, what waited for them, told whether all were
+    /// saved (`all`, so far). One that fails or is canceled does not stop the
+    /// others.
+    fn save_next_hak(&mut self, mut haks: std::collections::VecDeque<u32>, all: bool) {
+        match haks.pop_front() {
+            Some(id) => hak_view::save_and(
+                self,
+                id,
+                Box::new(move |app, saved| app.save_next_hak(haks, all && saved)),
+            ),
+            None => {
+                for then in self.saved_waits.take().unwrap_or_default() {
+                    then(self, all);
+                }
+            }
+        }
+    }
+
     fn new_module(&mut self, name: &str) {
         let Some(game) = &self.game else {
             self.log.error("Creating a module needs the game data");
@@ -5701,6 +5796,11 @@ impl Moonglow {
             }
             Action::NewArea(spec) => self.new_area(&spec),
             Action::SaveThen(next) => {
+                // (Not while a hak is being written: what follows would run
+                // on the file half-written.)
+                if self.refuse_save_under_hak() {
+                    return;
+                }
                 // (Areas not this builder's: asked first.)
                 if claims::hold_save(self, Action::SaveThen(next.clone())) {
                     return;
@@ -5716,26 +5816,9 @@ impl Moonglow {
                 self.module_failed = None;
                 let logged = self.log.entries.len();
                 self.save(None);
-                let module_unsaved = self.has_unsaved_work() && !self.only_side_unsaved();
-                // (The module's save failed, said in the log: its question
-                // again, saying why, rather than nothing and the Exit
-                // dropped. Not where nothing failed: Save As's dialog
-                // canceled.)
-                let failed = (self.log.entries[logged.min(self.log.entries.len())..].iter())
-                    .rev()
-                    .find(|(level, _)| *level == Level::Error)
-                    .map(|(_, m)| m.clone());
-                if module_unsaved && let Some(why) = failed {
-                    self.module_failed = Some(why);
-                    self.confirm_discard = Some(*next);
-                } else if !self.has_unsaved_work() {
-                    self.run_now(*next);
-                } else if self.only_side_unsaved() {
-                    // (Saved, but for an editor beside it that the module's
-                    // Save does not save, a new hak say: its question, then
-                    // what was asked for.)
-                    self.ask_side_docs(*next);
-                }
+                // (Once its haks are written, as jobs: what follows reads
+                // them, and looks at what is unsaved then.)
+                self.when_saved(move |app, _| app.saved_then(*next, logged));
             }
             // (The module's Don't Save: an editor beside it with unsaved
             // changes is asked of by its name first, not dropped with the
@@ -5919,7 +6002,8 @@ impl Moonglow {
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),
             Action::Save => {
-                if !claims::hold_save(self, Action::Save)
+                if !self.refuse_save_under_hak()
+                    && !claims::hold_save(self, Action::Save)
                     && !plugin_events::hold_save(self, Action::Save)
                     && !bake_view::hold_save(self, Action::Save)
                 {
@@ -5959,7 +6043,9 @@ impl Moonglow {
             }
             Action::SaveAt(loc) => {
                 // (What the plugins say of what it writes, as for Save.)
-                if !plugin_events::hold_save(self, Action::SaveAt(loc.clone())) {
+                if !self.refuse_save_under_hak()
+                    && !plugin_events::hold_save(self, Action::SaveAt(loc.clone()))
+                {
                     self.save(Some(loc));
                 }
             }
@@ -6490,6 +6576,9 @@ impl Moonglow {
     }
 
     fn save(&mut self, to: Option<ModuleLocation>) {
+        if self.refuse_save_under_hak() {
+            return;
+        }
         // A module never saved is asked a place first: Save As comes back
         // here with it, and a save called off there does nothing.
         if to.is_none() && self.ws.as_ref().is_some_and(|ws| ws.module.location.is_none()) {
@@ -6561,12 +6650,13 @@ impl Moonglow {
             return;
         }
         // (Tables first: one of a hak's is saved into the hak, which is
-        // then written; one of the module's is a step saved below.)
-        self.save_side_docs();
+        // then written; one of the module's is a step saved below. The
+        // haks are written last, as jobs: `save_haks`.)
+        let haks = self.save_side_docs();
         // (The recovery copy of where it is saved from: named by that
         // place, which Save As leaves.)
         let copy_before = self.recovery_archive();
-        let Some(ws) = &mut self.ws else { return };
+        let Some(ws) = &mut self.ws else { return self.save_haks(haks, false) };
         // The custom palettes, as Aurora keeps them: the entries of the
         // blueprints added, changed or deleted since the module was opened
         // or saved are brought up to date, and nothing else is touched
@@ -6603,6 +6693,7 @@ impl Moonglow {
             Some(loc) => ws.save_as(&loc).map_err(|e| e.to_string()),
             None => ws.save().map_err(|e| e.to_string()),
         };
+        let module_saved = result.is_ok();
         match result {
             Ok(()) => {
                 let path = self.module_path().unwrap_or_default();
@@ -6617,7 +6708,6 @@ impl Moonglow {
                 }
                 self.keep_locks();
                 self.write_mod_beside_folder();
-                self.plugins_module_saved();
             }
             Err(e) => {
                 self.log.error(format!("Save failed: {e}"));
@@ -6631,6 +6721,11 @@ impl Moonglow {
         }
         self.take_project_warnings();
         self.refresh_module_layer();
+        // (The haks last, as jobs, the module written: a hak's that fails
+        // or is canceled leaves the module saved. The plugins are told of
+        // the save once they are written, and what the save was for goes
+        // on then: `when_saved`.)
+        self.save_haks(haks, module_saved);
     }
 
     /// The file that keeps the locks of the open project, if it is one.
@@ -7156,7 +7251,22 @@ impl Moonglow {
         }
         if !stale.is_empty() {
             self.save(None);
+            // (The game reads the haks written with it: started once they
+            // are, as jobs, and not where one could not be.)
+            self.when_saved(move |app, saved| match saved {
+                true => app.test_saved_module(choose),
+                false => app.log.error(
+                    "Test Module: the game was not started, as a hak could not be saved (see above)",
+                ),
+            });
+            return;
         }
+        self.test_saved_module(choose);
+    }
+
+    /// Test Module once the module is saved: the game started on it (a
+    /// nasher project packed first).
+    fn test_saved_module(&mut self, choose: bool) {
         if let Some(ws) = &self.ws {
             let left = nui_view::stale_windows(&ws.module);
             if !left.is_empty() {

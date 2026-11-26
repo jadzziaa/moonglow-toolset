@@ -290,6 +290,202 @@ pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
     Ok(go.len())
 }
 
+/// [`copy`], saying how far it is and letting it be stopped: `step` is
+/// told the bytes copied so far and the bytes to copy in all (as the copy
+/// begins, about every megabyte, and once all are written, before any is
+/// moved into its place), and stops the copy by saying `false`. Stopped,
+/// nothing is left of it (no file in the user's folders is touched, none
+/// half-written beside them) and `None` is returned; else how many were
+/// copied. An archive's files it does not want are read through all the
+/// same (a solid archive's), and `step` is asked as they are.
+pub fn copy_with(
+    placements: &[Placement],
+    replace: bool,
+    step: impl FnMut(u64, u64) -> bool + 'static,
+) -> Result<Option<usize>, String> {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let go: Vec<&Placement> = placements
+        .iter()
+        .filter(|p| match p.there {
+            There::Nothing => true,
+            There::Different => replace,
+            There::Same => false,
+        })
+        .collect();
+    let part = |p: &Placement| crate::sibling(&p.to, crate::WRITING);
+    let mut archives: BTreeMap<&Path, BTreeMap<String, PathBuf>> = BTreeMap::new();
+    for p in &go {
+        if let Some(entry) = &p.entry {
+            archives.entry(&p.from).or_default().insert(entry.clone(), part(p));
+        }
+    }
+    // The bytes to copy: the files' sizes, and the archives' entries' as
+    // they list them.
+    let mut total = 0u64;
+    for p in go.iter().filter(|p| p.entry.is_none()) {
+        total +=
+            std::fs::metadata(&p.from).map_err(|e| format!("{}: {e}", p.from.display()))?.len();
+    }
+    for (from, parts) in &archives {
+        let Some(kind) = archive::Kind::of(from) else {
+            return Err(format!("{}: not an archive Moonglow reads", from.display()));
+        };
+        let listed = archive::list(kind, from, &|name| parts.contains_key(name))?;
+        total += listed.iter().filter(|l| parts.contains_key(&l.name)).map(|l| l.size).sum::<u64>();
+    }
+    let meter = Rc::new(RefCell::new(Meter {
+        done: 0,
+        seen: 0,
+        total,
+        step: Box::new(step),
+        stopped: false,
+    }));
+    if !meter.borrow_mut().ask() {
+        return Ok(None);
+    }
+    for p in &go {
+        let dir = p.to.parent().expect("in a folder");
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let mut written = Ok(());
+    // Files as they are, then each archive's.
+    for p in go.iter().filter(|p| p.entry.is_none()) {
+        written =
+            copy_metered(&p.from, &part(p), &meter).map_err(|e| format!("{}: {e}", p.to.display()));
+        if written.is_err() {
+            break;
+        }
+    }
+    for (from, parts) in &archives {
+        if written.is_err() {
+            break;
+        }
+        let kind = archive::Kind::of(from).expect("listed above");
+        let wanted: BTreeSet<String> = parts.keys().cloned().collect();
+        let skipped = meter.clone();
+        written = archive::extract_with(
+            kind,
+            from,
+            &wanted,
+            &mut |name| {
+                let to = &parts[name];
+                let f = std::fs::File::create(to).map_err(|e| format!("{}: {e}", to.display()))?;
+                Ok(Box::new(Metered { to: Some(f), meter: meter.clone() }))
+            },
+            &mut || Box::new(Metered::<std::fs::File> { to: None, meter: skipped.clone() }),
+        );
+    }
+    // (Stopped before a failure: a stop said as an error by the archive's
+    // reader is a stop.)
+    let mut stopped = meter.borrow().stopped;
+    if !stopped && written.is_ok() {
+        stopped = !meter.borrow_mut().last();
+    }
+    if stopped || written.is_err() {
+        for p in &go {
+            let _ = std::fs::remove_file(part(p));
+        }
+        return if stopped { Ok(None) } else { written.map(|()| None) };
+    }
+    for (i, p) in go.iter().enumerate() {
+        if let Err(e) = std::fs::rename(part(p), &p.to) {
+            for q in &go[i..] {
+                let _ = std::fs::remove_file(part(q));
+            }
+            return Err(format!("{}: {e}", p.to.display()));
+        }
+    }
+    Ok(Some(go.len()))
+}
+
+/// How far [`copy_with`] is: the bytes written, those passed through (an
+/// archive's files not wanted too), and what it tells of them.
+struct Meter {
+    done: u64,
+    seen: u64,
+    total: u64,
+    step: Box<dyn FnMut(u64, u64) -> bool>,
+    stopped: bool,
+}
+
+impl Meter {
+    /// Asks whether to go on, telling how far it is: whether to.
+    fn ask(&mut self) -> bool {
+        if !self.stopped && !(self.step)(self.done.min(self.total), self.total) {
+            self.stopped = true;
+        }
+        !self.stopped
+    }
+
+    /// `n` bytes more passed (and written, with `counts`): asked again
+    /// at each megabyte. Whether to go on.
+    fn passed(&mut self, n: u64, counts: bool) -> bool {
+        let before = self.seen >> 20;
+        self.seen += n;
+        if counts {
+            self.done += n;
+        }
+        if self.seen >> 20 != before { self.ask() } else { !self.stopped }
+    }
+
+    /// Everything written: told so, and asked a last time.
+    fn last(&mut self) -> bool {
+        self.done = self.total;
+        self.ask()
+    }
+}
+
+/// A writer that tells a [`Meter`] what passes through it (into `to`, or
+/// nowhere: an archive's file not wanted), and fails once it is stopped.
+struct Metered<W> {
+    to: Option<W>,
+    meter: std::rc::Rc<std::cell::RefCell<Meter>>,
+}
+
+impl<W: std::io::Write> std::io::Write for Metered<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let n = match &mut self.to {
+            Some(to) => to.write(bytes)?,
+            None => bytes.len(),
+        };
+        match self.meter.borrow_mut().passed(n as u64, self.to.is_some()) {
+            true => Ok(n),
+            false => Err(std::io::Error::other("stopped")),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.to.as_mut().map_or(Ok(()), std::io::Write::flush)
+    }
+}
+
+/// Copies the file `from` to `to` through a [`Meter`], a megabyte at a
+/// time, with `from`'s permissions (as `std::fs::copy` gives them).
+fn copy_metered(
+    from: &Path,
+    to: &Path,
+    meter: &std::rc::Rc<std::cell::RefCell<Meter>>,
+) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut source = std::fs::File::open(from)?;
+    let permissions = source.metadata()?.permissions();
+    let mut out = Metered { to: Some(std::fs::File::create(to)?), meter: meter.clone() };
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = match source.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        out.write_all(&buf[..n])?;
+    }
+    out.flush()?;
+    drop(out);
+    std::fs::set_permissions(to, permissions)
+}
+
 /// The module's hak list with `haks` at the top, in order (one already
 /// listed moves up); each name written as [`mg_resman::file_name_bytes`]
 /// has it, the bytes of its file's name.
@@ -598,6 +794,107 @@ mod tests {
             })
             .collect();
         assert_eq!(names, ["a", "b", "z"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The files of a folder (none but the names given there).
+    fn files_in(dir: &Path) -> BTreeSet<String> {
+        std::fs::read_dir(dir)
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Add Haks' copy with its progress: it is told the bytes copied of
+    /// those to copy, up to all of them, and copies what `copy` copies
+    /// (one that differs only when asked to replace it; one the same,
+    /// never), an archive's files as well as files.
+    #[test]
+    fn a_copy_with_progress_reaches_its_total_and_replaces_as_copy_does() {
+        let dir = mg_testkit::scratch_dir("mg-attach-progress");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (dl, user) = (dir.join("download"), dir.join("user"));
+        std::fs::create_dir_all(&dl).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        // (Larger than a megabyte, to be told of on the way.)
+        let big: Vec<u8> = (0..(3 << 20) + 17).map(|i| (i % 251) as u8).collect();
+        std::fs::write(dl.join("big.hak"), &big).unwrap();
+        std::fs::write(dl.join("same.hak"), "same").unwrap();
+        std::fs::write(dl.join("other.hak"), "new").unwrap();
+        std::fs::write(user.join("hak/same.hak"), "same").unwrap();
+        std::fs::write(user.join("hak/other.hak"), "old").unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/archives");
+        let mut files: Vec<PathBuf> =
+            ["big.hak", "same.hak", "other.hak"].iter().map(|n| dl.join(n)).collect();
+        files.push(fixtures.join("content.7z"));
+        let place = || placements(&user.join("hak"), &user.join("tlk"), &files).unwrap();
+        let archived: u64 = {
+            let listed =
+                archive::list(archive::Kind::SevenZ, &fixtures.join("content.7z"), &|_| true)
+                    .unwrap();
+            let named: BTreeSet<_> =
+                place().iter().filter_map(|p| p.entry.clone()).collect::<BTreeSet<_>>();
+            listed.iter().filter(|l| named.contains(&l.name)).map(|l| l.size).sum()
+        };
+        let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(u64, u64)>::new()));
+        let noted = told.clone();
+        let copied = copy_with(&place(), false, move |done, total| {
+            noted.borrow_mut().push((done, total));
+            true
+        })
+        .unwrap();
+        // big.hak and the archive's three; not the same one, nor the other.
+        assert_eq!(copied, Some(4));
+        let told = told.borrow();
+        let total = big.len() as u64 + archived;
+        assert!(told.iter().all(|(_, t)| *t == total), "{told:?}");
+        assert_eq!(told.first(), Some(&(0, total)));
+        assert_eq!(told.last(), Some(&(total, total)), "it reaches its total");
+        assert!(told.windows(2).all(|w| w[0].0 <= w[1].0), "never back: {told:?}");
+        assert!(told.len() > 3, "on the way too: {told:?}");
+        assert_eq!(std::fs::read(user.join("hak/big.hak")).unwrap(), big);
+        assert_eq!(std::fs::read_to_string(user.join("hak/other.hak")).unwrap(), "old");
+        // Replacing: the one that differs alone.
+        assert_eq!(copy_with(&place(), true, |_, _| true).unwrap(), Some(1));
+        assert_eq!(std::fs::read_to_string(user.join("hak/other.hak")).unwrap(), "new");
+        assert_eq!(copy_with(&place(), true, |_, _| true).unwrap(), Some(0), "all there");
+        assert!(!files_in(&user.join("hak")).iter().any(|f| f.contains(crate::WRITING)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Add Haks' Cancel: a copy stopped on the way, or as its last file is
+    /// written, leaves nothing of it in the user's folders (no file
+    /// half-written, none replaced), from files and from an archive alike.
+    #[test]
+    fn a_copy_stopped_leaves_no_file_behind() {
+        let dir = mg_testkit::scratch_dir("mg-attach-stopped");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (dl, user) = (dir.join("download"), dir.join("user"));
+        std::fs::create_dir_all(&dl).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        let big = vec![7u8; (4 << 20) + 3];
+        std::fs::write(dl.join("big.hak"), &big).unwrap();
+        std::fs::write(dl.join("other.hak"), "new").unwrap();
+        std::fs::write(user.join("hak/other.hak"), "old").unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/archives");
+        let files = [dl.join("big.hak"), dl.join("other.hak"), fixtures.join("content-rar5.rar")];
+        let place = || placements(&user.join("hak"), &user.join("tlk"), &files).unwrap();
+        let before = (files_in(&user.join("hak")), files_in(&user.join("tlk")));
+        // Stopped past the first megabyte, in the big file.
+        let stopped = copy_with(&place(), true, |done, _| done < (1 << 20)).unwrap();
+        assert_eq!(stopped, None);
+        assert_eq!((files_in(&user.join("hak")), files_in(&user.join("tlk"))), before);
+        assert_eq!(std::fs::read_to_string(user.join("hak/other.hak")).unwrap(), "old");
+        // Stopped at the last word, everything written: nothing moved in.
+        let stopped = copy_with(&place(), true, |done, total| done < total).unwrap();
+        assert_eq!(stopped, None);
+        assert_eq!((files_in(&user.join("hak")), files_in(&user.join("tlk"))), before);
+        // Stopped before it began.
+        assert_eq!(copy_with(&place(), true, |_, _| false).unwrap(), None);
+        assert_eq!((files_in(&user.join("hak")), files_in(&user.join("tlk"))), before);
+        // And let go on, the same copy is whole.
+        assert!(copy_with(&place(), true, |_, _| true).unwrap().is_some_and(|n| n >= 3));
+        assert_eq!(std::fs::read(user.join("hak/big.hak")).unwrap(), big);
+        assert_eq!(std::fs::read_to_string(user.join("hak/other.hak")).unwrap(), "new");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

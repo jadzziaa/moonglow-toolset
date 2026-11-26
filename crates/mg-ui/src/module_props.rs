@@ -999,20 +999,29 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// Copies the files (as a job: haks of gigabytes were copied inside the
-/// frame) and attaches them, as one undoable step (the copies stay).
-/// Canceled, the module is as it was; what was copied by then stays in
-/// the user folder.
+/// frame, with how far it is by bytes and Cancel) and attaches them, as
+/// one undoable step (the copies stay). Canceled, the module is as it was
+/// and nothing of the copy is left in the user folder (each file was
+/// written beside its place, and is moved there only once all are); a
+/// Cancel that comes as the last is written is too late, and they are
+/// attached.
 fn attach(app: &mut Moonglow, draft: &AttachDraft) {
     let draft = draft.clone();
     let copying = draft.clone();
-    app.start_job(
+    app.start_module_job_to_its_end(
         ATTACH,
         move |cx| {
             cx.progress.say("Copying into the user folder");
-            mg_module::attach::copy(&copying.placements, copying.replace)
+            let progress = cx.progress.clone();
+            mg_module::attach::copy_with(
+                &copying.placements,
+                copying.replace,
+                move |done, total| crate::hak_view::written(&progress, done, total),
+            )
         },
         move |app, copied| match copied {
-            Ok(copied) => attached(app, &draft, copied),
+            Ok(Some(copied)) => attached(app, &draft, copied),
+            Ok(None) => app.log.info(format!("{ATTACH}: canceled, nothing was copied")),
             Err(e) => app.log.error(format!("{ATTACH}: {e}")),
         },
     );

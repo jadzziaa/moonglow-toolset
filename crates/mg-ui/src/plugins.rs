@@ -155,6 +155,15 @@ pub struct Plugins {
     >,
 }
 
+impl Plugins {
+    /// How many plugins' events wait to run (the tests': a save's event is
+    /// queued only once its haks are written).
+    #[doc(hidden)]
+    pub fn events_waiting(&self) -> usize {
+        self.events.len()
+    }
+}
+
 /// A pane whose selection a plugin's command may run on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {

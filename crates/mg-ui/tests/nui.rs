@@ -405,6 +405,17 @@ fn picture_fields_take_a_file_from_disk() {
     assert!(!h.state().log.entries.iter().any(|(_, line)| line.contains("c40e2b2-1610-41b takes")));
 }
 
+/// Frames until the window's work (a job) is done, at most a minute.
+fn jobs_done(h: &mut Harness<'_, Moonglow>) {
+    let started = std::time::Instant::now();
+    while h.state().under_way().is_some() {
+        assert!(started.elapsed().as_secs() < 60, "the job never ended");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run();
+}
+
 /// Images page: a picture from disk into the module, used as the
 /// window's background, then moved into a new hak the module lists. The
 /// user folder is a scratch one.
@@ -455,8 +466,20 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
         (back["image"].clone(), back["image_aspect"].clone(), back["order"].clone()),
         (json!("my_bg"), json!(5), json!(-1))
     );
+    // The hak is written as a job (on a thread of its own, as the
+    // application runs them): what is said of it, and the module's change,
+    // come once it is written, not as it is asked for.
+    h.state_mut().background_jobs = true;
     h.get_by_label("Move Module Images into a New Hak").click();
-    h.run();
+    h.step();
+    assert!(h.state().busy(), "written off the window's thread");
+    let said = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, line)| line.contains("Added 1 picture to"))
+    };
+    assert!(!said(&h), "not said before it is written");
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "the module keeps it till then");
+    jobs_done(&mut h);
+    assert!(said(&h), "{:?}", h.state().log.entries);
     let ws = h.state_mut().ws.as_mut().unwrap();
     assert!(!ws.module.contains(&key), "the picture left the module");
     ws.flush().unwrap();
@@ -478,7 +501,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     h.get_by_label("nui_images.hak").click();
     h.run();
     h.get_by_label("Add Images to nui_images.hak…").click();
-    h.run();
+    jobs_done(&mut h);
     let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
     let icon = ResKey::parse("my_icon", ResType::TGA).unwrap();
     assert!(written.items().iter().any(|i| i.key == icon));
@@ -496,7 +519,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     h.state_mut().dialogs =
         Box::new(NoDialogs { open_many: vec![vec![third.clone()]], ..Default::default() });
     h.get_by_label("Add Images to nui_images.hak…").click();
-    h.run();
+    jobs_done(&mut h);
     let has = |h: &Harness<'_, Moonglow>, k: ResKey| {
         h.state().haks[0].hak.items().iter().any(|i| i.key == k)
     };
@@ -513,7 +536,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     h.state_mut().dialogs =
         Box::new(NoDialogs { open_many: vec![vec![fourth]], ..Default::default() });
     h.get_by_label("Add Images to nui_images.hak…").click();
-    h.run();
+    jobs_done(&mut h);
     assert!(has(&h, ResKey::parse("my_glow", ResType::TGA).unwrap()));
     assert!(h.state().haks[0].hak.is_dirty());
     assert_eq!(h.state().haks[0].hak.undo_label(), Some("Add pictures"));

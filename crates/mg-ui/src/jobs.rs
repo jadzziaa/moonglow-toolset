@@ -135,7 +135,7 @@ pub(crate) fn wake(ctx: &egui::Context, at_once: bool) {
 }
 
 /// What a thread that panicked said.
-fn panic_text(panic: &Made) -> String {
+pub(crate) fn panic_text(panic: &Made) -> String {
     mg_render::guard::panic_message(&**panic).unwrap_or_else(|| "it stopped unexpectedly".into())
 }
 
@@ -293,6 +293,19 @@ impl Moonglow {
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
         self.start_job_on(title.into(), false, true, false, work, finish);
+    }
+
+    /// [`start_job_to_its_end`](Self::start_job_to_its_end) for work on
+    /// the open module (Add Haks' copy, which the module is then told of):
+    /// let go, as [`start_job`](Self::start_job)'s is, where the module is
+    /// closed or another opened before it ends.
+    pub(crate) fn start_module_job_to_its_end<T: Send + 'static>(
+        &mut self,
+        title: impl Into<String>,
+        work: impl FnOnce(&Context) -> T + Send + 'static,
+        finish: impl FnOnce(&mut Moonglow, T) + 'static,
+    ) {
+        self.start_job_on(title.into(), true, true, true, work, finish);
     }
 
     fn start_job_on<T: Send + 'static>(

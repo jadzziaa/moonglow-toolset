@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T21:15:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
 ---
 
 # Modules
@@ -1635,7 +1635,10 @@ volume of a set (`name.part1.rar`), is unpacked first: Moonglow says
 so. Put the haks in order (highest priority first). Moonglow copies
 them into the user folder's `hak` and `tlk` (asking before replacing
 different files of the same names), lists the haks at the top of the
-module's list and names the talk table. Undo takes back the module's changes; the copies stay.
+module's list and names the talk table. A window shows how far the copy
+is, by its bytes, with **Cancel**: canceled, nothing is copied (each
+file is written beside its place and moved there only once all of them
+are) and the module is as it was. Undo takes back the module's changes; the copies stay.
 `mg attach` does the same from the command line.
 
 A custom talk table (`.tlk`) gives the strings numbered from 16,777,216
@@ -2138,7 +2141,15 @@ folder's files, subfolders included, to look over and save.
   ask of each changed hak by its name, and then go on. The hak editor
   itself reads all of a hak past 2 GiB: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
-  Saving the module saves open haks too (Ctrl+S is the module's Save).
+  Saving the module saves open haks too (Ctrl+S is the module's Save):
+  the module is written at once, and each changed hak after it, in turn,
+  with the same window and **Cancel**. What the save was for waits for
+  the haks: Test Module (and a project's pack), File › Exit, File ›
+  Close or opening another module go on once they are written, and the
+  plugins hear of the save then. A hak that could not be written, or
+  whose save was canceled, stops it there: its question is asked (saying
+  why, where it failed), and **Don't Save** goes on. A second save asked
+  for while a hak is written is refused, and the log says why.
 - **Reloading:** saving a hak the module uses reads it again.
 - **The game's own haks** (in its `data/hk`, also when opened through a
   folder that is a link into the game's) aren't written: **Save As…**

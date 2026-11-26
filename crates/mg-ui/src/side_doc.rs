@@ -530,15 +530,22 @@ impl Moonglow {
     }
 
     /// The module's Save: every side editor's document with unsaved changes
-    /// that is saved with it.
-    pub(crate) fn save_side_docs(&mut self) {
+    /// that is saved with it, but for the haks, which are written as jobs
+    /// once the module is ([`Moonglow::save_haks`]): those, by id. (A hak
+    /// that a table of its own was saved into is among them.)
+    pub(crate) fn save_side_docs(&mut self) -> Vec<u32> {
         let tabs: Vec<Tab> = (self.side_docs())
             .filter(|d| d.has_unsaved() && d.saved_with_module(self))
             .map(|d| d.tab())
+            .filter(|tab| !matches!(tab, Tab::Hak(_)))
             .collect();
         for tab in tabs {
             self.save_side(&tab);
         }
+        (self.haks.iter())
+            .filter(|d| SideDoc::has_unsaved(*d) && SideDoc::saved_with_module(*d, self))
+            .map(|d| d.id)
+            .collect()
     }
 
     /// A side editor's tab asked to close: with unsaved changes, it waits

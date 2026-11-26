@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:44:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:20:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -401,19 +401,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Custom content data (2DAs and talk tables)
 
-- **Two of a hak's saves stay synchronous:** a hak tab's OK, its closing
-  question's Save, Extract, Export as Files, Add Haks and the hak
-  editor's own Save and Save As are jobs (the review's D19), but the
-  module's Save still writes an open hak at once, as what follows it in
-  the same step reads the files written (the game started for a test,
-  a project's pack, the plugins' saved event, Exit), and so does the
-  NUI Creator's picture hak, whose caller reports at once whether it
-  was written: made jobs, each would need a continuation
-  (`side_doc.rs`, `lib.rs`), and until then a real unintended
-  consequence. Add Haks has no byte progress or Cancel mid-copy
-  (`attach::copy` has no hook for one). (M) (the review of November
-  2026, D19)
-
+Nothing open.
 
 ## Area visibility
 
