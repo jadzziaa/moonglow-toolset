@@ -573,10 +573,11 @@ pub struct Renderer {
     /// number names there.
     draw_buffer: wgpu::Buffer,
     order_buffer: wgpu::Buffer,
-    frame_group: Option<wgpu::BindGroup>,
-    /// The shadows' mask the frame group binds (0: white) and the view
-    /// it is kept for.
-    frame_mask: (u64, Option<u64>),
+    /// The frame group's buffers' generation (the lights', bones', draws'
+    /// and their order's): one more each time one of them is made again,
+    /// larger, and every view's frame group ([`ViewState::frame_group`])
+    /// is made again on its buffers.
+    frame_buffers: u64,
     batcher: Batcher,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
@@ -667,6 +668,14 @@ struct ViewState {
     stencil: Option<crate::volume::StencilTarget>,
     /// The shadows' mask, while the view's frames lay shadows.
     mask: Option<crate::shadow::Mask>,
+    /// The frame's bind group (its uniforms, lights, bones, draws, their
+    /// order and the view's shadows' mask), with the buffers' generation
+    /// it was made on ([`Renderer::frame_buffers`]) and the mask's number
+    /// (0: white): kept for the view, as its mask is. (One for the
+    /// renderer, made again whenever another view's frame had come
+    /// between, cost a large area's frame drawn beside a model view a
+    /// fiftieth of a millisecond.)
+    frame_group: Option<(u64, u64, wgpu::BindGroup)>,
     /// The soft particles' bind group on the view's framebuffer copies
     /// (their number): one for the renderer, two views with soft particles
     /// in a frame made it again each.
@@ -687,6 +696,7 @@ impl ViewState {
     /// Lets go of the bind groups on the targets of the view the state was
     /// last drawn for.
     fn forget_groups(&mut self) {
+        self.frame_group = None;
         self.copy_group = None;
         self.sun_darken_group = None;
         self.lights_darken_group = None;
@@ -757,6 +767,10 @@ pub struct Drawn {
     /// The sun's shadow map was drawn in this frame: not where the view's
     /// map held the frame's casters as they are already.
     pub sun_map_drawn: bool,
+    /// The frame's bind group was made in this frame: not where the
+    /// view's own was kept from its frame before (another view's frames
+    /// between them leave it be), on the same buffers and mask.
+    pub frame_group_made: bool,
     /// The meshes whose lights were chosen anew: not as an earlier frame
     /// chose them for the same ball.
     pub lights_chosen: usize,
@@ -1656,8 +1670,7 @@ impl Renderer {
             bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
             draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
             order_buffer: buffer("draw order", 4 * 64, wgpu::BufferUsages::STORAGE),
-            frame_group: None,
-            frame_mask: (0, None),
+            frame_buffers: 0,
             batcher: Batcher::default(),
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
@@ -2700,8 +2713,7 @@ impl Renderer {
                 color: l.color.extend(if l.ambient_only { -r2 } else { r2 }).to_array(),
             }
         }));
-        let mut frame_dirty = self.frame_group.is_none();
-        frame_dirty |= upload(
+        let mut frame_dirty = upload(
             gpu,
             &mut self.light_buffer,
             "lights",
@@ -3562,13 +3574,17 @@ impl Renderer {
             of: all_copies.map(|c| c.id),
         }));
         let mask_id = mask.map_or(0, |m| m.id);
-        frame_dirty |= self.frame_mask != (mask_id, all_copies.map(|c| c.id));
 
         // Bind groups.
+        // (The view's frame group, made again where a buffer it binds was,
+        // or its mask.)
         if frame_dirty {
-            self.frame_mask = (mask_id, all_copies.map(|c| c.id));
+            self.frame_buffers += 1;
+        }
+        let made_on = (self.frame_buffers, mask_id);
+        if kept_view.frame_group.as_ref().is_none_or(|(g, m, _)| (*g, *m) != made_on) {
             let mask_view = mask.map_or(&self.white.view, |m| &m.view);
-            self.frame_group = Some(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("frame"),
                 layout: &self.frame_layout,
                 entries: &[
@@ -3597,8 +3613,11 @@ impl Renderer {
                         resource: wgpu::BindingResource::TextureView(mask_view),
                     },
                 ],
-            }));
+            });
+            kept_view.frame_group = Some((made_on.0, made_on.1, group));
+            self.drawn.frame_group_made = true;
         }
+        let frame_group = kept_view.frame_group.as_ref().map(|(.., g)| g.clone());
 
         // Particles: punch-through, then blended by render order, then
         // additive; their textures bind like meshes'.
@@ -3869,7 +3888,7 @@ impl Renderer {
             }
         }
         {
-            let frame_group = self.frame_group.as_ref().expect("frame group built above");
+            let frame_group = frame_group.as_ref().expect("frame group built above");
             // (Cut for the framebuffer's copy: the multisampled picture is
             // resolved at the end of the second pass alone.)
             let first_resolve = if copying.is_some() { None } else { resolve };
@@ -4183,13 +4202,10 @@ impl Renderer {
     }
 
     /// Lets go of the bind groups on the framebuffer copies numbered `id`.
+    /// (The view's frame group, which binds its mask, goes with what is
+    /// kept for the view.)
     fn forget_copies(&mut self, id: u64) {
         self.game.forget_framebuffer(id);
-        // (The frame group binds the view's mask: made again.)
-        if self.frame_mask.1 == Some(id) {
-            self.frame_group = None;
-            self.frame_mask = (0, None);
-        }
     }
 
     /// How many views have something kept for them, for tests.
