@@ -5022,7 +5022,16 @@ fn overlays(
         }
     };
     let scene = view.scene.as_ref();
-    let chosen = view.selected_set();
+    // (Which are selected, by kind and place: a set of 5,000 hashed each
+    // frame a drag poses them.)
+    let mut chosen: [Vec<bool>; ObjectKind::ALL.len()] = Default::default();
+    for &(kind, index) in &view.selection {
+        let of = &mut chosen[kind.index()];
+        if of.len() <= index {
+            of.resize(index + 1, false);
+        }
+        of[index] = true;
+    }
     // (The boxes kept from a frame before, where what they show is as it
     // was: 5,000 objects selected, their boxes took 3 ms a frame at rest.
     // Not while a drag, a key or a handle poses the objects it moves.)
@@ -5048,12 +5057,17 @@ fn overlays(
     // through: the selected ones' dark edges, then their lines, over the
     // markers'.)
     let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
-    let (mut selected_edges, mut selected_lines) = (Vec::new(), Vec::new());
+    // (Twelve edges a box: grown edge by edge, 5,000 boxes' were copied
+    // again and again.)
+    let room = if kept_boxes.is_none() { 12 * view.selection.len() } else { 0 };
+    let (mut selected_edges, mut selected_lines) =
+        (Vec::with_capacity(room), Vec::with_capacity(room));
+    boxes.reserve(3 * room);
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
         }
-        let selected = chosen.contains(&(o.kind, o.index));
+        let selected = chosen[o.kind.index()].get(o.index).copied().unwrap_or(false);
         // (Selected, an outline and its spawn points are in the
         // selection's color over the handles' dark edge.)
         let highlight = Stroke::new(1.5, colors.turn.0);
