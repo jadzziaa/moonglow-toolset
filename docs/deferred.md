@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:07:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:21:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -383,14 +383,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Godly, whose Weight Reduction would tell the table), read against
   `aurora_item_wizard.rs` (M). (Gems and gauntlets are offered Magical
   since 2026-10-30.) (a second builder's review, October 2026)
-- **The feats' order in the Levelup Wizard's spell capture, the
-  owner's call:** the capture that settled the review's G8
-  (`levelup/spells-after.mod`) was made through Aurora's creature
-  Properties window, whose OK writes the FeatList sorted by name, so
-  `levelling_up_matches_aurora` sorts Moonglow's feats the same way for
-  that capture alone. Whether Moonglow's Properties window should sort
-  them so too is not checked; the choice is to confirm. (S) (the review
-  of November 2026, G8)
 
 ## Palettes
 

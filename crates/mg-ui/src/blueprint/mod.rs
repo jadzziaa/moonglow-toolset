@@ -659,8 +659,34 @@ pub(crate) fn window_drawn_but(
             app.actions.push(Action::Apply(command));
         }
     }
+    // (A creature's Properties window, a blueprint's or a placed one's,
+    // writes its feats sorted by name at its OK, as Aurora's does: after
+    // what it asked for this frame.)
+    if pressed == Pressed::Ok && matches!(tab, Tab::Blueprint(_) | Tab::Instance { .. }) {
+        app.actions.push(Action::SortFeats(first.0, first.1.clone()));
+    }
     app.properties_changed.remove(first);
     app.actions.push(Action::CloseTab(tab.clone()));
+}
+
+/// [`Action::SortFeats`]: the creature at `path` of `key` given its feats
+/// in the order of their names, where they are not so already (a struct
+/// with no feats, not a creature's, is left alone), as one step of Undo.
+pub(crate) fn sort_feats(app: &mut Moonglow, key: ResKey, path: &GffPath) {
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.clone()) else { return };
+    let sorted = ws.doc(&key).ok().and_then(|g| {
+        mg_edit::lists::feats_by_name(path.get(&g.root)?, mg_edit::lists::feat_name(&game))
+    });
+    let Some(sorted) = sorted else { return };
+    let edit = Edit::SetField {
+        key,
+        path: path.clone(),
+        label: "FeatList".into(),
+        value: Some(Value::List(sorted)),
+    };
+    if let Err(e) = app.apply(Command::new("Feats Sorted by Name", vec![edit])) {
+        app.log.error(e.to_string());
+    }
 }
 
 /// A creature appearance's picture, for the row the pointer rests on in

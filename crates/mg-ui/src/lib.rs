@@ -414,6 +414,11 @@ pub enum Action {
         plugin: String,
         id: String,
     },
+    /// A creature's feats sorted by name, as Aurora's creature Properties
+    /// window writes them at its OK (`mg_edit::lists::feats_by_name`): its
+    /// document and its path there. Run after what the window asked for
+    /// in the frame its OK was pressed in, as its own step of Undo.
+    SortFeats(ResKey, mg_edit::GffPath),
     /// Makes the fix offered beside this line of the log (a finding of
     /// Verify Module's), as one undoable command.
     ApplyFix(usize),
@@ -6022,6 +6027,7 @@ impl Moonglow {
             Action::ApplyTyped(cmd) => talk_typed::apply(self, cmd),
             Action::ApplyTypedWith(cmd, answers) => talk_typed::apply_with(self, cmd, answers),
             Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
+            Action::SortFeats(key, path) => blueprint::sort_feats(self, key, &path),
             Action::ApplyFix(line) => self.apply_fix(line),
             Action::ApplyFixesOf(check) => self.apply_fixes_of(&check),
             Action::NewNui(name) => nui_view::create(self, &name),
