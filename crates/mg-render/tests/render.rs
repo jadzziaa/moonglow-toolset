@@ -7,8 +7,8 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
 use mg_render::{
-    AreaLight, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, LineCopy, LineShape, NoAssets,
-    Renderer, Scene, Targets,
+    AreaLight, BoxCopy, BoxStroke, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, LineCopy,
+    LineShape, NoAssets, Renderer, Scene, Targets,
 };
 
 fn gpu() -> Option<Gpu> {
@@ -1508,6 +1508,436 @@ fn a_line_shape_s_copies_draw_what_their_lines_would() {
     }
     // Drawn no more: nothing of it.
     assert!(shot(&base).data == bare.data);
+}
+
+/// A box from `min` to `max` (the unit cube put there: [`BoxCopy`]'s
+/// transform), a line alone.
+fn plain_box(min: Vec3, max: Vec3, width: f32, color: [f32; 4]) -> BoxCopy {
+    BoxCopy {
+        transform: Mat4::from_translation(min) * Mat4::from_scale(max - min),
+        line: BoxStroke { width, color },
+        edge: None,
+    }
+}
+
+/// [`plain_box`] with a line `line` wide over an edge `edge` wide.
+fn edged_box(min: Vec3, max: Vec3, line: BoxStroke, edge: BoxStroke) -> BoxCopy {
+    BoxCopy { edge: Some(edge), line, ..plain_box(min, max, 0.0, [0.0; 4]) }
+}
+
+/// Where `p` is in a picture `w` by `h` from `camera`: pixels from its
+/// upper left.
+fn on_picture(camera: &Camera, w: u32, h: u32, p: Vec3) -> glam::Vec2 {
+    let ndc = (camera.projection(w as f32 / h as f32) * camera.view()).project_point3(p);
+    glam::Vec2::new((ndc.x + 1.0) / 2.0 * w as f32, (1.0 - ndc.y) / 2.0 * h as f32)
+}
+
+/// Boxes (`Scene::boxes`) lie over the whole picture, a mesh in front of
+/// them too (no depth test), whether the meshes are drawn by Moonglow's
+/// own shaders or the game's, into a picture of one sample or into a
+/// view's targets of the device's most (with their framebuffer copies).
+#[test]
+fn a_box_is_drawn_over_the_mesh_in_front_of_it() {
+    let Some(gpu) = gpu() else { return };
+    let assets = clip_space_assets();
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // A red board 6 m across standing 3 m in front of a 2 m box.
+    let board = standing_quad(&gpu, "red", Vec3::new(0.0, -3.0, 1.0), 3.0);
+    let green = [0.0, 1.0, 0.0, 1.0];
+    let boxed = plain_box(Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 2.0, 2.0), 3.0, green);
+    let base = Scene { instances: vec![board], ..Default::default() };
+    let scene = Scene { boxes: vec![boxed], ..base.clone() };
+    let size = 96;
+    // The box's front face's left edge, halfway up, and its middle.
+    let edge = on_picture(&camera, size, size, Vec3::new(-1.0, 0.0, 1.0));
+    let (ex, ey) = (edge.x.round() as u32, edge.y.round() as u32);
+    for game_shaders in [false, true] {
+        for (into_targets, samples) in [(false, 1), (true, gpu.samples(4))] {
+            let format = wgpu::TextureFormat::Rgba8Unorm;
+            let mut r = Renderer::new(&gpu, format, samples);
+            r.game_shaders = game_shaders;
+            let shot = |r: &mut Renderer, scene: &Scene| {
+                if !into_targets {
+                    return r.render_image(&gpu, &assets, scene, &camera, size, size);
+                }
+                let targets = Targets::new(&gpu, format, samples, size, size);
+                r.render_targets(&gpu, &assets, scene, &camera, &targets);
+                gpu.read_rgba(&targets.color)
+            };
+            let bare = shot(&mut r, &base);
+            let img = shot(&mut r, &scene);
+            let name = format!("boxes_over_a_mesh_{game_shaders}_{into_targets}_{samples}.png");
+            save(&img, &mg_testkit::output_dir("render").join(name));
+            let what =
+                format!("game shaders {game_shaders}, targets {into_targets}, {samples} samples");
+            assert_eq!(r.drawn.game > 0, game_shaders, "{what}: {:?}", r.drawn);
+            assert_eq!((r.drawn.boxes, r.drawn.box_draws), (1, 1), "{what}");
+            // (The board as either shader lights it: red.)
+            let red = |[r, g, b, _]: [u8; 4]| r > g.saturating_add(40) && r > b.saturating_add(40);
+            assert!(red(bare.pixel(ex, ey)), "{what}: the board is there");
+            assert_eq!(img.pixel(ex, ey), [0, 255, 0, 255], "{what}: the box over it");
+            assert!(red(img.pixel(size / 2, size / 2)), "{what}: inside the box, the board");
+            assert_eq!(img.pixel(size / 2, size / 2), bare.pixel(size / 2, size / 2), "{what}");
+        }
+    }
+}
+
+/// How much of each pixel of row `y` from `x0` to `x1` a channel holds
+/// (0 to 1).
+fn row_of(img: &mg_image::Rgba, y: u32, x0: u32, x1: u32, channel: usize) -> Vec<f32> {
+    (x0..x1).map(|x| img.pixel(x, y)[channel] as f32 / 255.0).collect()
+}
+
+/// A box's line and its edge are as wide as they are asked to be, in the
+/// picture's pixels (each pixel's share of them, summed across a row:
+/// their soft edges counted for what they cover), the line in the edge's
+/// middle with as much of the edge to either side; and a line alone too.
+#[test]
+fn a_box_s_line_and_its_edge_are_as_wide_as_asked() {
+    let Some(gpu) = gpu() else { return };
+    // Face on, the front face's left edge upright, its back face well in
+    // from it.
+    let camera = Camera {
+        eye: Vec3::new(0.0, -5.0, 0.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (min, max) = (Vec3::new(-1.0, 0.0, -1.0), Vec3::new(1.0, 10.0, 1.0));
+    let size = 128;
+    let left = on_picture(&camera, size, size, Vec3::new(-1.0, 0.0, 0.0)).x;
+    let back = on_picture(&camera, size, size, Vec3::new(-1.0, 10.0, 0.0)).x;
+    assert!(back - left > 15.0, "{left} {back}");
+    let (x0, x1) = ((left - 8.0) as u32, (left + 8.0) as u32);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    // (Black: the line green, the edge red, at half its strength.)
+    let line = |width| BoxStroke { width, color: [0.0, 1.0, 0.0, 1.0] };
+    let edge = |width| BoxStroke { width, color: [0.5, 0.0, 0.0, 1.0] };
+    let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.08, "{what}: {a} for {b}");
+    for (l, e) in [(1.0, 3.0), (2.0, 4.0), (1.5, 5.5)] {
+        let scene =
+            Scene { boxes: vec![edged_box(min, max, line(l), edge(e))], ..Default::default() };
+        let img = r.render_image(&gpu, &NoAssets, &scene, &camera, size, size);
+        save(&img, &mg_testkit::output_dir("render").join(format!("box_widths_{l}_{e}.png")));
+        assert_eq!(r.drawn.box_draws, 2);
+        for y in [size / 2 - 10, size / 2, size / 2 + 10] {
+            let green = row_of(&img, y, x0, x1, 1);
+            let red: Vec<f32> = row_of(&img, y, x0, x1, 0).iter().map(|v| v / 0.5).collect();
+            near(green.iter().sum(), l, "the line's width");
+            let all: f32 = green.iter().zip(&red).map(|(g, r)| g + r).sum();
+            near(all, e, "the edge's width");
+            // The line's middle, and the edge seen to either side of it.
+            let middle = left - x0 as f32;
+            let side = |range: std::ops::Range<usize>| -> f32 { red[range].iter().sum() };
+            let at = middle.round() as usize;
+            let (before, after) = (side(0..at), side(at..red.len()));
+            near(before, (e - l) / 2.0, "the edge before the line");
+            near(after, (e - l) / 2.0, "the edge after the line");
+        }
+    }
+    // A plain box's line: 1.5 pixels, no edge.
+    let plain = plain_box(min, max, 1.5, [0.0, 1.0, 0.0, 1.0]);
+    let img = r.render_image(
+        &gpu,
+        &NoAssets,
+        &Scene { boxes: vec![plain], ..Default::default() },
+        &camera,
+        size,
+        size,
+    );
+    assert_eq!(r.drawn.box_draws, 1, "no edges, no draw of them");
+    let green = row_of(&img, size / 2, x0, x1, 1);
+    near(green.iter().sum(), 1.5, "a plain box's line");
+    assert!(row_of(&img, size / 2, x0, x1, 0).iter().all(|v| *v == 0.0));
+}
+
+/// Every copy's edge lies under every copy's line, not each copy's edge
+/// under its own line alone: a later copy's wide edge over the same box
+/// leaves an earlier copy's line whole on it. And a copy without an edge
+/// draws none when others in the frame have one.
+#[test]
+fn every_box_s_edge_lies_under_every_box_s_line() {
+    let Some(gpu) = gpu() else { return };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -5.0, 0.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let size = 128;
+    let (min, max) = (Vec3::new(-1.8, 0.0, -1.0), Vec3::new(-0.6, 10.0, 1.0));
+    let green = BoxStroke { width: 3.0, color: [0.0, 1.0, 0.0, 1.0] };
+    let first = edged_box(min, max, green, BoxStroke { width: 5.0, color: [1.0, 0.0, 0.0, 1.0] });
+    // (The same box after it, its blue edge wide enough to cover the first's
+    // line, and its own line narrow.)
+    let wide = BoxStroke { width: 9.0, color: [0.0, 0.0, 1.0, 1.0] };
+    let second = edged_box(min, max, BoxStroke { width: 1.0, ..green }, wide);
+    // (A plain box to the right, after both.)
+    let (pmin, pmax) = (Vec3::new(0.6, 0.0, -1.0), Vec3::new(1.8, 10.0, 1.0));
+    let plain = plain_box(pmin, pmax, 1.5, [1.0, 1.0, 0.0, 1.0]);
+    let scene = Scene { boxes: vec![first, second, plain], ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, size, size);
+    save(&img, &mg_testkit::output_dir("render").join("boxes_paint_order.png"));
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (3, 2));
+    let y = size / 2;
+    // The first box's left edge: its line whole, over the second's edge.
+    let left = on_picture(&camera, size, size, Vec3::new(min.x, 0.0, 0.0));
+    assert_eq!(img.pixel(left.x as u32, y), [0, 255, 0, 255], "the line under an edge");
+    assert!(img.pixel(left.x as u32 - 4, y)[2] > 200, "the second's edge beside it");
+    // The plain box's left edge: its line, no edge's red or blue about it.
+    let at = on_picture(&camera, size, size, Vec3::new(pmin.x, 0.0, 0.0)).x as u32;
+    let row: Vec<[u8; 4]> = (at - 4..at + 5).map(|x| img.pixel(x, y)).collect();
+    assert!(row.iter().any(|p| p[0] > 200 && p[1] > 200), "the plain line: {row:?}");
+    assert!(row.iter().all(|p| p[0] == p[1] && p[2] == 0), "nothing but yellow: {row:?}");
+}
+
+/// The distance from `p` to the segment `a` to `b`.
+fn to_segment(p: glam::Vec2, a: glam::Vec2, b: glam::Vec2) -> f32 {
+    let d = b - a;
+    let t = ((p - a).dot(d) / d.length_squared().max(1e-9)).clamp(0.0, 1.0);
+    p.distance(a + d * t)
+}
+
+/// A box the eye stands in: the edges that pass behind it are cut at the
+/// near plane, drawn only in front of it (every pixel of the box's color
+/// near an edge as cut on the CPU, no streak across the picture), and a
+/// box wholly behind the eye draws nothing.
+#[test]
+fn a_box_across_the_near_plane_draws_only_its_part_in_front() {
+    let Some(gpu) = gpu() else { return };
+    let camera = Camera {
+        eye: Vec3::new(0.3, -5.0, 0.2),
+        target: Vec3::new(0.0, 0.0, 0.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (160, 120);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let green = [0.0, 1.0, 0.0, 1.0];
+    let (min, max) = (Vec3::new(-1.0, -10.0, -1.0), Vec3::new(1.0, 10.0, 1.0));
+    let scene = Scene { boxes: vec![plain_box(min, max, 2.0, green)], ..Default::default() };
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    save(&img, &mg_testkit::output_dir("render").join("box_across_the_near_plane.png"));
+    // The edges as the renderer should cut them, on the picture.
+    let clip = camera.projection(w as f32 / h as f32) * camera.view();
+    let corners = mg_render::box_corners(min, max).map(|p| clip * p.extend(1.0));
+    let mut segments = Vec::new();
+    for (a, b) in [
+        (0, 1),
+        (1, 3),
+        (3, 2),
+        (2, 0),
+        (4, 5),
+        (5, 7),
+        (7, 6),
+        (6, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ] {
+        let (mut a, mut b) = (corners[a], corners[b]);
+        if a.z < 0.0 && b.z < 0.0 {
+            continue;
+        }
+        if a.z < 0.0 {
+            a = a.lerp(b, a.z / (a.z - b.z));
+        } else if b.z < 0.0 {
+            b = b.lerp(a, b.z / (b.z - a.z));
+        }
+        let px = |c: glam::Vec4| {
+            glam::Vec2::new((c.x / c.w + 1.0) / 2.0 * w as f32, (1.0 - c.y / c.w) / 2.0 * h as f32)
+        };
+        segments.push((px(a), px(b)));
+    }
+    let mut drawn = 0;
+    for y in 0..h {
+        for x in 0..w {
+            if img.pixel(x, y)[1] == 0 {
+                continue;
+            }
+            drawn += 1;
+            let p = glam::Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+            let nearest =
+                segments.iter().map(|(a, b)| to_segment(p, *a, *b)).fold(f32::MAX, f32::min);
+            assert!(nearest < 2.0, "a pixel of the box at ({x}, {y}), {nearest} from its edges");
+        }
+    }
+    // The four long edges come in from beyond the picture's corners to the
+    // far face, which is whole.
+    assert!(drawn > 300, "{drawn} pixels drawn");
+    let far = on_picture(&camera, w, h, Vec3::new(-1.0, 10.0, 0.0));
+    assert!(img.pixel(far.x as u32, far.y as u32)[1] > 100, "the far face's left edge");
+    // Wholly behind the eye: nothing.
+    let behind = Scene {
+        boxes: vec![plain_box(Vec3::new(-1.0, -9.0, -1.0), Vec3::new(1.0, -7.0, 1.0), 2.0, green)],
+        ..Default::default()
+    };
+    let bare = r.render_image(&gpu, &NoAssets, &Scene::default(), &camera, w, h);
+    assert!(r.render_image(&gpu, &NoAssets, &behind, &camera, w, h).data == bare.data);
+}
+
+/// Thousands of boxes are drawn by two draws, their edges' and their
+/// lines', whatever their number; and a scene without boxes is drawn to
+/// the bit as before, by none, after a frame with them too.
+#[test]
+fn thousands_of_boxes_are_two_draws_and_none_are_none() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let ground = Instance::new(model, Mat4::from_scale(Vec3::new(30.0, 30.0, 1.0)));
+    let area = AreaLight { ambient: Vec3::splat(0.4), ..Default::default() };
+    let base = Scene { instances: vec![ground], area, ..Default::default() };
+    let camera = Camera::orbit(Vec3::ZERO, 50.0, -0.6, 0.9);
+    let line = BoxStroke { width: 1.0, color: [0.4, 0.7, 1.0, 0.9] };
+    let edge = BoxStroke { width: 3.0, color: [0.0, 0.0, 0.0, 0.6] };
+    let boxes: Vec<BoxCopy> = (0..3000)
+        .map(|i| {
+            let at = Vec3::new((i % 60) as f32 - 30.0, (i / 60) as f32 - 25.0, 0.0);
+            let (min, max) = (at, at + Vec3::new(0.6, 0.6, 0.8));
+            // (Every third plain: the edges' draw leaves them out.)
+            if i % 3 == 0 {
+                plain_box(min, max, 1.5, [1.0, 0.8, 0.3, 1.0])
+            } else {
+                edged_box(min, max, line, edge)
+            }
+        })
+        .collect();
+    let (w, h) = (256, 192);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let bare = r.render_image(&gpu, &NoAssets, &base, &camera, w, h);
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (0, 0));
+    let scene = Scene { boxes: boxes.clone(), ..base.clone() };
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    save(&img, &mg_testkit::output_dir("render").join("boxes_thousands.png"));
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (3000, 2));
+    assert!(img.data != bare.data);
+    let plain: Vec<BoxCopy> = boxes.iter().filter(|b| b.edge.is_none()).copied().collect();
+    r.render_image(&gpu, &NoAssets, &Scene { boxes: plain, ..base.clone() }, &camera, w, h);
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (1000, 1));
+    let after = r.render_image(&gpu, &NoAssets, &base, &camera, w, h);
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (0, 0));
+    assert!(after.data == bare.data, "no boxes: the picture as without them");
+}
+
+/// Plain boxes (1.5 pixels in their kinds' colors) and selected ones (a
+/// pixel's line in the selection's color over a dark edge three wide, as
+/// `handles::box_lines` draws them) side by side over a lit ground and
+/// a few boards, to compare with the egui boxes: written whole and four
+/// times larger to `target/test-output/render/boxes_plain_and_selected*.png`.
+#[test]
+fn plain_and_selected_boxes_side_by_side() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let ground = Instance::new(model, Mat4::from_scale(Vec3::new(8.0, 8.0, 1.0)));
+    let gray = colored_quad(&gpu, [0.6, 0.6, 0.6]);
+    let boards: Vec<Instance> = (0..4)
+        .map(|i| {
+            let at = Vec3::new(i as f32 * 2.0 - 3.0, 0.0, 0.7);
+            let t = Mat4::from_translation(at)
+                * Mat4::from_rotation_x(90f32.to_radians())
+                * Mat4::from_scale(Vec3::splat(0.6));
+            Instance::new(gray.clone(), t)
+        })
+        .collect();
+    let area = AreaLight {
+        ambient: Vec3::splat(0.15),
+        diffuse: Vec3::splat(0.3),
+        direction: Vec3::new(0.3, -0.5, 1.0).normalize(),
+    };
+    let mut instances = vec![ground];
+    instances.extend(boards);
+    // (The first two plain, in two kinds' colors; the others selected.)
+    let kinds = [[1.0, 0.75, 0.3, 1.0], [0.45, 0.85, 0.45, 1.0]];
+    let mut boxes = Vec::new();
+    for i in 0..4 {
+        let (min, max) =
+            (Vec3::new(i as f32 * 2.0 - 3.7, -0.4, 0.0), Vec3::new(i as f32 * 2.0 - 2.3, 0.4, 1.4));
+        if let Some(color) = kinds.get(i) {
+            boxes.push(plain_box(min, max, 1.5, *color));
+        } else {
+            let line = BoxStroke { width: 1.0, color: [0.45, 0.75, 1.0, 0.9] };
+            let edge = BoxStroke { width: 3.0, color: [0.05, 0.06, 0.08, 0.8] };
+            boxes.push(edged_box(min, max, line, edge));
+        }
+    }
+    let scene = Scene { instances, area, boxes, ..Default::default() };
+    let camera = Camera::orbit(Vec3::new(0.0, 0.0, 0.6), 9.0, -1.35, 0.45);
+    let (w, h) = (480, 270);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    let dir = mg_testkit::output_dir("render");
+    save(&img, &dir.join("boxes_plain_and_selected.png"));
+    let zoom = 4;
+    let mut big = mg_image::Rgba { width: w * zoom, height: h * zoom, data: Vec::new() };
+    for y in 0..h * zoom {
+        for x in 0..w * zoom {
+            big.data.extend(img.pixel(x / zoom, y / zoom));
+        }
+    }
+    save(&big, &dir.join("boxes_plain_and_selected_x4.png"));
+    assert_eq!((r.drawn.boxes, r.drawn.box_draws), (4, 2));
+}
+
+/// What 5,000 boxes (as a drag of 5,000 selected objects has) add to a
+/// frame's encoding on the CPU (the render call, without waiting for the
+/// GPU) and to the whole frame, against none, at the development
+/// machine's screen (3440×1440, 4× MSAA): printed. Run by hand:
+/// `cargo test --release -p mg-render --test render boxes_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn boxes_cost() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let ground = Instance::new(model, Mat4::from_scale(Vec3::splat(60.0)));
+    let area = AreaLight { ambient: Vec3::splat(0.4), ..Default::default() };
+    let line = BoxStroke { width: 1.0, color: [0.4, 0.7, 1.0, 0.9] };
+    let edge = BoxStroke { width: 3.0, color: [0.0, 0.0, 0.0, 0.6] };
+    let boxes: Vec<BoxCopy> = (0..5000)
+        .map(|i| {
+            let at = Vec3::new((i % 100) as f32 - 50.0, (i / 100) as f32 - 25.0, 0.0);
+            edged_box(at, at + Vec3::new(0.6, 0.6, 0.8), line, edge)
+        })
+        .collect();
+    let camera = Camera::orbit(Vec3::ZERO, 60.0, -0.6, 0.9);
+    let (w, h) = (3440, 1440);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let targets = Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4, w, h);
+    let wait = || {
+        let _ = gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    };
+    for n in [0, 5000, 0, 5000] {
+        let s = Scene {
+            instances: vec![ground.clone()],
+            area,
+            boxes: boxes[..n].to_vec(),
+            ..Default::default()
+        };
+        let (mut encode, mut frame) = (Vec::new(), Vec::new());
+        for _ in 0..40 {
+            wait();
+            let t = std::time::Instant::now();
+            r.render_targets(&gpu, &NoAssets, &s, &camera, &targets);
+            encode.push(t.elapsed().as_secs_f64() * 1000.0);
+            wait();
+            frame.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        encode.sort_by(f64::total_cmp);
+        frame.sort_by(f64::total_cmp);
+        eprintln!(
+            "{n} boxes ({} draws): encode {:.3} ms (median), {:.3} (quickest tenth); frame {:.2} ms (median)",
+            r.drawn.box_draws, encode[20], encode[4], frame[20]
+        );
+    }
 }
 
 /// The grid (`Scene::lines`) fades with the fog as the ground does, down

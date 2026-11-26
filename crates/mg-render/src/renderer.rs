@@ -561,6 +561,12 @@ pub struct Renderer {
     line_copy_pipeline: wgpu::RenderPipeline,
     /// The frame's copies of its line shapes, shape after shape.
     line_copy_buffer: wgpu::Buffer,
+    /// The boxes' edges and lines ([`crate::Scene::boxes`]): the unit
+    /// cube's edges as quads (made once), and the frame's copies.
+    box_edge_pipeline: wgpu::RenderPipeline,
+    box_line_pipeline: wgpu::RenderPipeline,
+    box_cube: wgpu::Buffer,
+    box_buffer: wgpu::Buffer,
     /// What each view keeps from one of its frames to the next.
     views: crate::views::Views<ViewState>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
@@ -632,6 +638,7 @@ pub struct Renderer {
     light_set: Vec<u32>,
     line_vertices: Vec<LineVertex>,
     line_copies: Vec<LineCopyRaw>,
+    box_copies: Vec<BoxRaw>,
     particle_draws: Vec<(ParticleBlend, u32, std::ops::Range<u32>, Option<usize>)>,
     particle_softness: Vec<f32>,
     /// The particles' materials, by their texture's name: a batch's is
@@ -774,6 +781,10 @@ pub struct Drawn {
     /// The meshes whose lights were chosen anew: not as an earlier frame
     /// chose them for the same ball.
     pub lights_chosen: usize,
+    /// The boxes drawn ([`crate::Scene::boxes`]), and the draws they took:
+    /// one for their edges (where any has one) and one for their lines.
+    pub boxes: usize,
+    pub box_draws: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -800,6 +811,82 @@ impl LineCopyRaw {
         attributes: &wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4],
     };
 }
+
+/// A [`crate::BoxCopy`] as its draws read it (`line.wgsl`'s `BoxIn`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct BoxRaw {
+    transform: [[f32; 4]; 4],
+    line_color: [f32; 4],
+    edge_color: [f32; 4],
+    /// The line's width and the edge's, pixels (0: none).
+    widths: [f32; 2],
+}
+
+impl BoxRaw {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<BoxRaw>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4,
+            6 => Float32x4, 7 => Float32x4, 8 => Float32x2,
+        ],
+    };
+
+    fn of(b: &crate::BoxCopy) -> BoxRaw {
+        let edge = b.edge.unwrap_or(crate::BoxStroke { width: 0.0, color: [0.0; 4] });
+        BoxRaw {
+            transform: cols(b.transform),
+            line_color: b.line.color,
+            edge_color: edge.color,
+            widths: [b.line.width, edge.width],
+        }
+    }
+}
+
+/// The unit cube's edges as its corners' pairs (`box_corners`' order:
+/// bit 0 x, bit 1 y, bit 2 z).
+const CUBE_EDGES: [(usize, usize); 12] = [
+    (0, 1),
+    (1, 3),
+    (3, 2),
+    (2, 0),
+    (4, 5),
+    (5, 7),
+    (7, 6),
+    (6, 4),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+];
+
+/// The unit cube's edges, each a quad of two triangles: for each corner
+/// of a quad, the edge's two ends with which end the corner is at and its
+/// side (`line.wgsl`'s `BoxIn`'s `a` and `b`).
+fn box_cube_vertices() -> Vec<[[f32; 4]; 2]> {
+    let corner = |i: usize| [(i & 1) as f32, ((i >> 1) & 1) as f32, ((i >> 2) & 1) as f32];
+    let mut out = Vec::with_capacity(CUBE_EDGES.len() * 6);
+    for (a, b) in CUBE_EDGES {
+        let (a, b) = (corner(a), corner(b));
+        for (end, side) in
+            [(0.0, -1.0), (1.0, -1.0), (1.0, 1.0), (0.0, -1.0), (1.0, 1.0), (0.0, 1.0)]
+        {
+            out.push([[a[0], a[1], a[2], end], [b[0], b[1], b[2], side]]);
+        }
+    }
+    out
+}
+
+/// The unit cube's edges' quads' corners, as the boxes' draws read them.
+const BOX_CUBE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+    array_stride: 32,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
+};
+
+/// How many corners the unit cube's edges' quads have.
+const BOX_CUBE_CORNERS: u32 = 12 * 6;
 
 /// A shape's line ends, as its copies' draws read them.
 const SHAPE_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -1583,6 +1670,52 @@ impl Renderer {
             "fs_plain",
             &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
         );
+        // The boxes: the lines' shader and blending, over everything (no
+        // depth test), each edge a quad of two triangles; their edges and
+        // their lines by two vertex entry points.
+        let box_pipeline_of = |label, entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&line_layout),
+                vertex: wgpu::VertexState {
+                    module: &line_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(BOX_CUBE_LAYOUT), Some(BoxRaw::LAYOUT)],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &line_shader,
+                    entry_point: Some("fs_box"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let box_edge_pipeline = box_pipeline_of("box edges", "vs_box_edge");
+        let box_line_pipeline = box_pipeline_of("box lines", "vs_box_line");
+        let box_cube = {
+            use wgpu::util::DeviceExt;
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("box cube"),
+                contents: bytemuck::cast_slice(&box_cube_vertices()),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        };
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -1663,6 +1796,10 @@ impl Renderer {
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_copy_pipeline,
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
+            box_edge_pipeline,
+            box_line_pipeline,
+            box_cube,
+            box_buffer: buffer("boxes", 1 << 12, wgpu::BufferUsages::VERTEX),
             views: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
@@ -1709,6 +1846,7 @@ impl Renderer {
             light_set: Vec::new(),
             line_vertices: Vec::new(),
             line_copies: Vec::new(),
+            box_copies: Vec::new(),
             particle_draws: Vec::new(),
             particle_softness: Vec::new(),
             particle_materials: HashMap::new(),
@@ -2659,7 +2797,7 @@ impl Renderer {
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
             light_params: {
                 let (max_inv, falloff) = attenuation_params();
-                [max_inv, falloff, 0.0, size.1 as f32]
+                [max_inv, falloff, size.0 as f32, size.1 as f32]
             },
             time: [scene.time, 0.0, 0.0, 0.0],
         };
@@ -3787,6 +3925,22 @@ impl Renderer {
         // The line shapes: the lines of those not drawn last frame sent,
         // and every copy; each shape's copies drawn by one draw.
         let shapes = self.line_shapes(gpu, &scene.line_shapes, &mut kept_view.shapes);
+        // The boxes' copies (none sent where there are none), and whether
+        // any has an edge to draw under the lines.
+        let mut box_copies = std::mem::take(&mut self.box_copies);
+        box_copies.clear();
+        box_copies.extend(scene.boxes.iter().map(BoxRaw::of));
+        let box_edges = box_copies.iter().any(|b| b.widths[1] > 0.0);
+        if !box_copies.is_empty() {
+            upload(
+                gpu,
+                &mut self.box_buffer,
+                "boxes",
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                &box_copies,
+                0,
+            );
+        }
         // The game's shaders' blocks and bind groups (the solid draws sorted
         // above).
         // (Those after the framebuffer's copy, last.)
@@ -4173,6 +4327,22 @@ impl Renderer {
                     pass.draw(0..shape.ends, copies.clone());
                 }
             }
+            // The boxes, over everything: every edge, then every line.
+            if !box_copies.is_empty() {
+                let copies = 0..box_copies.len() as u32;
+                pass.set_bind_group(0, &self.particle_frame, &[]);
+                pass.set_vertex_buffer(0, self.box_cube.slice(..));
+                pass.set_vertex_buffer(1, self.box_buffer.slice(..));
+                if box_edges {
+                    pass.set_pipeline(&self.box_edge_pipeline);
+                    pass.draw(0..BOX_CUBE_CORNERS, copies.clone());
+                    self.drawn.box_draws += 1;
+                }
+                pass.set_pipeline(&self.box_line_pipeline);
+                pass.draw(0..BOX_CUBE_CORNERS, copies);
+                self.drawn.box_draws += 1;
+                self.drawn.boxes = box_copies.len();
+            }
         }
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
@@ -4182,6 +4352,7 @@ impl Renderer {
         self.particle_draws = particle_draws;
         self.particle_softness = particle_softness;
         self.line_vertices = line_vertices;
+        self.box_copies = box_copies;
         kept_view.reach = reach_cache;
         self.views.put(view_key, kept_view);
     }
