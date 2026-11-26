@@ -147,7 +147,10 @@ const KNOWN_OVER: &[(&str, &str)] = &[
     // of them selected and dragged, 18.7 to 19.1 ms (their boxes made anew
     // each frame, 3 ms, and the Properties panel of 5,000, 2.2 to 2.9).
     // (At load 4 to 5, those at rest are under the budget, 6.3 to 7.0 ms;
-    // at load 12 to 16 they crossed its margin, 9.0 to 11.4.)
+    // at load 12 to 16 they crossed its margin, 9.0 to 11.4.) 2026-11-26,
+    // the boxes drawn in the picture (`Scene::boxes`; load 10 to 15): all
+    // dragged 12.4 to 12.9 ms, +2.1 to 2.3 over one (were 14.9 to 17.2,
+    // +3.5 to 5.5, alternated in the same hour).
     ("area of 5,000 placeables, one selected, dragged", LARGEST),
     ("area of 5,000 placeables, all selected, dragged", TIMING),
 ];

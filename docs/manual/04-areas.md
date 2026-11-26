@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T07:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:18:00Z }
 ---
 
 # Areas
@@ -532,7 +532,9 @@ thin dark edge, so that it reads over grass, snow or a bright floor
 alike, and over the object too (the handles are drawn over everything,
 whatever stands in front). A white dot marks the object's place, the
 point the handles are about; the selected object's box is a thin amber
-line under them. The handle under the pointer is lit, brighter and
+line under them, drawn with the picture: over every model, but under
+what is drawn over the view (the handles, trigger and encounter
+outlines, a light's sun, the door arrows). The handle under the pointer is lit, brighter and
 thicker, the rest of that object's handles fade to half (with several
 selected, the others' stay as they are), and a small chip beside the
 pointer names what a drag on it does: **Turn**, **Move East or West**,

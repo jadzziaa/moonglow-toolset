@@ -75,6 +75,7 @@ mod script_header;
 mod script_keys;
 mod scripts;
 mod search;
+mod selection_boxes;
 mod shell;
 mod sounds;
 mod status_bar;

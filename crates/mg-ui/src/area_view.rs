@@ -624,20 +624,12 @@ pub struct AreaView {
     /// How many times the ground's and the objects' walkmesh overlays
     /// have been made (the tests' count of a kept one).
     pub overlay_builds: [u64; 2],
-    /// The boxes of the objects selected or marked as last drawn, and what
-    /// for: kept while the camera, the view's rect, the area, the
-    /// selection and the kinds shown stay as they were (made again every
-    /// frame of a drag, which poses what it moves).
-    boxes_kept: std::cell::RefCell<Option<(BoxesKey, std::sync::Arc<[egui::Shape]>)>>,
     /// The turning rings' lines on screen, kept for the view and the
     /// rings they were made for (`handles::selection`).
     #[allow(clippy::type_complexity)]
     rings_kept: std::cell::RefCell<
         Option<(OverlayKey, Vec<TurnRing>, std::sync::Arc<Vec<handles::RingLines>>)>,
     >,
-    /// How many times those boxes have been made (the tests' count of
-    /// kept ones).
-    pub box_builds: std::cell::Cell<u64>,
     /// What Adjust Location shows of its values, worked out for them and
     /// the model as it was (its revision and the overlays' generation):
     /// not worked out each frame of 5,000 chosen.
@@ -860,6 +852,16 @@ pub struct AreaView {
     drawn: Option<(Drawn, f32)>,
     /// How many times the picture has been drawn.
     pub pictures: u64,
+    /// The boxes of the objects selected or marked as last made
+    /// ([`object_boxes`]), and what for: kept while nothing they show
+    /// changes (made each frame something poses the objects).
+    boxes_kept: Option<(BoxesKey, PictureBoxes)>,
+    /// How many times those boxes have been made (the tests' count of
+    /// kept ones).
+    pub box_builds: u64,
+    /// How many times the posed copy of the model has been made anew
+    /// (`posed`: kept from frame to frame of a drag; the tests' count).
+    pub posed_builds: u64,
     /// The watch on what the GPU draws of it ([`mg_render::watch`]).
     pub watching: Watching,
     /// How many textures read apart the picture was drawn with
@@ -899,6 +901,39 @@ struct Drawn {
     high_shadows: bool,
     /// The placed sounds' ranges drawn (Sound Ranges).
     sound_ranges: std::sync::Arc<Vec<SoundRange>>,
+    /// The boxes of the objects selected or marked, as posed
+    /// ([`object_boxes`]).
+    boxes: PictureBoxes,
+}
+
+/// The boxes a picture is drawn with ([`object_boxes`]), shared with the
+/// list kept: the same list is the same at once (a pointer), at rest with
+/// 5,000 selected, and one made anew is compared by its boxes.
+#[derive(Debug, Clone, Default)]
+struct PictureBoxes(std::sync::Arc<[mg_render::BoxCopy]>);
+
+impl PartialEq for PictureBoxes {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0) || self.0[..] == other.0[..]
+    }
+}
+
+/// What the boxes of the objects selected or marked were made for: the
+/// workspace's revision the area was read at and the overlays' generation
+/// (a variable's preview), the selection, the kinds shown, the boxes'
+/// two colors, the picture's pixels a point, whether a merchant's sign
+/// stands for a store (which objects draw, and their bounds) and where
+/// Adjust Location shows the objects it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct BoxesKey {
+    revision: Option<u64>,
+    generation: u64,
+    selection: Vec<(ObjectKind, usize)>,
+    show: [bool; 9],
+    colors: (Color32, Color32),
+    ppp: f32,
+    merchant_signs: bool,
+    adjusted: crate::area_tools::Previewed,
 }
 
 /// A positional sound's distances as Sound Ranges draws them in the
@@ -1237,6 +1272,22 @@ impl AreaView {
         (self.time, self.last_frame, self.drawn) = (seconds, None, None);
     }
 
+    /// The boxes its last picture was drawn with (`mg_render::Scene::boxes`):
+    /// for the tests.
+    pub fn picture_boxes(&self) -> &[mg_render::BoxCopy] {
+        self.drawn.as_ref().map_or(&[], |(d, _)| &d.boxes.0)
+    }
+
+    /// Object `i` (its place in the model's objects) as the last frame
+    /// posed it (a drag, a key, a handle, Adjust Location), else as the
+    /// model has it: for the tests.
+    pub fn shown_object(&self, i: usize) -> Option<&mg_area::AreaObject> {
+        match &self.posed {
+            Some((posed, _)) => posed.objects.get(i),
+            None => self.model.as_ref()?.objects.get(i),
+        }
+    }
+
     /// Whether its scene is on the GPU (its tiles' and objects' models).
     pub fn holds_scene(&self) -> bool {
         self.scene.is_some()
@@ -1348,10 +1399,8 @@ impl AreaView {
             walk_mesh: None,
             object_walk_mesh: None,
             overlay_builds: [0; 2],
-            boxes_kept: Default::default(),
             rings_kept: Default::default(),
             previewed_kept: None,
-            box_builds: Default::default(),
             sound_ranges_kept: None,
             sound_rings: Vec::new(),
             tile_mode: false,
@@ -1432,6 +1481,9 @@ impl AreaView {
             targets: None,
             drawn: None,
             pictures: 0,
+            boxes_kept: None,
+            box_builds: 0,
+            posed_builds: 0,
             watching: Watching::default(),
             time: 0.0,
             last_frame: None,
@@ -2914,7 +2966,8 @@ fn preview_variables(app: &mut Moonglow, view: &mut AreaView) {
         scene.update_objects(&vp.gpu, &game, model, &read);
     }
     view.drawn = None;
-    // (Their models changed with no edit: the boxes kept are made again.)
+    // (Their models changed with no edit: the overlays kept are made
+    // again, and the picture drawn with their boxes.)
     view.overlay_generation += 1;
     view.var_previewed = (wanted, revision);
 }
@@ -3975,7 +4028,7 @@ fn viewport(
 
     // The picture is kept while what it was drawn from stays as it is,
     // until the animations step.
-    let from = Drawn {
+    let mut from = Drawn {
         size: (w, h),
         orbit,
         settings: View { time: 0.0, ..settings },
@@ -3988,7 +4041,88 @@ fn viewport(
         shaders,
         high_shadows,
         sound_ranges: sound_ranges.clone(),
+        boxes: PictureBoxes::default(),
     };
+    // The scene, with the drag (or Adjust Location) applied to what it
+    // moves.
+    let (dragged, tilted, scaled) = (view.dragged(), view.tilted(), view.scaled());
+    let spawn = match view.drag {
+        Some(Drag::FaceSpawn { object, point, facing, .. }) => Some((object, point, Err(facing))),
+        Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
+        _ => None,
+    };
+    // (Where nothing but Adjust Location poses the objects: their boxes
+    // kept while its values rest. Not while a drag, a key or a handle
+    // poses what it moves.)
+    let kept_poses = (dragged.is_empty() && tilted.is_empty() && scaled.is_empty())
+        .then(|| spawn.is_none().then(|| adjusting.clone()))
+        .flatten();
+    let mut poses = adjusting.0;
+    poses.extend(dragged);
+    let mut visuals = adjusting.1;
+    visuals.extend(tilted);
+    visuals.extend(scaled);
+    // (A copy of the model kept from frame to frame, the objects posed
+    // set back and posed again: not the whole model copied every frame.)
+    let Some(model) = &view.model else { return };
+    let mut copy = view.posed.take();
+    if poses.is_empty() && visuals.is_empty() && spawn.is_none() {
+        copy = None;
+    } else {
+        if copy.is_none() {
+            view.posed_builds += 1;
+        }
+        let (posed, last) = copy.get_or_insert_with(|| (model.clone(), Vec::new()));
+        pose_kept(&mut posed.objects, last, &model.objects, &poses, &visuals, spawn);
+    }
+    let shown: &AreaModel = copy.as_ref().map_or(model, |(posed, _)| posed);
+    // The boxes of the objects selected or marked, as this frame poses
+    // them: drawn in the picture, over everything 3D (thousands of lines
+    // over the view took egui milliseconds a frame), and part of what
+    // the picture is drawn from, so that it is drawn again as they
+    // change. (A width in points is so many of the picture's pixels.)
+    // Kept while what they show stays as it was: 5,000 selected took 70
+    // to 110 us a frame to make at rest.
+    {
+        let scene = view.scene.as_ref().expect("checked above");
+        let colors = handles::Colors::of(&mg_uikit::tokens(ui.ctx()));
+        let same = |key: &BoxesKey| {
+            let adjusted = kept_poses.as_ref();
+            (key.revision, key.generation, key.show, key.colors, key.ppp, key.merchant_signs)
+                == (
+                    view.revision,
+                    view.overlay_generation,
+                    view.show,
+                    (colors.edge, colors.turn.0),
+                    ppp,
+                    scene.merchant_signs,
+                )
+                && key.selection == view.selection
+                && adjusted == Some(&key.adjusted)
+        };
+        from.boxes = match &view.boxes_kept {
+            Some((key, boxes)) if same(key) => boxes.clone(),
+            _ => {
+                let made = object_boxes(scene, shown, &view.selection, view.show, &colors, ppp);
+                let boxes = PictureBoxes(made.into());
+                view.box_builds += 1;
+                view.boxes_kept = kept_poses.clone().map(|adjusted| {
+                    let key = BoxesKey {
+                        revision: view.revision,
+                        generation: view.overlay_generation,
+                        selection: view.selection.clone(),
+                        show: view.show,
+                        colors: (colors.edge, colors.turn.0),
+                        ppp,
+                        merchant_signs: scene.merchant_signs,
+                        adjusted,
+                    };
+                    (key, boxes.clone())
+                });
+                boxes
+            }
+        };
+    }
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     // (Every texture the picture waited for read: drawn again now, not at
     // the next step.)
@@ -4011,22 +4145,6 @@ fn viewport(
         crate::jobs::repaint_in(ui.ctx(), f64::from(ANIMATION_STEP - s));
     }
 
-    // The scene, with the drag (or Adjust Location) applied to what it
-    // moves.
-    let (dragged, tilted, scaled) = (view.dragged(), view.tilted(), view.scaled());
-    let spawn = match view.drag {
-        Some(Drag::FaceSpawn { object, point, facing, .. }) => Some((object, point, Err(facing))),
-        Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
-        _ => None,
-    };
-    let kept_poses = (dragged.is_empty() && tilted.is_empty() && scaled.is_empty())
-        .then(|| spawn.is_none().then(|| adjusting.clone()))
-        .flatten();
-    let mut poses = adjusting.0;
-    poses.extend(dragged);
-    let mut visuals = adjusting.1;
-    visuals.extend(tilted);
-    visuals.extend(scaled);
     let paint_instances = if !kept && !painted.is_empty() {
         let scene = view.scene.as_mut().expect("checked above");
         let mut out = Vec::new();
@@ -4038,23 +4156,13 @@ fn viewport(
     } else {
         Vec::new()
     };
-    // (A copy of the model kept from frame to frame, the objects posed
-    // set back and posed again: not the whole model copied every frame.)
-    let Some(model) = &view.model else { return };
-    let mut copy = view.posed.take();
-    if poses.is_empty() && visuals.is_empty() && spawn.is_none() {
-        copy = None;
-    } else {
-        let (posed, last) = copy.get_or_insert_with(|| (model.clone(), Vec::new()));
-        pose_kept(&mut posed.objects, last, &model.objects, &poses, &visuals, spawn);
-    }
-    let shown: &AreaModel = copy.as_ref().map_or(model, |(posed, _)| posed);
     vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
         let scene = view.scene.as_ref().expect("checked above");
         let mut frame = scene.scene_hiding(shown, &settings, &hidden);
         frame.environment.clock = clock;
+        frame.boxes = from.boxes.0.to_vec();
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
@@ -4157,7 +4265,6 @@ fn viewport(
         door_arrows: !app.settings.no_door_arrows,
         ghost_box,
         paste_boxes,
-        kept_poses,
     };
     // The start location where it is being dragged to.
     let start = match view.drag {
@@ -4432,24 +4539,6 @@ pub(crate) struct TileLinesKey {
     pub(crate) at: OverlayKey,
     pub(crate) revision: Option<u64>,
     pub(crate) tiles: Vec<(u32, u32)>,
-}
-
-/// What the boxes of the objects selected or marked were made for: as
-/// [`OverlayKey`], and the workspace's revision the area was read at, the
-/// selection, the kinds shown, the boxes' two colors and where Adjust
-/// Location shows what it changes.
-#[derive(Clone, Debug, PartialEq)]
-struct BoxesKey {
-    at: OverlayKey,
-    revision: Option<u64>,
-    selection: Vec<(ObjectKind, usize)>,
-    show: [bool; 9],
-    colors: (Color32, Color32),
-    /// Whether a merchant's sign stands for it (which objects draw, and
-    /// their bounds).
-    merchant_signs: Option<bool>,
-    /// Where Adjust Location shows the objects it changes.
-    poses: crate::area_tools::Previewed,
 }
 
 /// What the objects' walkmesh overlay was made for: as [`OverlayKey`],
@@ -4981,16 +5070,103 @@ struct Marks {
     answers: bool,
     /// The start location as a press takes it (on the ground under it).
     press_start: Option<(Vec3, f32)>,
-    /// Where Adjust Location shows the objects it changes, where nothing
-    /// else poses them (none at all while it is closed): the boxes kept
-    /// while it rests. `None` while a drag, a key or a handle poses them.
-    kept_poses: Option<crate::area_tools::Previewed>,
 }
 
 /// The width of a selected outline drawn in its own color (an
 /// encounter's Outline color), over the dark edge: a point wider than an
 /// outline unselected, so the selection shows by width and edge alone.
 const OWN_SELECTED_WIDTH: f32 = 2.5;
+
+/// Which objects of the selection `selection` are selected, by kind and
+/// place (a set of 5,000 was hashed each frame a drag posed them).
+fn chosen_of(selection: &[(ObjectKind, usize)]) -> [Vec<bool>; ObjectKind::ALL.len()] {
+    let mut chosen: [Vec<bool>; ObjectKind::ALL.len()] = Default::default();
+    for &(kind, index) in selection {
+        let of = &mut chosen[kind.index()];
+        if of.len() <= index {
+            of.resize(index + 1, false);
+        }
+        of[index] = true;
+    }
+    chosen
+}
+
+/// Whether an object of `kind` (of a kind shown) has a box: selected, or
+/// a marker's where the scene does not draw it (`in_scene`). Not an
+/// outline (drawn as it is), nor a waypoint or a store left undrawn,
+/// which is an arrow over the view while it is not selected.
+fn has_box(kind: ObjectKind, selected: bool, in_scene: bool) -> bool {
+    !kind.has_outline() && (selected || (!in_scene && !kind.has_arrow()))
+}
+
+/// A marker's box's color, by its object's kind.
+fn marker_color(kind: ObjectKind) -> Color32 {
+    match kind {
+        ObjectKind::Waypoint => Color32::from_rgb(90, 170, 255),
+        ObjectKind::Sound => Color32::from_rgb(240, 220, 80),
+        ObjectKind::Store => Color32::from_rgb(120, 220, 120),
+        _ => Color32::from_rgb(230, 70, 70),
+    }
+}
+
+/// The boxes of `shown`'s objects of the kinds shown (`show`) that have
+/// one ([`has_box`]), for the picture (`mg_render::Scene::boxes`): each
+/// round its model as `scene` draws it, posed where `shown` has it; a
+/// marker's in its kind's color 1.5 points wide, those of `selection` in
+/// the selection's color, thin over a dark edge, as the handles have
+/// them (`colors`); drawn after the markers' (their lines over them).
+/// `ppp`: so many of the picture's pixels a point; every line at least
+/// a pixel wide, the dark edge two wider than the line.
+fn object_boxes(
+    scene: &AreaScene,
+    shown: &AreaModel,
+    selection: &[(ObjectKind, usize)],
+    show: [bool; 9],
+    colors: &handles::Colors,
+    ppp: f32,
+) -> Vec<mg_render::BoxCopy> {
+    // (At least a pixel of the picture wide: under one the renderer draws
+    // a pixel that much fainter, and at a lower Area view resolution the
+    // boxes faded. The owner's ruling of 26 November.)
+    let stroke = |s: Stroke| {
+        let color = s.color.to_srgba_unmultiplied().map(|c| f32::from(c) / 255.0);
+        mg_render::BoxStroke { width: (s.width * ppp).max(1.0), color }
+    };
+    let (edge, line) = handles::box_strokes(colors);
+    let (mut edge, line) = (stroke(edge), stroke(line));
+    // (The dark edge a pixel wider than the line on each side, however
+    // small the picture: it shows either side of it.)
+    edge.width = edge.width.max(line.width + 2.0);
+    let chosen = chosen_of(selection);
+    let (mut markers, mut selected) = (Vec::new(), Vec::with_capacity(selection.len()));
+    for (i, o) in shown.objects.iter().enumerate() {
+        if !show[o.kind.index()] {
+            continue;
+        }
+        let picked = chosen[o.kind.index()].get(o.index).copied().unwrap_or(false);
+        if !has_box(o.kind, picked, scene.draws(shown, i)) {
+            continue;
+        }
+        let (min, max) = scene.bounds(shown, i);
+        let transform = o.model_transform()
+            * glam::Mat4::from_translation(min)
+            * glam::Mat4::from_scale(max - min);
+        // (Nowhere to draw one placed at no number, from a GIT's broken
+        // values: and a box unequal to itself would draw the picture
+        // again every frame, its key never the same.)
+        if !transform.is_finite() {
+            continue;
+        }
+        if picked {
+            selected.push(mg_render::BoxCopy { transform, line, edge: Some(edge) });
+        } else {
+            let line = stroke(Stroke::new(1.5, marker_color(o.kind)));
+            markers.push(mg_render::BoxCopy { transform, line, edge: None });
+        }
+    }
+    markers.extend(selected);
+    markers
+}
 
 /// Markers for objects without models, outlines, the grid, the start
 /// location and the selection, drawn over the view.
@@ -5041,47 +5217,7 @@ fn overlays(
         }
     };
     let scene = view.scene.as_ref();
-    // (Which are selected, by kind and place: a set of 5,000 hashed each
-    // frame a drag poses them.)
-    let mut chosen: [Vec<bool>; ObjectKind::ALL.len()] = Default::default();
-    for &(kind, index) in &view.selection {
-        let of = &mut chosen[kind.index()];
-        if of.len() <= index {
-            of.resize(index + 1, false);
-        }
-        of[index] = true;
-    }
-    // (The boxes kept from a frame before, where what they show is as it
-    // was: 5,000 objects selected, their boxes took 3 ms a frame at rest.
-    // Not while a drag, a key or a handle poses the objects it moves.)
-    let boxes_key = OverlayKey::of(view).zip(marks.kept_poses.as_ref()).map(|(at, _)| BoxesKey {
-        at,
-        revision: view.revision,
-        selection: Vec::new(),
-        show: view.show,
-        colors: (colors.edge, colors.turn.0),
-        merchant_signs: view.scene.as_ref().map(|s| s.merchant_signs),
-        poses: Default::default(),
-    });
-    let kept_boxes = boxes_key.as_ref().and_then(|key| {
-        let kept = view.boxes_kept.borrow();
-        let (was, shapes) = kept.as_ref()?;
-        let same = (was.at, was.revision, was.show, was.colors, was.merchant_signs)
-            == (key.at, key.revision, key.show, key.colors, key.merchant_signs)
-            && was.selection == view.selection
-            && Some(&was.poses) == marks.kept_poses.as_ref();
-        same.then(|| shapes.clone())
-    });
-    // (The boxes' edges, painted together after the objects are gone
-    // through: the selected ones' dark edges, then their lines, over the
-    // markers'.)
-    let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
-    // (Twelve edges a box: grown edge by edge, 5,000 boxes' were copied
-    // again and again.)
-    let room = if kept_boxes.is_none() { 12 * view.selection.len() } else { 0 };
-    let (mut selected_edges, mut selected_lines) =
-        (Vec::with_capacity(room), Vec::with_capacity(room));
-    boxes.reserve(3 * room);
+    let chosen = chosen_of(&view.selection);
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
@@ -5244,51 +5380,7 @@ fn overlays(
                 }
             }
         }
-        let marker = !in_scene;
-        if (marker || selected) && kept_boxes.is_none() {
-            let (min, max) = match scene {
-                Some(s) => s.bounds(shown, i),
-                None => mg_area::pick::marker_bounds(o.kind),
-            };
-            let color = match o.kind {
-                ObjectKind::Waypoint => Color32::from_rgb(90, 170, 255),
-                ObjectKind::Sound => Color32::from_rgb(240, 220, 80),
-                ObjectKind::Store => Color32::from_rgb(120, 220, 120),
-                _ => Color32::from_rgb(230, 70, 70),
-            };
-            let (t, eye) = (o.model_transform(), camera.as_ref().zip(to_screen.as_ref()));
-            let edges = box_edges_on_screen(eye, t, min, max, segment).into_iter().flatten();
-            if selected {
-                // (Thin, over a dark edge: the handles lead.)
-                let (dark, lines) = handles::box_lines(edges, &colors);
-                selected_edges.extend(dark);
-                selected_lines.extend(lines);
-            } else {
-                let stroke = Stroke::new(1.5, color);
-                boxes.extend(edges.map(|points| (points, stroke)));
-            }
-        }
     }
-    let shapes = kept_boxes.unwrap_or_else(|| {
-        boxes.extend(selected_edges);
-        boxes.extend(selected_lines);
-        // (Painted together: one at a time, each of thousands took the
-        // window's lock; and past some eighty boxes as one mesh.)
-        let shapes: std::sync::Arc<[egui::Shape]> = if boxes.len() > BOXES_MESHED {
-            std::sync::Arc::new([egui::Shape::mesh(lines_mesh(&boxes))])
-        } else {
-            let lines = boxes.into_iter();
-            lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }).collect()
-        };
-        if let (Some(mut key), Some(poses)) = (boxes_key, &marks.kept_poses) {
-            key.selection.clone_from(&view.selection);
-            key.poses.clone_from(poses);
-            *view.boxes_kept.borrow_mut() = Some((key, shapes.clone()));
-        }
-        view.box_builds.set(view.box_builds.get() + 1);
-        shapes
-    });
-    painter.extend(shapes.iter().cloned());
     if view.pasting
         && let Some(clip) = clip
         && let Some(at) = hover.and_then(|p| view.area_point(p))
@@ -6837,32 +6929,6 @@ const BOX_EDGES: [(usize, usize); 12] = [
     (2, 6),
     (3, 7),
 ];
-
-/// The edges of the box `min` to `max` posed by `t` on screen, as
-/// `segment` puts each (cut where it passes behind the eye): where all
-/// eight corners are in front of the near plane (`eye`: the camera and
-/// what puts points on screen), the corners put on screen once rather
-/// than each edge's two ends (the boxes of thousands selected were
-/// worked out anew each frame of a drag).
-fn box_edges_on_screen(
-    eye: Option<(&Camera, &Projector)>,
-    t: glam::Mat4,
-    min: Vec3,
-    max: Vec3,
-    segment: impl Fn(Vec3, Vec3) -> Option<[Pos2; 2]>,
-) -> [Option<[Pos2; 2]>; 12] {
-    let c = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
-    if let Some((camera, to_screen)) = eye
-        && c.iter().all(|p| mg_area::pick::depth(camera, *p) - camera.near >= 0.0)
-    {
-        let on = c.map(|p| to_screen.at(p));
-        if on.iter().all(Option::is_some) {
-            let on = on.map(Option::unwrap_or_default);
-            return BOX_EDGES.map(|(a, b)| Some([on[a], on[b]]));
-        }
-    }
-    BOX_EDGES.map(|(a, b)| segment(c[a], c[b]))
-}
 
 /// The farthest the game's camera stands from the player (metres; the
 /// camera as a player enters, NWScript's SetCameraFacing): the view's fog
@@ -9803,49 +9869,5 @@ mod tests {
         // as the game shows a player 20 m from its camera.
         let far = view_fog(city, 60.0);
         assert_eq!((far.start, far.end, far.color), (35.0, 85.0, city.color));
-    }
-
-    /// A box's edges on screen are where each edge cut at the near plane
-    /// would put them (`AreaView::screen_segment`), its corners put on
-    /// screen once where all are in front of the eye or each edge cut where
-    /// not.
-    #[test]
-    fn box_edges_are_put_on_screen_as_segments_are() {
-        let mut view = AreaView::new(ResRef::EMPTY);
-        view.rect = Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(800.0, 500.0));
-        let orbit =
-            Orbit { target: Vec3::new(50.0, 50.0, 0.0), yaw: 0.7, pitch: 0.2, distance: 12.0 };
-        view.orbit = Some(orbit);
-        let camera = view.camera().unwrap();
-        let to_screen = view.projector().unwrap();
-        let mut seed = 9u64;
-        let mut next = || {
-            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            (seed >> 40) as f32 / (1u64 << 24) as f32
-        };
-        let (mut whole, mut cut) = (0, 0);
-        for _ in 0..2000 {
-            let at = camera.eye + Vec3::new(next() - 0.5, next() - 0.5, next() - 0.5) * 60.0;
-            let t = glam::Mat4::from_rotation_translation(
-                glam::Quat::from_rotation_z(next() * 6.0),
-                at,
-            );
-            let (min, max) = (-Vec3::splat(next() * 3.0), Vec3::splat(next() * 3.0 + 0.1));
-            let segment = |a: Vec3, b: Vec3| view.screen_segment(a, b);
-            let edges = box_edges_on_screen(Some((&camera, &to_screen)), t, min, max, segment);
-            let each: Vec<_> = box_edges(t, min, max).map(|(a, b)| segment(a, b)).collect();
-            assert_eq!(&edges[..], &each[..], "{t:?} {min:?} {max:?}");
-            let corners = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
-            match corners
-                .iter()
-                .filter(|p| mg_area::pick::depth(&camera, **p) >= camera.near)
-                .count()
-            {
-                8 => whole += 1,
-                0 => {}
-                _ => cut += 1,
-            }
-        }
-        assert!(whole > 100 && cut > 20, "both ways tried: {whole} whole, {cut} cut");
     }
 }

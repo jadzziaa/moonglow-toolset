@@ -75,7 +75,8 @@ const TICK: f32 = 5.0;
 /// The selection box's line, its strength and its edge's.
 const BOX: (f32, f32, f32) = (1.0, 0.9, 0.45);
 
-/// The layers, painted in this order: the selection boxes, a drag's
+/// The layers, painted in this order: the start location's selection
+/// box (the objects' are drawn in the picture, `Scene::boxes`), a drag's
 /// fills and guide line, the far halves' edges and lines, the handles'
 /// edges and lines, those on top (the pivot dots, a drag's start marks),
 /// and the chips.
@@ -854,9 +855,16 @@ type Lines = Vec<([Pos2; 2], Stroke)>;
 /// The selection box's edges: each a line of [`BOX`] in the selection's
 /// color over its dark edge (the edges all under the lines).
 pub(super) fn box_lines(edges: impl Iterator<Item = [Pos2; 2]>, colors: &Colors) -> (Lines, Lines) {
+    let (dark, line) = box_strokes(colors);
+    edges.map(|e| ((e, dark), (e, line))).unzip()
+}
+
+/// The selection box's dark edge and its line ([`BOX`]), widths in
+/// points.
+pub(super) fn box_strokes(colors: &Colors) -> (Stroke, Stroke) {
     let dark = Stroke::new(BOX.0 + 2.0, colors.edge.gamma_multiply(BOX.2 / EDGE));
     let line = Stroke::new(BOX.0, colors.turn.0.gamma_multiply(BOX.1));
-    edges.map(|e| ((e, dark), (e, line))).unzip()
+    (dark, line)
 }
 
 /// A line of the spawn point's or the start location's drawing over its
