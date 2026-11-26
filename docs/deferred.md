@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:20:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:37:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -278,7 +278,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   over 20: each item out of sight is still asked whether it is open (an
   id made and egui's memory looked up, 3,000 a frame), and passing them
   over in blocks needs to know which are open without asking, which
-  egui's memory can't say: left, beyond a local change.
+  egui's memory can't say: left, beyond a local change. Waiting on a
+  quiet machine: the final commit timed again (its three runs, at a
+  load of 30 to 39, settled nothing), and with it a hak's Save with the
+  large module open, whose frames until it is saved were past the
+  budget at the loads seen (5.9 to 16.6 ms; 4.7 alone at a load of 6,
+  before its job was given nothing), and the typed line on the large
+  module (4.0, to 13.8 in a run's spike).
   (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 ## Blueprint editors and inventories
