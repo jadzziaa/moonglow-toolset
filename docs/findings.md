@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T23:06:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1132,6 +1132,19 @@ rest, and over the bones of animated parts (a robe's, a cloak's). No
 other base item has an overlay (the wiki's Item page names only the
 torch's).
 
+The whole arm is the overlay's, the upper arm too. `torchl` (`animroot
+lbicep_g`) keys the orientation of `lbicep_g`, `lforearm_g`, `lforearm`,
+`lhand_g` and `lhand`, and each key replaces what the base's animation
+keys on that node (it is not added to it); every other node follows the
+base's animation. The upper arm then points ahead, about level, and the
+forearm up, so the torch stands a forearm's length ahead of the face,
+its hand just above the shoulder's height. Looked steeply down on from
+ahead (`SetCameraFacing(90, 10, 40)`, about the report's camera)
+the arm held ahead is drawn below the head and reads as an upper arm
+hanging with only the forearm bent: it is the same pose, which a view
+from the side tells apart. Asking for the pause animation by script
+(`PlayAnimation(ANIMATION_LOOPING_PAUSE)`) changes nothing of it.
+
 An item's Light property lights its wearer, not its own model. Property
 44's `CostValue` (iprp_lightcost: 1 dim 5 m to 4 bright 20 m) and
 `Param1Value` (iprp_color: 0 blue, 1 yellow, 2 purple, 3 red, 4 green,
@@ -1170,7 +1183,16 @@ first, gave about 0.65 of the client's far off.
 - **Checked:** `part_emitters_torch_light` (`client_render/part_emitters.rs`,
   2026-11-25, EE 89.8193.37): fifteen runs, each beside Moonglow's view
   of the same scene (`light_<run>_moonglow_on.png`); the arm in
-  `part_emitters_look`'s group h.
+  `part_emitters_look`'s group h, and in
+  `torch_arm_held_as_the_client_holds_it` (`client_render/torch_arm.rs`,
+  2026-11-26): a bandit (`nw_bandit001`) whose torch's model is a
+  magenta stick, seen from ahead, from each side and from behind. The
+  stick's middle and direction in the client's picture are Moonglow's
+  within 4.5 pixels (of 1024 by 768) and 1 degree, and the pose worked
+  out from the keys' within 8 and 1.2; a stick held by the forearm's
+  and the hand's keys alone, the upper arm left to the idle, would be
+  160 to 185 pixels away. `torch_arm_look` has the pictures with the
+  game's torch, the steep camera's and the forced pause's.
 - **Moonglow:** `mg_preview::creature` (`Preview::overlay` for the
   torch, `Preview::effect_lights` from `item_light` over
   `DressedLook::brightest_light`, the undrawn slots' lights in
@@ -1180,7 +1202,9 @@ first, gave about 0.65 of the client's far off.
   `an_item_s_light_is_its_color_s_and_brightness_s_effect`,
   `a_creature_s_light_is_its_brightest_item_s`,
   `a_torch_bearer_raises_his_arm_and_lights_around_him`,
-  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch).
+  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch),
+  `a_torch_bearer_s_whole_arm_is_the_overlay_s` (each keyed node's turn
+  the overlay's key, the others the idle's).
 - **Not read:** which of two equally bright lights is taken; the light
   of an item lying on the ground or of an item's own preview; colors
   other than yellow and green (they go by the tables); a light on a

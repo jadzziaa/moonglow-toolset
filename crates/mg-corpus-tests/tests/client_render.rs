@@ -102,6 +102,8 @@ mod shadows;
 mod soft;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
+#[path = "client_render/torch_arm.rs"]
+mod torch_arm;
 #[path = "client_render/transition_outlines.rs"]
 mod transition_outlines;
 #[path = "client_render/upright.rs"]
