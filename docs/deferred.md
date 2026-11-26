@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T10:33:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T11:22:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -744,11 +744,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   twice a frame: a real unintended consequence. Caches per source in the
   renderer would do. (M) (the review of November 2026, B15, and what its
   fixers saw on the way)
-- **PLT palettes read in two places:** mg-render reads them once
-  (`Palettes`, `Assets::texture_kept`: the review's R13); mg-ui's
-  `images.rs` keeps its own, as before, and the two loaders are not
-  made one. Left by the renderer's fixer, whose part was mg-render:
-  beyond the finding's part. (S) (the review of November 2026, R13)
 
 ## Models and textures
 

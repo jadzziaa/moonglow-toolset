@@ -1800,7 +1800,7 @@ impl Moonglow {
             nui_views: HashMap::new(),
             new_nui: None,
             nui_import: None,
-            palettes: HashMap::new(),
+            palettes: Default::default(),
             area_audio: Default::default(),
             heard: None,
             scripts: HashMap::new(),
@@ -2294,7 +2294,7 @@ impl Moonglow {
         self.thumbnails.begin_frame(self.ws.as_ref(), female);
         images::forget_changed(
             &mut self.pictures,
-            &mut self.palettes,
+            &self.palettes,
             self.ws.as_ref(),
             &mut self.pictures_seen,
         );

@@ -24,15 +24,16 @@ pub struct LoadedTexture {
 
 /// The palettes PLT textures are colored with (`pal_skin01` …), as
 /// pixels: kept for the textures of one load order (the renderer keeps
-/// one while its textures stay, [`Assets::texture_kept`]), so that each is
-/// read and decoded once, not ten times a PLT.
+/// one while its textures stay, [`Assets::texture_kept`]; the window's
+/// pictures one while the module's are the same), so that each is read
+/// and decoded once, not ten times a PLT.
 #[derive(Debug, Default)]
 pub struct Palettes(Mutex<HashMap<&'static str, Option<Arc<Rgba>>>>);
 
 impl Palettes {
     /// The palette `name`, as kept; else as `read` reads it (none: kept as
     /// none), kept from now on.
-    fn get(
+    pub fn get(
         &self,
         name: &'static str,
         read: impl FnOnce(&'static str) -> Option<Rgba>,
@@ -47,6 +48,20 @@ impl Palettes {
             kept.insert(name, palette.clone());
         }
         palette
+    }
+
+    /// Lets go of every palette kept.
+    pub fn clear(&self) {
+        if let Ok(mut kept) = self.0.lock() {
+            kept.clear();
+        }
+    }
+
+    /// Keeps only the palettes whose names `keep` keeps.
+    pub fn retain(&self, mut keep: impl FnMut(&str) -> bool) {
+        if let Ok(mut kept) = self.0.lock() {
+            kept.retain(|name, _| keep(name));
+        }
     }
 }
 

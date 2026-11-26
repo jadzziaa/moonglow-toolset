@@ -34,8 +34,8 @@ impl std::fmt::Debug for Picture {
 /// Decoded images, by lowercase name (and colouring, for PLTs).
 pub(crate) type Pictures = HashMap<String, Option<Picture>>;
 
-/// Decoded palettes (`pal_*`), by name.
-pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
+/// Decoded palettes (`pal_*`), by name: the renderer's own keeping.
+pub(crate) use mg_render::Palettes;
 
 /// Lets go of the pictures and palettes kept of what the module's changes
 /// since the last call touched, so that a picture the module adds, changes
@@ -45,7 +45,7 @@ pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
 /// go; another module, or none, is [`Moonglow`]'s own reset.
 pub(crate) fn forget_changed(
     pictures: &mut Pictures,
-    palettes: &mut Palettes,
+    palettes: &Palettes,
     ws: Option<&Workspace>,
     seen: &mut Option<(u64, u64)>,
 ) {
@@ -70,13 +70,13 @@ pub(crate) fn forget_changed(
         let (base, how) = key.split_once('#').unwrap_or((key, ""));
         !names.contains(base) && !(how == "loadscreen" && names.contains(&format!("{base}s")))
     });
-    palettes.retain(|name, _| !names.contains(name));
+    palettes.retain(|name| !names.contains(name));
 }
 
 /// Loads images from the module and the game into the cache.
 pub(crate) struct Loader<'a> {
     pub pictures: &'a mut Pictures,
-    pub palettes: &'a mut Palettes,
+    pub palettes: &'a Palettes,
     pub ws: Option<&'a Workspace>,
     pub game: &'a GameData,
 }
@@ -335,19 +335,11 @@ impl Loader<'_> {
     }
 
     /// A palette image (`pal_cloth01`, ...) as pixels, loaded once.
-    pub(crate) fn palette(&mut self, name: &str) -> Option<Arc<mg_image::Rgba>> {
-        // (By its name in lower case, as `picture`'s: one image, however
-        // it is asked for.)
-        let name = name.to_ascii_lowercase();
-        if let Some(p) = self.palettes.get(&name) {
-            return p.clone();
-        }
-        let rgba = ResRef::from_str(&name).ok().and_then(|r| {
-            let (t, data) = self.texture(r)?;
-            Some(Arc::new(mg_image::read(t, &data).ok()?.to_rgba()))
-        });
-        self.palettes.insert(name, rgba.clone());
-        rgba
+    pub(crate) fn palette(&self, name: &'static str) -> Option<Arc<mg_image::Rgba>> {
+        self.palettes.get(name, |name| {
+            let (t, data) = self.texture(ResRef::from_str(name).ok()?)?;
+            Some(mg_image::read(t, &data).ok()?.to_rgba())
+        })
     }
 
     /// The image named `name` (a texture resref), loaded once.
@@ -532,7 +524,7 @@ impl Moonglow {
         let game = self.game.as_deref()?;
         Some(Loader {
             pictures: &mut self.pictures,
-            palettes: &mut self.palettes,
+            palettes: &self.palettes,
             ws: self.ws.as_ref(),
             game,
         })
@@ -545,7 +537,7 @@ impl Moonglow {
         let game = self.game.as_deref()?;
         let loader = Loader {
             pictures: &mut self.pictures,
-            palettes: &mut self.palettes,
+            palettes: &self.palettes,
             ws: self.ws.as_ref(),
             game,
         };
@@ -872,9 +864,9 @@ mod tests {
         m.set(key("po_bothm"), tga(30));
         m.set(key("po_modm"), tga(40));
         let ws = Workspace::new(m);
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let loader =
-            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+            Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(&ws), game: &game };
         let level = |name: &str| {
             let (t, d) = loader.texture(ResRef::from_str(name).unwrap()).unwrap();
             mg_image::read(t, &d).unwrap().to_rgba().data[0]
@@ -902,12 +894,12 @@ mod tests {
         let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
         let mut ws = Workspace::new(mg_module::Module::new());
         let ctx = egui::Context::default();
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let mut seen = None;
         let mut frame = |ws: &Workspace, pictures: &mut Pictures, names: &[&str]| {
-            forget_changed(pictures, &mut palettes, Some(ws), &mut seen);
+            forget_changed(pictures, &palettes, Some(ws), &mut seen);
             let mut loader =
-                Loader { pictures, palettes: &mut Palettes::new(), ws: Some(ws), game: &game };
+                Loader { pictures, palettes: &Palettes::default(), ws: Some(ws), game: &game };
             names
                 .iter()
                 .map(|n| loader.picture(&ctx, n).map(|p| p.texture.id()))
@@ -935,6 +927,43 @@ mod tests {
         ws.derive(|_| ()).unwrap();
         let outside = frame(&ws, &mut pictures, &["po_otherm"]);
         assert_ne!(outside[0], first[1], "a change outside the history reads all again");
+    }
+
+    /// A palette is read once, kept in the renderer's keeping
+    /// (`mg_render::Palettes`), and read again when the module changes it;
+    /// the others stay kept.
+    #[test]
+    fn a_palette_the_module_changes_is_read_again() {
+        let tga = |level: u8| {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8];
+            t.extend([level, level, level, 255]);
+            t
+        };
+        let key = |n: &str| ResKey::parse(n, ResType::TGA).unwrap();
+        let mut game_layer = mg_resman::MemContainer::new();
+        game_layer.insert(key("pal_skin01"), tga(10));
+        game_layer.insert(key("pal_hair01"), tga(20));
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "key:pals", mg_resman::LayerClass::Key, game_layer);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut ws = Workspace::new(mg_module::Module::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
+        let mut seen = None;
+        let mut frame = |ws: &Workspace| {
+            forget_changed(&mut pictures, &palettes, Some(ws), &mut seen);
+            let loader =
+                Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(ws), game: &game };
+            ["pal_skin01", "pal_hair01"].map(|n| loader.palette(n).unwrap())
+        };
+        let first = frame(&ws);
+        assert_eq!((first[0].data[0], first[1].data[0]), (10, 20));
+        assert!(Arc::ptr_eq(&frame(&ws)[0], &first[0]), "kept, not read again");
+
+        let edit = mg_edit::Edit::SetResource { key: key("pal_skin01"), data: Some(tga(30)) };
+        ws.apply(mg_edit::Command::new("Set", vec![edit])).unwrap();
+        let next = frame(&ws);
+        assert_eq!(next[0].data[0], 30, "the module's palette is read");
+        assert!(Arc::ptr_eq(&next[1], &first[1]), "a palette nothing changed is kept");
     }
 
     /// An item icon is drawn only where a TGA of its name is there, in any
@@ -986,9 +1015,9 @@ mod tests {
         let mut m = mg_module::Module::new();
         m.set(key("iit_smlmisc_004", ResType::TGA), tga(4));
         let ws = Workspace::new(m);
-        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let (mut pictures, palettes) = (Pictures::new(), Palettes::default());
         let mut loader =
-            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+            Loader { pictures: &mut pictures, palettes: &palettes, ws: Some(&ws), game: &game };
         let ctx = egui::Context::default();
         let mut drawn = |n: u8| {
             let mut item = Struct::new(0);

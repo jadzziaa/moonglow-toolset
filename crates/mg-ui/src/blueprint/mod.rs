@@ -2182,7 +2182,7 @@ impl Form<'_> {
         game: &mg_rules::GameData,
         what: &str,
         label: &str,
-        palette: &str,
+        palette: &'static str,
     ) {
         self.mark_mixed(ui, label);
         let current = self.int(label).clamp(0, 175) as u8;
@@ -2201,15 +2201,15 @@ impl Form<'_> {
         game: &mg_rules::GameData,
         what: &str,
         label: &str,
-        palette: &str,
+        palette: &'static str,
         current: u8,
         text: Option<&str>,
     ) -> Option<u8> {
         let pal = {
             let app = &mut *self.app;
-            let mut l = crate::images::Loader {
+            let l = crate::images::Loader {
                 pictures: &mut app.pictures,
-                palettes: &mut app.palettes,
+                palettes: &app.palettes,
                 ws: app.ws.as_ref(),
                 game,
             };
