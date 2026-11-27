@@ -758,3 +758,230 @@ fn the_cache_is_pruned_of_what_no_kept_manifest_needs() {
     assert_eq!(p.data_files, 0);
     assert!(cache.contains(&texture(0)));
 }
+
+/// The server names a manifest it then doesn't give: `latest/` is not
+/// pointed at it (a prune would keep a manifest nothing here can read),
+/// and the one here is used with a warning.
+#[test]
+fn latest_is_kept_only_once_its_manifest_is_here() {
+    let dir = mg_testkit::scratch_dir("nwsync-latest-kept");
+    let content = Content::new();
+    let (sha, _) = content.manifest();
+    let mut server = Server::of(&content);
+    server.files.remove(&format!("manifests/{}", sha1_hex(&sha)));
+    let cache = Cache::new(dir.join("cache"));
+    let e = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap_err();
+    assert!(e.contains("has no manifest"), "{e}");
+    assert_eq!(cache.latest(URL), None, "latest/ names a manifest that isn't here");
+    // An older one here: used, with a warning; latest/ still names it.
+    let mut older = Content::new();
+    older.resources[0].1 = b"an older table".to_vec();
+    let (old_sha, old_bytes) = older.manifest();
+    cache.put_manifest(&old_sha, "", &old_bytes).unwrap();
+    cache.set_latest(URL, &old_sha).unwrap();
+    let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert_eq!((r.found.sha1, r.server_latest), (old_sha, Some(sha)));
+    assert_eq!(r.warnings.len(), 1);
+    assert_eq!(cache.latest(URL).map(|l| l.0), Some(old_sha));
+    // Given: latest/ names it.
+    let server = Server::of(&content);
+    fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert_eq!(cache.latest(URL).map(|l| l.0), Some(sha));
+}
+
+/// A manifest named in `latest/`, or one of the last used, that can't be
+/// read here is passed over with a note: data files no readable kept
+/// manifest needs still go. Only a manifest the caller named keeps them
+/// all.
+#[test]
+fn an_unreadable_latest_or_recent_manifest_doesnt_stop_the_prune() {
+    use mg_nwsync::prune::{Keep, prune};
+    use std::time::Duration;
+    let dir = mg_testkit::scratch_dir("nwsync-prune-unreadable");
+    let cache = Cache::new(dir.join("cache"));
+    let content = Content::new();
+    let (sha, bytes) = content.manifest();
+    cache.put_manifest(&sha, "", &bytes).unwrap();
+    for (_, data) in &content.resources {
+        cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+    }
+    let stale = b"needed by nothing".to_vec();
+    cache.put(&sha1(&stale), &store(&stale, MAGIC_NSYC)).unwrap();
+    // latest/ names a manifest neither has; a manifest file here that
+    // isn't what its name says.
+    cache.set_latest("https://other.example.org", &sha1(b"never downloaded")).unwrap();
+    let broken = sha1(b"a manifest cut off");
+    cache.put_manifest(&broken, "", b"NSYM cut").unwrap();
+    let keep = Keep { manifests: vec![sha], recent: 3, min_age: Duration::ZERO };
+    let p = prune(&cache, None, &keep, false).unwrap();
+    assert_eq!(p.data_left, None);
+    assert_eq!(p.data_files, 1);
+    assert!(!cache.contains(&sha1(&stale)));
+    assert!(content.resources.iter().all(|(_, d)| cache.contains(&sha1(d))));
+    assert_eq!(p.notes.len(), 2, "{:?}", p.notes);
+    assert!(p.notes.iter().all(|n| n.contains("passed over")), "{:?}", p.notes);
+}
+
+/// A manifest used from the game's storage alone (pinned, never in the
+/// cache's `manifests/`) leaves a mark when it is used: a prune counts it
+/// among the last used, and keeps the data the cache holds for it. With
+/// the game's storage not given it can't be read, and is passed over with
+/// a note.
+#[test]
+fn a_manifest_used_from_the_game_s_storage_keeps_its_data() {
+    use mg_nwsync::prune::{Keep, prune};
+    use std::time::Duration;
+    let dir = mg_testkit::scratch_dir("nwsync-prune-used");
+    let content = Content::new();
+    let (sha, _) = content.manifest();
+    let g = game_storage(&dir.join("game"), &content, URL, 100, &["appearance"], false);
+    let cache = Cache::new(dir.join("cache"));
+    for (_, data) in &content.resources[1..] {
+        cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+    }
+    cache.touch(&sha);
+    let keep = Keep { manifests: vec![], recent: 1, min_age: Duration::ZERO };
+    let p = prune(&cache, Some(&g), &keep, true).unwrap();
+    assert_eq!(p.kept, [sha]);
+    assert_eq!(p.data_files, 0);
+    let p = prune(&cache, None, &keep, true).unwrap();
+    assert_eq!(p.data_left, None);
+    assert!(p.notes.iter().any(|n| n.contains(&sha1_hex(&sha)[..8])), "{:?}", p.notes);
+    // (Touching a cache that isn't there makes no folder.)
+    let none = Cache::new(dir.join("no cache"));
+    none.touch(&sha);
+    assert!(!none.root().exists());
+}
+
+/// A shard's id the game's metadata can't have (no file before the
+/// first): an error that says so, not an overflow.
+#[test]
+fn a_shard_id_out_of_range_is_an_error() {
+    let dir = mg_testkit::scratch_dir("nwsync-game-shard-id");
+    let content = Content::new();
+    drop(game_storage(&dir, &content, URL, 100, &["appearance"], false));
+    let meta = rusqlite::Connection::open(dir.join(mg_nwsync::game::META)).unwrap();
+    meta.execute("insert into shards values (?1, 1)", [i64::MIN]).unwrap();
+    drop(meta);
+    let e = GameStorage::open(&dir).unwrap_err();
+    assert!(e.contains("shard"), "{e}");
+}
+
+/// The game holding its data file exclusively (a commit being written):
+/// a read waits for it, without writing, and once the game lets go it
+/// reads; the storage's files are as they were.
+#[test]
+fn a_read_waits_for_the_game_s_exclusive_lock() {
+    let dir = mg_testkit::scratch_dir("nwsync-game-exclusive");
+    let content = Content::new();
+    let all = ["appearance", "pw_head001", "pw_head002", "pw_tex", "world", "pw_sound"];
+    let g = game_storage(&dir, &content, URL, 100, &all, false);
+    let stamp = |dir: &Path| -> Vec<(String, u64, std::time::SystemTime)> {
+        let mut out: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| {
+                let m = e.metadata().unwrap();
+                (e.file_name().to_string_lossy().into_owned(), m.len(), m.modified().unwrap())
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let before = stamp(&dir);
+    let game = rusqlite::Connection::open(dir.join("nwsyncdata_0.sqlite3")).unwrap();
+    game.execute_batch("begin exclusive").unwrap();
+    let appearance = sha1(content.bytes("appearance", ResType::TWODA));
+    let (started, done) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
+    std::thread::scope(|s| {
+        let reader = s.spawn(|| {
+            started.0.send(()).unwrap();
+            let read = g.read(&appearance);
+            let hashes = g.hashes();
+            done.0.send(()).unwrap();
+            (read, hashes)
+        });
+        started.1.recv().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(done.1.try_recv().is_err(), "the read went on under the game's exclusive lock");
+        game.execute_batch("rollback").unwrap();
+        let (read, hashes) = reader.join().unwrap();
+        assert!(read.unwrap().is_some());
+        assert_eq!(hashes.unwrap().len(), 5);
+    });
+    drop(game);
+    drop(g);
+    assert_eq!(stamp(&dir), before, "the game's storage was changed");
+}
+
+/// Every SHA-1 a shard holds is read, whatever its first digits (the
+/// reads go a small range at a time), uppercase ones too.
+#[test]
+fn every_hash_is_read_range_by_range() {
+    let dir = mg_testkit::scratch_dir("nwsync-game-hashes");
+    let mut held = Vec::new();
+    for b in 0..=255u8 {
+        let mut sha = sha1(&[b]);
+        sha[0] = b;
+        held.push((sha, vec![b]));
+    }
+    write_storage(&dir, &[], &[held.clone()]);
+    let upper = "FF".repeat(20);
+    let shard = rusqlite::Connection::open(dir.join("nwsyncdata_0.sqlite3")).unwrap();
+    shard.execute("insert into resrefs values (?1, x'00', 1, 0)", [&upper]).unwrap();
+    drop(shard);
+    let g = GameStorage::open(&dir).unwrap().unwrap();
+    let got = g.hashes().unwrap();
+    assert_eq!(got.len(), 257);
+    assert!(held.iter().all(|(s, _)| got.contains(s)));
+    assert!(got.contains(&[0xff; 20]));
+}
+
+/// Whether a manifest holds the module's own resources (`--with-module`):
+/// as its `.json` side file says, else the game's metadata; not known
+/// where neither says.
+#[test]
+fn a_manifest_says_whether_it_holds_the_module() {
+    use mg_nwsync::fixtures::write_metadata;
+    let dir = mg_testkit::scratch_dir("nwsync-includes-module");
+    let content = Content::new();
+    let (sha, _) = content.manifest();
+    let game_dir = dir.join("game");
+    drop(game_storage(&game_dir, &content, URL, 100, &[], false));
+    write_metadata(&game_dir, &sha, Some(true));
+    let g = GameStorage::open(&game_dir).unwrap().unwrap();
+    assert_eq!(g.includes_module_contents(&sha), Some(true));
+    assert_eq!(g.includes_module_contents(&sha1(b"another")), None);
+    let f = find(URL, Wanted::Pinned(sha), None, Some(&g)).unwrap();
+    assert_eq!(f.includes_module, Some(true));
+    // The cache's side file says otherwise: it is the word.
+    let cache = Cache::new(dir.join("cache"));
+    cache
+        .put_manifest(&sha, "json", br#"{"version": 3, "includes_module_contents": false}"#)
+        .unwrap();
+    let f = find(URL, Wanted::Pinned(sha), Some(&cache), Some(&g)).unwrap();
+    assert_eq!(f.includes_module, Some(false));
+    // Downloaded from the server, with its side file.
+    let mut server = Server::of(&content);
+    let json = format!("manifests/{}.json", sha1_hex(&sha));
+    server.files.insert(json.clone(), br#"{"includes_module_contents": true}"#.to_vec());
+    let cache = Cache::new(dir.join("cache2"));
+    let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert_eq!((r.found.from, r.found.includes_module), (ManifestFrom::Server, Some(true)));
+    // Neither says (a side file without it, a game's storage without the
+    // value, or without the table at all).
+    let server = Server::of(&content);
+    let cache = Cache::new(dir.join("cache3"));
+    let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert_eq!(r.found.includes_module, None);
+    let empty = dir.join("game-empty");
+    drop(game_storage(&empty, &content, URL, 100, &[], false));
+    write_metadata(&empty, &sha, None);
+    let g = GameStorage::open(&empty).unwrap().unwrap();
+    assert_eq!(g.includes_module_contents(&sha), None);
+    let meta = rusqlite::Connection::open(empty.join(mg_nwsync::game::META)).unwrap();
+    meta.execute_batch("drop table manifest_metadata").unwrap();
+    drop(meta);
+    let g = GameStorage::open(&empty).unwrap().unwrap();
+    assert_eq!(g.includes_module_contents(&sha), None);
+}

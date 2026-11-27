@@ -4,11 +4,17 @@
 //!
 //! Kept: the manifests named ([`Keep::manifests`]: the module's own, the
 //! one pinned), the newest each server named ([`Cache::latest`]), and the
-//! last used ([`Keep::recent`]). What was changed within
+//! last used ([`Keep::recent`]; `manifests/`, `written/` and the marks
+//! [`Cache::touch`] leaves in `used/`). What was changed within
 //! [`Keep::min_age`] stays whatever it is, for a download or a write may
-//! be under way. Where a kept manifest's resources can't be read (the
+//! be under way. Where a named manifest's resources can't be read (the
 //! cache hasn't its file, the game's storage hasn't it either, or wasn't
-//! looked in), no data file goes: which it needs is not known.
+//! looked in), no data file goes: which it needs is not known. One of the
+//! newest or last used that can't be read is passed over with a note
+//! ([`Pruned::notes`]): a server's `latest/` naming a manifest never
+//! downloaded would otherwise stop every prune after it. (A manifest used
+//! from the game's storage alone is read only where the prune is given
+//! that storage.)
 //!
 //! This is the builder's cache, not a server's repository: publishing's
 //! `mg nwsync-prune` prunes that.
@@ -59,6 +65,9 @@ pub struct Pruned {
     pub other_bytes: u64,
     /// Why no data file was removed, where that is so.
     pub data_left: Option<String>,
+    /// Kept manifests passed over (one in `latest/` or among the last
+    /// used that can't be read here), each said once.
+    pub notes: Vec<String>,
     pub dry_run: bool,
 }
 
@@ -111,7 +120,11 @@ pub fn prune(
     let old = |at: SystemTime| now.duration_since(at).unwrap_or_default() >= keep.min_age;
     // The manifests here, the last used first.
     let mut here: Vec<(Sha1, SystemTime)> = Vec::new();
-    for path in files(&root.join("manifests")).into_iter().chain(files(&root.join("written"))) {
+    let marked = || {
+        let [m, w, u] = ["manifests", "written", "used"].map(|d| files(&root.join(d)));
+        m.into_iter().chain(w).chain(u)
+    };
+    for path in marked() {
         let (Some(sha), Some((at, _))) = (named(&path), stat(&path)) else { continue };
         match here.iter_mut().find(|(s, _)| *s == sha) {
             Some((_, t)) => *t = (*t).max(at),
@@ -132,6 +145,7 @@ pub fn prune(
     // What the kept manifests need.
     let mut data: HashSet<Sha1> = HashSet::new();
     let mut data_left = None;
+    let mut notes = Vec::new();
     let mut written: HashSet<Sha1> = HashSet::new();
     for sha in &kept {
         let index = cache.written(sha);
@@ -146,17 +160,22 @@ pub fn prune(
         };
         match entries {
             Some(e) => data.extend(e.iter().map(|(_, s, _)| *s)),
-            None => {
+            None if keep.manifests.contains(sha) => {
                 data_left = Some(format!(
                     "manifest {} is kept and its resources can't be read here (neither the cache \
                      nor the game's NWSync storage has it), so no data file is removed",
                     &sha1_hex(sha)[..8]
                 ));
             }
+            None => notes.push(format!(
+                "manifest {} (a server's latest, or used lately) can't be read here (neither the \
+                 cache nor the game's NWSync storage has it): passed over",
+                &sha1_hex(sha)[..8]
+            )),
         }
     }
 
-    let mut out = Pruned { kept, data_left, dry_run, ..Default::default() };
+    let mut out = Pruned { kept, data_left, notes, dry_run, ..Default::default() };
     let remove = |path: &Path| -> Result<(), String> {
         if dry_run {
             return Ok(());
@@ -219,9 +238,9 @@ pub fn prune(
         }
     }
 
-    // Manifests not kept, their side files and indexes.
+    // Manifests not kept, their side files, indexes and marks.
     let mut removed = HashSet::new();
-    for path in files(&root.join("manifests")).into_iter().chain(files(&root.join("written"))) {
+    for path in marked() {
         let Some((at, len)) = stat(&path) else { continue };
         if !old(at) {
             continue;

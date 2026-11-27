@@ -302,7 +302,8 @@ mod tests {
         assert_eq!(buf[20], 0x78);
         assert_eq!(decompress(&buf, MAGIC_NSYC).unwrap(), data);
         assert_eq!(decompress(&zlib(b"", 0), MAGIC_NSYC).unwrap(), b"");
-        for n in [17, 20, 24, buf.len() - 5] {
+        // (Cut anywhere, header or stream: an error.)
+        for n in 0..buf.len() {
             assert!(decompress(&buf[..n], MAGIC_NSYC).is_err(), "cut at {n}");
         }
         let mut version = buf.clone();

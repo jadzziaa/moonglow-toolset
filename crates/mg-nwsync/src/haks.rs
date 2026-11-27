@@ -34,7 +34,7 @@ use mg_core::ResType;
 use mg_resman::ResKey;
 
 use crate::manifest::Entry;
-use crate::{Cache, GameStorage, Origins, Sha1, sha1_hex, unpack, unpack_checked};
+use crate::{Cache, GameStorage, Origins, Sha1, sha1_hex, unpack};
 
 /// What is hashed before a hak's resources, for its key: a hak written
 /// another way some day is another file.
@@ -265,23 +265,64 @@ pub struct Store<'a> {
 }
 
 impl Store<'_> {
-    /// A data file as stored: `None` where neither has it.
-    pub fn read(&self, sha1: &Sha1) -> Result<Option<Vec<u8>>, String> {
+    /// A data file as stored, and whether it is the cache's: `None` where
+    /// neither has it.
+    fn read_from(&self, sha1: &Sha1) -> Result<Option<(Vec<u8>, bool)>, String> {
         if let Some(g) = self.game
             && let Some(stored) = g.read(sha1)?
         {
-            return Ok(Some(stored));
+            return Ok(Some((stored, false)));
         }
-        self.cache.read(sha1).map_err(|e| format!("{}: {e}", self.cache.root().display()))
+        let cached =
+            self.cache.read(sha1).map_err(|e| format!("{}: {e}", self.cache.root().display()))?;
+        Ok(cached.map(|c| (c, true)))
     }
 
-    /// A resource's bytes, checked against its SHA-1 and size.
-    fn bytes(&self, key: &ResKey, sha1: &Sha1, size: u32) -> Result<Vec<u8>, String> {
-        let stored = self
-            .read(sha1)?
-            .ok_or_else(|| format!("{key}: its data ({}) is not downloaded yet", sha1_hex(sha1)))?;
-        unpack_checked(&stored, sha1, size).map_err(|e| format!("{key}: {e}"))
+    /// A data file as stored: `None` where neither has it.
+    pub fn read(&self, sha1: &Sha1) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.read_from(sha1)?.map(|(stored, _)| stored))
     }
+
+    /// A resource's bytes, checked against its SHA-1 and size. The cache's
+    /// copy of one that doesn't unpack to its SHA-1 (a write cut off) is
+    /// taken away, for the next pull to download again; one only the
+    /// manifest's size disagrees with stays.
+    fn bytes(&self, key: &ResKey, sha1: &Sha1, size: u32) -> Result<Vec<u8>, String> {
+        let (stored, cached) = self
+            .read_from(sha1)?
+            .ok_or_else(|| format!("{key}: its data ({}) is not downloaded yet", sha1_hex(sha1)))?;
+        let data = unpack(&stored).and_then(|data| {
+            let got = mg_core::sha1::sha1(&data);
+            if got == *sha1 {
+                Ok(data)
+            } else {
+                Err(format!("its SHA-1 is {}, not {}", sha1_hex(&got), sha1_hex(sha1)))
+            }
+        });
+        let data = match data {
+            Ok(data) => data,
+            Err(e) if cached => {
+                self.cache.discard(sha1);
+                return Err(format!(
+                    "{key}: its data in the cache was damaged ({e}) and is removed: download it \
+                     again (Sync in Build › NWSync Content, or mg nwsync-pull)"
+                ));
+            }
+            Err(e) => return Err(format!("{key}: {e}")),
+        };
+        if size != 0 && data.len() != size as usize {
+            return Err(format!("{key}: {} bytes, where the manifest says {size}", data.len()));
+        }
+        Ok(data)
+    }
+}
+
+/// The entries but for the module's own resources (`module`: the names
+/// the module being edited has), for a manifest built with them
+/// ([`crate::Found::includes_module`]): the server's copies would
+/// otherwise sit over the module's, in a layer or in a hak.
+pub fn without_module(entries: &[Entry], module: &HashSet<ResKey>) -> Vec<Entry> {
+    entries.iter().filter(|(k, _, _)| !module.contains(k)).copied().collect()
 }
 
 /// The SHA-1 of no bytes: a resource of 0 bytes has it (its size of 0 is
@@ -357,7 +398,7 @@ fn write_through_part(
         let file = w.into_inner().map_err(|e| format!("{}: {}", part.display(), e.error()))?;
         file.sync_all().map_err(|e| format!("{}: {e}", part.display()))?;
         drop(file);
-        std::fs::rename(&part, path).map_err(|e| format!("{}: {e}", path.display()))
+        crate::cache::into_place(&part, path).map_err(|e| format!("{}: {e}", path.display()))
     })();
     if made.is_err() {
         let _ = std::fs::remove_file(&part);
@@ -433,16 +474,13 @@ impl Index {
         out
     }
 
-    /// Read back; lines it can't read are left out.
+    /// Read back; lines it can't read are left out. The name is what lies
+    /// between the kind and the SHA-1, the last word, spaces and all.
     pub fn parse(text: &str) -> Index {
         let mut out = Index::default();
         for line in text.lines() {
-            let mut words = line.split(' ');
-            let (Some(kind), Some(name), Some(sha), None) =
-                (words.next(), words.next(), words.next(), words.next())
-            else {
-                continue;
-            };
+            let Some((kind, rest)) = line.split_once(' ') else { continue };
+            let Some((name, sha)) = rest.rsplit_once(' ') else { continue };
             let Some(sha) = crate::parse_sha1(sha) else { continue };
             match kind {
                 "hak" => out.haks.push((name.to_string(), sha)),
@@ -716,6 +754,55 @@ mod tests {
         assert_eq!(m.haks.len(), 3);
         assert_eq!(m.haks[1], ("PW_VFX".into(), other));
         assert_eq!(m.haks[2], ("old".into(), sha));
+    }
+
+    /// A hak named with a space is kept in the index and read back; an
+    /// index written before reads as it did.
+    #[test]
+    fn a_hak_named_with_a_space_is_kept() {
+        let sha = mg_core::sha1::sha1(b"x");
+        let i = Index {
+            haks: vec![("my parts".into(), sha), (" odd  name ".into(), sha)],
+            files: vec![("my world.tlk".into(), sha)],
+        };
+        assert_eq!(Index::parse(&i.to_text()), i);
+        let old = format!("hak pw_parts {}\nfile world.tlk {}\n", sha1_hex(&sha), sha1_hex(&sha));
+        let read = Index::parse(&old);
+        assert_eq!(read.haks, [("pw_parts".to_string(), sha)]);
+        assert_eq!(read.files, [("world.tlk".to_string(), sha)]);
+    }
+
+    /// A data file of the cache that doesn't unpack to what it is named
+    /// (a write cut off by a crash) is taken away when it is read, so
+    /// that the next pull downloads it again.
+    #[test]
+    fn a_bad_data_file_of_the_cache_is_taken_away() {
+        let cache = Cache::new(mg_testkit::scratch_dir("nwsync-haks-bad-data"));
+        let data = b"a talk table, a talk table, a talk table".to_vec();
+        let sha = mg_core::sha1::sha1(&data);
+        let packed =
+            mg_erf::compressedbuf::compress(&data, mg_erf::compressedbuf::MAGIC_NSYC).unwrap();
+        cache.put(&sha, &packed[..packed.len() - 4]).unwrap();
+        let store = Store { game: None, cache: &cache };
+        let k = key("world.tlk");
+        let e = write_file(&k, &sha, data.len() as u32, store).unwrap_err();
+        assert!(e.contains("download"), "{e}");
+        assert!(!cache.contains(&sha), "the cut file is still counted as here");
+        // (A size the manifest disagrees with alone: the file stays.)
+        cache.put(&sha, &packed).unwrap();
+        assert!(write_file(&k, &sha, 3, store).is_err());
+        assert!(cache.contains(&sha));
+        assert!(write_file(&k, &sha, data.len() as u32, store).is_ok());
+    }
+
+    /// The module's own resources left out of a manifest built with them;
+    /// the others as they were, in their order.
+    #[test]
+    fn a_module_s_resources_are_left_out() {
+        let entries = [entry("area1.are", 1), entry("pw_head.mdl", 2), entry("area1.git", 3)];
+        let module: HashSet<ResKey> = [key("area1.are"), key("area1.git"), key("x.nss")].into();
+        assert_eq!(without_module(&entries, &module), [entry("pw_head.mdl", 2)]);
+        assert_eq!(without_module(&entries, &HashSet::new()), entries);
     }
 
     #[test]

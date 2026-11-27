@@ -53,6 +53,19 @@ pub struct Registered {
     pub cached: Option<Vec<u8>>,
 }
 
+/// Gives a manifest of the storage in `dir` its metadata row, saying
+/// whether it holds the module's own resources (`None`: the value left
+/// empty).
+pub fn write_metadata(dir: &Path, manifest: &Sha1, includes_module_contents: Option<bool>) {
+    let meta = Connection::open(dir.join(crate::game::META)).unwrap();
+    meta.execute(
+        "insert into manifest_metadata (manifest_sha1, module_name, includes_module_contents, \
+         includes_client_contents, created_at) values (?1, 'module', ?2, 1, 0)",
+        params![sha1_hex(manifest), includes_module_contents],
+    )
+    .unwrap();
+}
+
 /// Writes a storage into `dir`: the manifests registered, and the shards
 /// (`shards[0]` is `nwsyncdata_0.sqlite3`), each with its data as stored
 /// (SHA-1, bytes).

@@ -22,6 +22,12 @@ use crate::{
 pub const MANIFEST_LIMIT: u64 = 256 << 20;
 /// The most of a side file (`latest`, `.json`, `.origin`) that is read.
 pub const SIDE_LIMIT: u64 = 64 << 20;
+/// The most of a data file whose size the manifest doesn't say (one the
+/// game kept without its file: every size 0) that is read. The largest
+/// resource seen on a persistent world's server is 49.8 MB; five times
+/// that leaves room, and [`JOBS`] of them at once are 2 GiB of memory at
+/// most, not the 8 GiB a gigabyte each would be.
+pub const UNKNOWN_SIZE_LIMIT: u64 = 256 << 20;
 /// How many data files are downloaded at once, unless told.
 pub const JOBS: usize = 8;
 /// How many times a data file is asked for before it is given up.
@@ -110,8 +116,9 @@ pub struct Resolved {
 }
 
 /// The manifest of `settings`, the server asked: its latest (kept as the
-/// one to use when it can't be asked), or the pinned one, downloaded into
-/// the cache where neither the cache nor the game's storage has it.
+/// one to use when it can't be asked, once it is here), or the pinned
+/// one, downloaded into the cache where neither the cache nor the game's
+/// storage has it.
 /// Where the server can't be reached, the newest one here ([`find`]),
 /// with a warning; an error where there is none.
 pub fn resolve(
@@ -124,12 +131,7 @@ pub fn resolve(
     let wanted = match settings.manifest {
         Wanted::Pinned(sha) => sha,
         Wanted::Latest => match latest(fetch, url) {
-            Ok(sha) => {
-                cache
-                    .set_latest(url, &sha)
-                    .map_err(|e| format!("{}: {e}", cache.root().display()))?;
-                sha
-            }
+            Ok(sha) => sha,
             Err(e) => {
                 let found = find(url, Wanted::Latest, Some(cache), game).map_err(|none| {
                     format!("{url} could not be asked for its latest manifest ({e}), and {none}")
@@ -145,7 +147,17 @@ pub fn resolve(
         },
     };
     let server_latest = matches!(settings.manifest, Wanted::Latest).then_some(wanted);
+    // (The server's latest is kept as the one to use offline only once it
+    // is here: one named and then not given would be kept, and kept from
+    // a prune, with nothing here to read it from.)
+    let keep_latest = || match server_latest {
+        Some(sha) => {
+            cache.set_latest(url, &sha).map_err(|e| format!("{}: {e}", cache.root().display()))
+        }
+        None => Ok(()),
+    };
     if let Ok(found) = find(url, Wanted::Pinned(wanted), Some(cache), game) {
+        keep_latest()?;
         // (The game's has no origins: they are asked for, where the server
         // has them.)
         if found.from == ManifestFrom::GameStorage && found.origins.is_none() {
@@ -166,10 +178,13 @@ pub fn resolve(
     }
     match get_manifest(fetch, url, &wanted, cache) {
         Ok(entries) => {
+            keep_latest()?;
             let origins = cache
                 .manifest(&wanted, "origin")
                 .map(|b| Origins::parse(&String::from_utf8_lossy(&b)));
-            let found = Found { sha1: wanted, entries, from: ManifestFrom::Server, origins };
+            let includes_module = crate::source::includes_module(&wanted, Some(cache), game);
+            let from = ManifestFrom::Server;
+            let found = Found { sha1: wanted, entries, from, origins, includes_module };
             Ok(Resolved { found, server_latest, warnings: Vec::new() })
         }
         Err(e) if matches!(settings.manifest, Wanted::Pinned(_)) => Err(e),
@@ -231,8 +246,8 @@ fn one(fetch: &dyn Fetch, url: &str, sha: &Sha1, size: u32, cache: &Cache) -> Re
     let hex = sha1_hex(sha);
     let path = format!("data/sha1/{}/{}/{hex}", &hex[0..2], &hex[2..4]);
     // (Compressed data is no bigger than the bytes and a header, but for
-    // data that doesn't compress; a size not known: a gigabyte.)
-    let limit = if size == 0 { 1 << 30 } else { u64::from(size) * 2 + (1 << 20) };
+    // data that doesn't compress; a size not known: `UNKNOWN_SIZE_LIMIT`.)
+    let limit = if size == 0 { UNKNOWN_SIZE_LIMIT } else { u64::from(size) * 2 + (1 << 20) };
     let stored = fetch
         .get(&at(url, &path), limit)?
         .ok_or_else(|| "the server doesn't have it".to_string())?;
@@ -426,5 +441,41 @@ mod client {
                 .map(Some)
                 .map_err(|e| format!("the download broke off: {e}"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A data file of a size not known (a manifest the game kept without
+    /// its file) is read to a limit a few of at once can hold in memory.
+    #[test]
+    fn a_size_not_known_is_read_to_a_bounded_limit() {
+        let limits = Arc::new(Mutex::new(Vec::new()));
+        let seen = limits.clone();
+        struct Limits(Arc<Mutex<Vec<u64>>>);
+        impl Fetch for Limits {
+            fn get(&self, _: &str, limit: u64) -> Result<Option<Vec<u8>>, String> {
+                self.0.lock().unwrap().push(limit);
+                Ok(None)
+            }
+        }
+        let cache = Cache::new(mg_testkit::scratch_dir("nwsync-fetch-limit"));
+        let sha = mg_core::sha1::sha1(b"x");
+        let d = download(
+            &Limits(seen),
+            "https://a.example",
+            &[(sha, 0), (mg_core::sha1::sha1(b"y"), 1000)],
+            &cache,
+            Options::default(),
+            &|_| {},
+            &|| false,
+        );
+        assert_eq!(d.failed.len(), 2);
+        let mut limits = limits.lock().unwrap().clone();
+        limits.sort();
+        assert_eq!(limits, [1000 * 2 + (1 << 20), UNKNOWN_SIZE_LIMIT]);
+        assert!(limits.iter().all(|l| *l <= 256 << 20), "{limits:?}");
     }
 }

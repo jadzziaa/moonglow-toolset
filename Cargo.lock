@@ -2914,6 +2914,7 @@ dependencies = [
  "mg-resman",
  "mg-testkit",
  "rusqlite",
+ "serde_json",
  "ureq",
 ]
 

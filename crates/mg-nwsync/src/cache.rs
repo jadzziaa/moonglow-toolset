@@ -11,7 +11,9 @@
 //! - `haks/<key>.hak`: a hak written from a manifest's data, named by its
 //!   content ([`crate::haks`]), and `haks/<sha1>.tlk` a talk table;
 //! - `written/<sha1>`: which of those are a manifest's haks
-//!   ([`crate::haks::Index`]).
+//!   ([`crate::haks::Index`]);
+//! - `used/<sha1>`: an empty file, its time when the manifest was last
+//!   used (one read from the game's storage alone has no other file here).
 //!
 //! A manifest's files are touched when it is used ([`Cache::touch`]), so
 //! that what was used last is kept when the cache is pruned
@@ -30,8 +32,23 @@ pub struct Cache {
     root: PathBuf,
 }
 
-/// Writes `data` to `path` through a file beside it, so that a download
-/// cut off leaves no half file under the name.
+/// Moves a part file written whole into place. Where the move fails and
+/// the file is there all the same (another writer got there first, with
+/// the same bytes, or on Windows a server has it open), that is done: the
+/// part goes.
+pub(crate) fn into_place(part: &Path, path: &Path) -> std::io::Result<()> {
+    match std::fs::rename(part, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(part);
+            if path.is_file() { Ok(()) } else { Err(e) }
+        }
+    }
+}
+
+/// Writes `data` to `path` through a file beside it, on the disk before
+/// it is moved into place, so that a download cut off or a crash leaves
+/// no half file under the name.
 fn write_whole(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -42,15 +59,17 @@ fn write_whole(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let part = path.with_file_name(format!(".{name}.{}-{n}.part", std::process::id()));
-    std::fs::write(&part, data)?;
-    match std::fs::rename(&part, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&part);
-            // (Another writer got there first, with the same bytes.)
-            if path.is_file() { Ok(()) } else { Err(e) }
-        }
+    let written = (|| {
+        use std::io::Write as _;
+        let mut f = std::fs::File::create(&part)?;
+        f.write_all(data)?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&part);
+        return Err(e);
     }
+    into_place(&part, path)
 }
 
 /// A server's address as a file name: `https://nwsync.example.org/` is
@@ -97,6 +116,12 @@ impl Cache {
         }
     }
 
+    /// Takes a resource's data file away (one that doesn't unpack to what
+    /// it is named: the next pull downloads it again).
+    pub fn discard(&self, sha1: &Sha1) {
+        let _ = std::fs::remove_file(self.data_path(sha1));
+    }
+
     /// Keeps a resource's data file, as downloaded (its SHA-1 checked by
     /// the caller).
     pub fn put(&self, sha1: &Sha1, stored: &[u8]) -> std::io::Result<()> {
@@ -118,6 +143,15 @@ impl Cache {
     /// file.
     pub fn put_manifest(&self, sha1: &Sha1, ext: &str, data: &[u8]) -> std::io::Result<()> {
         write_whole(&self.manifest_path(sha1, ext), data)
+    }
+
+    /// Whether a manifest holds the module's own resources, as its `.json`
+    /// side file says (`includes_module_contents`): `None` where there is
+    /// none, or it doesn't say.
+    pub fn includes_module_contents(&self, sha1: &Sha1) -> Option<bool> {
+        let json = self.manifest(sha1, "json")?;
+        let v: serde_json::Value = serde_json::from_slice(&json).ok()?;
+        v.get("includes_module_contents")?.as_bool()
     }
 
     /// The manifests kept, the newest first (by when they were kept, or
@@ -168,10 +202,28 @@ impl Cache {
         Ok(index)
     }
 
-    /// Marks a manifest used now (its file and its index of written haks,
-    /// where they are here): a prune keeps the last used.
+    /// Where the mark of a manifest's last use is.
+    pub fn used_path(&self, manifest: &Sha1) -> PathBuf {
+        self.root.join("used").join(sha1_hex(manifest))
+    }
+
+    /// Marks a manifest used now (its mark in `used/`, its file and its
+    /// index of written haks, where they are here): a prune keeps the last
+    /// used, the game's storage's too. A cache folder that isn't there is
+    /// not made for it.
     pub fn touch(&self, manifest: &Sha1) {
         let now = SystemTime::now();
+        if self.root.is_dir() {
+            let used = self.used_path(manifest);
+            if let Some(dir) = used.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let open =
+                std::fs::File::options().write(true).create(true).truncate(false).open(&used);
+            if let Ok(f) = open {
+                let _ = f.set_modified(now);
+            }
+        }
         for path in [self.manifest_path(manifest, ""), self.written_path(manifest)] {
             if let Ok(f) = std::fs::File::options().write(true).open(&path) {
                 let _ = f.set_modified(now);
@@ -232,5 +284,25 @@ mod tests {
         c.set_latest("https://a.example/", &sha).unwrap();
         assert_eq!(c.latest("https://a.example").map(|l| l.0), Some(sha));
         assert_eq!(c.latest("https://b.example"), None);
+        c.discard(&sha);
+        assert!(!c.contains(&sha));
+    }
+
+    /// A move that fails is done where the file is there all the same,
+    /// and the part goes; else it is the error.
+    #[test]
+    fn a_failed_move_onto_a_file_is_done() {
+        let dir = mg_testkit::scratch_dir("nwsync-cache-into-place");
+        let (part, path) = (dir.join(".x.part"), dir.join("x"));
+        assert!(into_place(&part, &path).is_err());
+        std::fs::write(&path, b"there").unwrap();
+        into_place(&part, &path).unwrap();
+        std::fs::write(&part, b"part").unwrap();
+        // (A folder where the file goes: the move fails, and it is no file.)
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(folder.join("inside")).unwrap();
+        assert!(into_place(&part, &folder).is_err());
+        assert!(!part.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), b"there");
     }
 }

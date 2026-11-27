@@ -119,7 +119,10 @@ impl GameStorage {
         };
         let mut shards = Vec::new();
         for id in ids {
-            let path = dir.join(format!("nwsyncdata_{}.sqlite3", id - 1));
+            let n = id.checked_sub(1).ok_or_else(|| {
+                format!("{}: shard {id} is no data file's (the first is 1)", meta_path.display())
+            })?;
+            let path = dir.join(format!("nwsyncdata_{n}.sqlite3"));
             if path.is_file() {
                 shards.push((path.clone(), Mutex::new(open_read_only(&path)?)));
             }
@@ -202,11 +205,41 @@ impl GameStorage {
         ))
     }
 
-    /// Every SHA-1 the shards hold, read a sixteenth at a time (each read
-    /// short, for the game's writes not to wait).
+    /// Whether the server built a manifest with the module's own resources,
+    /// as the game's metadata says (`manifest_metadata`'s
+    /// `includes_module_contents`): `None` where it doesn't say (no such
+    /// table, row or value).
+    pub fn includes_module_contents(&self, sha1: &Sha1) -> Option<bool> {
+        let c = self.meta.lock().unwrap_or_else(|e| e.into_inner());
+        c.query_row(
+            "select includes_module_contents from manifest_metadata where manifest_sha1 = ?1",
+            [sha1_hex(sha1)],
+            |r| {
+                Ok(match r.get_ref(0)? {
+                    ValueRef::Integer(i) => Some(i != 0),
+                    ValueRef::Real(f) => Some(f != 0.0),
+                    ValueRef::Text(t) => match t {
+                        b"1" | b"true" | b"TRUE" => Some(true),
+                        b"0" | b"false" | b"FALSE" => Some(false),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+            },
+        )
+        .ok()
+        .flatten()
+    }
+
+    /// Every SHA-1 the shards hold, read by their first two digits, 256
+    /// reads of a shard (each read short: a reader's lock holds the game's
+    /// commit back while it lasts, and a persistent world's storage has
+    /// some 350,000).
     pub fn hashes(&self) -> Result<HashSet<Sha1>, String> {
-        const BOUNDS: [&str; 15] =
-            ["1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
+        // ("01" to "ff": what sorts below the first, between two, and from
+        // the last on, so every text is in one range, uppercase too.)
+        let bounds: Vec<String> = (1..=255u8).map(|b| format!("{b:02x}")).collect();
+        let last = bounds.len() - 1;
         let mut out = HashSet::new();
         for (path, c) in &self.shards {
             let c = c.lock().unwrap_or_else(|e| e.into_inner());
@@ -216,7 +249,7 @@ impl GameStorage {
             let mut first = c
                 .prepare("select sha1 from resrefs where sha1 < ?1")
                 .map_err(|e| said(path, &e))?;
-            let mut last = c
+            let mut from_last = c
                 .prepare("select sha1 from resrefs where sha1 >= ?1")
                 .map_err(|e| said(path, &e))?;
             let mut take = |rows: rusqlite::Rows<'_>| -> Result<(), rusqlite::Error> {
@@ -226,11 +259,11 @@ impl GameStorage {
                 Ok(())
             };
             let mut each = || -> Result<(), rusqlite::Error> {
-                take(first.query([BOUNDS[0]])?)?;
-                for w in BOUNDS.windows(2) {
-                    take(s.query([w[0], w[1]])?)?;
+                take(first.query([&bounds[0]])?)?;
+                for w in bounds.windows(2) {
+                    take(s.query([&w[0], &w[1]])?)?;
                 }
-                take(last.query([BOUNDS[14]])?)
+                take(from_last.query([&bounds[last]])?)
             };
             each().map_err(|e| said(path, &e))?;
         }

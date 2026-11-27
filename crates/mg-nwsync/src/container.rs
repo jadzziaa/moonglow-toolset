@@ -91,10 +91,12 @@ impl Container for NwSyncContainer {
         if let Some(g) = &self.game {
             stored = g.read(&sha).map_err(|e| wrong(format!("{key}: {e}")))?;
         }
+        let mut cached = None;
         if stored.is_none()
             && let Some(c) = &self.cache
         {
             stored = c.read(&sha).map_err(|e| wrong(format!("{key}: {e}")))?;
+            cached = stored.is_some().then_some(c);
         }
         let Some(stored) = stored else {
             return Err(wrong(format!(
@@ -103,7 +105,17 @@ impl Container for NwSyncContainer {
                 sha1_hex(&sha)
             )));
         };
-        let data = unpack(&stored).map_err(|e| wrong(format!("{key}: {e}")))?;
+        let data = unpack(&stored).map_err(|e| match cached {
+            // (The cache's copy cut off: taken away, for the next pull.)
+            Some(c) => {
+                c.discard(&sha);
+                wrong(format!(
+                    "{key}: its data in the cache was damaged ({e}) and is removed: download it \
+                     again"
+                ))
+            }
+            None => wrong(format!("{key}: {e}")),
+        })?;
         if size != 0 && data.len() != size as usize {
             return Err(wrong(format!(
                 "{key}: its data is {} bytes, the manifest says {size}",

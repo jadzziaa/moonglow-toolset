@@ -58,6 +58,13 @@ pub struct Found {
     pub from: ManifestFrom,
     /// Its origins file, where the server had one.
     pub origins: Option<Origins>,
+    /// Whether the server built it with the module's own resources
+    /// (`includes_module_contents`: `nwn_nwsync_write --with-module`), as
+    /// its `.json` side file or the game's metadata says; `None` where
+    /// neither says. Those are the server's copies of the module's
+    /// resources: a layer or haks made from the manifest would put them
+    /// over the module being edited ([`crate::haks::without_module`]).
+    pub includes_module: Option<bool>,
 }
 
 impl Found {
@@ -70,6 +77,18 @@ impl Found {
 /// Whether two addresses name the same server (`https://a/` is `HTTPS://A`).
 fn same_server(a: &str, b: &str) -> bool {
     server_key(a) == server_key(b)
+}
+
+/// Whether a manifest holds the module's own resources, as its `.json`
+/// side file in the cache says, else the game's metadata.
+pub fn includes_module(
+    sha1: &Sha1,
+    cache: Option<&Cache>,
+    game: Option<&GameStorage>,
+) -> Option<bool> {
+    cache
+        .and_then(|c| c.includes_module_contents(sha1))
+        .or_else(|| game.and_then(|g| g.includes_module_contents(sha1)))
 }
 
 /// A manifest of the cache or the game's storage by its SHA-1.
@@ -86,13 +105,17 @@ fn here(
         if mg_core::sha1::sha1(&bytes) == *sha1
             && let Ok(entries) = manifest::read(&bytes)
         {
-            return Ok(Some(Found { sha1: *sha1, entries, from: ManifestFrom::Cache, origins }));
+            let includes_module = includes_module(sha1, cache, game);
+            let from = ManifestFrom::Cache;
+            return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module }));
         }
     }
     if let Some(g) = game
         && let Some(entries) = g.manifest_entries(sha1)?
     {
-        return Ok(Some(Found { sha1: *sha1, entries, from: ManifestFrom::GameStorage, origins }));
+        let includes_module = includes_module(sha1, cache, game);
+        let from = ManifestFrom::GameStorage;
+        return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module }));
     }
     Ok(None)
 }
