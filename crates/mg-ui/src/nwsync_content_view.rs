@@ -530,6 +530,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 }
                 ui.end_row();
+                // (What signs in, never its value.)
+                if let Some(a) = settings.auth.as_ref().filter(|a| a.sent_to(&settings.url)) {
+                    crate::widgets::field_label(ui, "Sign-in");
+                    ui.label(format!("Signed in with {} from .moonglow/user.toml", a.said()))
+                        .on_hover_text(format!("Sent to {} alone", a.host));
+                    ui.end_row();
+                }
                 crate::widgets::field_label(ui, "Manifest");
                 match c.mounted.as_ref().map(|m| &m.layer) {
                     Some(Ok(l)) => {
@@ -751,6 +758,7 @@ mod tests {
             url: "https://nwsync.example.org".into(),
             manifest: mg_nwsync::Wanted::Pinned(manifest),
             cache: Some(cache.root().to_path_buf()),
+            auth: None,
         };
         (cache, settings, sha)
     }

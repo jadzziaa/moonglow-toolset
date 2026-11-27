@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:09:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:35:00Z }
 ---
 
 # Build, verify and test
@@ -407,6 +407,49 @@ window (`--online` asks the server for its latest manifest first), and
 `mg nwsync-pull MODULE` downloads (`--sample N` downloads N data files
 alone, to try a server); both take `--source URL` for a server the
 project doesn't name.
+
+### A private server
+
+A server that hands out its content only to those signed in (a web
+server asking for a token or a password) is signed in to with a token,
+sent as `Authorization: Bearer`, or with a user and password (`Basic`).
+Put them in **your own `.moonglow/user.toml`**, never in the team's
+`moonglow.toml`:
+
+```toml
+[nwsync]
+host = "nwsync.example.org"   # the server the sign-in is sent to
+token = "…"                   # or: user = "…" and password = "…"
+```
+
+`host` names the one server the sign-in is sent to; it may be left out
+where the same file names the source (`source = "https://…"`), whose
+host it then is. It is never taken from the team's file: a checkout
+that named another server would otherwise get your token. The sign-in
+is sent to that host alone: never with a redirect to another server, or
+to another port or scheme of the same one, and never over plain
+`http://` except to this computer (`localhost`, `127.0.0.1`): a
+source on `http://` to another computer is refused with a sign-in, and
+said, where anyone on the way could read it. A token, user, password or
+host in the team's `moonglow.toml` (or a `.mod`'s file beside it, which
+has no `.moonglow/user.toml`) is not read, and the log and `mg` say so
+with the file and line: take it out and have it replaced on the server,
+as everyone with the checkout has it. A user and password written into
+the source's address (`https://user:password@…`) are refused too.
+Keep `.moonglow/user.toml` out of version control (a project's
+`.gitignore` with `.moonglow/`).
+
+The token is never shown: not in the log, a message, `mg`'s output or
+its JSON. Build › NWSync Content… says *Signed in with a token from
+.moonglow/user.toml*; `mg nwsync-status --online` and `mg nwsync-pull`
+say *signed in with a token from .moonglow/user.toml* (JSON:
+`"signed_in": "a token"`). Where the server refuses it, the message
+says the sign-in was refused, or that the server asked for one.
+
+There is no environment variable for it: a sign-in is bound to a host
+that the builder's own file names, and a variable would follow
+whatever source a checkout names. On a build machine, write
+`.moonglow/user.toml` from the machine's secret before `mg` runs.
 
 ### Testing with NWSync content
 

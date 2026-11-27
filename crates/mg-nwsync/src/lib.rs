@@ -25,6 +25,7 @@
 //! for the next run. [`prune`] takes out of the cache what no manifest
 //! kept needs.
 
+pub mod auth;
 mod cache;
 mod container;
 pub mod fetch;
@@ -37,6 +38,7 @@ pub mod origins;
 pub mod prune;
 mod source;
 
+pub use auth::{Auth, Credentials};
 pub use cache::{Cache, server_key};
 pub use container::{LABEL_PREFIX, NwSyncContainer, label};
 pub use game::{GameManifest, GameStorage};

@@ -718,6 +718,7 @@ mod tests {
             url: URL.into(),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         (GameStorage::open(&storage).unwrap().unwrap(), settings, sha1(&manifest))
     }
@@ -913,6 +914,7 @@ mod tests {
             url: mg_nwsync::folder_url(&repo),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         let fetch = mg_nwsync::fetch::Folder::of(&settings.url).unwrap();
         let cache = cache_of(&settings).unwrap();

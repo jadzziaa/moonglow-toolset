@@ -1569,10 +1569,12 @@ fn module_name_in_every_language_and_variables() {
 /// Build › NWSync Content…: a module folder whose project names an NWSync
 /// server, the game's storage holding its manifest and one of its two
 /// data files. Opened, the layer is in the game data (the log says so);
-/// the window says what is here; Sync, through a server of the test's
+/// the window says what is here, and that a token from the builder's own
+/// file signs in (never the token); Sync, through a server of the test's
 /// own, downloads the other into the cache, and it reads.
 #[test]
 fn nwsync_content_from_the_build_menu() {
+    const TOKEN: &str = "ui-s3cret-token";
     use mg_core::sha1::sha1;
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-nwsync-content");
@@ -1608,7 +1610,10 @@ fn nwsync_content_from_the_build_menu() {
         .unwrap();
     std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
     let cache = dir.join("cache");
-    let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+    let own = format!(
+        "[nwsync]\ncache = '{}'\ntoken = '{TOKEN}'\nhost = 'nwsync.example.org'\n",
+        cache.display()
+    );
     std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
     let mut app = game_app(&root, Some(user));
     app.background_jobs = true;
@@ -1660,6 +1665,8 @@ fn nwsync_content_from_the_build_menu() {
     let s = h.state().nwsync_content.survey.clone().expect("looked");
     assert_eq!((s.in_game, s.in_cache, s.missing.len()), (1, 0, 1));
     h.get_by_label_contains("1 data file (");
+    h.get_by_label("Signed in with a token from .moonglow/user.toml");
+    assert!(h.query_by_label_contains(TOKEN).is_none());
     h.get_by_label("Sync").click();
     h.run_steps(1);
     // Under way it is no job (the window takes input meanwhile), and the
@@ -2013,6 +2020,7 @@ fn nwsync_mount_is_timed() {
             url: NWSYNC_URL.into(),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
         let mut game = shared_game_data(&root, Some(user));

@@ -122,7 +122,7 @@ fn offline() -> Arc<dyn Fetch> {
 }
 
 fn settings(manifest: Wanted) -> Settings {
-    Settings { url: URL.into(), manifest, cache: None }
+    Settings { url: URL.into(), manifest, cache: None, auth: None }
 }
 
 /// A game storage that has registered `content`'s manifest (from `url`,
@@ -587,6 +587,155 @@ fn the_client_downloads_over_http() {
     assert_eq!(c.get(&format!("{base}/manifests/none"), 100).unwrap(), None);
     assert!(c.get(&format!("{base}/big"), 100).is_err());
     server.join().unwrap();
+}
+
+/// What a server of a test's own on this computer was asked: each
+/// request's path, with its `Authorization` header.
+type Asked = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
+/// A server on 127.0.0.1 answering each request with `answer(path)` (a
+/// whole HTTP response), for as long as the test runs: its port and what
+/// it was asked.
+fn recording_server(answer: impl Fn(&str) -> String + Send + 'static) -> (u16, Asked) {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let asked: Asked = Arc::default();
+    let heard = asked.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            let _ = reader.read_line(&mut first);
+            let mut auth = None;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("authorization")
+                {
+                    auth = Some(value.trim().to_string());
+                }
+            }
+            let path = first.split(' ').nth(1).unwrap_or("").to_string();
+            heard.lock().unwrap().push((path.clone(), auth));
+            let _ = stream.write_all(answer(&path).as_bytes());
+        }
+    });
+    (port, asked)
+}
+
+/// An HTTP response: `status` with `body`, and a `Location` where given.
+fn response(status: &str, location: Option<&str>, body: &str) -> String {
+    let location = location.map_or(String::new(), |l| format!("Location: {l}\r\n"));
+    format!(
+        "HTTP/1.1 {status}\r\n{location}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+const TOKEN: &str = "s3cret-t0ken-4c9e";
+
+fn token_for(host: &str) -> mg_nwsync::Auth {
+    mg_nwsync::Auth { host: host.into(), credentials: mg_nwsync::Credentials::Token(TOKEN.into()) }
+}
+
+/// A sign-in goes to its own host alone: with a request there (a token as
+/// `Bearer`, a user and password as `Basic`), and a redirect on the same
+/// scheme, host and port; not to another port of it, another host (one
+/// redirected to, or one asked first), nor over plain HTTP to another
+/// computer. A refusal says why, never the secret. Redirects are followed
+/// without a sign-in too.
+#[test]
+fn a_sign_in_goes_to_its_own_host_alone() {
+    let (other, other_asked) = recording_server(|_| response("200 OK", None, "other"));
+    let (port, asked) = recording_server(move |path| match path {
+        "/latest" | "/beside/latest" => response("200 OK", None, "hello"),
+        "/same" => response("302 Found", Some("/latest"), ""),
+        "/beside/x" => response("301 Moved Permanently", Some("latest"), ""),
+        "/port" => response("302 Found", Some(&format!("http://127.0.0.1:{other}/port")), ""),
+        "/host" => {
+            response("307 Temporary Redirect", Some(&format!("http://localhost:{other}/host")), "")
+        }
+        "/loop" => response("302 Found", Some("/loop"), ""),
+        "/private" => response("401 Unauthorized", None, ""),
+        _ => response("404 Not Found", None, ""),
+    });
+    let base = format!("http://127.0.0.1:{port}");
+    let header = |asked: &Asked, path: &str| {
+        let asked = asked.lock().unwrap();
+        let found = asked.iter().rev().find(|(p, _)| p == path);
+        found.unwrap_or_else(|| panic!("{path} not asked: {asked:?}")).1.clone()
+    };
+    let get = |c: &fetch::Client, path: &str| c.get(&format!("{base}{path}"), 100);
+    let bearer = Some(format!("Bearer {TOKEN}"));
+
+    let c = fetch::Client::new().with_auth(Some(token_for("127.0.0.1")));
+    assert_eq!(get(&c, "/latest").unwrap().as_deref(), Some(&b"hello"[..]));
+    assert_eq!(header(&asked, "/latest"), bearer);
+    // (Followed on the same scheme, host and port: with it.)
+    asked.lock().unwrap().clear();
+    assert_eq!(get(&c, "/same").unwrap().as_deref(), Some(&b"hello"[..]));
+    assert_eq!(
+        (header(&asked, "/same"), header(&asked, "/latest")),
+        (bearer.clone(), bearer.clone())
+    );
+    assert_eq!(get(&c, "/beside/x").unwrap().as_deref(), Some(&b"hello"[..]));
+    assert_eq!(header(&asked, "/beside/latest"), bearer);
+    // (Another port of the host, and another host: without.)
+    assert_eq!(get(&c, "/port").unwrap().as_deref(), Some(&b"other"[..]));
+    assert_eq!((header(&asked, "/port"), header(&other_asked, "/port")), (bearer.clone(), None));
+    assert_eq!(get(&c, "/host").unwrap().as_deref(), Some(&b"other"[..]));
+    assert_eq!(header(&other_asked, "/host"), None);
+    let e = get(&c, "/loop").unwrap_err();
+    assert!(e.contains("redirected too many times"), "{e}");
+    // A refusal said, without the token.
+    let e = get(&c, "/private").unwrap_err();
+    assert!(e.contains("401") && e.contains("refused the sign-in") && !e.contains(TOKEN), "{e}");
+    assert!(!format!("{c:?}").contains(TOKEN));
+
+    // A user and password.
+    let basic = mg_nwsync::Auth {
+        host: "127.0.0.1".into(),
+        credentials: mg_nwsync::Credentials::Basic { user: "ann".into(), password: "pw:9".into() },
+    };
+    let c = fetch::Client::new().with_auth(Some(basic));
+    get(&c, "/latest").unwrap();
+    // (base64 of "ann:pw:9".)
+    assert_eq!(header(&asked, "/latest").as_deref(), Some("Basic YW5uOnB3Ojk="));
+
+    // A sign-in for another host: not sent, and said so at a refusal.
+    asked.lock().unwrap().clear();
+    let c = fetch::Client::new().with_auth(Some(token_for("nwsync.example.org")));
+    get(&c, "/latest").unwrap();
+    assert_eq!(header(&asked, "/latest"), None);
+    let e = get(&c, "/private").unwrap_err();
+    assert!(e.contains("is for nwsync.example.org") && !e.contains(TOKEN), "{e}");
+
+    // None: redirects followed all the same; a refusal asks for one.
+    let c = fetch::Client::new();
+    assert_eq!(get(&c, "/same").unwrap().as_deref(), Some(&b"hello"[..]));
+    assert_eq!(get(&c, "/port").unwrap().as_deref(), Some(&b"other"[..]));
+    let e = get(&c, "/private").unwrap_err();
+    assert!(e.contains("asks for a sign-in"), "{e}");
+
+    // Over plain HTTP to another computer: refused before anything is
+    // asked; over HTTPS, or a repository folder, taken.
+    let settings = |url: &str| Settings {
+        url: url.into(),
+        manifest: Wanted::Latest,
+        cache: None,
+        auth: Some(token_for("nwsync.example.org")),
+    };
+    let e = fetch::for_settings(&settings("http://nwsync.example.org")).err().unwrap();
+    assert!(e.contains("plain http://") && e.contains("user.toml") && !e.contains(TOKEN), "{e}");
+    assert!(fetch::for_settings(&settings("https://nwsync.example.org")).is_ok());
+    assert!(fetch::for_settings(&settings("http://other.example.org")).is_ok());
+    assert!(fetch::for_settings(&settings("file:///srv/nwsync")).is_ok());
+    assert!(!format!("{:?}", settings("https://nwsync.example.org")).contains(TOKEN));
 }
 
 /// The haks of `content` as an origins file names them: `one` with the
@@ -1242,7 +1391,7 @@ fn a_repository_folder_is_read_in_place() {
     assert!(folder.get(&fetch::at(URL, "latest"), 100).is_err());
 
     let cache = Cache::new(dir.join("cache"));
-    let s = Settings { url: url.clone(), manifest: Wanted::Latest, cache: None };
+    let s = Settings { url: url.clone(), manifest: Wanted::Latest, cache: None, auth: None };
     let o = Options::default();
     let pulled = fetch::pull(&folder, &s, &cache, None, o, &|_| {}, &|| false).unwrap();
     assert_eq!(pulled.resolved.found.from, ManifestFrom::Folder);

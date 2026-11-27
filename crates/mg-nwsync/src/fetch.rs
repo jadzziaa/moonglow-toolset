@@ -444,46 +444,119 @@ pub fn pull(
 pub use client::Client;
 
 /// What makes the requests for `settings`: a repository folder's
-/// [`Folder`], else the [`Client`].
+/// [`Folder`], else the [`Client`], signed in where [`Settings::auth`]
+/// is for the server's host. A sign-in for a server over plain `http://`
+/// to another computer is refused, not sent where anyone on the way
+/// could read it.
 #[cfg(feature = "http")]
 pub fn for_settings(settings: &Settings) -> Result<Arc<dyn Fetch>, String> {
-    match Folder::of(&settings.url) {
-        Some(f) => Ok(Arc::new(f)),
-        None => Ok(Arc::new(Client::new())),
+    if let Some(f) = Folder::of(&settings.url) {
+        return Ok(Arc::new(f));
     }
+    if let Some(why) = settings.auth.as_ref().and_then(|a| a.refused_for(&settings.url)) {
+        return Err(why);
+    }
+    Ok(Arc::new(Client::new().with_auth(settings.auth.clone())))
 }
 
 #[cfg(feature = "http")]
 mod client {
     //! What is sent is the request alone: `GET` of the address with
-    //! `User-Agent: Moonglow/<version>`. No identifier, cookie or token;
-    //! a proxy is used where the environment names one (`HTTPS_PROXY`).
+    //! `User-Agent: Moonglow/<version>`, and the builder's sign-in
+    //! ([`crate::Auth`]) to its own host where there is one. No
+    //! identifier or cookie; a proxy is used where the environment names
+    //! one (`HTTPS_PROXY`). Redirects are followed here, not by ureq, so
+    //! that the sign-in goes on only to the same scheme, host and port as
+    //! the address first asked.
 
     use std::time::Duration;
 
     use super::Fetch;
+    use crate::Auth;
+    use crate::auth::{origin_of, redirected};
 
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
     const READ_TIMEOUT: Duration = Duration::from_secs(30);
+    const REDIRECTS: usize = 5;
 
     /// The requests, with ureq (rustls, its own certificates). A server
-    /// may be HTTP or HTTPS, as the game's NWSync allows.
+    /// may be HTTP or HTTPS, as the game's NWSync allows. Its `Debug`
+    /// never shows the sign-in's secret.
     #[derive(Debug, Clone)]
     pub struct Client {
         agent: ureq::Agent,
+        auth: Option<Auth>,
+    }
+
+    /// The agent: through a proxy the environment names where `proxy`.
+    fn agent(proxy: bool) -> ureq::Agent {
+        let config = ureq::Agent::config_builder()
+            .user_agent(format!("Moonglow/{}", mg_core::release::version()))
+            // (Followed in `get`, which decides where the sign-in goes.)
+            .max_redirects(0)
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_recv_response(Some(READ_TIMEOUT))
+            .timeout_per_read(Some(READ_TIMEOUT));
+        let config = if proxy { config } else { config.proxy(None) };
+        config.build().into()
     }
 
     impl Client {
         pub fn new() -> Client {
-            let agent = ureq::Agent::config_builder()
-                .user_agent(format!("Moonglow/{}", mg_core::release::version()))
-                .max_redirects(5)
-                .timeout_connect(Some(CONNECT_TIMEOUT))
-                .timeout_recv_response(Some(READ_TIMEOUT))
-                .timeout_per_read(Some(READ_TIMEOUT))
-                .build()
-                .into();
-            Client { agent }
+            Client { agent: agent(true), auth: None }
+        }
+
+        /// Signed in with `auth` (sent to its host alone). A sign-in to
+        /// this computer, the one sent over plain HTTP, goes through no
+        /// proxy (`HTTP_PROXY`), which would read it on the way.
+        pub fn with_auth(mut self, auth: Option<Auth>) -> Client {
+            if auth.as_ref().is_some_and(|a| crate::auth::loopback(&a.host)) {
+                self.agent = agent(false);
+            }
+            self.auth = auth;
+            self
+        }
+
+        /// Whether the sign-in goes with a request of `url`, as the
+        /// address ureq connects to reads (`ureq::http::Uri`) and as
+        /// [`Auth::sent_to`] does: both, or not at all.
+        fn sent_to<'a>(&'a self, url: &str) -> Option<&'a Auth> {
+            let a = self.auth.as_ref()?;
+            let uri: ureq::http::Uri = url.parse().ok()?;
+            let host = uri.host()?.trim_end_matches('.').to_ascii_lowercase();
+            let https = uri.scheme_str().is_some_and(|s| s.eq_ignore_ascii_case("https"));
+            let userinfo = uri.authority().is_some_and(|au| au.as_str().contains('@'));
+            let ok = !userinfo
+                && host == a.host
+                && (https || crate::auth::loopback(&host))
+                && a.sent_to(url);
+            ok.then_some(a)
+        }
+
+        /// What is said of a refusal (401, 403), with why the sign-in
+        /// was or wasn't sent, never what it is.
+        fn refused(&self, code: u16, sent: bool, first: bool) -> String {
+            match &self.auth {
+                Some(a) if sent => format!(
+                    "the server answered {code}: it refused the sign-in ({} from \
+                     .moonglow/user.toml)",
+                    a.said()
+                ),
+                Some(a) if !first => format!(
+                    "the server answered {code} at the address it redirected to, which the \
+                     sign-in for {} is not sent to",
+                    a.host
+                ),
+                Some(a) => format!(
+                    "the server answered {code}: the sign-in in .moonglow/user.toml is for {}, \
+                     not this server",
+                    a.host
+                ),
+                None => format!(
+                    "the server answered {code}: it asks for a sign-in (a token, or a user and \
+                     password, in [nwsync] of .moonglow/user.toml)"
+                ),
+            }
         }
     }
 
@@ -495,19 +568,59 @@ mod client {
 
     impl Fetch for Client {
         fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, String> {
-            let mut answer = match self.agent.get(url).call() {
-                Ok(a) => a,
-                Err(ureq::Error::StatusCode(404 | 410)) => return Ok(None),
-                Err(ureq::Error::StatusCode(code)) => {
-                    return Err(format!("the server answered {code}"));
+            let origin = origin_of(url);
+            let mut at = url.to_string();
+            let mut hops = 0;
+            let mut answer = loop {
+                let first = hops == 0;
+                let sent = self.sent_to(&at).filter(|_| first || origin_of(&at) == origin);
+                let mut request = self.agent.get(&at);
+                if let Some(a) = sent {
+                    let mut value =
+                        ureq::http::HeaderValue::from_str(&a.header()).map_err(|_| {
+                            "the sign-in in .moonglow/user.toml can't be sent: it \
+                                      has a line break or control character in it"
+                        })?;
+                    value.set_sensitive(true);
+                    request = request.header(ureq::http::header::AUTHORIZATION, value);
                 }
-                Err(ureq::Error::HostNotFound) => {
-                    return Err("the server's name was not found (not connected?)".into());
+                let a = match request.call() {
+                    Ok(a) => a,
+                    Err(ureq::Error::StatusCode(404 | 410)) => return Ok(None),
+                    Err(ureq::Error::StatusCode(code @ (401 | 403))) => {
+                        return Err(self.refused(code, sent.is_some(), first));
+                    }
+                    Err(ureq::Error::StatusCode(code)) => {
+                        return Err(format!("the server answered {code}"));
+                    }
+                    Err(ureq::Error::HostNotFound) => {
+                        return Err("the server's name was not found (not connected?)".into());
+                    }
+                    Err(ureq::Error::Timeout(_)) => {
+                        return Err("the server didn't answer in time".into());
+                    }
+                    Err(e) => return Err(e.to_string()),
+                };
+                if !a.status().is_redirection() {
+                    break a;
                 }
-                Err(ureq::Error::Timeout(_)) => {
-                    return Err("the server didn't answer in time".into());
+                hops += 1;
+                let to = (a.headers().get(ureq::http::header::LOCATION))
+                    .and_then(|l| l.to_str().ok())
+                    .and_then(|l| redirected(&at, l))
+                    .filter(
+                        |to| matches!(origin_of(to), Some((s, ..)) if s == "http" || s == "https"),
+                    );
+                match to {
+                    Some(to) if hops <= REDIRECTS => at = to,
+                    Some(_) => return Err("the server redirected too many times".into()),
+                    None => {
+                        return Err(format!(
+                            "the server answered {} without an address to go to",
+                            a.status().as_u16()
+                        ));
+                    }
                 }
-                Err(e) => return Err(e.to_string()),
             };
             if answer.body().content_length().is_some_and(|n| n > limit) {
                 return Err(format!("{url} is larger than it should be"));

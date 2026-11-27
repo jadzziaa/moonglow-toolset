@@ -28,6 +28,9 @@ pub struct Settings {
     pub manifest: Wanted,
     /// Moonglow's cache folder, where not the default one.
     pub cache: Option<PathBuf>,
+    /// The sign-in to a private server, from the builder's own
+    /// `.moonglow/user.toml` ([`Auth`]: sent to its own host alone).
+    pub auth: Option<crate::Auth>,
 }
 
 /// Where a manifest was found.
@@ -160,11 +163,16 @@ fn normalized(path: &Path) -> PathBuf {
 /// starting `./` or `../` (resolved against `base`, the project's folder),
 /// as a `file://` URL. `None` for anything else: a server's name alone
 /// (`nwsync.example.org`) is a forgotten `https://`, not a folder, and a
-/// relative folder without a `base` can't be placed.
+/// relative folder without a `base` can't be placed. An address with a
+/// user or password in it (`https://u:p@host`) is `None` too: a sign-in
+/// is the builder's own file's ([`Auth`](crate::Auth)).
 pub fn source_url(text: &str, base: Option<&Path>) -> Option<String> {
     let text = text.trim();
     let scheme = text.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
     match scheme.as_deref() {
+        // (A user or password in the address is refused: it would be
+        // in every message and file that names the source.)
+        Some("http" | "https") if crate::auth::has_userinfo(text) => None,
         Some("http" | "https") => {
             let url = text.trim_end_matches('/');
             let host = url.split_once("://").map_or("", |(_, rest)| rest);

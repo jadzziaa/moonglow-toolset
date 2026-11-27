@@ -44,10 +44,26 @@ pub(crate) struct Source {
 fn settings(s: &Source) -> Result<(Settings, Vec<String>)> {
     let mut notes = Vec::new();
     let project = match &s.module {
-        Some(path) => crate::open_module(path)?.project_file.nwsync_settings(),
+        Some(path) => {
+            // (What its project file said wasn't read: a sign-in refused
+            // in the team's file is told, not a bare 401 later.)
+            let p = crate::open_module(path)?.project_file;
+            notes.extend(p.errors.iter().chain(&p.warnings).map(|w| format!("warning: {w}")));
+            p.nwsync_settings()
+        }
         None => None,
     };
     let url = match (&s.source, &project) {
+        // (Said without the address, which would show the password.)
+        (Some(u), _)
+            if mg_nwsync::auth::has_userinfo(u)
+                || (!u.contains("://") && u.contains('@') && !Path::new(u).exists()) =>
+        {
+            bail!(
+                "--source has a user or password in its address, which is not read: give them as \
+             [nwsync] user and password in the project's .moonglow/user.toml"
+            )
+        }
         (Some(u), _) => {
             // (A folder's path from where mg runs: one that is there by
             // its name alone too, where a name alone that isn't is taken
@@ -95,8 +111,11 @@ fn settings(s: &Source) -> Result<(Settings, Vec<String>)> {
             None => Wanted::Latest,
         },
     };
+    // (The project's sign-in, which is sent to its own host alone,
+    // whatever server --source names.)
+    let auth = project.as_ref().and_then(|p| p.auth.clone());
     let cache = s.cache.clone().or_else(|| project.and_then(|p| p.cache));
-    Ok((Settings { url, manifest, cache }, notes))
+    Ok((Settings { url, manifest, cache, auth }, notes))
 }
 
 /// The game's NWSync storage, as `mg` finds the game's user folder:
@@ -123,6 +142,13 @@ fn source_line(settings: &Settings) -> String {
         Some(dir) => format!("repository folder: {}", dir.display()),
         None => format!("server: {}", settings.url),
     }
+}
+
+/// The sign-in sent to the source, as a line says it (never its value);
+/// none without one for it.
+fn sign_in(settings: &Settings) -> Option<&'static str> {
+    let a = settings.auth.as_ref().filter(|a| a.sent_to(&settings.url))?;
+    Some(a.said())
 }
 
 /// What makes the requests for `settings` ([`fetch::for_settings`]).
@@ -180,9 +206,22 @@ fn origins_line(origins: Option<&mg_nwsync::Origins>) -> String {
     }
 }
 
+/// An error, with the warnings said of the settings after it (a sign-in
+/// the team's file had, refused: the reason the server refused).
+fn with_notes(said: &[String]) -> impl Fn(anyhow::Error) -> anyhow::Error + '_ {
+    move |e| match said.is_empty() {
+        true => e,
+        false => anyhow!("{e:#}\n{}", said.join("\n")),
+    }
+}
+
 /// `mg nwsync-status`.
 pub(crate) fn status(cli: &Cli, s: &Source, online: bool) -> Result<Output> {
     let (settings, said) = settings(s)?;
+    status_with(cli, settings, said.clone(), online).map_err(with_notes(&said))
+}
+
+fn status_with(cli: &Cli, settings: Settings, said: Vec<String>, online: bool) -> Result<Output> {
     let cache = cache_of(&settings)?;
     let game = game_storage(cli)?;
     let mut out = Output::default();
@@ -205,6 +244,9 @@ pub(crate) fn status(cli: &Cli, s: &Source, online: bool) -> Result<Output> {
         .map_err(anyhow::Error::msg)?;
     let game_dir = game.as_ref().map(|g| g.dir.clone());
     out.line(source_line(&settings));
+    if let Some(said) = sign_in(&settings).filter(|_| online) {
+        out.line(format!("signed in with {said} from .moonglow/user.toml"));
+    }
     out.line(format!("manifest: {} ({})", sha1_hex(&found.sha1), found.from.said()));
     if let Some(latest) = server_latest.filter(|l| *l != found.sha1) {
         out.line(format!("the server's latest: {}", sha1_hex(&latest)));
@@ -223,6 +265,7 @@ pub(crate) fn status(cli: &Cli, s: &Source, online: bool) -> Result<Output> {
         "manifest": sha1_hex(&found.sha1),
         "from": from_word(found.from),
         "server_latest": server_latest.map(|l| sha1_hex(&l)),
+        "signed_in": sign_in(&settings).filter(|_| online),
         "game_storage": game_dir.as_deref().map(path_text),
         "cache": path_text(cache.root()),
         "origins": found.origins.as_ref().map(|o| o.haks().collect::<Vec<_>>()),
@@ -243,17 +286,13 @@ fn from_word(from: mg_nwsync::ManifestFrom) -> &'static str {
 /// `mg nwsync-pull`.
 pub(crate) fn pull(cli: &Cli, s: &Source, jobs: usize, sample: Option<usize>) -> Result<Output> {
     let (settings, said) = settings(s)?;
-    let cache = cache_of(&settings)?;
-    let game = game_storage(cli)?;
-    let mut out = pull_with(
-        &*fetcher(&settings)?,
-        &settings,
-        &cache,
-        game.as_ref(),
-        jobs,
-        sample,
-        !cli.json,
-    )?;
+    let pulled = (|| {
+        let cache = cache_of(&settings)?;
+        let game = game_storage(cli)?;
+        let f = fetcher(&settings)?;
+        pull_with(&*f, &settings, &cache, game.as_ref(), jobs, sample, !cli.json)
+    })();
+    let mut out = pulled.map_err(with_notes(&said))?;
     out.notes.splice(0..0, said);
     Ok(out)
 }
@@ -306,6 +345,9 @@ fn pull_with(
     let found = &p.resolved.found;
     let game_dir = game.map(|g| g.dir.clone());
     out.line(source_line(settings));
+    if let Some(said) = sign_in(settings) {
+        out.line(format!("signed in with {said} from .moonglow/user.toml"));
+    }
     out.line(format!("manifest: {} ({})", sha1_hex(&found.sha1), found.from.said()));
     survey_lines(&mut out, &p.before, game_dir.as_deref(), cache.root());
     out.line(origins_line(found.origins.as_ref()));
@@ -336,6 +378,7 @@ fn pull_with(
         "manifest": sha1_hex(&found.sha1),
         "from": from_word(found.from),
         "server_latest": p.resolved.server_latest.map(|l| sha1_hex(&l)),
+        "signed_in": sign_in(settings),
         "game_storage": game_dir.as_deref().map(path_text),
         "cache": path_text(cache.root()),
         "origins": found.origins.as_ref().map(|o| o.haks().collect::<Vec<_>>()),
