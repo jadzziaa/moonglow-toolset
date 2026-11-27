@@ -4,41 +4,41 @@ title: 'Animated objects in the area scene: a proposal'
 description: How mg-area's AreaScene could play each object's own animation for a game client (Moonglow Client's request) - the cut between crates (a GPU-free player and the visual effects' rows in mg-preview, a per-object pose with transitions on Composed, the run-time state held by the caller beside the scene and keyed by a key of the caller's), one section for each of the eight capabilities asked with its API sketch and cost, how the run-time state relates to the saved AnimationState, the viewer's part, the migration of today's idle animation, the tests and client comparisons, risks, open questions and milestones after 5.5.0.
 tags: [proposal, animation, mg-area, mg-preview, mg-render, moonglow-client, moonglow-viewer, visual-effects]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:33:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:39:00Z }
 sources:
   - id: request
     resource: '~/Projects/moonglow-client, branch main at b6d7bbb: docs/research/stage-for-a-client.md, the section "Draft request for Moonglow Toolset" (a draft Finding, read at the client''s pin v5.4.0)'
-    title: "Moonglow Client: the viewer's stage for a client driven by server updates"
+    title: 'Moonglow Client: the viewer''s stage for a client driven by server updates'
   - id: area-scene
-    resource: 'crates/mg-area/src/scene.rs, lib.rs, values.rs and walk.rs at develop 321a1ef2'
+    resource: crates/mg-area/src/scene.rs, lib.rs, values.rs and walk.rs at develop 321a1ef2
     title: The area scene, its objects and the values API
   - id: compose
-    resource: 'crates/mg-preview/src/compose.rs, object.rs and lib.rs at develop 321a1ef2'
+    resource: crates/mg-preview/src/compose.rs, object.rs and lib.rs at develop 321a1ef2
     title: Previews composed and posed (Composed), and the placeable's and door's idle from AnimationState
   - id: render
-    resource: 'crates/mg-render/src/anim.rs, scene.rs (Instance), renderer.rs (bones from Instance::pose), particles.rs, dangly.rs, reach.rs (Frustum) at develop 321a1ef2'
+    resource: crates/mg-render/src/anim.rs, scene.rs (Instance), renderer.rs (bones from Instance::pose), particles.rs, dangly.rs, reach.rs (Frustum) at develop 321a1ef2
     title: The renderer's animation primitives, instances, skinning and particles
   - id: mgv-stage
     resource: '~/Projects/moonglow-viewer at b81b03e (on toolset tag v5.4.0): crates/mgv-stage/src/lib.rs, actor.rs, vfx.rs, subject.rs; crates/mgv-library/src/lib.rs'
-    title: "Moonglow Viewer's stage"
+    title: Moonglow Viewer's stage
   - id: area-view
-    resource: 'crates/mg-ui/src/area_view.rs at develop 321a1ef2 (View built per frame, view.time += dt)'
+    resource: crates/mg-ui/src/area_view.rs at develop 321a1ef2 (View built per frame, view.time += dt)
     title: How the area view animates objects now
   - id: frames
     resource: research/notes_frames.md
     title: 'Frames at 144 a second: the budget (6.94 ms) and the area scene''s recorded cost'
   - id: values-note
-    resource: '.agdb/knowledge/an-areas-model-from-values-the-scenes-objects-followed-witho.md'
-    title: "agdb note: an area's model from values; the scene's objects followed without a rebuild"
+    resource: .agdb/knowledge/an-areas-model-from-values-the-scenes-objects-followed-witho.md
+    title: 'agdb note: an area''s model from values; the scene''s objects followed without a rebuild'
   - id: torch-note
-    resource: '.agdb/knowledge/an-items-light-is-the-creatures-effect-at-headconjure-0-0-75.md'
+    resource: .agdb/knowledge/an-items-light-is-the-creatures-effect-at-headconjure-0-0-75.md
     title: 'agdb note: the torch arm (torchl) layered over the base and the worn parts'
   - id: emitters-note
-    resource: '.agdb/knowledge/parts-emitters-tails-wings-held-items-chunk-size.md and heeds-armourer-against-the-client-tiles-emitters-run-ahead.md'
-    title: "agdb notes: parts' emitter keys; emitters run ahead when new"
+    resource: .agdb/knowledge/parts-emitters-tails-wings-held-items-chunk-size.md and heeds-armourer-against-the-client-tiles-emitters-run-ahead.md
+    title: 'agdb notes: parts'' emitter keys; emitters run ahead when new'
   - id: door-model
-    resource: 'mgv info t_door01 (genericdoors.2da row 0), the installed game, 2026-11-27'
-    title: "A stock door's animations: opening1, closing1, opening2 and others"
+    resource: mgv info t_door01 (genericdoors.2da row 0), the installed game, 2026-11-27
+    title: 'A stock door''s animations: opening1, closing1, opening2 and others'
 ---
 
 # Animated objects in the area scene: a proposal
@@ -52,8 +52,10 @@ an order to build it in after 5.5.0. Nothing here has been built.
 **Marks.** *Read* means read in the code at develop `321a1ef2` (the
 viewer at `b81b03e`). *Inferred* means reasoned from the code but not run.
 *Unmeasured* means a cost nobody has timed yet. The client's finding was
-read at its pin, `v5.4.0`. For the parts this proposal touches, develop
-and `v5.4.0` do not differ in shape.
+read at its pin, `v5.4.0`. Between `v5.4.0` and `321a1ef2`, mg-area gained
+the Player's light (`player_light.rs`, and `View::player` in scene.rs);
+mg-preview and mg-render's `anim.rs` did not change
+(`git diff --stat v5.4.0 321a1ef2`).
 
 ## Summary: the cut
 
@@ -133,7 +135,11 @@ impl Player {
     pub fn queue(&mut self, play: Play);
     pub fn set_speed(&mut self, speed: f32);
     pub fn restart(&mut self);
+    pub fn pause(&mut self, paused: bool);
     pub fn now(&self) -> Option<(&str, f32)>;
+    /// `find` looks a name up in the model and its supermodels.
+    pub fn step<'a>(&mut self, dt: f32, find: &dyn Fn(&str) -> Option<&'a Animation>,
+                    heard: &mut Vec<Heard>);
 }
 
 // mg_preview::compose (feature render)
@@ -175,6 +181,17 @@ water, grass sway and the objects with no playback.
 impl AreaScene {
     pub fn step(&self, area: &AreaModel, live: &mut Live, dt: f32) -> Vec<Notice>;
     pub fn scene_live(&self, area: &AreaModel, view: &View, live: &Live) -> Scene;
+}
+```
+
+```rust
+impl Live {
+    pub fn play(&mut self, key: ObjectKey, play: Play);
+    pub fn queue(&mut self, key: ObjectKey, play: Play);
+    pub fn set_speed(&mut self, key: ObjectKey, speed: f32);
+    pub fn pause(&mut self, key: ObjectKey, paused: bool);
+    /// Back to the object's idle, blended over its transtime.
+    pub fn stop(&mut self, key: ObjectKey);
 }
 ```
 
@@ -287,10 +304,15 @@ pub struct EffectKey(pub u64);
 impl AreaScene {
     pub fn apply_effect(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel,
                         live: &mut Live, object: ObjectKey, effect: EffectKey,
-                        row: u32) -> Result<(), Vec<String> /* models missing */>;
+                        row: u32, size: u32) -> Result<(), Vec<String> /* models missing */>;
 }
 impl Live { pub fn remove_effect(&mut self, object: ObjectKey, effect: EffectKey); }
 ```
+
+`size` is the target's `appearance.2da` `SIZECATEGORY`, as the viewer
+takes it (3 for doors and placeables). The caller gives it, because a
+client's creature look (`DressedLook`) may not carry its appearance row
+(*not checked*). Taking it from the look instead is open question 8.
 
 Effects' particles are keyed by object, effect and source. They must
 **not run ahead** when new: `PARTICLES_AHEAD` would spend an impact's
@@ -322,9 +344,10 @@ pub enum Notice {                                                               
 
 Events come from the model's own `events` (the base's animation, found
 through its supermodels). A stock creature's walk-type animations carry
-four events and a door's none (`mgv info a_ba`, `t_door01`;[^door-model]
-which animation is which was not listed). What an event *means* (a sound,
-a hit) stays the caller's.
+events: `walk`, `run`, `sitdown` and `taunt` four each, `walkinj` eight,
+`bow` two. A stock door's have none (`mgv info a_ba`,
+`t_door01`).[^door-model] The events' names were not listed. What an
+event *means* (a sound, a hit) stays the caller's.
 
 **Cost.** A scan of the playing animation's events per step: a handful.
 
@@ -392,8 +415,9 @@ Nothing depends on mgv-library. The viewer passes its `Library`'s
   scene draws `c.instances(c.idle, …)`.[^compose]
 - **`AreaObject::state` is read only by `walk.rs`.** It chooses the
   door's walkmesh surfaces (`DoorState::Open1`, `Open2`, `Closed`). A
-  workspace-wide search found no other reader. mg-ui and mg-module write
-  the GFF field directly.
+  workspace-wide search (`grep -rnE '\.state\b'` over `crates` and
+  `apps`) found no other reader. mg-ui and mg-module write the GFF field
+  directly.
 - **The two copies are not kept in step.** `values::Object::read` reads
   `state` from the field. `Look::read` reads the same field into the
   preview's idle. `AreaObject::from_values` copies both as given. A client
@@ -427,11 +451,13 @@ Nothing depends on mgv-library. The viewer passes its `Library`'s
 - A door opening then plays, for example:
 
   ```rust
-  live.play(k, Play { animation: "opening1", mode: Once(Then::Idle), .. })
+  live.play(k, Play { animation: "opening1", mode: Once(Then::Hold), .. })
   ```
 
-  On `Notice::Ended`, the client calls `set_state(1)`. The idle is then
-  `opened1`, and the blend carries the door into it.
+  On `Notice::Ended`, the client calls `set_state(1)` (the idle is now
+  `opened1`) and `live.stop(k)`. The blend carries the door from the
+  held last frame into its idle. With `Then::Idle` before `set_state`, the
+  door would blend back to `closed`.
 
 ## The crate cut, weighed
 
@@ -514,18 +540,19 @@ per-part inspection.
 | 5 Effects | Synthetic effect models on each hook of a creature, a door and a placeable; corpus sweep: every `visualeffects.2da` row's models load and their hooks resolve on a human, a stock door and a placeable (and with `MOONGLOW_HAKS`); instant effects gone after their play; no run-ahead | One duration effect on a creature (impact, then duration) and its hook's place; whether effects cast shadows (a reading) |
 | 6 Notices | An end exactly at the length; an event per crossing over a wrap, at speed 2 and over several loops in one step; events found through supermodels | Not needed |
 | 7 Cost | A timing test (beside `world_perf`): 300 stock creatures playing, frame time against the budget; `Usage::posed` is 0 for a frame of still objects; objects out of sight not posed | The client's own frame times are its side |
-| 8 Resources | mg-area built with `default-features = false` reaches every new call (CI already builds that way for the client); a hak's `visualeffects.2da` row read through the load order | Not needed |
+| 8 Resources | mg-area built with `default-features = false` reaches every new call (CI already runs clippy on `mg-area --no-default-features` and checks its dependency tree); a hak's `visualeffects.2da` row read through the load order | Not needed |
 
 ## API changes at the client's pin
 
 These are breaking for code written against `v5.4.0`:
 
 - **New public fields** on `values::Object` (`key`) and `AreaObject`
-  (`key`). Struct literals without `..` must add them. The client builds
-  objects through `Object::new` and `facing`, *as far as its finding
-  shows*.
+  (`key`). Struct literals without `..` must add them. Objects made with
+  `Object::new` or `facing` are not affected. How the client builds its
+  objects was *not checked*.
 - **New public field** on `View` (`sight`). `View::of` fills it with
-  `None`.
+  `None`. `View` already gained `player` after `v5.4.0`, so a literal
+  without `..` breaks at 5.5.0 anyway.
 - **The particle sims' key type** changes from `(usize, usize)` to
   `SimKey`, in `particles` and `particles_and_chunks`. The alternative
   keeps the tuple and gives keyed objects compact slots as a tenth
@@ -569,6 +596,8 @@ Nothing is removed, and nothing depends on the `edit` feature.
    or by its box at rest?
 7. **Do effect models cast the sun's shadows** in the client? This is a
    reading, not a ruling, but it is needed before M4.
+8. **An effect's target size:** given by the caller with each effect (as
+   proposed), or kept on the object's look?
 
 ## Build order (after 5.5.0)
 
