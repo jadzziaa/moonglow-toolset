@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T05:24:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:41:14Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1593,10 +1593,27 @@ the last few levels (a top 45.8 to 50.1 against the client's 50.2).
   ruling) gives this light to the module's start location, in the area
   that holds it, following it as it is moved or turned
   (`mg_area::player_light`, carried by `View::player`); it casts no
-  creature shadows, though the client's does ("A light's shadow takes
-  the light's share"). The readings
+  creature shadows, as the client's casts none (below). The readings
   give Moonglow's side the same light where the client's player is seen
   (`client_render/readings.rs`, `player_light`, which calls it).
+- **It casts no shadow** [CLIENT] (`batch6_player_light_shadows`,
+  2026-11-27, 89.8193.37): the vision model `fx_light_clr` holds a
+  second light beside the ambient one, `AuroraLight01`, black with
+  `shadow 1` (radius 50, `shadowradius` 15), which was predicted to
+  cast the shadows of the creatures about the player. It does not: four
+  commoners 3 m about the player in a dim field at night (no moon
+  shadows) cast nothing at Creature Shadow Detail Best or Fast (darker
+  by 0.001 at most), and with a lamp post 5 m east of the player the
+  lamp casts every creature's shadow, the player's too, as it does in a
+  bright area where the vision light is out (0.38 to 0.39 north and
+  south of the commoners, 0.21 west of the west one): the vision light
+  takes no lamp's place as the light nearest the player. (A black light
+  darkens by its share, nothing, and the client counts one light where
+  the vision model is on, `numLights` 1: the ambient one.) The light
+  that casts the creatures' shadows about a player
+  (`batch6_player_light_at_night`) is one the player is given, a light
+  effect. Held by `batch6_player_light_shadows` (client, ignored) and
+  `the_player_s_light_takes_no_lamp_s_place` (render).
 - **Unread: colored area light.** The rule was read with gray ambient
   and diffuse only. For colored light Moonglow takes the mean of the
   three channels' sums (the light on while ambient plus diffuse,
@@ -2171,7 +2188,9 @@ and 12, where the lamp's share of the floor's light (its brightness less
 the room's without the lamp, over its brightness) is 0.58, 0.54, 0.48,
 0.40, 0.33, 0.27, 0.20, 0.15, 0.11 and 0.07. Every creature in a lamp's
 reach casts at once (eight ogres in a row, each its shadow), and a
-player's own light casts the shadows of the creatures about the player.
+light the player is given (`VFX_DUR_LIGHT_WHITE_20`) casts the shadows
+of the creatures about the player; the player's vision light casts none
+("The player's own light in a dim area").
 
 - **Checked:** game client, `batch3.rs`'s `reading_light_shadows` (the
   distances between added 2026-11-01), `batch6.rs`'s

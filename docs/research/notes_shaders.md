@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:11:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:41:14Z }
 sources:
   - id: shadows-on-see-through
     resource: crates/mg-corpus-tests/tests/client_render/shadows.rs (shadows_on_see_through, shadows_look with MG_SHADOW_GRASS=1), run 2026-11-25 on 89.8193.37-17
@@ -594,7 +594,7 @@ Mapping to shaders:
 | `verticaldisplacement` | moves the shadow-projection origin |
 | `generateflare`, `flare*` | lens flares |
 
-Player light (the area view's Player's light gives it to the start location, casting no shadow): one, from progfx.2da (darkvision / low-light / default), while the area's ambient and diffuse gray levels add up to less than 128 [CLIENT] (`the_player_s_light_lights_a_dark_scene`): the readings' elf carries `Low_Light_Vision`, ambient only, 0.3 0.3 0.4, radius 11 (`.a` −484), 0.64 m ahead of the player and 2.65 m up; an invisible player carries none ([the findings](../findings.md), "The player's own light in a dim area").
+Player light (the area view's Player's light gives it to the start location): one, from progfx.2da (darkvision / low-light / default), while the area's ambient and diffuse gray levels add up to less than 128 [CLIENT] (`the_player_s_light_lights_a_dark_scene`): the readings' elf carries `Low_Light_Vision`, ambient only, 0.3 0.3 0.4, radius 11 (`.a` −484), 0.64 m ahead of the player and 2.65 m up; an invisible player carries none; it casts no creature's shadow and takes no lamp's place (`batch6_player_light_shadows`, 2026-11-27: the vision model's black `shadow 1` light casts nothing) ([the findings](../findings.md), "The player's own light in a dim area").
 
 ### E.6 Uploaded light values (read back from the client)
 Verified by `client_render.rs` `light_uniforms_match_the_client`: a debug copy of `inc_standard.shd` in the user `override` folder paints the uniforms into the image. Game 89.8193.37-17, default settings (`max-intensity 1.5`, `intensity-at-range 0.2`, `cutoff-range-multiplier 2.0`).
