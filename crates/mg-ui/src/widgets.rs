@@ -6736,6 +6736,12 @@ impl Dropdown {
 /// ([`mg_uikit::combo_style`]: `raised-hover`, not the theme's `bar`), the
 /// look `ui` had kept for what follows it.
 fn combo_looks<R>(ui: &mut Ui, show: impl FnOnce(&mut Ui) -> R) -> R {
+    // (Its own width, not a justified column's: egui 0.37's box grows to
+    // fill one, which 0.36's never did, a list's category filter as wide
+    // as the list.)
+    if ui.layout().is_vertical() && ui.layout().horizontal_justify() {
+        return ui.horizontal(|ui| combo_looks(ui, show)).inner;
+    }
     // (In a narrow form, the Properties panel's, whose grid wraps its
     // text: the box's words cut short with an ellipsis, on one line.)
     if crate::blueprint::narrow(ui) && ui.style().wrap_mode != Some(egui::TextWrapMode::Truncate) {

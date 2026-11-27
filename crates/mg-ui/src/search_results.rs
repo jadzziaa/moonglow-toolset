@@ -333,7 +333,15 @@ fn form_frame<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, egui::Rect)
     if let Some(want) = state.want.take() {
         area = area.vertical_scroll_offset(want);
     }
-    let out = area.show(ui, |ui| egui::Frame::new().inner_margin(margin).show(ui, add).inner);
+    // (Laid out as wide as with its scroll bar, shown or not: the bar's
+    // room taken and given back rewrapped the form a line taller or
+    // shorter, which moved the dock's least height, which showed or hid
+    // the bar, every frame.)
+    let width = ui.available_width() - ui.spacing().scroll.allocated_width();
+    let out = area.show(ui, |ui| {
+        ui.set_max_width(width);
+        egui::Frame::new().inner_margin(margin).show(ui, add).inner
+    });
     let shown = out.inner_rect;
     let at = out.state.clamped_offset().y;
     let most_offset = (out.content_size.y - shown.height()).max(0.0);

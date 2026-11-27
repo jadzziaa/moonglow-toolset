@@ -3209,7 +3209,9 @@ fn armor_part_pictures() {
     }
     let named = |n: &str| wide.map_or(n.to_string(), |w| format!("{n}-{w}"));
     shoot(&mut h, &dir, &named("armor-parts-torso"));
-    h.get_all_by_label("Right shoulder").last().unwrap().click();
+    // (The gallery's Right Shoulder toggle: a click on the list's label,
+    // as this was, did nothing, and the torsos were pictured again.)
+    h.get_by_label("Right Shoulder").click();
     settle(&mut h);
     shoot(&mut h, &dir, &named("armor-parts-shoulder"));
 }

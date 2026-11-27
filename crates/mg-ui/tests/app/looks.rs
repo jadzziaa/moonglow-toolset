@@ -12,7 +12,11 @@ fn terrain_screen() {
     let Some((mut h, area)) = area_harness("terrain-screen") else { return };
     show_palette(h.state_mut());
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    // (The palette's Tiles button, not its heading.)
+    (h.get_all_by_label("Tiles")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button))
+    .expect("the Tiles button")
+    .click();
     h.run_steps(2);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -66,7 +70,11 @@ fn look_tile_brush_with_game_shaders() {
     h.state_mut().settings.game_shaders = Some(true);
     show_palette(h.state_mut());
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    // (The palette's Tiles button, not its heading.)
+    (h.get_all_by_label("Tiles")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button))
+    .expect("the Tiles button")
+    .click();
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -128,7 +136,11 @@ fn look_gallery_water_with_game_shaders() {
     h.state_mut().settings.gallery_tile = Some(160);
     show_palette(h.state_mut());
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    // (The palette's Tiles button, not its heading.)
+    (h.get_all_by_label("Tiles")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button))
+    .expect("the Tiles button")
+    .click();
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
