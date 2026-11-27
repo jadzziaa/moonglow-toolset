@@ -291,8 +291,13 @@ pub(crate) fn window_harness(app: Moonglow) -> Harness<'static, Moonglow> {
 /// click before at 60 frames a second (else the three are a triple click).
 /// Advances egui's simulated input clock by `seconds` in one frame step,
 /// avoiding multi-second 60-step frame burns for timers and double-click delays.
+/// (Two steps at that time: a tip it brings is laid out unseen at its
+/// first, and egui 0.37 leaves what is unseen out of the accessibility
+/// tree.)
 pub(crate) fn advance_clock(h: &mut Harness<'_, Moonglow>, seconds: f64) {
     let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + seconds);
+    h.run_steps(1);
     h.input_mut().time = Some(now + seconds);
     h.run_steps(1);
     h.input_mut().time = None;
@@ -708,12 +713,31 @@ pub(crate) fn apart_all<'t>(
     h.query_all_by_label(name).filter(|n| !in_toolbar(n))
 }
 
+/// The labels reading `text`, those that name a field too (kittest's
+/// queries by a label give the field such a label names, not the label).
+pub(crate) fn label_nodes<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    text: &'t str,
+) -> impl Iterator<Item = egui_kittest::Node<'t>> + 't {
+    let by = egui_kittest::kittest::By::new()
+        .role(egui::accesskit::Role::Label)
+        .label(text)
+        .include_labels();
+    h.query_all(by)
+}
+
 /// Whether `n` is in the group named `group` (`mg_uikit::name_group`).
 pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
+    use egui::accesskit::Role;
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
         if p.label().as_deref() == Some(group) {
             return true;
+        }
+        // (A menu, popup or tooltip is not in what opened it: egui 0.37
+        // hangs it under its button in the tree, where 0.36 had it apart.)
+        if matches!(p.role(), Role::Menu | Role::Dialog | Role::Tooltip) {
+            return false;
         }
         up = p.parent();
     }
@@ -743,6 +767,12 @@ pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
         ];
         if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
             return true;
+        }
+        // (A menu or a dropdown's list of a bar is not on it: as in
+        // `in_group`.)
+        use egui::accesskit::Role;
+        if matches!(p.role(), Role::Menu | Role::Dialog | Role::Tooltip) {
+            return false;
         }
         up = p.parent();
     }
@@ -1600,13 +1630,26 @@ pub(crate) fn close_area_popover(h: &mut Harness<'_, Moonglow>) {
 /// if nothing appears in a second and a half of frames (a tip waits a
 /// moment; on a busy machine the same moment is more frames, so the wait
 /// is long for an absent tip and short for a present one). What appears
-/// inside the Status Bar is not a tip: its hints follow the pointer.
+/// inside the Status Bar, but for its own tips, is not a tip: its hints
+/// follow the pointer.
 pub(crate) fn tip_at(h: &mut Harness<'_, Moonglow>, rect: egui::Rect) -> Option<String> {
     use std::collections::HashMap;
     fn words(h: &Harness<'_, Moonglow>) -> HashMap<String, usize> {
         let mut out = HashMap::new();
+        // (A tip of the bar's own hangs under it: egui 0.37 puts a tip
+        // under the widget it is for.)
+        let in_tip = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            let mut at = n.parent();
+            while let Some(p) = at {
+                if p.role() == egui::accesskit::Role::Tooltip {
+                    return true;
+                }
+                at = p.parent();
+            }
+            false
+        };
         let bar: std::collections::HashSet<_> = (h.query_by_label("Status Bar"))
-            .map(|b| b.query_all_by(|_| true).map(|n| n.accesskit_node().id()).collect())
+            .map(|b| b.query_all_by(|n| !in_tip(n)).map(|n| n.accesskit_node().id()).collect())
             .unwrap_or_default();
         for n in h.query_all_by(|n| n.bounding_box().is_some()) {
             if bar.contains(&n.accesskit_node().id()) {
@@ -2215,12 +2258,15 @@ pub(crate) fn overlapping(h: &Harness<'_, Moonglow>) -> Vec<String> {
         let role = n.role();
         let name = n.label().or_else(|| n.value()).unwrap_or_default();
         // (A gallery's grid is a list of the cells drawn in it, which
-        // egui gives it not as children but beside it.)
+        // egui gives it not as children but beside it. A panel's or a
+        // window's resize handle, egui 0.37's splitter, takes the pointer
+        // across its edge, over what is beside it there.)
         let part = matches!(
             role,
             egui::accesskit::Role::Unknown
                 | egui::accesskit::Role::GenericContainer
                 | egui::accesskit::Role::List
+                | egui::accesskit::Role::Splitter
         );
         // Widgets, not the windows and groups that hold them.
         let leaf = n.children().next().is_none();
@@ -2575,19 +2621,39 @@ pub(crate) fn drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Po
     h.run_steps(3);
 }
 
-/// The item `name` of the open right-click menu: a popup is a layer of its
-/// own, with the fewest containers above it (the toolbars, an editor and
-/// the palette name some of the same words); of those as shallow, the last.
+/// Whether the last frame asked for another from a 3D model's view (the
+/// model view's clock: a frame a 25th of a second on). (egui 0.37 keeps
+/// such a frame as asked for in the time, where 0.36 took one asked for
+/// in less than a frame's as asked for now: `Harness::try_run` no longer
+/// tells it.)
+pub(crate) fn model_view_asks_for_frames(h: &Harness<'_, Moonglow>) -> bool {
+    h.ctx.repaint_causes().iter().any(|c| c.file.ends_with("model_view.rs"))
+}
+
+/// Whether `n` is in a menu (a popup's or a submenu's: egui 0.37 hangs
+/// a menu under the widget it opened from, so not by its depth).
+pub(crate) fn in_menu(n: &egui_kittest::Node<'_>) -> bool {
+    std::iter::successors(n.accesskit_node().parent(), |p| p.parent())
+        .any(|p| p.role() == egui::accesskit::Role::Menu)
+}
+
+/// Whether `n` is in a popup: a menu, or a dropdown's or a picker's
+/// (a dialog's role, egui 0.37's).
+pub(crate) fn in_popup(n: &egui_kittest::Node<'_>) -> bool {
+    use egui::accesskit::Role;
+    std::iter::successors(n.accesskit_node().parent(), |p| p.parent())
+        .any(|p| matches!(p.role(), Role::Menu | Role::Dialog))
+}
+
+/// The item `name` of the open right-click menu (the toolbars, an editor
+/// and the palette name some of the same words): of those in a menu, the
+/// last.
 #[track_caller]
 pub(crate) fn popup_item<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
 ) -> egui_kittest::Node<'t> {
-    let depth = |n: &egui_kittest::Node<'_>| {
-        std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
-    };
-    let all: Vec<_> = h.get_all_by_label(name).collect();
-    all.into_iter().rev().min_by_key(depth).unwrap_or_else(|| panic!("no menu item {name}"))
+    h.get_all_by_label(name).filter(in_menu).last().unwrap_or_else(|| panic!("no menu item {name}"))
 }
 
 /// Opens the submenu `name` of the right-click menu that is open (the
@@ -2610,14 +2676,16 @@ pub(crate) fn submenu_items(h: &mut Harness<'_, Moonglow>, name: &str, item: &st
 }
 
 /// The items of the open right-click menu whose last item is `last`, top
-/// to bottom: the buttons of the popup `last` is in (the menu, drawn
-/// above the rest, is the last listed).
+/// to bottom: the buttons of the menu `last` is in.
 pub(crate) fn menu_items(h: &Harness<'_, Moonglow>, last: &str) -> Vec<String> {
     use egui_kittest::kittest::AccessKitNode;
-    let item = h.get_all_by_label(last).last().expect("the menu's item");
-    // The popup: the nearest of its containers with a place on the screen.
+    let item = h.get_all_by_label(last).filter(in_menu).last().expect("the menu's item");
+    // The popup: the menu it is in, or the nearest of its containers with
+    // a place on the screen. (Not what it hangs under: egui 0.37 puts a
+    // menu under the widget it opened from.)
     let mut menu = item.accesskit_node().parent();
-    while let Some(n) = menu.filter(|n| n.bounding_box().is_none()) {
+    let is_menu = |n: &AccessKitNode<'_>| n.role() == egui::accesskit::Role::Menu;
+    while let Some(n) = menu.filter(|n| n.bounding_box().is_none() && !is_menu(n)) {
         menu = n.parent();
     }
     fn buttons(n: AccessKitNode<'_>, into: &mut Vec<(f64, String)>) {

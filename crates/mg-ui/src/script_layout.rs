@@ -1689,10 +1689,9 @@ mod tests {
     /// Lays `text` out the way the editor did before (the whole text, one
     /// job: egui splits it at its lines itself), each line the editor's
     /// pitch high, and line by line, and compares the rows: where each is,
-    /// its size, its line end, its characters and their colors. (Laid out
-    /// whole with egui's `line_height`, a line's text is at the top of its
-    /// row; line by line, it is centered: each character, and its mesh,
-    /// lower by the same few points.)
+    /// its size, its line end, its characters and their colors, each in
+    /// the same place (egui 0.37 centers a line in its `line_height` laid
+    /// out whole or alone).
     fn same_as_whole(ctx: &egui::Context, text: &str) {
         let palette = Palette::new(&ScriptStyle::default(), true, Color32::WHITE);
         let mut laid = LaidOut::default();
@@ -1715,16 +1714,15 @@ mod tests {
         let (whole, lines) = (whole.unwrap(), lines.unwrap());
         assert_eq!(lines.text(), text);
         assert_eq!(whole.rows.len(), lines.rows.len(), "{text:?}");
-        // (How much lower: about half the room the pitch leaves the font's
-        // row, the same for every character.)
+        // (How much lower: none. egui 0.36 put a whole text's line at the
+        // top of its `line_height` and a line laid out alone in its
+        // middle; 0.37 centers both, so a character is where it is either
+        // way.)
         let lower = (lines.rows.iter().zip(&whole.rows))
             .find_map(|(b, a)| Some(b.glyphs.first()?.pos.y - a.glyphs.first()?.pos.y))
             .unwrap_or(0.0);
-        let half = 0.5 * (palette.pitch() - font_row);
-        assert!(
-            text.trim().is_empty() || (lower >= 1.0 && (lower - half).abs() <= 1.0),
-            "{lower} lower, half the room {half}"
-        );
+        assert!(palette.pitch() > font_row, "the pitch leaves room: {font_row}");
+        assert!(lower.abs() < 0.01, "{lower} lower");
         for (i, (a, b)) in whole.rows.iter().zip(&lines.rows).enumerate() {
             let at = format!("row {i} of {text:?}");
             assert_eq!(a.pos, b.pos, "{at}");

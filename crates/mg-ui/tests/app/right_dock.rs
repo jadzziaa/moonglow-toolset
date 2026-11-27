@@ -293,7 +293,7 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
     // edge, which it is resized by, its fold button beside it, and what
     // holds the whole dock (the window's layouts).
     let inner = dock.shrink(1.0);
-    let edge = egui::Id::unique("right-dock").with("__resize").value();
+    let edge = mg_ui::panel_id(&h.ctx, "right-dock").with("__resize").value();
     // (And its seam over the editor area's widgets beside it, M5's W8.)
     let seam = egui::Id::unique("right-dock-edge").with("seam").value();
     let names: std::collections::HashMap<u64, &String> = (others.iter())
@@ -1159,8 +1159,8 @@ fn right_dock_drawn(h: &Harness<'_, Moonglow>) -> bool {
     assert!(h.query_by_label("Fold the Right Dock").is_none(), "a fold button with no dock");
     assert!(h.query_by_label(mg_ui::RIGHT_DOCK).is_none(), "a tab bar or strip with no dock");
     assert!(h.state().preview_panel_rect().is_none(), "a Preview's place kept");
-    let handles =
-        ["right-dock", "right-dock-strip"].map(|id| egui::Id::unique(id).with("__resize").value());
+    let handles = ["right-dock", "right-dock-strip"]
+        .map(|id| mg_ui::panel_id(&h.ctx, id).with("__resize").value());
     let fold = egui::Id::unique("right-dock-fold").value();
     h.ctx.viewport(|v| {
         for (_, widgets) in v.prev_pass.widgets.layers() {

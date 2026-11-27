@@ -3056,7 +3056,10 @@ fn property(
                             "There is no such bind: click to choose another in Property Binding"
                         }
                     };
-                    let chip = form::bind_chip(ui, &name).labelled_by(lead.id).on_hover_text(tip);
+                    // (Named by its own words, "Bound to NAME": egui 0.37's
+                    // `labelled_by` would name it by the property's label
+                    // instead.)
+                    let chip = form::bind_chip(ui, &name).on_hover_text(tip);
                     if chip.clicked() {
                         let asked = form::chip_asked(ui.ctx());
                         ui.ctx().data_mut(|d| d.insert_temp(asked, key.to_owned()));

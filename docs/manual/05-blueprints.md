@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:21:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:51Z }
 ---
 
 # Blueprints
@@ -332,7 +332,7 @@ whose header holds **Placeables**, **Creatures** and **Doors** (which
 table's appearances), **Find**, the size slider and the count ("838
 appearances (appearance.2da)", or "12 of 838" while Find narrows it;
 where the tab is narrow, the slider and the count go into the header's
-**⋯** (More)); under it a line says what a click does, with **Use
+**…** (More)); under it a line says what a click does, with **Use
 the Selection** where it was opened for one object (with a placeable
 selected in the area and the Placeables shown: "A click takes a
 placeable to place. Right click gives it to the 1 placeable
@@ -863,7 +863,7 @@ Shared parts:
   model is one header row:
   **Animation**, **Play** or **Pause**, **Frame**, the **Lights**,
   **Shadow** and **Shaders** switches and **Export Files…**, with what
-  has no room in its **⋯** (More), and **Pop Out**, always there; the
+  has no room in its **…** (More), and **Pop Out**, always there; the
   panel's own header says the model's name, its nodes, meshes and parts
   and its supermodel. The Status Bar gives the view's ways beside it:
   Drag to turn the view, Right Drag or Middle Drag to move it, Wheel to
@@ -975,7 +975,7 @@ that names none, or one portraits.2da lacks, leaves the portrait as it is.
   parts, it gets them (each 1, no belt or shoulders) and head 1 in the
   same step, since the game draws no body without them. A head of 0, or
   none, is no head: the game draws the neck alone. **Pop
-  Out**, in the Preview's **⋯** (More), moves the model to a tab or window of its
+  Out**, in the Preview's **…** (More), moves the model to a tab or window of its
   own (to keep elsewhere); the panel says so, and **Bring Back** returns
   it there.
 - **Feats** shows the feats the creature has beside the list to choose

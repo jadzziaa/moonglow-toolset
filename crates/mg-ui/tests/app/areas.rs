@@ -752,6 +752,9 @@ fn a_tag_outside_ascii_is_found_and_retagged() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     let mut h = harness(app, 1100.0, 760.0);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     // Found by its tag, typed as it reads.
     h.state_mut().find_references(mg_ui::references::Query::Tag("Señor".into()));

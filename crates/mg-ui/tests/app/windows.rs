@@ -3068,7 +3068,11 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
         own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
         h.run_steps(4);
         let rect = |h: &Harness<'_, Moonglow>| {
-            egui::containers::panel::PanelState::load(&h.ctx, panel)
+            // (The pane's own id, under its window's `Ui`, as the shell
+            // keeps it.)
+            let panel = h.ctx.data(|d| d.get_temp::<egui::Id>(panel.with("panel")));
+            panel
+                .and_then(|panel| egui::containers::panel::PanelState::load(&h.ctx, panel))
                 .unwrap_or_else(|| panic!("{tab:?}: no lower half"))
                 .outer_rect
         };

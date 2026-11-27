@@ -1376,8 +1376,7 @@ fn scripts_stay_on_one_line_with_label_and_edit() {
         h.set_size(egui::vec2(width, 900.0));
         settle(&mut h);
         let dock = right_dock_rect(&h);
-        let on_death = h
-            .query_all_by_label("OnDeath")
+        let on_death = label_nodes(&h, "OnDeath")
             .map(|n| n.rect())
             .find(|r| dock.contains_rect(*r))
             .unwrap_or_else(|| panic!("at {width}: OnDeath label"));

@@ -507,20 +507,12 @@ fn the_fonts_have_every_character_kept() {
     for _ in 0..2 {
         ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
     }
-    // What each character of `text` is drawn with, in the font texture,
-    // in `style`'s font. (Not `Fonts::has_glyphs`: it says no for every
-    // glyph of the font that has the replacement square, egui's emoji
-    // font.)
-    let drawn = |text: &str, style: egui::TextStyle| {
-        let font = style.resolve(&ctx.global_style());
-        let galley =
-            ctx.fonts_mut(|f| f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE));
-        let rows = galley.rows.iter().flat_map(|r| r.glyphs.iter());
-        rows.map(|g| g.uv_rect).collect::<Vec<_>>()
-    };
+    // Whether a character of `text` is in none of `style`'s fonts (egui
+    // 0.37's `has_glyphs` asks the font each falls back to; 0.36's said no
+    // for every glyph of its emoji font, which has the replacement square).
     let lacks = |text: &str, style: egui::TextStyle| {
-        let square = drawn("◻", style.clone())[0];
-        drawn(text, style).contains(&square)
+        let font = style.resolve(&ctx.global_style());
+        !ctx.fonts_mut(|f| f.has_glyphs(&font, text))
     };
     let style = |f: Font| match f {
         Proportional => egui::TextStyle::Body,

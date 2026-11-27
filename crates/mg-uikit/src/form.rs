@@ -31,11 +31,128 @@ const HEADING_ROOM: f32 = 6.0;
 /// "Name"…): in the strong text color (`text`, white in the dark theme),
 /// to stand apart from the values beside it; not bold, which is the
 /// headings'.
+///
+/// It names the field it labels for a screen reader (and a test's
+/// `get_by_label`): an input left without a name of its own on the
+/// label's row, right of it, or just under it, is labelled by it at the
+/// end of the pass ([`FieldLabels`]).
 pub fn field_label(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
     let text = egui::RichText::new(text);
-    match theme::applied(ui.ctx()) {
+    let r = match theme::applied(ui.ctx()) {
         Some(t) => ui.label(text.color(t.tokens().text)),
         None => ui.label(text.strong()),
+    };
+    FieldLabels::record(ui.ctx(), &r);
+    r
+}
+
+/// The field labels drawn this pass, and what names the inputs by them
+/// as the pass ends (a context's plugin, added with its first label):
+/// an input with no name of its own (no label, none it is labelled by,
+/// no hint) is labelled by the field label nearest it on its row to its
+/// left, or else the one just over it at its left edge (a narrow form's
+/// label above its field), in the same layer; a label names the one such
+/// input nearest it. egui's `Ui::label_inputs_by`
+/// does so where a form's code wraps each row; a form's grid of
+/// `field_label`s and fields gets it without.
+#[derive(Default)]
+pub struct FieldLabels {
+    /// The labels of the pass: their layer, rectangle and id.
+    labels: Vec<(egui::LayerId, egui::Rect, egui::Id)>,
+}
+
+/// How far below a label a field under it may begin (points).
+const UNDER_LABEL: f32 = 12.0;
+/// How far apart a field under a label and the label may begin
+/// sideways (points).
+const UNDER_LABEL_SIDE: f32 = 8.0;
+
+impl FieldLabels {
+    fn record(ctx: &egui::Context, r: &egui::Response) {
+        if !r.rect.is_positive() {
+            return;
+        }
+        let entry = (r.layer_id, r.rect, r.id);
+        match ctx.plugin_opt::<FieldLabels>() {
+            Some(plugin) => plugin.lock().labels.push(entry),
+            None => ctx.add_plugin(FieldLabels { labels: vec![entry] }),
+        }
+    }
+
+    /// The label of the pass that names an input at `rect` in `layer`,
+    /// and how far the input is from it.
+    fn label_for(&self, layer: egui::LayerId, rect: egui::Rect) -> Option<(egui::Id, f32)> {
+        let here = self.labels.iter().filter(|(l, ..)| *l == layer);
+        let beside = (here.clone())
+            .filter(|(_, l, _)| {
+                l.right() <= rect.left() + 1.0
+                    && (l.top() - 4.0..=l.bottom() + 4.0).contains(&rect.center().y)
+            })
+            .max_by(|a, b| a.1.right().total_cmp(&b.1.right()));
+        let under = || {
+            here.filter(|(_, l, _)| {
+                l.bottom() <= rect.top() + 1.0
+                    && rect.top() - l.bottom() <= UNDER_LABEL
+                    && (l.left() - rect.left()).abs() <= UNDER_LABEL_SIDE
+            })
+            .max_by(|a, b| a.1.bottom().total_cmp(&b.1.bottom()))
+        };
+        (beside.map(|(_, l, id)| (*id, rect.left() - l.right())))
+            .or_else(|| under().map(|(_, l, id)| (*id, rect.top() - l.bottom())))
+    }
+}
+
+impl egui::Plugin for FieldLabels {
+    fn debug_name(&self) -> &'static str {
+        "mg-uikit field labels"
+    }
+
+    fn on_begin_pass(&mut self, _ui: &mut Ui) {
+        self.labels.clear();
+    }
+
+    fn on_end_pass(&mut self, ui: &mut Ui) {
+        if self.labels.is_empty() {
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        let mut layers: Vec<egui::LayerId> = self.labels.iter().map(|(l, ..)| *l).collect();
+        layers.sort_by_key(|l| (l.order, l.id.value()));
+        layers.dedup();
+        let widgets: Vec<(egui::LayerId, egui::Rect, egui::Id)> = ctx.viewport(|v| {
+            (layers.iter())
+                .flat_map(|l| v.this_pass.widgets.get_layer(*l).map(|w| (w.layer_id, w.rect, w.id)))
+                .collect()
+        });
+        // (Each label's input: the label, the input and how far apart.)
+        let mut named: Vec<(egui::Id, egui::Id, f32)> = Vec::new();
+        for (layer, rect, id) in widgets {
+            if !ctx.has_accesskit_node(id) {
+                continue;
+            }
+            let unnamed = ctx.accesskit_node_builder(id, |n| {
+                egui::accessibility::is_input(n.role())
+                    && n.label().is_none_or(|l| l.trim().is_empty())
+                    && n.labelled_by().is_empty()
+                    && n.placeholder().is_none_or(|p| p.trim().is_empty())
+            });
+            if unnamed != Some(true) {
+                continue;
+            }
+            if let Some((label, far)) = self.label_for(layer, rect) {
+                match named.iter_mut().find(|(l, ..)| *l == label) {
+                    Some(entry) if entry.2 > far => *entry = (label, id, far),
+                    Some(_) => {}
+                    None => named.push((label, id, far)),
+                }
+            }
+        }
+        for (label, id, _) in named {
+            ctx.accesskit_node_builder(id, |n| {
+                n.clear_label();
+                n.push_labelled_by(label.accesskit_id());
+            });
+        }
     }
 }
 

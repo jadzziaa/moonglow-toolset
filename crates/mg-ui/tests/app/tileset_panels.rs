@@ -1413,7 +1413,8 @@ fn the_tile_s_3d_view_rests_until_played() {
     let pass = h.ctx.cumulative_pass_nr();
     assert!(drawn.is_some_and(|d| d + 3 >= pass), "drawn: {drawn:?} at {pass}");
     h.get_by_label("Play").click();
-    assert!(h.try_run().is_err(), "played: it asks for frames");
+    h.run_steps(2);
+    assert!(model_view_asks_for_frames(&h), "played: it asks for frames");
     assert!(view(&h).0);
     h.get_by_label("Pause").click();
     settle(&mut h);

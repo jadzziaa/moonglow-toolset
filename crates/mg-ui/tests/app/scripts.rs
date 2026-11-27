@@ -759,6 +759,9 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), text);
     h.get_by_label("Windows-1250");
@@ -2684,6 +2687,9 @@ fn a_long_script_s_lines_out_of_sight_are_edited_where_they_are() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run();

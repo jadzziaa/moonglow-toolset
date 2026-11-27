@@ -375,10 +375,7 @@ fn body_parts_lists_offer_the_default_phenotype_s_parts() {
     h.run();
     // The torso's list: beside its label, on its row. The wheel over it
     // steps to the next part it offers.
-    let label = (h.get_all_by_label("Torso"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Torso").next().unwrap().rect();
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
@@ -1880,7 +1877,7 @@ fn a_color_typed_into_the_picker_s_hex_field_is_taken() {
     // (The row's own field shows it too: the picker's is the last.)
     let hex = |h: &Harness<'_, Moonglow>, v: &str| h.get_all_by_value(v).count();
     assert!(hex(&h, "#ffffff") >= 2, "the picker's field shows the color");
-    h.get_all_by_value("#ffffff").last().unwrap().click();
+    h.get_all_by_value("#ffffff").filter(in_popup).last().unwrap().click();
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.event(egui::Event::Text("#ff0000".into()));
@@ -3975,10 +3972,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     // The torso's list: beside its label, on its row, the first after it
     // (the area's tab under the window has lists on that row too).
     // (The field's label: the part's button under the lists is named so too.)
-    let label = (h.get_all_by_label("Torso"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Torso").next().unwrap().rect();
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
@@ -4027,10 +4021,7 @@ fn an_armor_s_part_can_be_none() {
     settle(&mut h);
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
-    let label = (h.get_all_by_label("Left bicep"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Left bicep").next().unwrap().rect();
     h.get_all_by_role(egui::accesskit::Role::ComboBox)
         .find(|n| {
             let r = n.rect();
@@ -4139,8 +4130,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     // (Its colors' lists are beside their labels, the armor's Cloth 1
     // above the part's; part numbers, some the same, are in the left
     // column.)
-    let label = (h.get_all_by_label("Cloth 1"))
-        .filter(|n| n.accesskit_node().role() != combo)
+    let label = label_nodes(&h, "Cloth 1")
         .map(|n| n.rect())
         .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
         .expect("the armor's Cloth 1 label");

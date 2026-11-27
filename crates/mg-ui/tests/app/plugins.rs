@@ -413,7 +413,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     h.run();
     assert!(h.query_by_label("Set Local Variable…").is_none(), "that one is for objects");
     let count = h.get_by_label("Count Objects").rect();
-    let properties = h.get_all_by_label("Properties").last().unwrap().rect();
+    let properties = popup_item(&h, "Properties").rect();
     assert!(count.bottom() <= properties.top(), "{count:?} {properties:?}");
     h.get_by_label("Count Objects").click();
     h.run_steps(3);

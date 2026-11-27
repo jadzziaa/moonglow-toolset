@@ -1176,7 +1176,8 @@ fn a_described_table_is_chosen_from_its_lists() {
     // A row of the project's own table is chosen by its name.
     h.state_mut().tables[0].go_to(0, 4);
     h.run_steps(3);
-    h.get_by_label_contains("a row of places.2da");
+    // (The cell's words: the column's header says the same of the column.)
+    h.get_by_label_contains("column: a row of places.2da");
     {
         let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
         let at = h

@@ -193,25 +193,9 @@ fn open_setup(h: &mut Harness<'_, Moonglow>, tab: Tab, area: Option<&str>) {
 
 /// Picks the target area `name` in the window's Target Area.
 fn show_target_area(h: &mut Harness<'_, Moonglow>, name: &str) {
-    // (Not one of the area toolbar's boxes behind the window on the same
-    // row, where M3 T14's flush editor area moved the toolbar's rows.)
-    let label = h.get_by_label("Target area").rect();
-    let combo = h
-        .get_all_by_role(Role::ComboBox)
-        .find(|n| {
-            let r = n.rect();
-            (r.center().y - label.center().y).abs() < 10.0
-                && r.left() > label.left()
-                && !in_group(n, "Area toolbar")
-        })
-        .unwrap_or_else(|| {
-            let label = h.get_by_label("Target area").rect();
-            let all: Vec<String> = h
-                .get_all_by_role(Role::ComboBox)
-                .map(|n| format!("{:?} {:?}", n.rect(), n.accesskit_node().value()))
-                .collect();
-            panic!("the Target Area box: label {label:?}, boxes {all:?}")
-        });
+    // (The box the label names: not one of the area toolbar's boxes
+    // behind the window on the same row.)
+    let combo = h.get_by_role_and_label(Role::ComboBox, "Target area");
     let value = combo.accesskit_node().value().unwrap_or_default().to_string();
     let under = combo.rect();
     combo.click();
@@ -528,15 +512,7 @@ fn the_target_areas_keep_a_leading_space() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Names", edits)));
     settle(&mut h);
     open_setup(&mut h, trigger_tab(field, 0), None);
-    let label = h.get_by_label("Target area").rect();
-    let combo = (h.get_all_by_role(Role::ComboBox))
-        .find(|n| {
-            let r = n.rect();
-            (r.center().y - label.center().y).abs() < 10.0
-                && r.left() > label.left()
-                && !in_group(n, "Area toolbar")
-        })
-        .unwrap();
+    let combo = h.get_by_role_and_label(Role::ComboBox, "Target area");
     let under = combo.rect();
     combo.click();
     settle(&mut h);

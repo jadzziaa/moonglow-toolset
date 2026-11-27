@@ -2246,7 +2246,8 @@ mod tests {
         let heights = rc(vec![100.0, 500.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
         let mut h = eight_harness(heights.clone(), cell(0), cell(2), 300.0);
         h.run();
-        wheel(&mut h, -250.0);
+        // (Page 2 is 128 high from 128: wholly above the view at 270.)
+        wheel(&mut h, -270.0);
         let seen = PageScroll::seen(&h.ctx, "cols").unwrap();
         assert!(!seen.pages_in_view.contains(&2), "page 2 out of view: {seen:?}");
         h.get_by_label("last 1").click();

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:51Z }
 ---
 
 # Scripts
@@ -26,7 +26,7 @@ then **Save As…**, **Print…**, **Open…** and **External Editor**,
 **Find…** and **Replace…**, **Bookmark**, and **Definition**,
 **References**, **Rename Symbol…** and **Used By** as icons (each named
 in its tooltip with its key); at its right end the codepage the script
-is read and saved in (below), **More** (⋯), which holds **To
+is read and saved in (below), **More** (…), which holds **To
 Scratch**, and **OK** and **Cancel**: OK puts the text into the module
 and closes the tab, keeping its bookmarks, Undo history, codepage and
 External Editor link for the session as a clean close does. Cancel closes it as last saved; with text not yet

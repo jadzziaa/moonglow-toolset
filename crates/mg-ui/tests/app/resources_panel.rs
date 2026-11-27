@@ -727,7 +727,7 @@ fn the_left_dock_s_tabs_show_their_words_at_its_first_width() {
 /// The Left Dock's right edge: its panel's, as egui keeps it under the
 /// panel's id (`"tree"`).
 fn dock_right(h: &Harness<'_, Moonglow>) -> f32 {
-    let id = egui::Id::unique("tree");
+    let id = mg_ui::panel_id(&h.ctx, "tree");
     let state = h.ctx.data_mut(|d| d.get_persisted::<egui::containers::panel::PanelState>(id));
     state.expect("the dock drawn").outer_rect.right()
 }

@@ -133,6 +133,30 @@ mod tree;
 pub mod updates;
 pub mod viewers;
 pub use browser::RESOURCE_HEADER;
+
+/// The id egui keeps the window's panel `salt` by (its `PanelState`,
+/// its edge's handle under `"__resize"`): since egui 0.37 a panel's id is
+/// its salt under the `Ui` it is shown in (the window's root `Ui`, a test
+/// harness's own, or a dock's for a panel inside it), as the shell noted
+/// where it last drew it; under the root `Ui` before. (0.36 kept it by
+/// the salt alone, `Id::unique(salt)`: where an earlier version left a
+/// dock's size.)
+pub fn panel_id(ctx: &egui::Context, salt: &str) -> egui::Id {
+    let noted = ctx.data(|d| d.get_temp::<egui::Id>(panel_key(salt)));
+    noted.unwrap_or_else(|| ctx.viewport_id().root_ui_id().with(salt))
+}
+
+/// Notes that the panel `salt` is shown in `ui` (for [`panel_id`]), and
+/// gives its id.
+pub(crate) fn note_panel(ui: &egui::Ui, salt: &str) -> egui::Id {
+    let id = ui.scope_id().with(salt);
+    ui.ctx().data_mut(|d| d.insert_temp(panel_key(salt), id));
+    id
+}
+
+fn panel_key(salt: &str) -> egui::Id {
+    egui::Id::unique("mg-ui-panel").with(salt)
+}
 pub use outliner::OUTLINER;
 pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES, FOUND_AS_YOU_TYPE};
 pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
@@ -3726,7 +3750,8 @@ impl Moonglow {
     /// is opened.
     pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
         for id in ["tree", "log", shell::RIGHT_DOCK_ID, shell::MODULE_PANEL_ID] {
-            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::unique(id)));
+            let id = panel_id(ctx, id);
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(id));
         }
         self.settings.hide_tree = false;
         self.settings.hide_log = Settings::new_installation().hide_log;

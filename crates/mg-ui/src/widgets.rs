@@ -8193,25 +8193,28 @@ mod text_menu_tests {
         }
     }
 
-    /// A click on a button beside a text field leaves the field's
-    /// selection for the button to work on, in the frame it is clicked,
-    /// though the field asks whether its menu is wanted before it is drawn
-    /// (as the script editor does: its Replace works on the selected
-    /// match). egui's `read_response` there gave up the field's focus
-    /// before it was drawn, and the field dropped its selection.
+    /// A press on a button beside a text field leaves the field its
+    /// selection as it is drawn in that frame, though the field asks
+    /// whether its menu is wanted before it is drawn (as the script editor
+    /// does: its Replace works on the selected match). egui's
+    /// `read_response` there gave up the field's focus before it was
+    /// drawn, and the field dropped its selection. (An egui field drops it
+    /// once it has lost the keys, since 0.37: by the release, a frame on,
+    /// it has none.)
     #[test]
-    fn a_click_beside_a_text_field_keeps_its_selection() {
+    fn a_press_beside_a_text_field_keeps_its_selection_as_it_is_drawn() {
         let mut h = Harness::new_ui_state(
             |ui, (text, seen): &mut (String, Option<bool>)| {
                 let id = egui::Id::unique("field");
                 super::text_menus_begin(ui.ctx());
                 super::text_menu_wanted(ui.ctx(), id);
-                ui.add(egui::TextEdit::singleline(text).id(id));
-                if ui.button("Use Selection").clicked() {
+                ui.add(egui::TextEdit::singleline(text).id(id)).accessible_name("Field");
+                if ui.input(|i| i.pointer.primary_pressed()) {
                     let range = egui::text_edit::TextEditState::load(ui.ctx(), id)
                         .and_then(|s| s.cursor.char_range());
                     *seen = Some(range.is_some_and(|r| r.primary != r.secondary));
                 }
+                let _ = ui.button("Use Selection");
                 super::text_menus_end(ui.ctx());
             },
             ("Selected".to_string(), None),
@@ -8221,9 +8224,14 @@ mod text_menu_tests {
         h.run();
         h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
         h.run();
-        h.get_by_label("Use Selection").click();
+        h.state_mut().1 = None;
+        let at = h.get_by_label("Use Selection").rect().center();
+        h.hover_at(at);
         h.run();
-        assert_eq!(h.state().1, Some(true), "the selection there as the button is clicked");
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers });
+        h.step();
+        assert_eq!(h.state().1, Some(true), "the selection there as the button is pressed");
     }
 
     use egui::accesskit::Role;

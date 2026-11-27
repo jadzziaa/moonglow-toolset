@@ -3090,11 +3090,7 @@ fn a_click_elsewhere_with_the_menu_open_sets_the_field_s_text() {
     let field = h.query_all_by_value("SAMPLE").find(is_input).expect("the tag's field");
     let (rect, id) = (field.rect(), field.accesskit_node().id());
     // The words "Tag" before it, to click.
-    let other = h
-        .get_all_by_label("Tag")
-        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
-        .expect("the field's label")
-        .rect();
+    let other = label_nodes(&h, "Tag").next().expect("the field's label").rect();
     h.get(egui_kittest::kittest::by().predicate(|n| n.id() == id)).click();
     settle(&mut h);
     press_now(&mut h, egui::Modifiers::COMMAND, egui::Key::A);

@@ -365,7 +365,7 @@ fn select_portrait_takes_no_keys_with_a_menu_or_its_race_open() {
     keys_wait_for_menus(&mut h, "Portraits");
     let before = grid_cursor(&h, "Portraits");
     // (Its Race: the dropdown beside the dialog's label, the last drawn.)
-    let label = h.get_all_by_label("Race").last().unwrap().rect();
+    let label = label_nodes(&h, "Race").last().unwrap().rect();
     h.query_all_by(|n| n.role() == Role::ComboBox)
         .find(|n| {
             (n.rect().center().y - label.center().y).abs() < 6.0 && n.rect().left() > label.right()
@@ -374,7 +374,9 @@ fn select_portrait_takes_no_keys_with_a_menu_or_its_race_open() {
         .click();
     settle(&mut h);
     assert!(egui::Popup::is_any_open(&h.ctx), "Race's dropdown open");
-    for key in [egui::Key::ArrowRight, egui::Key::End] {
+    // (Not End, which the clicked dropdown takes for its last race, as it
+    // takes Down for the next: the portraits shown then are the race's.)
+    for key in [egui::Key::ArrowRight, egui::Key::ArrowLeft] {
         h.key_press(key);
         h.step();
         assert_eq!(grid_cursor(&h, "Portraits"), before, "{key:?} taken with Race open");

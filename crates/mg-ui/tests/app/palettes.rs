@@ -2028,7 +2028,9 @@ fn the_palette_shown_last_is_remembered() {
             let r = n.rect();
             r.top() > at.bottom() && r.top() < at.bottom() + 40.0 && r.left() > at.left()
         };
-        h.query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Button))
+        // (Its rows: a category's folds, a disclosure triangle in egui 0.37.)
+        use egui::accesskit::Role;
+        h.query_all_by(|n| matches!(n.role(), Role::Button | Role::DisclosureTriangle))
             .any(|n| under(&n))
     };
     assert!(!open_now(&h), "{header} closed at first");

@@ -1633,6 +1633,10 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     // (Read before the menus are drawn: a row chosen is chosen this frame.)
     let pressed = |key: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key));
     if was_open.is_some() && !ctx.egui_wants_keyboard_input() {
+        // (The arrow keys are the menus' here, not egui's own menu keys,
+        // which since 0.37 move the keyboard's focus from row to row and
+        // would take Enter for the row they had come to.)
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         if pressed(Key::ArrowDown) {
             if keys.path.is_empty() {
                 keys.path = vec![keys.first(0)];

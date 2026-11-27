@@ -580,6 +580,8 @@ fn layout_problems(h: &Harness<'_, Moonglow>, seen: &mg_ui::widgets::FooterSeen)
                 | Role::TextRun
                 | Role::Window
                 | Role::ScrollBar
+                // (egui 0.37's resize handles, across the window's edge.)
+                | Role::Splitter
         );
         if !name.trim().is_empty() && !part {
             let leaf = n.children().all(|k| k.role() == Role::TextRun);

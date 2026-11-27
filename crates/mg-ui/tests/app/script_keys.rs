@@ -198,6 +198,9 @@ fn replace_in_a_script_rewritten_behind_its_tab() {
 fn a_composition_is_one_step_of_the_history() {
     let first = "int n;\n";
     let (mut h, key) = editor("ui-script-ime-undo", first);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     put(&mut h, key, 4, 5);
     for pre in ["k", "ka", "kan"] {
         let p = egui::ImeEvent::Preedit { text: pre.into(), active_range_chars: None };
@@ -233,6 +236,9 @@ fn a_composition_is_one_step_of_the_history() {
 #[test]
 fn a_composition_goes_where_the_cursor_is() {
     let (mut h, key) = editor("ui-script-ime-cursor", "int n;\nint m;\n");
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     put(&mut h, key, 4, 4);
     let p = egui::ImeEvent::Preedit { text: "ka".into(), active_range_chars: None };
     h.event(egui::Event::Ime(p));
