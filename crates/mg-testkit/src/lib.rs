@@ -13,7 +13,9 @@ pub mod erf;
 #[cfg(feature = "hlsl")]
 pub mod hlsl;
 pub mod joined;
-#[cfg(all(test, unix))]
+// (Linux: flock(1), which the script and the page's examples use, is
+// util-linux's; macOS has none by default. The display's are Linux's too.)
+#[cfg(all(test, target_os = "linux"))]
 mod quiet_tests;
 pub mod signing;
 
