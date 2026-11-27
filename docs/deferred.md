@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:47:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:26:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -903,14 +903,16 @@ contribution itself states as not done or not checked.
   `mg-ui`" to "`mg` builds the GPU stack by default", "the preview is not
   the game" and `layout`'s `overlaps` to "Where the preview is known to
   differ from the game"):
-  - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
-    `accesskit_unix` (0.21) offers the tree only when the session bus's
-    `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core
-    2.62 (the development machine's) has only `IsEnabled`, so there it
-    never starts; `accesskit_unix` 0.24 watches `IsEnabled`, and comes
-    with an egui/eframe whose `accesskit_winit` uses it (0.34; eframe
-    0.36.2, the newest on 2026-10-29, has 0.32). Until then the desktop
-    agents here can't read the window. (S, with that upgrade)
+  - *AccessKit on newer Linux desktops, not yet read there*: eframe
+    0.37 (2026-11-26) brings `accesskit_winit` 0.34 and `accesskit_unix`
+    0.24.1, which watches the session bus's `org.a11y.Status.IsEnabled`
+    (at-spi2-core 2.62's), so the tree is offered where 0.36's waited
+    for `ScreenReaderEnabled` forever. Every input of the suite is named
+    (`mg_uikit::FieldLabels`, kittest 0.37's check over the UI tests).
+    What is left: a desktop agent's or Orca's reading of the running
+    window on the owner's desktop, which a session here doesn't start
+    (Moonglow is never run on the desktop by it). (S, waits on the
+    owner's run on the desktop)
   - *AccessKit was checked on Linux only*: the GUI checks for Windows
     (`x86_64-pc-windows-gnu`) and eframe's AccessKit for macOS
     (`aarch64-apple-darwin`); CI builds them, and no one has read the

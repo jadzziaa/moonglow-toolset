@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Troubleshooting
-description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, text that shows boxes, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:56:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:26:04Z }
 ---
 
 # Troubleshooting
@@ -258,6 +258,15 @@ widen the tree over the window: the Left Dock takes at most two fifths
 of the window, and a long name goes on past its edge, the tree
 scrolling sideways to show it. Drag the dock's edge to make it wider or
 narrower, or fold it.
+
+## Text shows boxes in place of characters
+
+Moonglow's own fonts cover Western scripts and the symbols it draws.
+A character they lack (a builder's Japanese, Chinese or Korean text, a
+rare symbol) is drawn with a font of your system's that has it, found
+through fontconfig on Linux and the system's font list on Windows and
+macOS. A box means no installed font has that character: install one
+that does (on Linux, the Noto CJK fonts, for example).
 
 ## Something fails without a word
 

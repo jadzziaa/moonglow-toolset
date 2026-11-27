@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T13:05:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:26:04Z }
 ---
 
 # The main window
@@ -1825,9 +1825,10 @@ Linux), so a screen reader, or a program that drives desktop
 applications, can read them by name and press them. Moonglow builds that
 description only while such a program asks for it; otherwise it costs
 nothing. On Linux it is offered while the desktop's accessibility bus
-says a screen reader is on (its `ScreenReaderEnabled` setting, which a
-screen reader such as Orca turns on). Some accessibility buses lack
-that setting (at-spi2-core 2.62 has none), and there Moonglow doesn't
-offer its controls: the toolkit it is built with asks for that setting
-alone. The Flatpak is allowed to ask the
-desktop for it.
+is on (its `IsEnabled` setting, which a screen reader such as Orca, or
+the desktop's accessibility settings, turn on). The Flatpak is allowed
+to ask the desktop for it.
+
+Every field is named by the label beside it or over it (a form's
+"First name", a table's column heading), so a screen reader says what a
+field is for, not just what it holds.
