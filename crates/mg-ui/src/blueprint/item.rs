@@ -856,7 +856,8 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         true => full,
         false => grid.layout((whole - ui.spacing().scroll.allocated_width()).max(1.0)),
     };
-    let high = 2.0 * layout.cell.y + layout.gap.y;
+    // (And the room the grid takes above them for a selected ring.)
+    let high = mg_uikit::gallery::RING_ROOM + 2.0 * layout.cell.y + layout.gap.y;
     // Opened at the part the armor has (once for each part, once it is in
     // sight: scrolled out of it, the offset was not kept; and again where
     // the page's width changes its columns, the offset being another row).

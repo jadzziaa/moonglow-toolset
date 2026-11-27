@@ -69,6 +69,9 @@ pub const SMALL_RADIUS: u8 = 3;
 /// A selected tile's ring, the dark theme's and the light theme's.
 const SELECTED_RIM: f32 = 2.0;
 const SELECTED_RIM_LIGHT: f32 = 3.0;
+/// Above a grid's first row: room for a selected tile's ring, which the
+/// scroll it stands in would cut (the owner's word, 27 November).
+pub const RING_ROOM: f32 = SELECTED_RIM_LIGHT;
 /// From the tile to the name; the small variant's.
 pub const NAME_GAP: f32 = 6.0;
 pub const SMALL_NAME_GAP: f32 = 3.0;
@@ -676,7 +679,8 @@ pub fn letterboxed(ctx: &egui::Context, id: egui::TextureId, room: Rect) -> Rect
 /// What a [`GalleryGrid`] did in a frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridOutput {
-    /// Where the grid stands, and how its cells are laid out.
+    /// Where the grid's cells stand (below the [`RING_ROOM`] it takes above
+    /// them), and how they are laid out.
     pub rect: Rect,
     pub layout: Option<GridLayout>,
     /// The cells laid out and painted (those in sight), and those of the
@@ -839,11 +843,12 @@ impl GalleryGrid {
         let room = ui.available_width().min(seen).max(1.0);
         let layout = self.layout(room);
         let height = layout.height(self.count);
-        let (rect, _) = ui.allocate_exact_size(vec2(room, height), Sense::hover());
+        let (whole, _) = ui.allocate_exact_size(vec2(room, RING_ROOM + height), Sense::hover());
+        let rect = Rect::from_min_size(whole.min + vec2(0.0, RING_ROOM), vec2(room, height));
         let id = self.id;
         // (The grid's response is its own, its one Tab stop, named for a
         // screen reader.)
-        let grid = ui.interact(rect, id, Sense::focusable_noninteractive());
+        let grid = ui.interact(whole, id, Sense::focusable_noninteractive());
         let name = self.name.clone();
         grid.widget_info(|| WidgetInfo::labeled(Role::Unknown, true, &name));
         // (A list to a screen reader, of all its cells: those out of sight
@@ -891,7 +896,9 @@ impl GalleryGrid {
                 if let Some(to) = to.filter(|to| Some(*to) != cursor) {
                     cursor = Some(to);
                     out.moved = Some(to);
-                    ui.scroll_to_rect(layout.rect(rect.min, to), None);
+                    // (With its ring in sight.)
+                    let at = layout.rect(rect.min, to).expand2(vec2(0.0, RING_ROOM));
+                    ui.scroll_to_rect(at, None);
                 }
             }
             let act = ui.input(|i| {

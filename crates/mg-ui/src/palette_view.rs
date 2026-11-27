@@ -3497,7 +3497,9 @@ impl Tree<'_> {
                 listed.places.insert(listed.rows.len() - 1, cell.at);
             }
             if reveal {
-                ui.scroll_to_rect(cell.at, None);
+                // (With a selected ring's room above it.)
+                let room = egui::vec2(0.0, mg_uikit::gallery::RING_ROOM);
+                ui.scroll_to_rect(cell.at.expand2(room), None);
             }
             if cell.ahead {
                 self.shown.push(key);
