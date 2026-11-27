@@ -7112,7 +7112,8 @@ pub(crate) fn open_gallery_at<R>(
     let cell = layout.rect(grid.rect.min, at);
     let top = shown.inner_rect.top() - shown.state.clamped_offset().y;
     let most = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
-    let wanted = (cell.top() - top).clamp(0.0, most);
+    // (The row's selected ring above it in sight too.)
+    let wanted = (cell.top() - mg_uikit::gallery::RING_ROOM - top).clamp(0.0, most);
     if (shown.state.clamped_offset().y - wanted).abs() < 1.0 {
         return true;
     }

@@ -8,8 +8,8 @@
 //!   rule](name_lines)), an optional **detail** line right under it (11 on
 //!   14, `text-3`). Nothing is drawn around a whole cell in any state:
 //!   hover turns the rim `raised-hover` and the name `text`; selected
-//!   draws a 2 point `accent` ring (`text-3` where the grid has not the
-//!   keys); a picture still being made shows the kind's icon dimmed
+//!   draws a 2 point `accent` ring, 3 in the light theme (`text-3` where
+//!   the grid has not the keys); a picture still being made shows the kind's icon dimmed
 //!   (`text-off`, 24 points), "No picture" adds a caption under it, "No
 //!   model" a badge at the tile's top left, a favorite a bookmark at its
 //!   top right; disabled, the picture is faded and the name `text-off`.
@@ -66,6 +66,12 @@ pub const JUSTIFIED_GAP: f32 = 8.0;
 /// A tile's radius, the small variant's.
 pub const RADIUS: u8 = 4;
 pub const SMALL_RADIUS: u8 = 3;
+/// A selected tile's ring, the dark theme's and the light theme's.
+const SELECTED_RIM: f32 = 2.0;
+const SELECTED_RIM_LIGHT: f32 = 3.0;
+/// Above a grid's first row: room for a selected tile's ring, which the
+/// scroll it stands in would cut (the owner's word, 27 November).
+pub const RING_ROOM: f32 = SELECTED_RIM_LIGHT;
 /// From the tile to the name; the small variant's.
 pub const NAME_GAP: f32 = 6.0;
 pub const SMALL_NAME_GAP: f32 = 3.0;
@@ -306,14 +312,17 @@ impl GridLayout {
     }
 
     /// The rows of `count` cells, the grid's top at `top`, that `y`
-    /// reaches into (the rows in sight: `y` the clip's).
+    /// reaches into (the rows in sight: `y` the clip's). A row whose gap
+    /// below it alone is in sight is not (a row brought into sight with
+    /// [`RING_ROOM`] above it shows that much of the gap).
     pub fn rows_in(&self, top: f32, y: egui::Rangef, count: usize) -> Range<usize> {
         let rows = self.rows(count);
         let pitch = self.cell.y + self.gap.y;
         if rows == 0 || y.max < top || pitch <= 0.0 {
             return 0..0;
         }
-        let first = (((y.min - top) / pitch).floor().max(0.0) as usize).min(rows);
+        let past = ((y.min - top - self.cell.y) / pitch).floor() + 1.0;
+        let first = (past.max(0.0) as usize).min(rows);
         let last = ((((y.max - top) / pitch).floor().max(0.0) as usize) + 1).min(rows);
         first..last.max(first)
     }
@@ -533,7 +542,8 @@ impl<'a> GalleryCell<'a> {
             return;
         }
         let t = ui.ctx().tokens();
-        let painter = ui.painter_at(rect.expand(2.0));
+        // Room for the widest ring, outside the tile.
+        let painter = ui.painter_at(rect.expand(SELECTED_RIM_LIGHT));
         let tile = Rect::from_min_size(rect.min, tile.min(rect.size()));
         let radius = CornerRadius::same(self.radius.unwrap_or(match self.small {
             true => SMALL_RADIUS,
@@ -577,13 +587,14 @@ impl<'a> GalleryCell<'a> {
         // without), the keys' cursor. Hovered in the light theme it is
         // `text-off` (2.8:1 on `panel`, 3.2:1 on `inset`; `raised-hover`
         // there, 1.5:1, hardly showed), weaker than selected's `text-3`.
-        let hover = match crate::theme::applied(ui.ctx()) {
-            Some(crate::Theme::Light) => t.text_off,
-            _ => t.raised_hover,
-        };
+        // Selected, the light theme's ring is 3 points (the owner's word:
+        // 2, beside the dark tile, hardly read as chosen); the dark's 2.
+        let light = crate::theme::applied(ui.ctx()) == Some(crate::Theme::Light);
+        let hover = if light { t.text_off } else { t.raised_hover };
+        let chosen = if light { SELECTED_RIM_LIGHT } else { SELECTED_RIM };
         let (width, color) = match (selected, state.keys, hovered, state.cursor && state.keys) {
-            (true, true, _, _) => (2.0, t.accent),
-            (true, false, _, _) => (2.0, t.text_3),
+            (true, true, _, _) => (chosen, t.accent),
+            (true, false, _, _) => (chosen, t.text_3),
             (false, _, _, true) => (1.0, t.accent),
             (false, _, true, _) => (1.0, hover),
             _ => (1.0, t.line),
@@ -671,7 +682,8 @@ pub fn letterboxed(ctx: &egui::Context, id: egui::TextureId, room: Rect) -> Rect
 /// What a [`GalleryGrid`] did in a frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridOutput {
-    /// Where the grid stands, and how its cells are laid out.
+    /// Where the grid's cells stand (below the [`RING_ROOM`] it takes above
+    /// them), and how they are laid out.
     pub rect: Rect,
     pub layout: Option<GridLayout>,
     /// The cells laid out and painted (those in sight), and those of the
@@ -834,11 +846,12 @@ impl GalleryGrid {
         let room = ui.available_width().min(seen).max(1.0);
         let layout = self.layout(room);
         let height = layout.height(self.count);
-        let (rect, _) = ui.allocate_exact_size(vec2(room, height), Sense::hover());
+        let (whole, _) = ui.allocate_exact_size(vec2(room, RING_ROOM + height), Sense::hover());
+        let rect = Rect::from_min_size(whole.min + vec2(0.0, RING_ROOM), vec2(room, height));
         let id = self.id;
         // (The grid's response is its own, its one Tab stop, named for a
         // screen reader.)
-        let grid = ui.interact(rect, id, Sense::focusable_noninteractive());
+        let grid = ui.interact(whole, id, Sense::focusable_noninteractive());
         let name = self.name.clone();
         grid.widget_info(|| WidgetInfo::labeled(Role::Unknown, true, &name));
         // (A list to a screen reader, of all its cells: those out of sight
@@ -886,7 +899,9 @@ impl GalleryGrid {
                 if let Some(to) = to.filter(|to| Some(*to) != cursor) {
                     cursor = Some(to);
                     out.moved = Some(to);
-                    ui.scroll_to_rect(layout.rect(rect.min, to), None);
+                    // (With its ring in sight.)
+                    let at = layout.rect(rect.min, to).expand2(vec2(0.0, RING_ROOM));
+                    ui.scroll_to_rect(at, None);
                 }
             }
             let act = ui.input(|i| {
@@ -1159,6 +1174,11 @@ mod tests {
         let r = l.rows_in(0.0, egui::Rangef::new(10.0 * pitch + 1.0, 12.0 * pitch), count);
         assert_eq!(r, 10..13);
         assert_eq!(l.cells_of(r, count), 20..26);
+        // Only row 9's gap in sight (row 10 brought in with its ring's room).
+        let y = egui::Rangef::new(10.0 * pitch - 3.0, 12.0 * pitch);
+        assert_eq!(l.rows_in(0.0, y, count).start, 10);
+        let y = egui::Rangef::new(9.0 * pitch + l.cell.y - 1.0, 12.0 * pitch);
+        assert_eq!(l.rows_in(0.0, y, count).start, 9, "a point of row 9's cell");
         // Above the grid, and past its end.
         assert_eq!(l.rows_in(1000.0, egui::Rangef::new(0.0, 500.0), count), 0..0);
         assert_eq!(l.rows_in(0.0, egui::Rangef::new(1e9, 2e9), count), 2500..2500);

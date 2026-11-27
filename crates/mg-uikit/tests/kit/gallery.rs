@@ -76,6 +76,63 @@ fn a_grid_lays_out_and_paints_only_the_rows_in_sight() {
     assert!(drawn.borrow().len() <= rows_seen * per_row, "{}", drawn.borrow().len());
 }
 
+/// The first row's selected ring is not cut by the scroll the grid
+/// stands in, in either theme: the grid takes room for it above the row,
+/// and the keys bring a row into sight with its ring (Home, after End).
+#[test]
+fn the_first_rows_ring_is_in_sight() {
+    for theme in Theme::ALL {
+        let ring = match theme {
+            Theme::Light => 3.0,
+            _ => 2.0,
+        };
+        let chosen = Cell::new(0usize);
+        let mut h = Harness::builder().with_size(egui::vec2(300.0, 300.0)).build_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            egui::ScrollArea::vertical().id_salt("grid").show(ui, |ui| {
+                let id = egui::Id::new("ring cells");
+                GalleryGrid::new(id, 60, 64.0).show(ui, |ui, i, rect, tile, r, mut state| {
+                    if r.clicked() {
+                        chosen.set(i);
+                    }
+                    if state.cursor {
+                        chosen.set(i);
+                    }
+                    state.keys = true;
+                    let name = format!("Cell {i}");
+                    GalleryCell::new(&name, Picture::Making)
+                        .selected(i == chosen.get())
+                        .paint(ui, rect, tile, state, r);
+                });
+            });
+        });
+        let ring_in_sight = |h: &Harness<'_>| {
+            let (tile, clip) = h
+                .output()
+                .shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    Shape::Rect(r) if r.stroke.width == ring => Some((r.rect, c.clip_rect)),
+                    _ => None,
+                })
+                .expect("the ring");
+            assert!(clip.contains_rect(tile.expand(ring)), "{theme:?}: {tile:?} cut by {clip:?}");
+        };
+        h.run();
+        ring_in_sight(&h);
+        h.get_by_label("Cell 0").click();
+        h.run();
+        h.key_press(Key::End);
+        h.run();
+        h.run();
+        h.key_press(Key::Home);
+        h.run();
+        h.run();
+        assert_eq!(chosen.get(), 0, "{theme:?}");
+        ring_in_sight(&h);
+    }
+}
+
 /// The grid is one Tab stop between the controls around it; with the keys
 /// Down goes a row, Right a cell, End to the last (brought into sight:
 /// drawn, and inside the scroll's view), Home to the first, Enter acts on
@@ -291,8 +348,9 @@ fn each_cell_is_a_named_button_said_selected_with_a_click() {
 
 /// The states as the Quiet Tiles cell draws them, in both themes: at rest
 /// a 1 point `line` rim and the name `text-2`; hovered a `raised-hover`
-/// rim and the name `text`; selected a 2 point `accent` ring, `text-3`
-/// where the grid has not the keys; being made, the kind's icon and no
+/// rim and the name `text`; selected a 2 point `accent` ring (3 in the
+/// light theme, the clip leaving it room), `text-3` where the grid has
+/// not the keys; being made, the kind's icon and no
 /// "…"; no picture, "No picture" under it; no model, the "No model" badge
 /// in `thumb-badge`; a favorite, the bookmark filled `thumb-flag`;
 /// disabled, the name `text-off`; the detail line `text-3`; a model name
@@ -332,11 +390,23 @@ fn each_state_draws_as_quiet_tiles() {
         assert!(rims(&h).contains(&(1.0, hover)), "{theme:?} hovered");
         assert!(texts(&h).contains(&("Corpse Wagon".into(), t.text)), "{theme:?} hovered");
         let selected = || plain().selected(true);
+        let ring = match theme {
+            Theme::Light => 3.0,
+            _ => 2.0,
+        };
         let h = draw(&selected, CellState { keys: true, ..rest });
-        assert!(rims(&h).contains(&(2.0, t.accent)), "{theme:?} selected");
+        assert!(rims(&h).contains(&(ring, t.accent)), "{theme:?} selected: {:?}", rims(&h));
         assert!(texts(&h).contains(&("Corpse Wagon".into(), t.text)), "{theme:?} selected");
+        // The ring is drawn outside the tile, and its clip holds all of it
+        // (a clip 2 points out once cut the light theme's 3 back to 2).
+        let clipped = h.output().shapes.iter().find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.stroke.width == ring => Some((r.rect, c.clip_rect)),
+            _ => None,
+        });
+        let (tile, clip) = clipped.expect("the ring");
+        assert!(clip.contains_rect(tile.expand(ring)), "{theme:?}: {tile:?} clipped to {clip:?}");
         let h = draw(&selected, rest);
-        assert!(rims(&h).contains(&(2.0, t.text_3)), "{theme:?} selected without the keys");
+        assert!(rims(&h).contains(&(ring, t.text_3)), "{theme:?} selected without the keys");
         let missing = || GalleryCell::new("Basket", Picture::Missing).kind(Icon::Placeable);
         assert!(texts(&draw(&missing, rest)).iter().any(|(s, _)| s == "No picture"));
         let no_model = || plain().no_model(true);
