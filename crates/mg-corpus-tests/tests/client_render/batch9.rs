@@ -801,3 +801,324 @@ fn batch9_static_tiles() {
     }
     eprintln!("{}", dir.display());
 }
+
+// ---------------------------------------------------------------------------
+// Static see-through meshes in their textures' order (read from the
+// client's code, confirmed by running it).
+
+/// Where a rung's texture gets its alpha mean, as the client's
+/// `CAurTextureBasic` (+0x30) does: a 32-bit TGA's computed from its
+/// texels (`ImageGetAlphaMean`), a TXI's `alphamean`, a BioWare DDS's
+/// header (read with the image, after the TXI: the header's wins), a
+/// standard DDS's none (a compressed texture without one: 1, or 0.5 of
+/// four channels).
+#[derive(Clone, Copy)]
+enum MeanFrom {
+    /// A 32-bit TGA, every texel of this alpha.
+    Tga(u8),
+    /// An opaque 32-bit TGA with a TXI `alphamean`.
+    Txi(f32),
+    /// A BioWare DDS (DXT5) with this header alpha mean, and a TXI
+    /// `alphamean` beside it where given.
+    Bioware(f32, Option<f32>),
+    /// A standard DDS (DXT5).
+    Standard,
+}
+
+/// The rungs of [`batch9_static_alpha_mean`]: the texture's code (its
+/// names scrambled against the means), where its alpha mean comes from,
+/// and the mean the reading gives it.
+const RUNGS: [(&str, MeanFrom, f32); 7] = [
+    ("q", MeanFrom::Tga(255), 1.0),
+    ("d", MeanFrom::Tga(245), 245.0 / 255.0),
+    ("w", MeanFrom::Bioware(0.9, None), 0.9),
+    ("h", MeanFrom::Txi(0.8), 0.8),
+    ("b", MeanFrom::Bioware(0.7, Some(0.95)), 0.7),
+    ("t", MeanFrom::Standard, 0.5),
+    ("m", MeanFrom::Bioware(0.3, None), 0.3),
+];
+
+/// A rung's card: its model's and texture's name.
+fn rung_card(code: &str, color: char) -> String {
+    format!("mg9l{code}_{}", color.to_ascii_lowercase())
+}
+
+/// A rung's texture files in `color`.
+fn rung_files(code: &str, from: MeanFrom, color: char) -> Vec<(String, Vec<u8>)> {
+    let name = rung_card(code, color);
+    let rgb = if color == 'R' { [255, 0, 0] } else { [0, 0, 255] };
+    let opaque = Rgba { width: 16, height: 16, data: [rgb[0], rgb[1], rgb[2], 255].repeat(256) };
+    let dxt5 = || mg_image::encode::compress(&opaque, mg_image::Format::Bc3, true, false);
+    let txi = |mean: f32| (format!("{name}.txi"), format!("alphamean {mean}\n").into_bytes());
+    match from {
+        MeanFrom::Tga(a) => vec![(format!("{name}.tga"), solid([rgb[0], rgb[1], rgb[2], a]))],
+        MeanFrom::Txi(mean) => {
+            vec![(format!("{name}.tga"), solid([rgb[0], rgb[1], rgb[2], 255])), txi(mean)]
+        }
+        MeanFrom::Bioware(header, beside) => {
+            let mut t = dxt5();
+            t.alpha_mean = Some(header);
+            let mut files =
+                vec![(format!("{name}.dds"), mg_image::dds::write_bioware(&t).unwrap())];
+            files.extend(beside.map(txi));
+            files
+        }
+        MeanFrom::Standard => {
+            vec![(format!("{name}.dds"), mg_image::dds::write_standard(&dxt5()).unwrap())]
+        }
+    }
+}
+
+/// A card model of `alpha 0.5`, 1 m square, standing facing the eye.
+fn card_mdl(name: &str, texture: &str) -> Vec<u8> {
+    let quad = Quad {
+        name: "card".into(),
+        at: [0.0, 0.0, 0.0],
+        corners: [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 1.0], [-0.5, 0.0, 1.0]],
+        bitmap: Cow::Owned(texture.to_string()),
+        extra: "  alpha 0.5\n",
+        tverts: true,
+        colors: false,
+    };
+    model(name, &[quad]).into_bytes()
+}
+
+/// The ladder's pairs: the red card's rung and the blue card's (codes).
+/// Adjacent rungs, both colors of the top two, and a few across the
+/// ladder; `b` against `w` tells the DDS header from its TXI.
+const LADDER: [(&str, &str); 12] = [
+    ("q", "d"),
+    ("d", "q"),
+    ("d", "w"),
+    ("w", "h"),
+    ("h", "b"),
+    ("b", "t"),
+    ("t", "m"),
+    ("m", "q"),
+    ("w", "t"),
+    ("b", "w"),
+    ("m", "h"),
+    ("t", "d"),
+];
+
+/// The slots of the pairs, nearer card's place: eight columns 2 m apart,
+/// three rows 4 m apart (the farther card 0.5 m east and north of it).
+fn slot(i: usize) -> [f32; 2] {
+    [13.0 + 2.0 * (i % 8) as f32, 23.0 + 4.0 * (i / 8) as f32]
+}
+
+/// The farther card's place of a pair whose nearer stands at `at`.
+fn far_of_near(at: [f32; 2]) -> [f32; 2] {
+    [at[0] + 0.5, at[1] + 0.5]
+}
+
+/// Which color of a pair is drawn first in `img`: its count of mixed
+/// pixels ([`mixed_pixels`]) and the color.
+fn first_drawn(img: &Rgba, near: char, at: [f32; 2]) -> (usize, char) {
+    let camera = reference_camera();
+    let rect = |at: [f32; 2]| {
+        let pts = [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)].map(|(dx, z)| {
+            project(&camera, Vec3::new(at[0] + dx, at[1], z), img.width, img.height)
+        });
+        let xs = pts.map(|p| p.0);
+        let ys = pts.map(|p| p.1);
+        [
+            xs.iter().copied().fold(f32::MAX, f32::min),
+            ys.iter().copied().fold(f32::MAX, f32::min),
+            xs.iter().copied().fold(f32::MIN, f32::max),
+            ys.iter().copied().fold(f32::MIN, f32::max),
+        ]
+    };
+    let (n, f) = (rect(at), rect(far_of_near(at)));
+    let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
+    let mixed = mixed_pixels(img, both, 6.0);
+    let far = if near == 'R' { 'B' } else { 'R' };
+    (mixed, if mixed > 100 { far } else { near })
+}
+
+/// A pair placed and its prediction: label, the red card's appearance
+/// and whether static, the blue's, the nearer color, its place, and the
+/// color predicted drawn first.
+struct Placed {
+    label: String,
+    red: (u32, bool),
+    blue: (u32, bool),
+    near: char,
+    at: [f32; 2],
+    predicted: char,
+}
+
+/// Places `pairs` (red listed first in even slots, blue in odd ones),
+/// shoots the client and Moonglow, prints each pair's reading and
+/// panics where the client's differs from the prediction.
+fn shoot_pairs(mut r: Reading, pairs: &[Placed]) {
+    for (i, p) in pairs.iter().enumerate() {
+        let cards = [('R', p.red), ('B', p.blue)];
+        let order = if i % 2 == 0 { [cards[0], cards[1]] } else { [cards[1], cards[0]] };
+        for (color, (appearance, statics)) in order {
+            let [x, y] = if color == p.near { p.at } else { far_of_near(p.at) };
+            r.place(appearance, [x, y, 0.0], 0.0, &[("Static", Value::Byte(u8::from(statics)))]);
+        }
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let mut failed = Vec::new();
+    for p in pairs {
+        for (side, img) in &pictures {
+            let (mixed, first) = first_drawn(img, p.near, p.at);
+            let verdict = if first == p.predicted { "as predicted" } else { "NOT as predicted" };
+            eprintln!(
+                "{side:22} {:28} nearer {}: {mixed:4} mixed, {first} first ({verdict})",
+                p.label, p.near
+            );
+            if *side == "client" && first != p.predicted {
+                failed.push(format!("{} nearer {}", p.label, p.near));
+            }
+        }
+    }
+    eprintln!("{}", dir.display());
+    assert!(failed.is_empty(), "the client differs from the prediction: {failed:?}");
+}
+
+/// The client's order of static placeables' see-through meshes, as read
+/// from its code (`docs/findings.md`, "Static placeables' see-through
+/// meshes go by their textures' alpha means"): static geometry's meshes
+/// are drawn by texture (`Scene::AddPartsToDrawBuckets` walks
+/// `meshbuckets` in `AurTextureGetOrdering`'s `TextureIndices` order),
+/// the textures sorted by their alpha mean (`CAurTextureBasic` +0x30), the
+/// highest first; within a texture, in the order its meshes were listed.
+/// Ties (every earlier batch's textures were opaque TGAs, all of mean 1)
+/// are left to `std::sort` over the whole static texture list.
+///
+/// Seven textures of distinct means from every source the code reads
+/// ([`MeanFrom`]; each in red and in blue, names scrambled against the
+/// means), on static cards of `alpha 0.5` (1 m, own models), in twelve
+/// pairs of a red and a blue rung, each pair twice (the red nearer, the
+/// blue nearer), listed red first and blue first in turn.
+///
+/// Predicted before the run, every pair, whichever is nearer: the card
+/// of the higher alpha mean drawn first. By pair (red rung, blue rung:
+/// first): q d R, d q B, d w R, w h R, h b R, b t R, t m R, m q B, w t R,
+/// b w B (the DDS header's 0.7 over its TXI's 0.95, which would put `b`
+/// first), m h B, t d B.
+#[test]
+#[ignore]
+fn batch9_static_alpha_mean() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut rows: Vec<String> = Vec::new();
+    for (code, from, _) in RUNGS {
+        for color in ['R', 'B'] {
+            let name = rung_card(code, color);
+            files.extend(rung_files(code, from, color));
+            files.push((format!("{name}.mdl"), card_mdl(&name, &name)));
+            rows.push(name);
+        }
+    }
+    let list: Vec<(&str, u8)> = rows.iter().map(|m| (m.as_str(), 1)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let appearance = |code: &str, color: char| {
+        first + rows.iter().position(|m| *m == rung_card(code, color)).unwrap() as u32
+    };
+    let mean = |code: &str| RUNGS.iter().find(|r| r.0 == code).unwrap().2;
+    let mut pairs = Vec::new();
+    for (k, (red, blue)) in LADDER.iter().enumerate() {
+        for (j, near) in ['R', 'B'].into_iter().enumerate() {
+            pairs.push(Placed {
+                label: format!("red {red} ({:.3}), blue {blue} ({:.3})", mean(red), mean(blue)),
+                red: (appearance(red, 'R'), true),
+                blue: (appearance(blue, 'B'), true),
+                near,
+                at: slot(k * 2 + j),
+                predicted: if mean(red) > mean(blue) { 'R' } else { 'B' },
+            });
+        }
+    }
+    // (Listed in a scrambled order: a pair's slot is its place, not its turn.)
+    pairs.reverse();
+    pairs.rotate_left(5);
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let r = Reading::new("batch9_static_alpha_mean", "tcn01", light, &as_refs(&files));
+    shoot_pairs(r, &pairs);
+}
+
+/// [`batch9_static_alpha_mean`]'s check of its reading and the order of
+/// static against dynamic see-through meshes. The reading counts mixed
+/// pixels with textures whose alpha means are below 1; dynamic
+/// placeables of the same models (drawn by their origins, farther first,
+/// `batch9_see_through_statics`) must read "farther first" in every pair.
+/// And a static card against a dynamic one (opaque TGAs of their own):
+/// the client fills its draw buckets with the static geometry's meshes
+/// before the sorted dynamic objects' (`AddPartsToDrawBuckets` calls
+/// `DrawBucketManager::AddPartToBucket` for `meshbuckets` before it sorts
+/// the `Gob`s, and `DrawBucket::Add` only appends).
+///
+/// Predicted before the run: the dynamic pairs farther first (six); the
+/// static card first in all four static-against-dynamic pairs, whichever
+/// is nearer and whichever color is static.
+#[test]
+#[ignore]
+fn batch9_static_alpha_mean_checks() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut rows: Vec<(String, u8)> = Vec::new();
+    for (code, from, _) in RUNGS.iter().filter(|r| ["q", "d", "t", "m", "b", "w"].contains(&r.0)) {
+        for color in ['R', 'B'] {
+            let name = rung_card(code, color);
+            files.extend(rung_files(code, *from, color));
+            files.push((format!("{name}.mdl"), card_mdl(&name, &name)));
+            rows.push((name, 0));
+        }
+    }
+    // (Static and dynamic cards of opaque TGAs of their own.)
+    for (kind, statics) in [("s", 1), ("y", 0)] {
+        for color in ['R', 'B'] {
+            let name = rung_card(kind, color);
+            files.extend(rung_files(kind, MeanFrom::Tga(255), color));
+            files.push((format!("{name}.mdl"), card_mdl(&name, &name)));
+            rows.push((name, statics));
+        }
+    }
+    let list: Vec<(&str, u8)> = rows.iter().map(|(m, s)| (m.as_str(), *s)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let appearance = |code: &str, color: char| {
+        first + rows.iter().position(|(m, _)| *m == rung_card(code, color)).unwrap() as u32
+    };
+    let mut pairs = Vec::new();
+    for (k, (red, blue)) in [("q", "d"), ("t", "m"), ("b", "w")].iter().enumerate() {
+        for (j, near) in ['R', 'B'].into_iter().enumerate() {
+            pairs.push(Placed {
+                label: format!("dynamic: red {red}, blue {blue}"),
+                red: (appearance(red, 'R'), false),
+                blue: (appearance(blue, 'B'), false),
+                near,
+                at: slot(k * 2 + j),
+                predicted: if near == 'R' { 'B' } else { 'R' },
+            });
+        }
+    }
+    for (k, static_color) in ['R', 'B'].into_iter().enumerate() {
+        for (j, near) in ['R', 'B'].into_iter().enumerate() {
+            let card = |color: char| {
+                let kind = if color == static_color { "s" } else { "y" };
+                (appearance(kind, color), color == static_color)
+            };
+            pairs.push(Placed {
+                label: format!("static {static_color} against dynamic"),
+                red: card('R'),
+                blue: card('B'),
+                near,
+                at: slot(8 + k * 2 + j),
+                predicted: static_color,
+            });
+        }
+    }
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let r = Reading::new("batch9_static_alpha_mean_checks", "tcn01", light, &as_refs(&files));
+    shoot_pairs(r, &pairs);
+}
