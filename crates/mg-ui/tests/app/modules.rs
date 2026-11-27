@@ -1667,6 +1667,7 @@ fn nwsync_content_from_the_build_menu() {
     h.get_by_label_contains("1 data file (");
     h.get_by_label("Signed in with a token from .moonglow/user.toml");
     assert!(h.query_by_label_contains(TOKEN).is_none());
+    assert!(!log(&h).contains(TOKEN));
     h.get_by_label("Sync").click();
     h.run_steps(1);
     // Under way it is no job (the window takes input meanwhile), and the

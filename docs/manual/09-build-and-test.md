@@ -436,8 +436,8 @@ has no `.moonglow/user.toml`) is not read, and the log and `mg` say so
 with the file and line: take it out and have it replaced on the server,
 as everyone with the checkout has it. A user and password written into
 the source's address (`https://user:password@…`) are refused too.
-Keep `.moonglow/user.toml` out of version control (a project's
-`.gitignore` with `.moonglow/`).
+`.moonglow/` stays out of version control by the `.gitignore` of `*`
+Moonglow makes in it (one made by hand needs one too: the log warns).
 
 The token is never shown: not in the log, a message, `mg`'s output or
 its JSON. Build › NWSync Content… says *Signed in with a token from
