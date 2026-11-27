@@ -31,6 +31,7 @@ pub mod instances;
 pub mod journal;
 pub mod lighting;
 pub mod lights;
+pub mod links;
 pub mod locks;
 pub mod merge;
 pub mod minimap;

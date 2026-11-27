@@ -1,7 +1,8 @@
 //! A file linked into the user folder's `development/` (and `override/`)
-//! rather than copied there: whether the game reads it, and that Moonglow
-//! lists it as the game does (the review's Z3). Unix only: the links are
-//! symbolic links.
+//! rather than copied there, and `development/` itself a link to a
+//! folder (as `mg serve` gives its server the player's): whether the game
+//! reads them, and that Moonglow lists them as the game does (the
+//! review's Z3). Unix only: the links are symbolic links.
 #![cfg(unix)]
 
 use std::time::Duration;
@@ -69,4 +70,44 @@ fn the_engine_reads_a_file_linked_into_development_and_override() {
     };
     assert_eq!(origin("mg_linked_dev").as_deref(), Some("development"));
     assert_eq!(origin("mg_linked_ovr").as_deref(), Some("override"));
+}
+
+/// The user folder's `development/` itself a link to a folder outside
+/// it, as `mg serve` gives its server the player's (and Test Module its
+/// game): the engine runs a compiled script found there
+/// (`ExecuteScript`) and reads a table there.
+#[test]
+fn the_engine_runs_a_script_from_a_linked_development_folder() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let compiler = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_linked_development");
+    let players = dir.join("players-development");
+    std::fs::create_dir_all(&players).unwrap();
+    let nss = players.join("mg_devlinked.nss");
+    std::fs::write(&nss, "void main()\n{\n    WriteTimestampedLogEntry(\"MG_RAN from_dev\");\n}\n")
+        .unwrap();
+    let out = std::process::Command::new(&compiler)
+        .arg("-o")
+        .arg(players.join("mg_devlinked.ncs"))
+        .arg(&nss)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "compile failed: {}", String::from_utf8_lossy(&out.stderr));
+    std::fs::write(players.join("mg_devtable.2da"), "2DA V2.0\n\n LABEL\n0 from_dev_folder\n")
+        .unwrap();
+    std::os::unix::fs::symlink(&players, dir.join("development")).unwrap();
+    let module = "mg_devlink";
+    let script = "void main()\n{\n    ExecuteScript(\"mg_devlinked\", OBJECT_SELF);\n    \
+                  WriteTimestampedLogEntry(\"MG_READ \" + Get2DAString(\"mg_devtable\", \
+                  \"LABEL\", 0));\n    WriteTimestampedLogEntry(\"MG_DONE\");\n}\n";
+    probe_module(&root, &dir, module, script, &[], &[]);
+    let run = run_server(&root, &dir, module, "MG_DONE", Duration::from_secs(120)).unwrap();
+    let tail = &run.log[run.log.len().saturating_sub(2000)..];
+    assert!(run.finished, "server did not finish; log tail:\n{tail}");
+    assert_eq!(run.values("MG_RAN"), vec!["from_dev".to_string()], "log tail:\n{tail}");
+    assert_eq!(run.values("MG_READ"), vec!["from_dev_folder".to_string()], "log tail:\n{tail}");
 }

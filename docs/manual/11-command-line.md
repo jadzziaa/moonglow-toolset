@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:25:27Z }
 ---
 
 # Command-line tools
@@ -455,7 +455,9 @@ void main()
   compiled (by `mg compile` or the window: what they remember), and the
   run names those whose compiled script in your module is not what their
   source compiles to now: changed since, or made by another compiler
-  (`mg compile` compiles them there). One that does not
+  (`mg compile` compiles them there). The scratch folder links your
+  `development` folder as `mg serve`'s does, so what is there is also
+  what the tests' server finds first. One that does not
   compile now runs with the compiled script it has, and the run says so;
   one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
@@ -540,7 +542,8 @@ it reads only at its start.
   into the module.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
-  into: `--dir`, `--port`, `--player-password`, `--dm-password`,
+  into (a folder of its own, not a link to yours: with `--dev-dir`
+  elsewhere the server has the link to yours, as `mg serve` gives it): `--dir`, `--port`, `--player-password`, `--dm-password`,
   `--admin-password`, `--env`, `--preload` and the arguments after `--`
   are `mg serve`'s, and so is what you type (your own NWN folder as
   `--dir` is refused, before anything is written there). The passwords not given are

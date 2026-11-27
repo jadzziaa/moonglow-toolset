@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:41:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:25:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1305,10 +1305,6 @@ File › Project. What is left:
   replacing the player's files comes first). Checked on Linux; on
   Windows without the right to make links it waits on a run there.
   (S, needs a Windows machine)
-- **`mg serve` and `development/`:** the server's own folder gets the
-  module's haks and talk table, not the player's `development` folder, so
-  work in progress there is in Test Module's game but not in `mg serve`'s
-  server. (S, waits on the owner's decision)
 - **Checked against a real game's NWSync storage:** the reader follows
   the client's schema (`fixtures`), and was checked against a made-up
   storage alone; a run of `mg nwsync-status` on a machine whose game

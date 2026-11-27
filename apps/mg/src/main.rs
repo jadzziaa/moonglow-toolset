@@ -704,7 +704,7 @@ enum Cmd {
         #[arg(long)]
         target: Option<String>,
         /// The development folder to write into (default with --serve:
-        /// the server's own).
+        /// the server's own, which then is not a link to yours).
         #[arg(long)]
         dev_dir: Option<PathBuf>,
         /// Run the module's tests (`test_*` scripts, as `mg test` does,
@@ -3163,6 +3163,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 project: None,
                 progress: !cli.json,
                 no_nwsync: *no_nwsync,
+                development: serve::Development::Players,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -4351,6 +4352,14 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         (None, Some(server)) => server.join("development"),
         (None, None) => bail!("where to? --dev-dir FOLDER, or --serve"),
     };
+    // (The server's own development folder written into: a link `mg
+    // serve` left there to the player's goes first, never written
+    // through, and the server is given no other.)
+    let absolute = std::path::absolute(&dev_dir).unwrap_or_else(|_| dev_dir.clone());
+    let watched = server_dir.as_ref().is_some_and(|s| absolute == s.join("development"));
+    if let (true, Some(server)) = (watched, &server_dir) {
+        serve::unlink_development(server)?;
+    }
     std::fs::create_dir_all(&dev_dir).with_context(|| path_text(&dev_dir))?;
     let served = server_dir.as_ref().map(|d| d.join("modules").join(format!("{name}.mod")));
     let build_to = served.clone().or(r#mod.clone());
@@ -4472,6 +4481,10 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         project: Some(project.clone()),
         progress: !cli.json,
         no_nwsync: *no_nwsync,
+        development: match watched {
+            true => serve::Development::Watched,
+            false => serve::Development::Players,
+        },
         ..Default::default()
     };
     let mut wrong: Option<anyhow::Error> = None;
