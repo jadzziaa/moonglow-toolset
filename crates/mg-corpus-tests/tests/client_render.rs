@@ -66,6 +66,8 @@ mod batch6;
 mod batch7;
 #[path = "client_render/batch8d.rs"]
 mod batch8d;
+#[path = "client_render/batch9.rs"]
+mod batch9;
 #[path = "client_render/chrome_reflection.rs"]
 mod chrome_reflection;
 #[path = "client_render/copies.rs"]
@@ -102,6 +104,8 @@ mod shadows;
 mod soft;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
+#[path = "client_render/torch_arm.rs"]
+mod torch_arm;
 #[path = "client_render/transition_outlines.rs"]
 mod transition_outlines;
 #[path = "client_render/upright.rs"]

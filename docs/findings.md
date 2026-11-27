@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:33:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1132,6 +1132,19 @@ rest, and over the bones of animated parts (a robe's, a cloak's). No
 other base item has an overlay (the wiki's Item page names only the
 torch's).
 
+The whole arm is the overlay's, the upper arm too. `torchl` (`animroot
+lbicep_g`) keys the orientation of `lbicep_g`, `lforearm_g`, `lforearm`,
+`lhand_g` and `lhand`, and each key replaces what the base's animation
+keys on that node (it is not added to it); every other node follows the
+base's animation. The upper arm then points ahead, about level, and the
+forearm up, so the torch stands a forearm's length ahead of the face,
+its hand just above the shoulder's height. Looked steeply down on from
+ahead (`SetCameraFacing(90, 10, 40)`, about the report's camera)
+the arm held ahead is drawn below the head and reads as an upper arm
+hanging with only the forearm bent: it is the same pose, which a view
+from the side tells apart. Asking for the pause animation by script
+(`PlayAnimation(ANIMATION_LOOPING_PAUSE)`) changes nothing of it.
+
 An item's Light property lights its wearer, not its own model. Property
 44's `CostValue` (iprp_lightcost: 1 dim 5 m to 4 bright 20 m) and
 `Param1Value` (iprp_color: 0 blue, 1 yellow, 2 purple, 3 red, 4 green,
@@ -1170,7 +1183,16 @@ first, gave about 0.65 of the client's far off.
 - **Checked:** `part_emitters_torch_light` (`client_render/part_emitters.rs`,
   2026-11-25, EE 89.8193.37): fifteen runs, each beside Moonglow's view
   of the same scene (`light_<run>_moonglow_on.png`); the arm in
-  `part_emitters_look`'s group h.
+  `part_emitters_look`'s group h, and in
+  `torch_arm_held_as_the_client_holds_it` (`client_render/torch_arm.rs`,
+  2026-11-26): a bandit (`nw_bandit001`) whose torch's model is a
+  magenta stick, seen from ahead, from each side and from behind. The
+  stick's middle and direction in the client's picture are Moonglow's
+  within 4.5 pixels (of 1024 by 768) and 1 degree, and the pose worked
+  out from the keys' within 8 and 1.2; a stick held by the forearm's
+  and the hand's keys alone, the upper arm left to the idle, would be
+  160 to 185 pixels away. `torch_arm_look` has the pictures with the
+  game's torch, the steep camera's and the forced pause's.
 - **Moonglow:** `mg_preview::creature` (`Preview::overlay` for the
   torch, `Preview::effect_lights` from `item_light` over
   `DressedLook::brightest_light`, the undrawn slots' lights in
@@ -1180,7 +1202,9 @@ first, gave about 0.65 of the client's far off.
   `an_item_s_light_is_its_color_s_and_brightness_s_effect`,
   `a_creature_s_light_is_its_brightest_item_s`,
   `a_torch_bearer_raises_his_arm_and_lights_around_him`,
-  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch).
+  `the_game_s_torch_raises_the_arm_and_lights` (the install's torch),
+  `a_torch_bearer_s_whole_arm_is_the_overlay_s` (each keyed node's turn
+  the overlay's key, the others the idle's).
 - **Not read:** which of two equally bright lights is taken; the light
   of an item lying on the ground or of an item's own preview; colors
   other than yellow and green (they go by the tables); a light on a
@@ -2097,6 +2121,58 @@ player's own light casts the shadows of the creatures about the player.
   little, where the client's shows no shadow.
 - **Wiki:** missing.
 
+### Every creature in a lamp's reach casts; one lamp casts
+
+Every creature within the casting lamp's reach casts its shadow from
+it, however many: 24 commoners in a ring 5.5 m round one lamp post each
+cast one, outward (Moonglow cast 16 until 2026-11-26, the nearest the
+camera's target). But only one light casts in the whole view: of six
+lamp posts, each with an ogre 2.5 m from it, only the lamp nearest the
+player casts, and every creature in its reach casts from it, the
+ogres beside other lamps too (their shadows fall away from the chosen
+lamp, not their own), and the other lamp posts themselves; the ogres
+by the other lamps cast nothing. Moved 3 m, so that another lamp is
+nearest the player (and still not nearest the camera's eye), that lamp
+is the one. `max-casting-lights` 1 and 3 (written where the client
+reads it, in its `settings.tml`) changed nothing.
+
+- **Checked:** game client 89.8193.37, `batch6.rs`'s
+  `batch6_light_shadow_ring` (`ring`: 24 cast of 24, by eye in
+  `darker.png`, 19 of them above 0.15 by the per-creature reading;
+  `lamps`, `MG_LAMPS_DY=-3`, `MG_CASTING_LIGHTS=1` and `3`) and
+  `batch6_light_shadow_casters` (eight ogres, every one casting, the
+  server having pushed some together), each with Moonglow beside it,
+  2026-11-26.
+- **Moonglow:** since 2026-11-26 every creature in a casting light's
+  reach casts (`crates/mg-render/src/shadow.rs`: a tile each of an atlas
+  that grows, up to 4,096 creatures), 24 of 24 in the ring as the
+  client's. Each creature still casts from its own nearest light, so with
+  several lamps Moonglow draws shadows the client doesn't: by design,
+  by the owner's ruling of 2026-11-26, since the toolset has no player
+  to take the one light from (the deferred list's "Shadows"). Where both cast, the client's shadow beside
+  a lamp is darker (0.39 to 0.51 against Moonglow's 0.14 to 0.19 in the
+  lamps' room, where six lamps light the floor), not read further here.
+- **Cost** (`frame_perf`'s `game_shaders_frames_at_144`, in process on
+  alternate frames against the old path as a hook simulates it, 2026-11-26,
+  about 1,500 MHz): the woods' overview and turned unchanged (6.28
+  against 6.30 ms, 9.5 against 9.6, the quickest tenth; no creature
+  there casts a light's shadow, so only the fixed cost is measured),
+  batch6's room quicker (overview 0.82 against 0.99, close 1.23 against
+  1.8: a pixel reads only the maps of its square). Under one lamp, close
+  up: 0.87 ms at 30 creatures, 1.2 to 1.4 at 100, 2.8 at 500 (about 4 µs
+  a creature; 2.2 with only 16 casting), the median the same. The
+  creatures play their animations, so every map is drawn again each
+  frame there (the timings include it); with the scene's time held
+  still none is (500: 2.65 ms against 2.94). The maps past 64 are
+  smaller: 512 texels up to 64 creatures, 256 up to 256, 128 up to
+  1,024, 64 up to 4,096. Sixteen
+  lamps of 500, close up, from 2.6 to 4.9 ms as the camera turns and
+  more lamps' maps come into its squares (the quickest tenth 2.7, the
+  median 4.4). High's volumes grow with the casting creatures: 4.1 ms at
+  30 close up, 11.6 at 100 (2.3 with 16 casting), batch6's room as
+  before (the deferred list's "Shadows").
+- **Wiki:** missing.
+
 ### The grass's material: linear colors, and a fade by distance
 
 The engine gives the grass's draws the `.set`'s [GRASS] ambient and
@@ -2171,8 +2247,168 @@ another) is hidden behind them. A texture of alpha 128 on a mesh of
   model's order (`mg-render`'s `renderer.rs`, `GamePass::Ordered`;
   `meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth`,
   `a_mesh_of_alpha_under_one_hides_a_particle_behind_it`). Two models'
-  such meshes, as the client orders them, aren't read.
+  such meshes: the next finding.
 - **Wiki:** missing.
+
+### Two placeables' see-through meshes: dynamic ones by their origins, static ones not by distance
+
+Two dynamic placeables' meshes of mesh `alpha` under 1 are drawn
+farthest first by where their instances' origins stand from the eye,
+not their meshes: a card whose mesh stands 2 m before its model's
+origin, nearer the eye than another card but its origin farther, is
+drawn first and hides the other where they overlap. Static placeables'
+such meshes are not put in order by either: of two cards (red and
+blue, `alpha 0.5`) the same color is drawn first in every static pair
+of a scene, whichever is nearer; the red in all ten pairs of
+`batch9_see_through_statics`, the blue in all eight of
+`batch8d_see_through_two_models`. Sharing a texture or a model with a
+dynamic placeable changes nothing, nor where the dynamic sharers stand,
+nor which is listed first in the area. Which texture goes first was
+read again with each texture's cards untied (`batch9_static_order`:
+seven sets of two pairs, a lone card of one texture standing apart in
+five, the area's list varied, the names swapped): within each set one
+texture goes first in both its pairs, but which follows none of a fixed
+order by model or texture name (the set whose red card is named `_b`
+drew the red first, as the set it copies), the texture listed first in
+the area (two pairs listed red first, then blue: the blue first), the
+texture listed last, the number of each texture's cards, or their mean
+place (a lone red card far behind: the red first in one set, the blue
+in another listed blue first in each pair). Not separated: where a set
+stands from the eye (the sets that differ only in their listing stood
+4.5 m apart), and the tiles its cards stand on (a static placeable is
+merged into its tile; one set straddled x 20, the second row y 30).
+Nor do the tiles decide it (`batch9_static_tiles`): two models' sixteen
+pairs, wholly inside four tiles (two near the camera and two far, at the
+same x; two west of it and two east), across x 20 with the nearer card on
+the earlier tile or the later, and across y 30, all drew the blue first.
+One order holds for two textures over the whole area, whatever their
+places, tiles and list; which, no name or list rule read predicts.
+
+- **Checked:** game client, `client_render`'s
+  `batch9_see_through_statics` (2026-11-26: dynamic and static pairs,
+  the nearer card's mesh before its origin, a texture shared with a
+  dynamic placeable of another model, models shared with dynamic
+  placeables standing either way round) and `batch8d_see_through_two_models`
+  run again the same day, and `batch9_static_order` (2026-11-26: the
+  set beside the tree, `x`, read in one pair only) and
+  `batch9_static_tiles` (2026-11-26). Its first reading (2026-11-25) had static
+  pairs of textures of their own drawn farthest first: its windows, put
+  where the fitted camera puts the overlap, read the client's picture a
+  few pixels off; the pairs are now read by the pixels of both colors
+  over each pair's box (`batch9::mixed_pixels`), and the pictures were
+  looked at.
+- **Moonglow:** dynamic placeables as the client (`mg-render`'s
+  `renderer.rs`, `instance_depth`;
+  `two_models_see_through_meshes_go_by_their_instances_origins`). Static
+  ones: the next finding, which explains this one's batches (all their
+  textures opaque TGAs, of one alpha mean).
+- **Wiki:** missing.
+
+### Static placeables' see-through meshes go by their textures' alpha means
+
+The client draws static geometry's (a static placeable's) meshes by
+texture: of two static see-through meshes (mesh `alpha` under 1), the
+one whose texture has the higher alpha mean is drawn first, whichever
+is nearer, and all of them before the dynamic placeables' (which go by
+their origins, farthest first). A texture's alpha mean is a PLT's 0.5;
+a BioWare DDS's its header's, over a TXI `alphamean` beside it; else
+the TXI's `alphamean`; else, of a picture stored uncompressed, the mean
+of its texels' alpha over 255 (1 without an alpha channel: a 24-bit
+TGA); of a compressed one, 0.5 with an alpha channel (DXT3, DXT5), else
+1. Textures of one mean (every opaque TGA's, 1) are left to
+`std::sort` over the client's whole static texture list: why three
+batches of opaque cards found one texture first in every pair of a
+scene and no rule for which.
+
+Read from the client's code (`nm` and `objdump` on `nwmain-linux`, read
+only, with the owner's leave as CLAUDE.md's last resort):
+
+- `Scene::AddPartsToDrawBuckets` (0x4751d0) resets the draw buckets,
+  takes `AurTextureGetOrdering()` (0x486180: `TextureIndices`,
+  0x19abe10) and walks `meshbuckets` (0x19abc60) and `fadebuckets`
+  (0x19abc50) in that order, adding each texture's static parts with
+  `DrawBucketManager::AddPartToBucket` (0x47be30: the bucket at
+  `type * 3 + kind`, then `DrawBucket::Add`, 0x47bce0, a plain append);
+  only then does it sort the dynamic objects (`Gob`s, by
+  `std::__introsort_loop`) and add theirs.
+- `TextureIndices` is the static texture list
+  (`CAurTextureBasic::m_StaticTextureList`, 0x19abe40) sorted in
+  `AurTextureBuildAndStoreAll` (0x48e680) by `std::sort` (introsort
+  0x490160, insertion sort 0x48ff10) with the comparator at 0x4842b0:
+  `movss 0x30(%rdi); ucomiss 0x30(%rsi); seta`, the higher +0x30 first.
+- `CAurTextureBasic` +0x30 is -1 from the constructor (0x487250);
+  `ParseField` (0x4881e0) writes a TXI's `alphamean` there;
+  `LoadImage` (0x487980, at build, after the TXI) passes it to
+  `AurGetImageWrapper`, whose DDS reader writes a BioWare header's;
+  `ConstructImage` (0x48a5d0) sets 0.5 for a PLT; and
+  `BuildAndStoreTexture` (0x48b320), where it is still -1, takes 1.0
+  (0.5 with four channels) for a compressed format, else
+  `ImageGetAlphaMean` (0x4b8770: 1.0 for three channels or fewer, else
+  an `f32` sum of each texel's alpha over 255 by their count).
+
+- **Checked:** game client, `client_render`'s `batch9_static_alpha_mean`
+  (2026-11-26): seven textures of distinct means from every source above
+  (32-bit TGAs of alpha 255 and 245, a BioWare DDS of header 0.9, an
+  opaque TGA with a TXI `alphamean 0.8`, a BioWare DDS of header 0.7
+  with a TXI of 0.95 beside it, a standard DXT5 DDS, a BioWare DDS of
+  0.3), names scrambled against the means, on static cards in twelve
+  pairs, each with the red nearer and with the blue: all 24 pairs drew
+  first the predicted texture, written in the test before the run (the
+  header over its TXI included). `batch9_static_alpha_mean_checks`: the
+  same textures on dynamic cards drew the farther first in all six
+  pairs (the reading of the overlaps holds with these textures), and a
+  static card was drawn before a dynamic one in all four pairs,
+  whichever was nearer and whichever color. `batch9_static_alpha_mean_in_a_model`:
+  two cards of one static model go by their means too, against the
+  model's order (four models, all as predicted). (The first run's 245 TGA
+  was written 24-bit, of mean 1, tying the 1.0 one; its pairs went as
+  predicted by the tie's order. Run again as 32-bit, all held.) A PLT's
+  0.5 and a standard DXT1's 1 are read, not run.
+- **Moonglow:** as the client since 2026-11-26 for static placeables
+  (`mg-render`'s `renderer.rs`: `client_alpha_mean`,
+  `see_through_order`, `in_client_order`;
+  `static_see_through_meshes_go_by_their_textures_alpha_means`,
+  `a_texture_s_alpha_mean_is_the_client_s`): all 38 pairs of the three
+  batches as the client's, by both shader paths, where before 14 of the
+  first two's differed. Only the meshes of `alpha` under 1 drawn in one
+  part are put in this order among themselves, in the places the depth
+  gave them: against the other see-through meshes (a soft texture's
+  parts, water) a static one is still drawn by depth, as how the client
+  orders those was not read. Textures of one mean keep their origins'
+  order (the client's `std::sort` order can't be known), and so do
+  means closer than about 6e-5 (Moonglow's key holds 15 bits). Tiles
+  share the static buckets in the client, untried there: their meshes
+  keep the depth's order.
+- **Wiki:** missing.
+
+### The client makes an uncompressed texture's levels by plain means
+
+The client makes the smaller levels of a texture it reads uncompressed
+(a TGA) as plain means of the texels above them, a transparent texel's
+color counted as an opaque one's: what a TGA keeps under its
+transparent parts shows where the texture is seen small. A field of
+opaque white and transparent green texels in turn (a one-texel
+checker) on a card blended by the texture's alpha is light green over
+the ground near (its levels 2 and 3, counted from 0) and far (its level 5),
+(124, 184, 119) and (111, 163, 107), where levels weighted by alpha
+would be white of alpha a half. A compressed DDS's levels are its own,
+as stored.
+
+- **Checked:** game client, `client_render`'s `batch9_soft_edge_levels`
+  (2026-11-26: 32-bit TGAs of 512 texels, no TXI, on standing cards
+  of `alpha 1`, 2.4 m near and 0.5 m far).
+- **Moonglow:** as the client since 2026-11-26, by both of its paths: the
+  levels made of RGBA (`mg-render`'s `texture.rs`, `half`) and a texture
+  compressed as it is read (`mg_image::encode::compress_plain_levels`):
+  (125, 184, 119) and (111, 160, 107) beside the client's pictures
+  (`a_read_texture_s_levels_carry_its_transparent_texels_colors`,
+  `plain_levels_count_transparent_texels_colors`,
+  `a_far_soft_edge_shows_its_transparent_texels_colors`). Before, both
+  weighted the colors by alpha, and the fields were gray-white. A
+  texture written to a file (`mg texture convert`) keeps its levels
+  weighted by alpha, which the client then draws as stored.
+- **Wiki:** missing: "DDS" says BioWare used TGAs for interface
+  pictures, which don't mipmap; nothing on how a TGA's levels are made.
 
 ### The client's clock starts from the machine's
 
@@ -2331,14 +2567,60 @@ copy a mesh reads depends on how it is drawn, not on its program:
   (`renderer.rs`: their draws sort after them, and the copy is made at
   the first of them; test
   `the_water_s_copy_holds_the_see_through_meshes_behind_it`); particles
-  as the client. A see-through mesh's soft part is drawn after the
-  water, without writing depth: not in the copy, and laid over water
-  behind it, where the client draws no water (`MG_COPY_ORDER=front`;
-  [deferred list](deferred.md), "A see-through mesh's soft part and
-  shiny water"). A solid or `transparency 1` mesh reading the copy gets
+  as the client. A see-through mesh's soft part writes its depth since
+  2026-11-26 and is drawn after the water, as the client's: the water
+  is not drawn behind it ([A see-through mesh's soft texels write their
+  depth](#a-see-through-meshs-soft-texels-write-their-depth)). A solid or `transparency 1` mesh reading the copy gets
   this frame's copy, not the frame before's: no program the game or
   The Domains of Dread draws reads it so ([deferred list](deferred.md),
   Settled).
+- **Wiki:** missing.
+
+### A see-through mesh's soft texels write their depth
+
+The client writes the depth of a see-through mesh's soft texels (alpha
+over its cut of 0.2 and under opaque), not only its solid ones: shiny
+water and a particle behind cards of alpha 0.3 to 0.9 are not drawn
+where the cards are, each blended over what lies
+behind the water or the particle. It does so for a DXT5 with
+`transparencyhint 1`, a DXT5 alone, an MTR with `transparency 1` and a
+mesh of `alpha` under 1. So soft meshes hide each other by their order:
+
+- within one mesh, by its faces' order: the nearer quad's faces listed
+  first hide the farther quad, listed after it the two blend; a decal
+  over another decal the same;
+- grass tufts hide the decals under them;
+- two meshes of one model: the order is not one rule (with the hint,
+  the pair whose nearer mesh is listed first blends and the other pair
+  hides; with an MTR's `transparency 1`, the reverse).
+
+A 32-bit TGA's alpha on a placeable's mesh is drawn opaque, the hint or
+not, and a texture with TXI `blending punchthrough` and the hint is cut,
+not blended.
+
+- **Checked:** game client, `client_render/soft.rs`'s
+  `reading_soft_depth` (`MG_SOFT_KIND=hint`, `dxt5`, `tga`, `punch`,
+  `mtr`, `alpha`; `MG_SOFT_GRASS=1` with the grass on), and
+  `copies.rs`'s `reading_copy_order` (`MG_COPY_ORDER=front`),
+  2026-11-26.
+- **Moonglow:** since 2026-11-26 (`crates/mg-render/src/renderer.rs`,
+  `game.rs`): a see-through mesh's soft part (`Pass::Fringe`,
+  `GamePass::Fringe`) writes its depth; the soft parts are drawn after
+  every solid part and before the copy's readers, which come after them.
+  Mean difference from the client's picture of the placeable, of 255,
+  before and after: the hint's cards in front of the water 25.5 to
+  16.3, in front of a particle 62.4 to 20.4, the pairs 15.1 to 14.8, the
+  decals with the client's grass on 30.5 to 26.6; the whole placeable
+  26.0 to 19.9 (DXT5 and MTR 26.2 to 19.8, mesh alpha 19.1 to 18.3, TGA
+  21.2 to 20.3). The grass field under a wall's shadow (`shadows_look`,
+  `MG_SHADOW_GRASS=1`) 35.0 to 34.2 from the client's, and ttr01's tree,
+  road and splotch (`shadows_on_see_through`) unchanged. Tests
+  `soft_texels_hide_the_water_behind_them` and
+  `the_water_s_copy_holds_the_see_through_meshes_behind_it`. Left
+  ([deferred list](deferred.md), "Soft see-through texels"): Moonglow's
+  own water (the Shaders switch off) drawn before the card, the
+  punch-through texture blended, and two meshes of one model ordered by
+  distance.
 - **Wiki:** missing.
 
 ### When the client shows an area transition

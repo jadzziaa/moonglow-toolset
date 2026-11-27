@@ -1584,12 +1584,14 @@ fn held_hak(h: &mut Harness<'_, Moonglow>, path: &Path, src: &Path) -> (Tab, Hel
 }
 
 /// Whether the hak at `path` has `key` on disk.
+#[cfg(unix)]
 fn hak_has(path: &Path, key: ResKey) -> bool {
     mg_module::hak_edit::Hak::open(path).is_ok_and(|h| h.data(key).is_ok())
 }
 
 /// Frames until `done` holds, at most [`SETTLE_TIME`], without waiting
 /// for the window's work to end (a job held under way).
+#[cfg(unix)]
 fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
     let started = std::time::Instant::now();
     while !done(h) {
@@ -1757,6 +1759,7 @@ fn a_hak_s_job_canceled_stops_what_the_save_was_for() {
 }
 
 /// Clicks the last button `label` without settling (a job may follow).
+#[cfg(unix)]
 fn answer_now(h: &mut Harness<'_, Moonglow>, label: &str) {
     h.get_all_by_label(label).last().unwrap().click();
 }

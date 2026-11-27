@@ -34,7 +34,11 @@
 //! they are read, and `FRAME_AREAS=<resref,…>` opens those areas instead
 //! of the campaign's middle and largest, and `FRAME_SAMPLES=1` (or `2`) is
 //! Options › Area › Anti-aliasing Off (or 2×). (With another program drawing, the game say,
-//! the GPU's times are as much that program's: close it for those.)
+//! the GPU's times are as much that program's: close it for those.) Each
+//! view's figures say the GPU's clock while it was timed (Linux's amdgpu;
+//! "n/a" elsewhere): its times follow it. The areas taken apart are drawn
+//! as the app draws, one frame on the GPU while the next is encoded
+//! ([`GpuWatch`]); `FRAME_BLOCKING=1` waits for each frame instead.
 
 mod render_views;
 #[allow(dead_code)]
@@ -47,6 +51,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable};
 use mg_core::{ResRef, ResType};
 use mg_module::palette::BlueprintKind;
 use mg_resman::{GameInstall, ResKey};
+use mg_testkit::clocks::Clocks;
 use mg_ui::{Action, Moonglow, NoDialogs, Tab};
 
 /// The window's size: the development machine's screen less its taskbar
@@ -282,6 +287,8 @@ struct Frames {
     again: Duration,
     /// What asked for the frame after the last.
     causes: Vec<String>,
+    /// The GPU's clock while they ran ([`mg_testkit::clocks`]).
+    clocks: mg_testkit::clocks::Read,
 }
 
 fn frames(
@@ -316,7 +323,13 @@ fn frames(
         passes: 0,
         again: Duration::MAX,
         causes: Vec::new(),
+        clocks: None,
     };
+    // (The harness's device where no 3D view has one: the same GPU.)
+    let clock_file = device.as_ref().and_then(sclk_file).or_else(|| {
+        RENDER_STATE.with(|r| r.borrow().as_ref().and_then(|rs| sclk_file(&rs.device)))
+    });
+    let clocks = Clocks::start(clock_file);
     let inner = rect.shrink2(rect.size() * 0.2);
     for n in 0..count {
         each(h.state_mut(), n);
@@ -434,8 +447,16 @@ fn frames(
             .map_or(Duration::MAX, |v| v.repaint_delay);
     }
     out.causes = ctx.repaint_causes().iter().map(ToString::to_string).collect();
+    out.clocks = clocks.finish();
     ctx.enable_accesskit();
     out
+}
+
+/// The file that says the core clock of the GPU `device` is on, if the
+/// system has one ([`mg_testkit::clocks`]).
+fn sclk_file(device: &wgpu::Device) -> Option<std::path::PathBuf> {
+    let info = device.adapter_info();
+    mg_testkit::clocks::sclk_file(info.vendor, info.device)
 }
 
 /// What the GPU holds of one kind: its name, MiB and how many.
@@ -656,6 +677,7 @@ fn said(r: &mut Report, what: &str, how: &str, f: &Frames) {
         ms(pick(f.gpu.clone(), 0.5)),
         again(f.again),
     );
+    println!("      {}", mg_testkit::clocks::said(&f.clocks));
     r.took(format!("{what} ({how})"), median);
     if r.detail {
         let each: Vec<String> = f.ui.iter().map(|d| format!("{:.1}", ms(*d))).collect();
@@ -1669,9 +1691,19 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         let (mut build, mut particles, mut encode, mut drawn) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut encode_cpu = Vec::new();
+        // (The lights' maps drawn again over the timed frames: none at rest.)
+        let mut light_maps = 0;
         let mut counts = (0, 0, 0, 0);
         let mut yaw = -std::f32::consts::FRAC_PI_2;
+        let mut clocks = None;
+        // (The frames after the first four paced as the app paces them:
+        // [`GpuWatch`].)
+        let watch = GpuWatch::start(&gpu.device);
+        let (mut submitted, mut at) = (Vec::<wgpu::SubmissionIndex>::new(), Vec::new());
         for n in 0..count + 4 {
+            if n == 4 {
+                clocks = Some(Clocks::start(sclk_file(&gpu.device)));
+            }
             let dt = (1.0 / FPS) as f32;
             view.time += dt;
             yaw += 0.01;
@@ -1691,7 +1723,15 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
-            wait();
+            if n < 4 || blocking() {
+                wait();
+            } else {
+                // (One frame drawn while the next is encoded.)
+                let _ = gpu.device.poll(wgpu::PollType::Wait {
+                    submission_index: Some(submitted[n - 2].clone()),
+                    timeout: Some(Duration::from_secs(10)),
+                });
+            }
             // (The last frame lists what the game's shaders drew: how many
             // with NO_DISCARD 1.)
             if on && n == count + 3 {
@@ -1710,20 +1750,28 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             renderer.render_targets(&gpu, &game.resman, &frame, &camera, &targets);
             let t3 = Instant::now();
             let c3 = on_cpu();
-            wait();
-            let t4 = Instant::now();
+            // (The frame's submission, or one after it: what it waits for.)
+            let index = gpu.queue.submit([]);
+            watch.submitted(index.clone(), t3);
+            submitted.push(index);
+            if n < 4 || blocking() {
+                wait();
+            }
             if n == 0 {
-                first = t4 - t0;
+                first = Instant::now() - t0;
             }
             // (The first frames load the textures.)
             if n >= 4 {
                 build.push(t1 - t0);
+                light_maps += renderer.drawn.light_maps_drawn;
                 particles.push(t2 - t1);
                 encode.push(t3 - t2);
                 if let (Some(a), Some(b)) = (c2, c3) {
                     encode_cpu.push(b.saturating_sub(a));
                 }
-                drawn.push(t4 - t3);
+                if let Some(c) = &clocks {
+                    at.push(t3 - c.started());
+                }
             }
             counts = (
                 frame.instances.len(),
@@ -1733,6 +1781,10 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             );
         }
         let (instances, meshes, lights, quads) = counts;
+        wait();
+        let clocks = clocks.and_then(Clocks::finish);
+        drawn.extend(watch.finish().into_iter().skip(4));
+        let when: Vec<(Duration, Duration)> = at.into_iter().zip(drawn.iter().copied()).collect();
         if encode_cpu.is_empty() {
             encode_cpu.push(Duration::ZERO);
         }
@@ -1769,7 +1821,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
              meshes in {} draws of {} materials, {} pipelines and {} chunks in turn, {} of the game's, {} \
-             meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
+             meshes out of sight; {} casting the sun's shadows, {} creatures the lights', {light_maps} of their \
+             maps drawn again)",
             ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
@@ -1788,7 +1841,154 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             did.sun_casters,
             did.light_shadows,
         );
+        println!("      {}", mg_testkit::clocks::said(&clocks));
+        // (\`FRAME_DETAIL=1\`: each frame's GPU time and the clocks read,
+        // each at its time since the first timed frame, seconds.)
+        if std::env::var_os("FRAME_DETAIL").is_some() {
+            let each: Vec<String> = when
+                .iter()
+                .map(|(at, d)| format!("{:.3}:{:.2}", at.as_secs_f64(), ms(*d)))
+                .collect();
+            println!("      GPU frames: {}", each.join(" "));
+            let read: Vec<String> = clocks
+                .iter()
+                .flatten()
+                .map(|(at, mhz)| format!("{:.3}:{mhz}", at.as_secs_f64()))
+                .collect();
+            println!("      clocks: {}", read.join(" "));
+        }
     }
+}
+
+/// `FRAME_BLOCKING=1`: [`area_parts`] waits for the GPU to finish each
+/// frame before it encodes the next, as it did before 26 November 2026.
+/// The GPU then stood idle while each frame was encoded, and with nothing
+/// else drawing the card's automatic clocks settled near 800 MHz, where
+/// the woods overview took 11.2 ms a frame against 6 at 1,300
+/// (`docs/research/notes_frames.md`, "the woods test's two GPU levels").
+fn blocking() -> bool {
+    std::env::var_os("FRAME_BLOCKING").is_some()
+}
+
+/// When the GPU finished each frame, on a thread of its own, so that the
+/// frames can be paced as the app paces them (eframe submits a frame and
+/// goes on to the next without waiting for the GPU; [`area_parts`] waits
+/// only for the frame before last, one frame drawn while the next is
+/// encoded) and each still says its GPU time: from its submission, or
+/// from the GPU finishing the frame before where it was still drawing
+/// that one, to the GPU finishing it.
+struct GpuWatch {
+    frames: Option<std::sync::mpsc::Sender<(wgpu::SubmissionIndex, Instant)>>,
+    thread: Option<std::thread::JoinHandle<Vec<Duration>>>,
+}
+
+impl GpuWatch {
+    fn start(device: &wgpu::Device) -> GpuWatch {
+        let device = device.clone();
+        let (frames, submitted) = std::sync::mpsc::channel::<(wgpu::SubmissionIndex, Instant)>();
+        let thread = std::thread::spawn(move || {
+            let mut took = Vec::new();
+            let mut before: Option<Instant> = None;
+            for (index, at) in submitted {
+                let _ = device.poll(wgpu::PollType::Wait {
+                    submission_index: Some(index),
+                    timeout: Some(Duration::from_secs(10)),
+                });
+                let done = Instant::now();
+                took.push(done.saturating_duration_since(before.map_or(at, |b| b.max(at))));
+                before = Some(done);
+            }
+            took
+        });
+        GpuWatch { frames: Some(frames), thread: Some(thread) }
+    }
+
+    /// A frame submitted (`index`, or a submission after it) at `at`.
+    fn submitted(&self, index: wgpu::SubmissionIndex, at: Instant) {
+        if let Some(f) = &self.frames {
+            let _ = f.send((index, at));
+        }
+    }
+
+    /// Each frame's GPU time, in the order submitted, once all are done.
+    fn finish(mut self) -> Vec<Duration> {
+        drop(self.frames.take());
+        self.thread.take().and_then(|t| t.join().ok()).unwrap_or_default()
+    }
+}
+
+/// [`GpuWatch`] gives one time a frame, and a frame queued behind
+/// another is timed from the GPU finishing that one, not from its own
+/// submission: frames submitted at once are not counted twice.
+/// `cargo test --release -p mg-ui --test frame_perf the_watch` (a GPU).
+#[test]
+fn the_watch_times_each_frame_once() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = mg_render::Gpu::headless() else {
+        println!("skipped: no GPU");
+        return;
+    };
+    let size = wgpu::Extent3d { width: 4096, height: 4096, depth_or_array_layers: 1 };
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("the watch's frames"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&Default::default());
+    // (A frame: the texture cleared forty times, some milliseconds of work.)
+    let frame = || {
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        for _ in 0..40 {
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::RED),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
+        gpu.queue.submit([encoder.finish()])
+    };
+    let wait = || {
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+    };
+    // (Warmed up: the first submission builds the pipeline's state.)
+    frame();
+    wait();
+    let watch = GpuWatch::start(&gpu.device);
+    let start = Instant::now();
+    // Two frames one after the other, each waited for, then three at once.
+    for _ in 0..2 {
+        let index = frame();
+        watch.submitted(index, Instant::now());
+        wait();
+    }
+    let alone = start.elapsed();
+    let at = Instant::now();
+    for _ in 0..3 {
+        watch.submitted(frame(), Instant::now());
+    }
+    wait();
+    let together = at.elapsed();
+    let took = watch.finish();
+    assert_eq!(took.len(), 5, "{took:?}");
+    assert!(took.iter().all(|t| *t > Duration::ZERO), "{took:?}");
+    assert!(took[..2].iter().sum::<Duration>() <= alone, "{took:?} in {alone:?}");
+    // (Queued, each timed from the one before: the three no longer than
+    // the time they took together, where timing each from its submission
+    // would count the first's time three times.)
+    let queued: Duration = took[2..].iter().sum();
+    assert!(queued <= together + Duration::from_millis(1), "{took:?} in {together:?}");
 }
 
 /// How long this thread has been on the processor (Linux's
@@ -3327,7 +3527,8 @@ fn sound_ranges_frames_at_144() {
 /// taken apart off and on. Needs the game and a GPU; run in release:
 /// `cargo test --release -p mg-ui --test frame_perf game_shaders -- --ignored --nocapture`.
 /// `FRAME_AREA=stock`, `water` ([`water_area`]: water, grass, fires,
-/// a skybox) or `tdod` times only that one.
+/// a skybox), `tdod` or `lamps` ([`lamps_area`]: creatures under lamp
+/// posts at night, not timed unless asked for) times only that one.
 #[test]
 #[ignore]
 fn game_shaders_frames_at_144() {
@@ -3354,6 +3555,19 @@ fn game_shaders_frames_at_144() {
     }
     if wanted("water") {
         let (module, area, tiles) = water_area(&root);
+        let rs = render_state();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&module);
+        let mut h = harness(app, rs);
+        shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+    }
+    if only.as_deref() == Some("lamps") {
+        let (module, area, tiles) = lamps_area(&root);
         let rs = render_state();
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),
@@ -3440,6 +3654,124 @@ fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
     let path = mg_testkit::scratch_dir("frame-water").join("water.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     println!("Water and fires: {side} by {side} of ttr01, half water, 160 fires");
+    (path, area, i64::from(side) * i64::from(side))
+}
+
+/// Creatures under lamp posts at night, for the lights' shadows' cost:
+/// `FRAME_LAMP_CREATURES` of them (100 by default; ogres and commoners by
+/// turns: a commoner is made of parts, an instance each) round
+/// `FRAME_LAMPS` lamp posts (placeables.2da row 73, whose light casts
+/// shadows; 1 by default, 16 m apart in a square), in rings from 1.5 to
+/// 7.5 m from each (0.6 m apart, every one in its lamp's reach), on 8 by 8
+/// of the rural tileset (`ttr01`), no sun or moon shadows, dark. Or
+/// `FRAME_LAMP_LAYOUT=batch6`: `batch6_light_shadow_casters`'s room (4 by
+/// 4 of `tic01`, eight ogres in a row 3 m south of one lamp post). Time it
+/// with `FRAME_SHADOWS=creatures,lights`. The module, the area and its
+/// tiles.
+fn lamps_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let game = mg_rules::GameData::open(&GameInstall::new(root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Lamps", &mut rng).unwrap();
+    let batch6 = std::env::var("FRAME_LAMP_LAYOUT").is_ok_and(|l| l == "batch6");
+    let var =
+        |name: &str, or: usize| std::env::var(name).ok().and_then(|n| n.parse().ok()).unwrap_or(or);
+    let (tileset, side) = if batch6 { ("tic01", 4) } else { ("ttr01", 8) };
+    let spec = AreaSpec {
+        name: "Lamps".into(),
+        tileset: ResRef::from_str(tileset).unwrap(),
+        width: side,
+        height: side,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 60)] {
+        are.root.set(label, Value::Byte(v));
+    }
+    are.root.set("IsNight", Value::Byte(1));
+    for label in ["SunAmbientColor", "SunDiffuseColor", "MoonAmbientColor", "MoonDiffuseColor"] {
+        are.root.set(label, Value::Dword(0x303030));
+    }
+    m.set_gff(key, &are).unwrap();
+    let centre = side as f32 * 5.0;
+    // (A creature: where it stands, and its facing in degrees.)
+    type Placed = ([f32; 2], f32);
+    let (lamps, creatures): (Vec<[f32; 2]>, Vec<Placed>) = if batch6 {
+        let ogres = (0..8).map(|i| ([20.0 + 1.2 * (i as f32 - 3.5), 22.0], 270.0)).collect();
+        (vec![[20.0, 25.0]], ogres)
+    } else {
+        let count = var("FRAME_LAMPS", 1).max(1);
+        let n = var("FRAME_LAMP_CREATURES", 100);
+        let across = (count as f32).sqrt().ceil() as usize;
+        let lamps: Vec<[f32; 2]> = (0..count)
+            .map(|i| {
+                let (x, y) = ((i % across) as f32, (i / across) as f32);
+                let off = (across as f32 - 1.0) / 2.0;
+                [centre + (x - off) * 16.0, centre + (y - off) * 16.0]
+            })
+            .collect();
+        // (Each lamp's rings filled in turn, out from the lamp.)
+        let mut spots = Vec::new();
+        let mut r = 1.5f32;
+        while spots.len() < n.div_ceil(count) && r <= 7.6 {
+            let k = ((std::f32::consts::TAU * r / 0.6) as usize).max(1);
+            spots.extend((0..k).map(|j| {
+                let turn = (j as f32 + r) / k as f32 * std::f32::consts::TAU;
+                ([r * turn.cos(), r * turn.sin()], turn.to_degrees())
+            }));
+            r += 0.6;
+        }
+        let creatures = (0..n)
+            .map(|i| {
+                let (l, s) = (lamps[i % count], spots[(i / count) % spots.len()]);
+                ([l[0] + s.0[0], l[1] + s.0[1]], s.1)
+            })
+            .collect();
+        (lamps, creatures)
+    };
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let lamp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let placed: Vec<_> = lamps
+        .iter()
+        .map(|&[x, y]| {
+            let mut root = lamp.root.clone();
+            root.set("Appearance", Value::Dword(73));
+            root.set("Static", Value::Byte(0));
+            let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+            instance(&placing, ResType::UTP, &root, at, &[]).unwrap()
+        })
+        .collect();
+    let kinds = ["nw_ogre01", "nw_commale"];
+    let blueprints: Vec<Gff> = kinds
+        .iter()
+        .map(|k| Gff::read(&game.resman.get_named(k, ResType::UTC).unwrap()).unwrap())
+        .collect();
+    let people: Vec<_> = creatures
+        .iter()
+        .enumerate()
+        .map(|(i, &([x, y], facing))| {
+            let bp = &blueprints[if batch6 { 0 } else { i % kinds.len() }];
+            let at = Placement { position: [x, y, 0.0], rotation: facing.to_radians() };
+            instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Placeable List", Value::List(placed));
+    git.root.set("Creature List", Value::List(people));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir("frame-lamps").join("lamps.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    println!(
+        "Lamps: {side} by {side} of {tileset}, {} creatures round {} lamp posts",
+        creatures.len(),
+        lamps.len()
+    );
     (path, area, i64::from(side) * i64::from(side))
 }
 

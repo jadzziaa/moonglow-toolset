@@ -18,12 +18,12 @@ use super::readings::{INVISIBLE, Reading, enter, placeables_with, print_log};
 use super::*;
 
 /// A TGA of one color and alpha (4 × 4).
-fn solid(c: [u8; 4]) -> Vec<u8> {
+pub(super) fn solid(c: [u8; 4]) -> Vec<u8> {
     mg_image::write_tga(&Rgba { width: 4, height: 4, data: c.repeat(16) })
 }
 
 /// The pixel at (x, y), clamped to the picture.
-fn pixel(img: &Rgba, x: i32, y: i32) -> [u8; 4] {
+pub(super) fn pixel(img: &Rgba, x: i32, y: i32) -> [u8; 4] {
     let x = x.clamp(0, img.width as i32 - 1) as usize;
     let y = y.clamp(0, img.height as i32 - 1) as usize;
     let i = (y * img.width as usize + x) * 4;
@@ -31,7 +31,7 @@ fn pixel(img: &Rgba, x: i32, y: i32) -> [u8; 4] {
 }
 
 /// The mean color of a (2r+1)-pixel square around (x, y).
-fn window(img: &Rgba, x: f32, y: f32, r: i32) -> [f32; 3] {
+pub(super) fn window(img: &Rgba, x: f32, y: f32, r: i32) -> [f32; 3] {
     let mut sum = [0f32; 3];
     let mut n = 0f32;
     for dy in -r..=r {
@@ -47,7 +47,7 @@ fn window(img: &Rgba, x: f32, y: f32, r: i32) -> [f32; 3] {
 }
 
 /// Where the world point `p` is in a picture of `w` × `h` from `camera`.
-fn project(camera: &Camera, p: Vec3, w: u32, h: u32) -> (f32, f32) {
+pub(super) fn project(camera: &Camera, p: Vec3, w: u32, h: u32) -> (f32, f32) {
     let vp = camera.projection(w as f32 / h as f32) * camera.view();
     let c = vp * p.extend(1.0);
     let n = c.truncate() / c.w;
@@ -55,7 +55,7 @@ fn project(camera: &Camera, p: Vec3, w: u32, h: u32) -> (f32, f32) {
 }
 
 /// The reference scenes' camera (the player at (20, 20)).
-fn reference_camera() -> Camera {
+pub(super) fn reference_camera() -> Camera {
     fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH)
 }
 
@@ -76,7 +76,7 @@ fn marked_shaders(base: &GameData) -> Shaders {
     (vs, fs, files)
 }
 
-fn as_refs(files: &[(String, Vec<u8>)]) -> Vec<(&str, Vec<u8>)> {
+pub(super) fn as_refs(files: &[(String, Vec<u8>)]) -> Vec<(&str, Vec<u8>)> {
     files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect()
 }
 
@@ -568,11 +568,13 @@ const SEE_THROUGH_SETS: [(&str, [&str; 2], [&str; 2]); 2] = [
 /// first), always the nearer, the one listed first, the red model, the
 /// blue model.
 ///
-/// Seen (2026-11-25, 89.8193.37): non-static placeables, and static ones
-/// whose textures are their own, are drawn farthest first by their
-/// distance in all four configurations (as Moonglow); static ones sharing
-/// their textures with non-static placeables were not (configurations 1
-/// and 3: the blue first whichever was near; cause not found).
+/// Seen (2026-11-25, 89.8193.37; read again 2026-11-26 by the pixels of
+/// both colors, the first reading's windows having missed the client's
+/// overlaps): non-static placeables are drawn farthest first by their
+/// distance in all four configurations (as Moonglow); static ones are not,
+/// those of models and textures of their own as well as those sharing
+/// them: the blue first in all eight static pairs, whichever was near and
+/// whichever listed first. `batch9_see_through_statics` read on.
 #[test]
 #[ignore]
 fn batch8d_see_through_two_models() {
@@ -672,16 +674,18 @@ fn batch8d_see_through_two_models() {
         };
         for (side, img) in &pictures {
             let (n, f) = (rect(near_at, img), rect(far_at, img));
-            let overlap = [n[0].max(f[0]), n[1].max(f[1]), n[2].min(f[2]), n[3].min(f[3])];
-            let mid = ((overlap[0] + overlap[2]) / 2.0, (overlap[1] + overlap[3]) / 2.0);
-            let near_only = (n[0] + (n[2] - n[0]) * 0.12, n[3] - (n[3] - n[1]) * 0.12);
-            let far_only = (f[2] - (f[2] - f[0]) * 0.12, f[1] + (f[3] - f[1]) * 0.12);
-            let [o, a, b] = [mid, near_only, far_only].map(|(x, y)| window(img, x, y, 2));
-            let d = (0..3).map(|k| (o[k] - a[k]).abs()).fold(0.0, f32::max);
-            let verdict = if d < 10.0 { "nearer first (farther hidden)" } else { "farther first" };
+            let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
+            // (Counted over the pair's box: the overlap read through a small
+            // window at the fitted camera's place took the client's
+            // overlap for a card's own color, its pictures a few pixels
+            // off, and read the static pairs of the `own` set as drawn
+            // farthest first; `batch9`'s pictures showed it.)
+            let mixed = super::batch9::mixed_pixels(img, both, 6.0);
+            let verdict =
+                if mixed > 100 { "farther first" } else { "nearer first (farther hidden)" };
             eprintln!(
-                "{side:22} {} {label} {set} (nearer {near}, listed first {listed}): overlap \
-                 {o:4.0?} nearer alone {a:4.0?} farther alone {b:4.0?}: {d:4.1} apart: {verdict}",
+                "{side:22} {} {label} {set} (nearer {near}, listed first {listed}): {mixed:4} \
+                 pixels of both colors: {verdict}",
                 if *statics == 1 { "static    " } else { "non-static" }
             );
         }

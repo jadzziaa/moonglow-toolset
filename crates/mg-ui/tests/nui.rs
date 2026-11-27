@@ -405,24 +405,27 @@ fn picture_fields_take_a_file_from_disk() {
     assert!(!h.state().log.entries.iter().any(|(_, line)| line.contains("c40e2b2-1610-41b takes")));
 }
 
-/// Frames until the window's work (a job) is done, at most a minute. A
-/// click's job starts some frames after the click (the page draws the
-/// button, then the job is asked for): those frames are drawn first, up
-/// to 10, or the wait ended before the job began.
+/// Frames until the window is at rest with no work under way (a job, as
+/// a click asks for), at most a minute: as `settle` in the UI tests,
+/// waited for by what it looks for, not by a count of frames (a job that
+/// started, or ended, a few frames late on a busy machine had the last
+/// `run` see it still repainting).
 fn jobs_done(h: &mut Harness<'_, Moonglow>) {
-    for _ in 0..10 {
-        if h.state().under_way().is_some() {
-            break;
-        }
-        h.step();
-    }
     let started = std::time::Instant::now();
-    while h.state().under_way().is_some() {
-        assert!(started.elapsed().as_secs() < 60, "the job never ended");
-        h.step();
+    loop {
+        let ran = h.try_run();
+        let under_way = h.state().under_way();
+        if ran.is_ok() && under_way.is_none() {
+            return;
+        }
+        if started.elapsed().as_secs() >= 60 {
+            match (ran, under_way) {
+                (Err(e), _) => panic!("the UI keeps repainting: {e}"),
+                (Ok(_), what) => panic!("the window's work never ended: {}", what.unwrap()),
+            }
+        }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    h.run();
 }
 
 /// A picture the module had, moved into a new hak, then the window's

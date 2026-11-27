@@ -176,10 +176,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Shaders on lands in one of two GPU levels from run to run, the code
   unchanged: the median pinned near 11.2 ms and the quickest tenth 6.8
   to 8.0, or a median of 6 to 8.5 and a tenth of 5.3 to 6.9; the slow
-  level goes with the card's automatic clocks settling low, not with
-  memory. Compare two builds in one run on alternate frames, or by many
-  runs sorted by level; [the frames note](research/notes_frames.md), 26
-  November). Done that day: the lights' sets
+  level is the card's automatic clocks settling near 800 MHz, against
+  1,300, because the test waited for the GPU after each frame and
+  encoded the next with it idle: alone on the GPU, 18 runs so paced
+  were slow, and paced as the app paces its frames, one drawn while the
+  next is encoded, 11 of 12 were quick; with another program drawing
+  beside it most were quick either way, which is why the same binary
+  fell in either. `area_parts` and `render_views` now pace their
+  frames as the app does (`FRAME_BLOCKING=1`: as before), and every
+  view's figures say the GPU's clock (`mg_testkit::clocks`; "n/a"
+  without amdgpu's `pp_dpm_sclk`): compare runs drawn at the same
+  clock, two builds still best on alternate frames; [the frames
+  note](research/notes_frames.md), 26 November). Done that day: the lights' sets
   numbered as a mesh's lights are chosen and a mesh's choice found by
   its place among the scene's meshes, the sun's shadows planned and the
   game's solid draws sorted on threads beside the other work (the
@@ -510,38 +518,37 @@ Nothing open.
   the client adds that Moonglow lacks). M. (the chrome1 reading,
   2026-11-25)
 
-- **A see-through mesh's soft part and shiny water:** read with
-  `copies::reading_copy_order` (`MG_COPY_ORDER=front`): a standard
-  DXT5 of alpha 0.5 texels with `transparencyhint 1` standing in front
-  of a pool is drawn over its ground in the client, the water not
-  drawn behind it (its green, painted by a patched `fswater`, 39 of
-  255 there against 255 beside), as though the soft mesh wrote its
-  depth; and the water's copy holds the soft meshes behind it.
-  Moonglow draws a see-through mesh's soft part after the water,
-  without writing depth: in front of the pool it is laid over the
-  water (green 132), and behind it the copy lacks it (a render test
-  with the soft part drawn before the copy took it in, but then the
-  water was laid over the soft card in front, green 255). Deferred
-  for its consequences: whether the soft parts write depth decides
-  how every see-through mesh's soft texels overlap (grass, leaves,
-  decals over decals), which wants a reading of its own in the client
-  before it changes. M. (The framebuffer's copies entry, 2026-11-26)
-  That reading is made (`soft::reading_soft_depth`): the client's soft
-  texels write their depth above alpha 0.2. A change that wrote it so
-  (kept on the `soft-water` branch for after 5.4.0) matched the client
-  (cards in front of water 25.5 to 16.3 off its picture, in front of
-  particles 62.4 to 20.4) but was held out of the release for its cost,
-  timed by an in-process A/B (alternate frames, so both builds share
-  the GPU's clock level; an A/A control flat, 12.61 against 12.37):
-  TDoD's woods turned, quickest tenth 9.5 to 9.6 ms before against
-  11.4 to 12.4 after, about 2.5 ms (median about 11.5 to 17); the woods
-  overview 0.15 to 0.5 ms; the grass, water and area092 views within
-  0.05. Deferred for its consequence, a cost too high for the look.
-  Cheaper ways to try: write depth only where a soft part stands in
-  front of a mesh that reads the copy (shiny water, the particles); a
-  depth pre-pass of the soft parts; and see whether the discard with a
-  depth write loses early depth testing for the meshes drawn after.
-  (2026-11-26)
+- **Soft see-through texels: three ways the client's differ, left**
+  (`soft::reading_soft_depth`, 2026-11-26; since that day a
+  see-through mesh's soft part writes its depth as the client's, and
+  shiny water drawn by `fswater` is hidden behind it: [the
+  findings](findings.md), "A see-through mesh's soft texels write their
+  depth"):
+  - **Moonglow's own water (the Shaders switch off) shows through a
+    soft card in front of it:** its shiny water is drawn with the solid
+    meshes, before the card, so the card's soft part is laid over it
+    (`soft_texels_hide_the_water_behind_them` keeps to the switch on),
+    where the client draws its water after them and none behind the
+    card. Deferred for its consequences: drawing it after the soft
+    parts takes it out of the solid draws the sun's shadows are laid
+    between, and the fallback's water would want its own shadow path.
+    (M)
+  - **A texture with TXI `blending punchthrough` and
+    `transparencyhint 1`:** the client draws its alpha-0.5 texels as
+    a cut-out (`MG_SOFT_KIND=punch`), Moonglow blends them (the hint
+    makes the mesh see-through). Deferred as beyond what was asked:
+    where the client cuts such a texture (its threshold) wants a
+    reading of its own. (S)
+  - **Two soft meshes of one model, one behind the other:** the
+    client's order between them was not one rule. With
+    `transparencyhint 1`, the pair whose nearer mesh is listed first
+    blends and the pair listed the other way hides the farther; with
+    an MTR's `transparency 1`, the reverse. Moonglow sorts them by
+    distance, the farther first, and both pairs blend. (Within one mesh
+    it draws the faces in their order, as the client does, and meshes
+    of `alpha` under 1 in the model's order.) Deferred as beyond what
+    was asked: it wants a reading of how the client orders a model's
+    see-through meshes by their kind. (M)
 
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
@@ -703,21 +710,36 @@ Nothing open.
   a card listed after another and behind it is hidden where they
   overlap; a ribbon behind one is hidden too); its texture's soft edges
   blended as they are, writing their depth as the client's do. Two
-  models' such meshes are put in order by their instances' places
-  (where each stands from the eye), the meshes of one in its order, as
-  the client orders two dynamic placeables' and two static ones' of
-  textures of their own (`batch8d_see_through_order`, 2026-11-25). Not
-  explained: two static placeables whose textures dynamic placeables
-  share as well are not drawn farthest first in the client (the nearer
-  drawn first, the farther hidden), by no listing order, model, texture
-  or row name tried; nor is it read whether the order is the
-  instance's origin's or its mesh's. Each see-through mesh
-  of alpha 1 costs two draws. On macOS the solid part's discarded
-  fragments wrote their depth (the plant's edge hid the ground again)
-  until the shader stopped at each discard: seen and mended on the CI's
-  Mac, a virtual one; no real Mac was looked at. Left: the smaller
-  levels made of an uncompressed texture leave transparent pixels'
-  colors out; a compressed DDS's own levels are used as stored. (S)
+  models' such meshes are put in order by their instances' origins (where
+  each stands from the eye, not its meshes), the meshes of one in its
+  order, as the client orders two dynamic placeables'
+  (`batch8d_see_through_two_models`, 2026-11-25; the origins against the
+  meshes in `batch9_see_through_statics`, 2026-11-26). An uncompressed
+  texture's smaller levels are plain means since 2026-11-26, its
+  transparent texels' colors counted, as the client makes them
+  (`batch9_soft_edge_levels`; [the findings](findings.md), "The client
+  makes an uncompressed texture's levels by plain means"); a compressed
+  DDS's own levels are used as stored. Static placeables' such meshes
+  are drawn as the client's since 2026-11-26: by their textures' alpha
+  means, the highest first, before the dynamic ones', whichever is
+  nearer (read from the client's code with the owner's leave, after
+  three batches had found no rule, and confirmed by running it:
+  `batch9_static_alpha_mean`, 34 pairs predicted before the run, all
+  held; [the findings](findings.md), "Static placeables' see-through
+  meshes go by their textures' alpha means"). Not matchable: textures
+  of one alpha mean (every opaque texture's is 1) are left in the
+  client to `std::sort` over its whole static texture list, an order
+  of no rule Moonglow can know; Moonglow keeps their origins' order,
+  so such pairs still differ from the client in about half
+  (`batch9_static_order`, `batch9_static_tiles`). Only these meshes
+  are put in that order among themselves: against other see-through
+  meshes (a soft texture's parts, water) a static one is drawn by depth,
+  the client's order there not read. Tiles' meshes share the static
+  buckets in the client; untried there, they keep the depth's order. Each see-through mesh of alpha 1
+  costs two draws. On macOS the solid part's discarded fragments wrote
+  their depth (the plant's edge hid the ground again) until the shader
+  stopped at each discard: seen and mended on the CI's Mac, a virtual
+  one; no real Mac was looked at. (S)
 - **Custom creatures from the Vault and CEP** (a builder's report,
   [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
   fixed against the content itself but none of it compared with the
@@ -748,15 +770,31 @@ Nothing open.
   beside the client in `high_shadows_beside_the_client`; their volumes
   made apart from the frames and kept by the renderer, let go of with
   their models, since 2026-11-25 ([the frames
-  note](research/notes_frames.md)). Left:
-  - every creature in a lamp's reach casts at once (eight ogres in a
-    row, each its shadow: `batch6_light_shadow_casters`), as Moonglow
-    casts up to 16; and a player's own light casts the shadows of the
-    creatures about the player (`batch6_player_light_at_night`), which
-    the toolset, placing no player, has nothing of. (A light's shadow
-    darkens by the light's share of the light there, as the client's,
-    since 2026-11-02: [the findings](findings.md), "A light's shadow
-    takes the light's share".);
+  note](research/notes_frames.md)). Every creature in a lamp's reach
+  casts at once, as the client's, since 2026-11-26 (24 round one lamp
+  post, `batch6_light_shadow_ring`; Moonglow cast 16: a tile each of an
+  atlas that grows now, up to 4,096 creatures; [the
+  findings](findings.md), "Every creature in a lamp's reach casts; one
+  lamp casts"). A player's own light casting the shadows of the
+  creatures about the player (`batch6_player_light_at_night`) is
+  settled by design: the toolset places no player. Settled by the
+  owner's rulings of 2026-11-26, nothing left open (the entry kept as
+  the record):
+  - each creature casts from its own nearest lamp, by design: the
+    client casts from one light alone, the one nearest the player
+    (every creature in its reach casts from it, and the creatures by
+    other lamps cast nothing: six lamp posts, `batch6_light_shadow_ring`'s
+    `lamps`), and the toolset has no player to take it from. (A light's
+    shadow darkens by the light's share of the light there, as the
+    client's, since 2026-11-02: [the findings](findings.md), "A light's
+    shadow takes the light's share".);
+  - High's volumes for the lights are not capped and not cut short:
+    they cost their fill, about 0.1 ms a casting creature close up (30
+    creatures under one lamp: 4.1 ms the quickest tenth; 100: 11.6 ms,
+    over the 6.94 ms line, where Fast's maps take 1.2; 1,590 MHz,
+    2026-11-26), since each creature's volume reaches to the light's
+    radius. batch6's room (eight) is as before. Kept as the record of
+    the cost.
   (Grass and the see-through meshes of tiles and static placeables,
   their solid and soft parts, take the shadows as the client's since
   2026-11-25: [the findings](findings.md), "Grass and a tile's

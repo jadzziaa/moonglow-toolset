@@ -690,6 +690,97 @@ fn the_game_s_torch_raises_the_arm_and_lights() {
     assert!(z(&drawn) > 1.6 && z(&down) < 1.0, "{} {}", z(&drawn), z(&down));
 }
 
+/// A torch-bearer's whole arm is `torchl`'s, as the client holds it
+/// (`torch_arm_held_as_the_client_holds_it`, which found the torch's
+/// model where this pose puts it and 160 pixels from where an upper arm
+/// left to the idle would): on a bandit (`nw_bandit001`, `c_ynpc_h_m03`)
+/// every node the overlay keys turns as its key says, his upper arm
+/// (`lbicep_g`) too, and every other node as his idle (`pause1`) has it.
+/// So his upper arm points ahead, about level, and his forearm up, the
+/// hand above the shoulder and well ahead of it: what the client's
+/// pictures from each side show.
+#[test]
+fn a_torch_bearer_s_whole_arm_is_the_overlay_s() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = blueprint(&game, "nw_bandit001", ResType::UTC).root;
+    let mut worn = utc.list("Equip_ItemList").map(<[_]>::to_vec).unwrap_or_default();
+    let mut torch = mg_gff::Struct::new(0x20);
+    torch.set("EquippedRes", mg_gff::Value::resref("nw_it_torch001".parse().unwrap()));
+    worn.push(torch);
+    utc.set("Equip_ItemList", mg_gff::Value::List(worn));
+    let preview = creature(&game, &utc, &items(&game)).unwrap();
+    assert_eq!(preview.base.model, "c_ynpc_h_m03");
+    assert_eq!(preview.overlay.as_deref(), Some(mg_preview::TORCH_OVERLAY));
+    let Some(gpu) = gpu() else { return };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
+    };
+    let c = Composed::new(&gpu, &preview, &load).unwrap();
+    assert_eq!(c.idle.as_deref(), Some("pause1"));
+    let t = 0.5;
+    let drawn = c.instances(c.idle.as_deref(), t, Mat4::IDENTITY);
+    let pose = drawn[0].pose.as_ref().unwrap();
+    let plain = Composed::new(&gpu, &Preview { overlay: None, ..preview.clone() }, &load).unwrap();
+    let idling = plain.instances(plain.idle.as_deref(), t, Mat4::IDENTITY);
+    let idle = idling[0].pose.as_ref().unwrap();
+    let body = &c.base().model;
+    let node = |name: &str| body.nodes.iter().position(|n| n.name == name).unwrap();
+    // Each node's turn against its parent, from the pose.
+    let turn = |pose: &[Mat4], i: usize| {
+        let local = match body.nodes[i].parent {
+            Some(p) => pose[p].inverse() * pose[i],
+            None => pose[i],
+        };
+        local.to_scale_rotation_translation().1
+    };
+    // (The same turn: q and -q are one.)
+    let same = |a: glam::Quat, b: glam::Quat| 1.0 - a.dot(b).abs() < 1e-5;
+    let anims = load("a_ba_non_combat").unwrap();
+    let over = anims.animations.iter().find(|a| a.name == "torchl").unwrap();
+    let mut keyed = Vec::new();
+    for n in &over.nodes {
+        let Some(key) = n.controllers.iter().find(|k| k.name == "orientation") else { continue };
+        let Some(i) = body.nodes.iter().position(|b| b.name.eq_ignore_ascii_case(&n.name)) else {
+            // (A shoulder pad's bone and `lshould_g`: not this body's.)
+            continue;
+        };
+        let q = glam::Quat::from_slice(key.row(0)).normalize();
+        let got = turn(pose, i);
+        assert!(same(got, q), "{}: {got:?}, keyed {q:?}", n.name);
+        keyed.push(i);
+    }
+    let arm = ["lbicep_g", "lforearm_g", "lforearm", "lhand_g", "lhand"].map(node);
+    keyed.sort_unstable();
+    assert_eq!(keyed, {
+        let mut a = arm.to_vec();
+        a.sort_unstable();
+        a
+    });
+    for (i, n) in body.nodes.iter().enumerate() {
+        if !keyed.contains(&i) {
+            let (a, b) = (turn(pose, i), turn(idle, i));
+            assert!(same(a, b), "{}: {a:?}, idling {b:?}", n.name);
+        }
+    }
+    // (The idle alone turns the upper arm a little: 12 degrees.)
+    let lifted = turn(pose, arm[0]).angle_between(turn(idle, arm[0])).to_degrees();
+    assert!(lifted > 60.0, "the upper arm, from its idle: {lifted}");
+    // The creature faces +y: the upper arm ahead, the forearm up.
+    let at = |name: &str| pose[node(name)].w_axis.truncate();
+    let (shoulder, elbow, hand) = (at("lbicep_g"), at("lforearm_g"), at("lhand_g"));
+    let (upper, fore) = ((elbow - shoulder).normalize(), (hand - elbow).normalize());
+    eprintln!("shoulder {shoulder:?} elbow {elbow:?} hand {hand:?}; upper {upper:?} fore {fore:?}");
+    assert!(upper.y > 0.8 && upper.z.abs() < 0.35, "the upper arm: {upper:?}");
+    assert!(fore.z > 0.6, "the forearm: {fore:?}");
+    assert!(hand.z > shoulder.z + 0.1 && hand.y > shoulder.y + 0.3, "{hand:?} {shoulder:?}");
+    let down = idle[node("lhand_g")].w_axis.truncate();
+    assert!(down.z < shoulder.z - 0.4, "idling, the hand hangs: {down:?}");
+}
+
 /// A cloak moves with the bones of the body wearing it: on an elf (whose
 /// skeleton plays the human animations at 0.894 of their size, while her
 /// cloak's model has no scale of its own) its bones are where hers are,
