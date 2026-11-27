@@ -471,3 +471,56 @@ fn a_private_server_is_signed_in_to_from_the_builder_s_own_file() {
     let (ok, said) = run(&["--no-user-dir", "nwsync-status", "--source", &source, "--cache", c]);
     assert!(!ok && said.contains("user or password in its address"), "{said}");
 }
+
+/// `mg plugin run` tells a plugin's `mg.nwsync.status()` what it put
+/// into the game data (API 0.11): the source, the manifest the game's
+/// storage holds and where from, its resources; no survey and nothing
+/// under way, `mg` running no Sync beside it.
+#[test]
+fn a_plugin_run_by_mg_reads_the_nwsync_status() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-plugin-status");
+    let url = "https://nwsync.example.org";
+    let folder = module_naming(&dir, url);
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    std::fs::write(folder.join(".moonglow/.gitignore"), "*\n").unwrap();
+    let own = format!("[nwsync]\ncache = '{}'\n", dir.join("cache").display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let table: &[u8] = b"2DA V2.0\n\n A\n0 x\n";
+    let entry = (key("pw_appear", ResType::TWODA), mg_core::sha1::sha1(table));
+    let manifest = mg_nwsync::manifest::write(&[(entry.0, entry.1, table.len() as u32)]);
+    let user = dir.join("user");
+    write_storage(
+        &user.join("nwsync"),
+        &[Registered {
+            sha1: mg_core::sha1::sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: vec![entry],
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(entry.1, table.to_vec())]],
+    );
+    let plugin = dir.join("status-plugin");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"t.nwsync\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.11\"\n\
+         license = \"MIT\"\n\n[command]\nid = \"status\"\ntitle = \"Status\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"status\", function(ctx)\n  \
+         local s = mg.nwsync.status()\n  \
+         ctx.log:info(`{s.source} {s.manifest} {s.from} {s.arrived} {s.resources} \
+         {s.survey} {s.syncing}`)\nend)\n",
+    )
+    .unwrap();
+    let (m, u, p) = (folder.to_str().unwrap(), user.to_str().unwrap(), plugin.to_str().unwrap());
+    let (ok, j) = crate::mg_json(&["--user-dir", u, "plugin", "run", m, p, "status"]);
+    assert!(ok, "{j}");
+    let sha = mg_nwsync::sha1_hex(&mg_core::sha1::sha1(&manifest));
+    let said = format!("{url} {sha} game_storage 1 1 nil false");
+    assert_eq!(j["log"], serde_json::json!([{ "level": "info", "text": said }]), "{j}");
+}

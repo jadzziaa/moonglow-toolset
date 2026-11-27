@@ -3062,25 +3062,27 @@ fn a_plugin_reads_the_nwsync_status_in_the_window() {
         let out = &h.state().plugins.console_output;
         out.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n")
     };
+    // (The line the code returned, among what else the console says.)
+    let line = |h: &mut Harness<'_, Moonglow>, code: &str| -> String {
+        let said = console(h, code);
+        let found = said.lines().find(|l| l.starts_with('"'));
+        found.unwrap_or_else(|| panic!("no status line in {said:?}")).to_string()
+    };
     const LINE: &str = "local s = mg.nwsync.status()\n\
         local missing = s.survey and s.survey.missing or \"?\"\n\
-        return `{s.source} {s.manifest} {s.from} {s.resources} missing={missing} \
+        return `{s.source} {s.manifest} {s.resources} missing={missing} \
         syncing={s.syncing} signed_in={s.signed_in}`";
-    // Before the window has looked: the manifest put in, its survey not.
-    let said = console(&mut h, LINE);
-    assert_eq!(
-        said,
-        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=? syncing=false signed_in=true\"")
-    );
+    // Before the window has looked: the manifest put in (from the game's
+    // storage), its survey not.
+    assert_eq!(line(&mut h, "return mg.nwsync.status().from"), "\"game_storage\"");
+    let said = line(&mut h, LINE);
+    assert_eq!(said, format!("\"{NWSYNC_URL} {sha} 2 missing=? syncing=false signed_in=true\""));
 
     nwsync_window(&mut h);
     h.get_by_label("Sync").click();
     frames_until(&mut h, "syncing", |h| h.state().nwsync_content.syncing());
-    let said = console(&mut h, LINE);
-    assert_eq!(
-        said,
-        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=1 syncing=true signed_in=true\"")
-    );
+    let said = line(&mut h, LINE);
+    assert_eq!(said, format!("\"{NWSYNC_URL} {sha} 2 missing=1 syncing=true signed_in=true\""));
     let whole = console(&mut h, "return mg.nwsync.status()");
     assert!(whole.contains("syncing") && whole.contains(NWSYNC_URL), "{whole}");
     assert!(!whole.contains(TOKEN), "{whole}");
@@ -3088,9 +3090,6 @@ fn a_plugin_reads_the_nwsync_status_in_the_window() {
     go.send(()).unwrap();
     frames_until(&mut h, "synced", |h| h.state().nwsync_content.synced.is_some());
     frames_until(&mut h, "looked", |h| !h.state().nwsync_content.running());
-    let said = console(&mut h, LINE);
-    assert_eq!(
-        said,
-        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=0 syncing=false signed_in=true\"")
-    );
+    let said = line(&mut h, LINE);
+    assert_eq!(said, format!("\"{NWSYNC_URL} {sha} 2 missing=0 syncing=false signed_in=true\""));
 }
