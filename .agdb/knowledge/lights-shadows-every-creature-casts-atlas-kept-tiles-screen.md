@@ -1,7 +1,7 @@
 ---
 type: Fact
 title: "Lights' shadows: every creature casts (atlas, kept tiles, screen squares); the client casts from one light"
-description: "How the lights' shadow cap of 16 was lifted (Nov 2026), what the client showed (one light, the one nearest the player), how it was timed, and what is left (the one-light ruling, High's volume fill)."
+description: "How the lights' shadow cap of 16 was lifted (Nov 2026), what the client showed (one light, the one nearest the player), how it was timed, and the owner's rulings (each creature's nearest light by design; High uncapped)."
 tags: []
 status: stable
 generated: { by: agdb/0.2.0, at: 2026-11-27T01:56:05Z }
@@ -21,11 +21,11 @@ author: augustaugur
 - Creatures stay in scene order so tiles keep their place; sorted by distance to the camera's target only past 4096.
 - The darkening reads per 32-pixel screen square the maps whose light-view box reaches it (CPU counting sort, storage buffer), the box cut at the receivers' lowest height (receivers_floor); a box partly behind the eye goes into every square. Early exits: a >= cap, or with one casting light, shade >= 1. These took 500 creatures close up from 6.5 to 2.8 ms.
 ## Client findings (batch6_light_shadow_ring, MG_B6_CASES ring|lamps)
-- All 24 commoners in a ring round a lamp cast. Only ONE light casts in the whole view: the lamp nearest the player (not the camera's eye; checked by moving the lamps with MG_LAMPS_DY=-3). Every creature in its reach casts from it, ogres by other lamps too, and lamp posts. max-casting-lights 1 and 3 change nothing. Moonglow still casts each creature from its own nearest light: waits on the owner's ruling (deferred "Shadows").
+- All 24 commoners in a ring round a lamp cast. Only ONE light casts in the whole view: the lamp nearest the player (not the camera's eye; checked by moving the lamps with MG_LAMPS_DY=-3). Every creature in its reach casts from it, ogres by other lamps too, and lamp posts. max-casting-lights 1 and 3 change nothing. Moonglow casts each creature from its own nearest light: by design, the owner's ruling of 2026-11-26 (the toolset has no player).
 - The client's shadow by a lamp is darker (0.39-0.51 vs 0.14-0.19 in the six-lamp room), not chased.
 ## Watch out
 - frame_perf's creatures animate, so their bones change and every map is drawn again each frame (its line prints "N of their maps drawn again"); kept tiles help only at rest.
 - Timing the 16-cap path in process (hooks MG_VAR=cap16 via target/ab/hooks.py, never committed) on alternate frames thrashes tiles and GPU clocks in big scenes; trust the A/A round for absolute figures there.
 - Sixteen lamps of 500: close-up time grows as frame_perf's camera turns (2.6 to 4.9 ms), so its median is far above its tenth. That is the view, not thrash.
-- High (stencil volumes) costs about 0.1 ms per casting creature close up (100: 11.6 ms): each volume reaches the light's radius. Left waiting on the same ruling.
+- High (stencil volumes) costs about 0.1 ms per casting creature close up (100: 11.6 ms): each volume reaches the light's radius. Not capped, by the owner's ruling of 2026-11-26; the cost is kept in deferred "Shadows" as the record.
 - Plain FRAME_PARTS takes one part's name; '|' lists only work with the hooks' FRAME_PARTS_ONLY.

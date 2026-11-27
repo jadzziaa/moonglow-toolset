@@ -2147,10 +2147,9 @@ reads it, in its `settings.tml`) changed nothing.
   reach casts (`crates/mg-render/src/shadow.rs`: a tile each of an atlas
   that grows, up to 4,096 creatures), 24 of 24 in the ring as the
   client's. Each creature still casts from its own nearest light, so with
-  several lamps Moonglow draws shadows the client doesn't: which light
-  the toolset, placing no player, should take as the one (the light
-  nearest the camera's target, say) waits on the owner's ruling (the
-  deferred list's "Shadows"). Where both cast, the client's shadow beside
+  several lamps Moonglow draws shadows the client doesn't: by design,
+  by the owner's ruling of 2026-11-26, since the toolset has no player
+  to take the one light from (the deferred list's "Shadows"). Where both cast, the client's shadow beside
   a lamp is darker (0.39 to 0.51 against Moonglow's 0.14 to 0.19 in the
   lamps' room, where six lamps light the floor), not read further here.
 - **Cost** (`frame_perf`'s `game_shaders_frames_at_144`, in process on
