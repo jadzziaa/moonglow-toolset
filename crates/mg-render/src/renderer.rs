@@ -239,6 +239,11 @@ struct Slots {
     names: [Option<String>; SLOTS],
     /// The MTR they resolve to (lower case), if any.
     mtr: Option<String>,
+    /// Whether that MTR's own TXI (of its name, `name.txi` beside
+    /// `name.mtr`) says `blending punchthrough`: a mesh whose bitmap
+    /// names the MTR is a cut-out by it ([`Renderer::surface`]). Read
+    /// with the slots, once a material, not once a surface.
+    mtr_cut: bool,
     /// MTR parameters (0: none).
     specularity: f32,
     /// How far a custom pair may offset the mesh, meters: the largest of
@@ -2261,7 +2266,9 @@ impl Renderer {
             .flatten()
             .find_map(|n| assets.material(n).map(|m| (n.to_ascii_lowercase(), m)))
             .unzip();
-        let mut out = Slots { mtr: mtr_name, ..Slots::default() };
+        let mtr_cut = mtr_name.as_deref().and_then(|m| assets.txi(m));
+        let mtr_cut = mtr_cut.is_some_and(|t| t.blending() == Blending::Punchthrough);
+        let mut out = Slots { mtr: mtr_name, mtr_cut, ..Slots::default() };
         out.names[0] = mat.texture.clone();
         for (i, m) in mat.maps.iter().enumerate() {
             out.names[i + 1] = m.clone();
@@ -2614,8 +2621,8 @@ impl Renderer {
                 && names[0].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(m))
         });
         let blending = match bitmap_mtr {
-            Some(m) if tex.is_some() && blending != Blending::Additive => {
-                if assets.txi(m).is_some_and(|t| t.blending() == Blending::Punchthrough) {
+            Some(_) if tex.is_some() && blending != Blending::Additive => {
+                if slots.mtr_cut {
                     Blending::Punchthrough
                 } else {
                     Blending::Default
