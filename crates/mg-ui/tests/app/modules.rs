@@ -3500,12 +3500,14 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
 /// it comes and how it ended said; with Then start the game, the game
 /// joins the server once one answers at the address (a stand-in answering
 /// the game's query; `true` as the client), and the next test stops the
-/// command still running first.
+/// command still running first: a test of the command's own, or the
+/// game's.
 #[cfg(target_os = "linux")]
 #[test]
 fn test_module_runs_a_command_of_the_builders_own() {
     use mg_ui::settings::TestStarts;
     use std::time::{Duration, Instant};
+    let _games = TEST_GAMES.lock().unwrap_or_else(|e| e.into_inner());
     let dir = mg_testkit::scratch_dir("ui-test-command");
     let (root, user) = (dir.join("root"), dir.join("user"));
     let client = root.join("bin/linux-x86/nwmain-linux");
@@ -3575,7 +3577,18 @@ fn test_module_runs_a_command_of_the_builders_own() {
     let from = h.state().log.entries.len();
     h.state_mut().settings.test_command.clear();
     h.state_mut().actions.push(mg_ui::Action::TestModule);
-    until(&mut h, from, "Options › Test Module has no command to run");
+    let log = until(&mut h, from, "Options › Test Module has no command to run");
+    assert!(!log.iter().any(|(_, m)| m.contains("command stopped")), "{log:?}");
+    // The game's own test stops the command left running too (its server
+    // would hold the game's port).
+    let from = h.state().log.entries.len();
+    h.state_mut().settings.test_starts = TestStarts::Game;
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "Testing My Module");
+    assert!(
+        log.iter().any(|(_, m)| m == "Test Module: the last test's command stopped"),
+        "{log:?}"
+    );
 }
 
 /// A program on `PATH`.

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:08:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:25:19Z }
 ---
 
 # Options
@@ -699,7 +699,9 @@ What **Build › Test Module** and **Test From Here** start
 ([Build, verify and test](09-build-and-test.md#a-command-of-your-own)):
 
 - **The game, on the module** (the default): the game on the module with
-  your first character, as Aurora's F9 does.
+  your first character, as Aurora's F9 does; a project that uses NWNX is
+  served by a [local server with NWNX](09-build-and-test.md#test-module-with-nwnx)
+  that the game joins.
 - **A command of my own**: the **Command** you type, run by the system's
   shell in the module's folder once the module is saved, with
   `{module_path}` and `{module_name}` filled in, its output in the log.

@@ -7945,6 +7945,9 @@ impl Moonglow {
         name: &str,
         choose: bool,
     ) {
+        // (A command of Options › Test Module still running from the last
+        // test: stopped first, as the next test of its own would.)
+        test_command::stop_last(self);
         // (Through Steam where Moonglow reads the Workshop too: the test
         // and the views show the same content.)
         let steam = self.settings.test_through_steam();

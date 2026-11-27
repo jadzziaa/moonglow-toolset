@@ -2249,8 +2249,6 @@ pub(crate) fn typed_name<'h>(
     h.get(egui_kittest::kittest::by().predicate(field))
 }
 
-/// A `true` program to stand in for an external editor: the first on
-/// `PATH` (NixOS has no `/bin/true`).
 /// Held by the tests that start Test Module's stand-in games: the games a
 /// test started are known process-wide (`test_module::game_running`), so
 /// one test's game running would refuse another's test. (Their tests are
@@ -2258,6 +2256,8 @@ pub(crate) fn typed_name<'h>(
 #[cfg(target_os = "linux")]
 pub(crate) static TEST_GAMES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// A `true` program to stand in for an external editor: the first on
+/// `PATH` (NixOS has no `/bin/true`).
 pub(crate) fn true_program() -> Option<String> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
