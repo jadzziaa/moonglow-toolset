@@ -919,6 +919,7 @@ fn a_table_s_row_numbers_stay_beside_their_rows() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -700.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);
@@ -1884,6 +1885,7 @@ fn a_game_table_read_only_scrolls() {
             unit: egui::MouseWheelUnit::Point,
             delta,
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(30);

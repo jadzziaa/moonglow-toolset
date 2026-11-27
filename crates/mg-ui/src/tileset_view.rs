@@ -756,7 +756,7 @@ pub(crate) fn may_have_changed(app: &Moonglow, path: &Path) -> bool {
 }
 
 fn areas_id() -> egui::Id {
-    egui::Id::new("tileset-editor-areas")
+    egui::Id::unique("tileset-editor-areas")
 }
 
 /// Whether the text field with the keyboard is one of the editors of the
@@ -1111,7 +1111,7 @@ fn text_key(
     width: f32,
 ) {
     let current = d.get(section, key).unwrap_or_default();
-    let id = egui::Id::new(("set", d.id, section, key));
+    let id = egui::Id::unique(("set", d.id, section, key));
     let focus = focus_asked(ui, d, section, key, id);
     if let Some(v) = crate::widgets::commit_text(app, ui, id, &current, false, width) {
         d.set_key(section, key, v.trim());
@@ -1447,7 +1447,7 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
     const HEADS: [&str; 7] = ["", "Placed", "height", "Adjacent", "height", "Changed", "height"];
     let Ok(t) = d.set.clone() else { return };
     let terrains = d.type_options(false, false);
-    let a11y = ui.ctx().accesskit_node_builder(ui.id(), |_| ()).is_some();
+    let a11y = ui.ctx().accesskit_node_builder(ui.scope_id(), |_| ()).is_some();
     let note = "Painting a corner Placed beside one Adjacent turns that one into Changed, each at \
                 its height. The terrain brush follows the primary rules.";
     ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
@@ -1516,7 +1516,12 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
                                 );
                             }
                             _ => {
+                                // (Named by its row and column, which its
+                                // heading alone doesn't say.)
+                                let id = ui.next_auto_id();
                                 int_key(ui, d, &section, HEIGHT_KEYS[(col - 2) / 2], -1..=4);
+                                let of = KEYS[(col - 2) / 2].to_lowercase();
+                                crate::widgets::name_node(ui, id, &format!("Rule {i} {of} height"));
                             }
                         });
                     }
@@ -1627,7 +1632,10 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
         {
             let mut ui = cell(1);
             ui.spacing_mut().interact_size.x = cells[1].width();
+            // (Named by its row and column, which its heading alone doesn't say.)
+            let id = ui.next_auto_id();
             int_key(&mut ui, d, section, "Type", 0..=i32::MAX);
+            crate::widgets::name_node(&ui, id, &format!("Door {n} type"));
         }
         // (Its row's label, where the game data has the table.)
         let row = d.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
@@ -1639,7 +1647,9 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
         for (c, key) in [(3, "X"), (4, "Y"), (5, "Z"), (6, "Orientation")] {
             let mut ui = cell(c);
             ui.spacing_mut().interact_size.x = cells[c].width();
+            let id = ui.next_auto_id();
             float_key(&mut ui, d, section, key);
+            crate::widgets::name_node(&ui, id, &format!("Door {n} {}", key.to_lowercase()));
         }
     }
     if doors.is_empty() {
@@ -1837,7 +1847,7 @@ fn tile_bar(ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) -> BarAsked {
     let icon_only = width(&words(false)) + FIND_LEAST > inner.width();
     let buttons = words(icon_only);
     let find = (inner.width() - width(&buttons)).max(60.0);
-    let field = egui::Id::new(("tileset-filter-field", d.id));
+    let field = egui::Id::unique(("tileset-filter-field", d.id));
     let left = crate::widgets::SearchField::new(field, &mut d.filter)
         .name(FIND)
         .hint("Model or terrain")
@@ -1857,13 +1867,13 @@ fn tile_bar(ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) -> BarAsked {
 
 /// The tileset whose tile list was given the keys last.
 fn keys_of(ctx: &egui::Context) -> Option<u32> {
-    ctx.data(|d| d.get_temp(egui::Id::new("tileset-keys-of")))
+    ctx.data(|d| d.get_temp(egui::Id::unique("tileset-keys-of")))
 }
 
 /// The keys given to tileset `id`'s tile list (a click on a row, F6).
 pub(crate) fn take_keys(ctx: &egui::Context, id: u32) {
     crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Tiles);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("tileset-keys-of"), id));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("tileset-keys-of"), id));
 }
 
 /// Whether tileset `id`'s tile list has the keys: they are a tile list's,
@@ -1957,7 +1967,7 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
         d.scrolled_to = d.tile;
         if let Some(at) = d.tile.and_then(|t| rows.iter().position(|&r| r == t)) {
             let seen: Option<(usize, usize)> =
-                ui.data(|m| m.get_temp(egui::Id::new(("set-tiles-seen", d.id))));
+                ui.data(|m| m.get_temp(egui::Id::unique(("set-tiles-seen", d.id))));
             if seen.is_none_or(|(from, end)| at <= from || at + 2 >= end) {
                 let height = ui.available_height();
                 scroll = scroll.vertical_scroll_offset((at as f32 * pitch - height / 2.0).max(0.0));
@@ -1968,7 +1978,7 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
     let chosen = d.tile;
     let shown = mg_uikit::show_rows(scroll, ui, rows.len(), |ui, range| {
         ui.data_mut(|m| {
-            m.insert_temp(egui::Id::new(("set-tiles-seen", d.id)), (range.start, range.end))
+            m.insert_temp(egui::Id::unique(("set-tiles-seen", d.id)), (range.start, range.end))
         });
         ui.spacing_mut().item_spacing.y = 0.0;
         let mut clicked = None;
@@ -2007,12 +2017,8 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
                     Some(why) => format!("Tile {i}, a hole: {why}"),
                     None => format!("Tile {i}"),
                 };
-                let mut info = egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
-                    true,
-                    selected,
-                    &said,
-                );
+                let mut info =
+                    egui::WidgetInfo::selected(egui::Role::Button, true, selected, &said);
                 info.current_text_value = Some(format!("{model} {corners} {edges}"));
                 info
             });
@@ -2277,9 +2283,14 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
                     let k = r * g.columns as usize + c;
                     let current = g.tiles.get(k).copied().flatten().map_or(-1, |t| t as i64);
                     let last = t.tiles.len() as i64 - 1;
+                    // (Named by its place: the heading over the grid names
+                    // none of them.)
+                    let id = ui.next_auto_id();
                     if let Some(v) = crate::widgets::commit_number(ui, current, -1..=last) {
                         d.set_key(&section, &format!("Tile{k}"), &v.to_string());
                     }
+                    let place = format!("Tile {}, row {}, column {}", k, r + 1, c + 1);
+                    crate::widgets::name_node(ui, id, &place);
                 }
             });
         }

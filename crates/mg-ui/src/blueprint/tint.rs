@@ -138,7 +138,7 @@ fn tintable(
     utp: &Struct,
 ) -> Arc<Vec<String>> {
     let appearance = utp.integer("Appearance").unwrap_or(-1);
-    let id = egui::Id::new(("tintable", appearance));
+    let id = egui::Id::unique(("tintable", appearance));
     super::kept_for_load_order(ui, load_order, id, || {
         Arc::new(mg_preview::tintable_materials(game, utp))
     })

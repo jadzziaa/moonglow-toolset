@@ -509,14 +509,14 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     h.get_by_label("And…").click();
     h.run();
     h.state_mut().advanced_search.and[0].row = Some(0);
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("Class: row 4, level 5 · Feat: row 0");
     h.get_by_label("Remove").click();
     h.run();
@@ -525,13 +525,13 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("Class: row 4, level 9");
     h.state_mut().advanced_search.first.levels = (1, 60);
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
 
     // A variable set on the ticked one, in one step.
     h.state_mut().advanced_search.ticked[1] = false;
@@ -545,7 +545,7 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     assert_eq!(var(&creature(&mut h, 0)), Some(Some(5)));
     assert_eq!(var(&creature(&mut h, 1)), None, "not ticked");
     // (Found again, everything ticked.)
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_eq!(var(&creature(&mut h, 0)), None, "undone as one");
@@ -669,7 +669,7 @@ fn advanced_search_edits_objects_of_several_areas_and_the_items_they_hold_togeth
         h.run();
         h.get_by_label("Find").click();
         h.run();
-        h.get_by_label(&format!("{n} found:"));
+        label_node(h, &format!("{n} found:"));
     };
 
     // The two chests, in two areas: one button.
@@ -951,7 +951,7 @@ fn advanced_search_lays_out_the_rows_in_sight() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("400 found:");
+    label_node(&h, "400 found:");
     h.get_by_label_contains("creature T000");
     assert!(h.query_by_label_contains("creature T399").is_none(), "out of sight: not laid out");
     let laid_out = h.query_all_by_label_contains("creature T").count();
@@ -963,6 +963,7 @@ fn advanced_search_lays_out_the_rows_in_sight() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -1_000_000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     let deadline = std::time::Instant::now() + SETTLE_TIME;
@@ -1084,7 +1085,7 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     h.get_by_label("Change the 2 checked").click();
     h.run();
     let act = |h: &mut Harness<'_, Moonglow>, act: Act, row: usize| {
@@ -1174,7 +1175,7 @@ fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
     h.get_by_value("meeting all of the conditions");
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("Class: row 4, level 5 · Feat: row 0");
 
     // The feat ticked Not: the fighter without it.
@@ -1183,7 +1184,7 @@ fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
     assert!(h.state().advanced_search.and[0].not);
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("start › creature CAPTAIN");
     h.get_by_label("Class: row 4, level 5");
 
@@ -1200,7 +1201,7 @@ fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
     h.get_by_label("Or…");
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("4 found:");
+    label_node(&h, "4 found:");
     h.get_by_label("start › creature MAGE");
     // Any of them, less one ticked Not: fighters or mages, without the
     // feat.
@@ -1213,7 +1214,7 @@ fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("start › creature CAPTAIN");
 }
 
@@ -1282,7 +1283,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     type_into_hint(&mut h, "e.g. *sDeidad* (* for any characters)", "*sdeidad*");
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     h.get_by_label("start › creature GUARD › item OLD_AMULET");
     h.get_by_label("sDeidad (int) = 3");
     // A click opens the object.
@@ -1296,7 +1297,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     h.run_steps(2);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
     h.run_steps(2);
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     // Creatures by class, named as the game names them.
     {
         let d = &mut h.state_mut().advanced_search;
@@ -1307,7 +1308,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     h.get_by_label("Find again for what's asked now.");
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("Class: Fighter, level 5");
     // Nothing chosen: nothing to find yet.
     h.state_mut().advanced_search.first.row = None;
@@ -1372,7 +1373,7 @@ fn advanced_search_finds_a_spell_by_its_class_and_the_game_s_blueprints() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("1 found:");
+    label_node(&h, "1 found:");
     h.get_by_label("Known spell: row 107 (Fighter)");
     h.state_mut().advanced_search.first.class = Some(2);
     h.run();
@@ -1387,7 +1388,7 @@ fn advanced_search_finds_a_spell_by_its_class_and_the_game_s_blueprints() {
     assert!(h.state().advanced_search.haks_and_game);
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 found:");
+    label_node(&h, "2 found:");
     h.get_by_label("(1 of them the haks' or the game's, read-only)");
     h.get_by_label("(base)");
     let d = &h.state().advanced_search;
@@ -1613,7 +1614,7 @@ fn advanced_search_s_results_copy_from_their_menus() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("3 found:");
+    label_node(&h, "3 found:");
     let copied = |h: &mut Harness<'_, Moonglow>, item: &str| -> Vec<String> {
         h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
         h.step();

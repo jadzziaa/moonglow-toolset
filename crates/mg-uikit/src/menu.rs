@@ -29,8 +29,8 @@
 use std::sync::Arc;
 
 use egui::{
-    Atom, Button, Galley, Id, InnerResponse, IntoAtoms, Margin, Rect, Response, Sense, TextStyle,
-    TextWrapMode, Ui, Vec2, WidgetInfo, WidgetText, WidgetType, pos2, vec2,
+    Atom, Button, Galley, IdSalt, InnerResponse, IntoAtoms, Margin, Rect, Response, Role, Sense,
+    TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo, WidgetText, pos2, vec2,
 };
 
 use crate::controls::{self, BOX, Look};
@@ -98,7 +98,7 @@ fn menu_text(ui: &mut Ui, text: WidgetText, margin: Margin) -> Response {
     let size = vec2(galley.size().x, high) + margin.sum();
     let response = ui.allocate_response(size, Sense::hover());
     let words = galley.text().to_string();
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &words));
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, true, &words));
     if ui.is_rect_visible(response.rect) {
         let leading = ((high - galley.size().y) / (2.0 * lines)).round();
         let at = response.rect.min + vec2(margin.leftf(), margin.topf() + leading);
@@ -129,8 +129,8 @@ pub fn menu_note(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
 }
 
 /// The id of a menu row's mark's room (a check box's, a radio's).
-fn mark_id() -> Id {
-    Id::new("mg-uikit-menu-mark")
+fn mark_id() -> IdSalt {
+    IdSalt::new("mg-uikit-menu-mark")
 }
 
 /// A row of a menu with a mark's room (an icon's, 16 px) before its
@@ -184,7 +184,7 @@ pub fn menu_check<'a>(ui: &mut Ui, checked: &'a mut bool, atoms: impl IntoAtoms<
     menu_mark_row(
         ui,
         theme.tokens(),
-        WidgetType::Checkbox,
+        Role::CheckBox,
         atoms.into_atoms(),
         |r| {
             if r.clicked() {
@@ -210,7 +210,7 @@ pub fn menu_radio<'a>(ui: &mut Ui, selected: bool, atoms: impl IntoAtoms<'a>) ->
     menu_mark_row(
         ui,
         theme.tokens(),
-        WidgetType::RadioButton,
+        Role::RadioButton,
         atoms.into_atoms(),
         |_| selected,
         |ui, t, room, look, lit| {
@@ -222,7 +222,7 @@ pub fn menu_radio<'a>(ui: &mut Ui, selected: bool, atoms: impl IntoAtoms<'a>) ->
 fn menu_mark_row<'a>(
     ui: &mut Ui,
     t: crate::tokens::Tokens,
-    kind: WidgetType,
+    kind: Role,
     atoms: egui::Atoms<'a>,
     state: impl FnOnce(&mut Response) -> bool,
     paint: impl FnOnce(&Ui, &crate::tokens::Tokens, Rect, Look, bool),
@@ -256,8 +256,8 @@ pub fn menu_radio_choice<'a, V: PartialEq>(
 }
 
 /// The id of a menu row's keys' room ([`MenuKeys::atom`]).
-fn keys_id() -> Id {
-    Id::new("mg-uikit-menu-keys")
+fn keys_id() -> IdSalt {
+    IdSalt::new("mg-uikit-menu-keys")
 }
 
 /// A menu row's keys (`.menu-row .keys`), laid out by the row and painted
@@ -295,7 +295,7 @@ impl MenuKeys {
     /// is lit; [`menu_row_lit`], or chosen by the caller's own keys), else
     /// in the weak text's color. `ui` is the one the row was added to
     /// (a disabled row's keys fade with it).
-    pub fn paint(&self, ui: &Ui, laid: &egui::AtomLayoutResponse, lit: bool) {
+    pub fn paint(&self, ui: &Ui, laid: &egui::WidgetAtomResponse, lit: bool) {
         let Some(rect) = laid.rect(keys_id()) else { return };
         if !ui.is_rect_visible(rect) {
             return;

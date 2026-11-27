@@ -186,6 +186,7 @@ fn persistent_world_stays_within_budget() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -500.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });

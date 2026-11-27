@@ -510,7 +510,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
     let plugin = job.plugin.clone();
     let command = crate::project_commands::running(app);
-    let mut modal = crate::widgets::modal_window(ctx, egui::Id::new("job"));
+    let mut modal = crate::widgets::modal_window(ctx, egui::Id::unique("job"));
     if plugin.is_some() {
         modal = modal.backdrop_color(egui::Color32::TRANSPARENT);
     }

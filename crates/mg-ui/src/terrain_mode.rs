@@ -1865,7 +1865,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         if gallery {
             // (The fold arrows' and the count's width as drawn last time:
             // the slider's room is what is left before them.)
-            let tail_id = egui::Id::new("tile-palette-toolbar-tail");
+            let tail_id = egui::Id::unique("tile-palette-toolbar-tail");
             let tail = ui.data(|d| d.get_temp::<f32>(tail_id)).unwrap_or(150.0);
             let room = ui.available_size_before_wrap().x - tail - ui.spacing().item_spacing.x;
             let here = room >= crate::palette_view::SLIDER_LEAST;
@@ -2079,7 +2079,7 @@ fn fold_and_count(
     let count = ui
         .weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
         .on_hover_text(if found { "Found" } else { "In this tileset's palette" });
-    let typed = crate::widgets::text_changed(ui, egui::Id::new("tile-palette-filter"), said);
+    let typed = crate::widgets::text_changed(ui, egui::Id::unique("tile-palette-filter"), said);
     if typed && found {
         fold = fold.or(Some(true));
     }
@@ -2535,14 +2535,17 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
         });
     };
     let keys = !crate::shell::keys_blocked(ui.ctx());
-    if ui.memory(|m| m.has_focus(ui.id().with("group-pictures"))) {
+    if ui.memory(|m| m.has_focus(ui.scope_id().with("group-pictures"))) {
         at.list.busy();
     }
-    let grid =
-        mg_uikit::gallery::GalleryGrid::new(ui.id().with("group-pictures"), groups.len(), side)
-            .cursor(current)
-            .keys_allowed(keys)
-            .name("Groups");
+    let grid = mg_uikit::gallery::GalleryGrid::new(
+        ui.scope_id().with("group-pictures"),
+        groups.len(),
+        side,
+    )
+    .cursor(current)
+    .keys_allowed(keys)
+    .name("Groups");
     let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
         let (label, g) = groups[i];
         let brush = Brush::Group(g);
@@ -2611,12 +2614,12 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
         });
     };
     let keys = !crate::shell::keys_blocked(ui.ctx());
-    if ui.memory(|m| m.has_focus(ui.id().with("tile-pictures"))) {
+    if ui.memory(|m| m.has_focus(ui.scope_id().with("tile-pictures"))) {
         at.list.busy();
     }
     let label = mg_uikit::gallery::label_height(false, 1, false);
     let grid =
-        mg_uikit::gallery::GalleryGrid::new(ui.id().with("tile-pictures"), tiles.len(), side)
+        mg_uikit::gallery::GalleryGrid::new(ui.scope_id().with("tile-pictures"), tiles.len(), side)
             .label(label)
             .cursor(current)
             .keys_allowed(keys)

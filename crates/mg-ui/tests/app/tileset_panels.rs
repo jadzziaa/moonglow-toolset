@@ -221,7 +221,7 @@ fn a_click_in_problems_goes_to_the_tile() {
     let d = doc(&h);
     assert_eq!((d.page, d.tile), (Page::Tiles, Some(1)), "the tile");
     let focused = h.ctx.memory(|m| m.focused());
-    assert_eq!(focused, Some(egui::Id::new(("set", id, "TILE1", "Model"))), "its field");
+    assert_eq!(focused, Some(egui::Id::unique(("set", id, "TILE1", "Model"))), "its field");
     assert!(field_with(&h, "zzt01_a02_01").rect().is_positive(), "in sight");
     // A group's finding.
     let group = tileset_problems(&h, &path).into_iter().find(|p| p.at.starts_with("Group 0"));
@@ -770,7 +770,7 @@ fn the_tileset_hints_are_as_bound() {
     settle(&mut h);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
     settle(&mut h);
-    let field = egui::Id::new(("tileset-filter-field", doc(&h).id));
+    let field = egui::Id::unique(("tileset-filter-field", doc(&h).id));
     assert_eq!(h.ctx.memory(|m| m.focused()), Some(field), "Find's field has the keyboard");
     // Typing: none.
     none_of(&said(&h), &["Choose a tile", "Find", "Save"], "typing");
@@ -1247,7 +1247,7 @@ fn typed_text_is_set_before_a_one_frame_click_removes_its_tile() {
     h.event(egui::Event::Text("zzt01_one".into()));
     settle(&mut h);
     // (Typed, not set: the field keeps the keyboard until the press.)
-    let field = egui::Id::new(("set", doc(&h).id, "TILE2", "Model"));
+    let field = egui::Id::unique(("set", doc(&h).id, "TILE2", "Model"));
     assert_eq!(h.ctx.memory(|m| m.focused()), Some(field), "the field has the keyboard");
     assert_eq!(set(&h).tiles[2].model, "tcn01_a02_01", "not set yet");
     let at = h.get_by_label(tv::REMOVE_LAST_TILE).rect().center();
@@ -1413,7 +1413,8 @@ fn the_tile_s_3d_view_rests_until_played() {
     let pass = h.ctx.cumulative_pass_nr();
     assert!(drawn.is_some_and(|d| d + 3 >= pass), "drawn: {drawn:?} at {pass}");
     h.get_by_label("Play").click();
-    assert!(h.try_run().is_err(), "played: it asks for frames");
+    h.run_steps(2);
+    assert!(model_view_asks_for_frames(&h), "played: it asks for frames");
     assert!(view(&h).0);
     h.get_by_label("Pause").click();
     settle(&mut h);

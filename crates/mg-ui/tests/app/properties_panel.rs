@@ -284,7 +284,7 @@ fn the_narrow_dock_has_three_tabs_and_the_narrow_row() {
         let standard = h.get_by_label("Standard").rect();
         assert!((standard.center().y - types.center().y).abs() < 4.0, "{w}: Standard beside");
         assert!(standard.left() > types.right(), "{w}: after the dropdown");
-        let group = h.get_by_label("Group by").rect();
+        let group = label_nodes(&h, "Group by").next().unwrap().rect();
         let expand = h.get_by_label("Expand All").rect();
         assert!((expand.center().y - group.center().y).abs() < 4.0, "{w}: on Group by's row");
         assert!(expand.left() > group.right() + 60.0, "{w}: at its end");
@@ -554,6 +554,7 @@ fn the_rail_reaches_every_page_in_a_low_section() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);
@@ -1169,6 +1170,7 @@ fn the_wide_layout_s_pages_stand_on_one_scroll() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);
@@ -1188,6 +1190,7 @@ fn the_wide_layout_s_pages_stand_on_one_scroll() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     settle(&mut h);
@@ -1304,6 +1307,7 @@ fn visible_distance_scrolls_clear_of_the_panel_bottom() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);
@@ -1372,8 +1376,7 @@ fn scripts_stay_on_one_line_with_label_and_edit() {
         h.set_size(egui::vec2(width, 900.0));
         settle(&mut h);
         let dock = right_dock_rect(&h);
-        let on_death = h
-            .query_all_by_label("OnDeath")
+        let on_death = label_nodes(&h, "OnDeath")
             .map(|n| n.rect())
             .find(|r| dock.contains_rect(*r))
             .unwrap_or_else(|| panic!("at {width}: OnDeath label"));

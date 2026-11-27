@@ -359,36 +359,37 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(held) = app.plugins.save.held.clone() else { return };
     let refused = held.heard.iter().any(|h| h.refused);
     let mut fixed = None;
-    let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-save")).show(ctx, |ui| {
-        crate::widgets::modal_titled_foot(
-            ui,
-            if refused { "Not Saved" } else { "Before Saving" },
-            |ui| {
-                // (Never past the application's window: the modal holds it.)
-                ui.set_width(ui.available_width().min(540.0));
-                ui.label(if refused {
+    let modal =
+        crate::widgets::modal_window(ctx, egui::Id::unique("plugin-save")).show(ctx, |ui| {
+            crate::widgets::modal_titled_foot(
+                ui,
+                if refused { "Not Saved" } else { "Before Saving" },
+                |ui| {
+                    // (Never past the application's window: the modal holds it.)
+                    ui.set_width(ui.available_width().min(540.0));
+                    ui.label(if refused {
             "A plugin refuses what the save would write. Nothing was written; change it (or \
              make the fix offered), then save again."
         } else {
             "The plugins have warnings about what the save would write. Nothing is written yet."
         });
-                ui.add_space(6.0);
-                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                    for (i, h) in held.heard.iter().enumerate() {
-                        ui.separator();
-                        ui.horizontal_wrapped(|ui| {
-                            let (word, color) = match h.refused {
-                                true => ("Refused", ui.visuals().error_fg_color),
-                                false => ("Warning", ui.visuals().warn_fg_color),
-                            };
-                            ui.colored_label(color, egui::RichText::new(word).strong());
-                            ui.label(egui::RichText::new(&h.plugin).strong());
-                            if let Some(r) = &h.resource {
-                                ui.weak(r.to_string());
-                            }
-                        });
-                        ui.label(&h.text);
-                        if let Some(fix) = &h.fix
+                    ui.add_space(6.0);
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for (i, h) in held.heard.iter().enumerate() {
+                            ui.separator();
+                            ui.horizontal_wrapped(|ui| {
+                                let (word, color) = match h.refused {
+                                    true => ("Refused", ui.visuals().error_fg_color),
+                                    false => ("Warning", ui.visuals().warn_fg_color),
+                                };
+                                ui.colored_label(color, egui::RichText::new(word).strong());
+                                ui.label(egui::RichText::new(&h.plugin).strong());
+                                if let Some(r) = &h.resource {
+                                    ui.weak(r.to_string());
+                                }
+                            });
+                            ui.label(&h.text);
+                            if let Some(fix) = &h.fix
                             && ui
                                 .button(&fix.label)
                                 .on_hover_text(
@@ -398,27 +399,27 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         {
                             fixed = Some(i);
                         }
-                    }
-                });
-                ui.separator();
-                ui.weak(
+                        }
+                    });
+                    ui.separator();
+                    ui.weak(
             "Plugins check a save as their manifests declare (the Plugins tab lists what each \
              does, and disables one).",
         );
-                let foot = crate::widgets::Foot::new();
-                let foot = match refused {
-                    true => foot.leave("Close"),
-                    false => foot
-                        .main("Save Anyway", true)
-                        .tip("Write the module as it is")
-                        .no_enter()
-                        .cancel(),
-                };
-                ((), foot)
-            },
-        )
-        .1
-    });
+                    let foot = crate::widgets::Foot::new();
+                    let foot = match refused {
+                        true => foot.leave("Close"),
+                        false => foot
+                            .main("Save Anyway", true)
+                            .tip("Write the module as it is")
+                            .no_enter()
+                            .cancel(),
+                    };
+                    ((), foot)
+                },
+            )
+            .1
+        });
     let (stop, pressed) = (modal.should_close(), modal.inner);
     let (anyway, close) = (pressed.main(), pressed.cancelled());
     if let Some(i) = fixed {

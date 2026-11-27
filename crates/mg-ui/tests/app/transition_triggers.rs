@@ -146,7 +146,14 @@ pub(crate) fn instance_tab(area: ResRef, list: &str, index: usize) -> Tab {
 }
 
 /// The text field on the row of the label `label` (the first to its right).
-fn field_beside<'h>(h: &'h Harness<'_, Moonglow>, label: &str) -> egui_kittest::Node<'h> {
+fn field_beside<'h>(h: &'h Harness<'_, Moonglow>, label: &'h str) -> egui_kittest::Node<'h> {
+    // (The field named by the label, where it is: its label's node then
+    // stands for it.)
+    if let Some(n) =
+        h.get_all_by_label(label).rfind(|n| n.accesskit_node().role() == Role::TextInput)
+    {
+        return n;
+    }
     let row = h.get_all_by_label(label).last().unwrap().rect();
     h.get_all_by_role(Role::TextInput)
         .filter(|n| {

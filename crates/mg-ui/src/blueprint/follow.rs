@@ -532,7 +532,10 @@ pub(crate) fn list_edits(edits: &[Edit]) -> Vec<Edit> {
 pub(crate) fn window_id(app: &mut Moonglow, area: ResRef, path: &GffPath) -> egui::Id {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     *app.window_ids.entry((area, path.clone())).or_insert_with(|| {
-        egui::Id::new(("instance-window", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+        egui::Id::unique((
+            "instance-window",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
     })
 }
 

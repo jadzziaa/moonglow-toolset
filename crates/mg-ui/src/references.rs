@@ -1249,7 +1249,7 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let mut open = true;
     let mut find = None;
-    let always_id = egui::Id::new("delete-always");
+    let always_id = egui::Id::unique("delete-always");
     let (always_on, always_tip) = crate::widgets::always_now(
         ctx,
         always_id,

@@ -84,7 +84,7 @@ pub(crate) fn open_model_button(app: &Moonglow, ui: &mut Ui, editor: Option<&Tab
     let close = mg_uikit::IconButton::new(mg_uikit::Icon::Close, PREVIEW_CLOSE).icon_only(true);
     let tip = "Put the resource away: choosing another shows it";
     if ui.add_enabled(shows, close).on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
-        ui.data_mut(|m| m.insert_temp(egui::Id::new(("hak-preview-closed", d.id)), true));
+        ui.data_mut(|m| m.insert_temp(egui::Id::unique(("hak-preview-closed", d.id)), true));
     }
     opened
 }
@@ -114,7 +114,7 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     ui.painter().rect_filled(room, 0.0, t.base);
     let Some(at) = doc_of(app, editor) else { return };
     app.haks[at].preview_pass = ui.ctx().cumulative_pass_nr();
-    let closed = egui::Id::new(("hak-preview-closed", id));
+    let closed = egui::Id::unique(("hak-preview-closed", id));
     if ui.data_mut(|m| m.remove_temp::<bool>(closed)).is_some() {
         let d = &mut app.haks[at];
         d.closed = d.preview_key();
@@ -294,14 +294,10 @@ fn model(app: &mut Moonglow, ui: &mut Ui, at: usize, key: ResKey, read: bool, fa
         y += pitch;
     }
     let facts_rect = egui::Rect::from_x_y_ranges(room.x_range(), facts_top..=y);
-    let r = ui.interact(facts_rect, ui.id().with("hak-model-facts"), egui::Sense::hover());
+    let r = ui.interact(facts_rect, ui.scope_id().with("hak-model-facts"), egui::Sense::hover());
     r.widget_info(|| {
         let said: Vec<String> = rows.iter().map(|(w, v)| format!("{w} {v}")).collect();
-        egui::WidgetInfo::labeled(
-            egui::WidgetType::Label,
-            true,
-            format!("Facts: {}", said.join(", ")),
-        )
+        egui::WidgetInfo::labeled(egui::Role::Label, true, format!("Facts: {}", said.join(", ")))
     });
     caption_at(ui, room, note);
 }
@@ -415,7 +411,7 @@ pub(crate) fn details(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                         let r = out.response;
                         r.widget_info(|| {
                             egui::WidgetInfo::labeled(
-                                egui::WidgetType::TextEdit,
+                                egui::Role::TextInput,
                                 true,
                                 DETAILS_DESCRIPTION,
                             )

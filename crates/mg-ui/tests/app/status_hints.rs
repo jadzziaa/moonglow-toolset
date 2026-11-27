@@ -456,6 +456,7 @@ fn the_other_area_states_show_their_hints() {
             h.event(egui::Event::MouseWheel {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, 100.0),
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: ctrl,
                 phase: egui::TouchPhase::Move,
             });

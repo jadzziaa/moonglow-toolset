@@ -702,6 +702,7 @@ mod tests {
         let unused = bake::Unused { rows, models: vec!["mgbk_lone".into()] };
         app.bake.ask = Some(TidyAsk { unused, then: Action::Save });
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(900.0, 700.0))
             .build_ui_state(|ui, app: &mut Moonglow| save_window(app, ui.ctx()), app);
         h.run();
@@ -719,6 +720,7 @@ mod tests {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -200.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run();

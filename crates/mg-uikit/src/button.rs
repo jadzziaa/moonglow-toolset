@@ -11,7 +11,7 @@
 //! with any opacity a parent gave kept (a fading window's).
 
 use egui::{
-    Color32, FontId, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
+    Color32, FontId, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use crate::icons::{ButtonState, Icon};
@@ -397,8 +397,8 @@ impl egui::Widget for KitButton {
         response.widget_info(|| {
             let name = self.accessible_name();
             match toggle {
-                true => WidgetInfo::selected(WidgetType::Button, enabled, self.on, name),
-                false => WidgetInfo::labeled(WidgetType::Button, enabled, name),
+                true => WidgetInfo::selected(Role::Button, enabled, self.on, name),
+                false => WidgetInfo::labeled(Role::Button, enabled, name),
             }
         });
         if let Some(open) = self.open {

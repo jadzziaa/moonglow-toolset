@@ -67,7 +67,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
     };
     let pending = app.actions.len();
     crate::claims::banner(app, ui, area);
-    let refused_id = egui::Id::new(("area-refused", area));
+    let refused_id = egui::Id::unique(("area-refused", area));
     if let Some(why) = &held {
         let now = ui.input(|i| i.time);
         let refused = ui
@@ -158,7 +158,7 @@ fn pages(
     // named for a screen reader and the tests: "Audio" is also the area
     // header's popover. `blueprint_pages` keeps the page at the top.)
     // (Kept by the whole set of areas: another set has its own place.)
-    let id = egui::Id::new(("area-properties-pages", area, others));
+    let id = egui::Id::unique(("area-properties-pages", area, others));
     let mut listed = crate::form_pages::list(ui, id, PAGES_ROW, pages, &mut top);
     let ui = &mut listed.body;
     let mut names = Vec::new();
@@ -284,7 +284,7 @@ fn page_body(app: &mut Moonglow, ui: &mut Ui, page: &str, on: Shared<'_>) {
                     );
                     let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
                     let load_order = app.load_order;
-                    let id = egui::Id::new("area-props-grass-cache");
+                    let id = egui::Id::unique("area-props-grass-cache");
                     let hit = ui.data(|d| d.get_temp::<GrassCache>(id)).and_then(|(k, v)| {
                         (k.0 == ws_key
                             && k.1 == load_order
@@ -519,7 +519,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         ui.ctx().pixels_per_point().to_bits(),
         font.size.to_bits(),
     );
-    let widest_id = egui::Id::new("area-props-scheme-widest");
+    let widest_id = egui::Id::unique("area-props-scheme-widest");
     let widest = if let Some((was, cached)) =
         ui.data(|d| d.get_temp::<((bool, u64, usize, u32, u32), f32)>(widest_id))
         && was == widest_key
@@ -541,7 +541,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     // The arrow keys move the choice while a scheme has the keys, as in a
     // list of choices: Up and Down down the columns, Left and Right to the
     // column beside (the one chosen so takes the keys in the next frame).
-    let focus_id = egui::Id::new(("schemes-focus", f.key));
+    let focus_id = egui::Id::unique(("schemes-focus", f.key));
     let refocus: Option<usize> = ui.data_mut(|d| d.remove_temp(focus_id));
     let mut stepped = None;
     mg_uikit::with_rows(ui, |ui| {
@@ -690,8 +690,8 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     // The lighting kept, by name: read from its folder when the menu
     // opens and after a Save, Rename or Delete here, not every frame the
     // page shows (kept in between, for every Area Properties window).
-    let saved_id = egui::Id::new("lighting-saved");
-    let menu_id = egui::Id::new("lighting-saved-open");
+    let saved_id = egui::Id::unique("lighting-saved");
+    let menu_id = egui::Id::unique("lighting-saved-open");
     let kept: Option<std::sync::Arc<Vec<String>>> = ui.data(|d| d.get_temp(saved_id));
     let mut saved = match kept {
         Some(kept) => kept,
@@ -705,14 +705,14 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let (mut is_open, mut changed) = (false, false);
     // A name being typed: for Save This Lighting (`None`) or to rename the
     // one named (`Some`).
-    let naming = ui.id().with(("lighting-name", f.key.resref));
+    let naming = ui.scope_id().with(("lighting-name", f.key.resref));
     // The one deleted last, which Undo Delete puts back (its file is
     // Moonglow's, not the module's: Edit › Undo doesn't know it).
-    let deleted_id = egui::Id::new("lighting-deleted");
+    let deleted_id = egui::Id::unique("lighting-deleted");
     let deleted: Option<(String, String)> = ui.data(|d| d.get_temp(deleted_id));
     // Whether saved lighting gives the tiles' lights too: asked each time
     // the window is open, off until ticked (it changes every tile).
-    let relight_id = egui::Id::new("lighting-tiles-too");
+    let relight_id = egui::Id::unique("lighting-tiles-too");
     let mut relight: bool = ui.data(|d| d.get_temp(relight_id)).unwrap_or(false);
     let mut scheme_of = None;
     ui.horizontal(|ui| {
@@ -1027,7 +1027,7 @@ fn audio(
             type AudioAlsoCache = ((Option<(u64, u64)>, u64, Vec<ResRef>), crate::widgets::Also);
             let ws_key = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
             let load_order = app.load_order;
-            let id = egui::Id::new("area-props-audio-also-cache");
+            let id = egui::Id::unique("area-props-audio-also-cache");
             let hit = ui.data(|d| d.get_temp::<AudioAlsoCache>(id)).and_then(|(k, v)| {
                 (k.0 == ws_key && k.1 == load_order && k.2.as_slice() == others).then_some(v)
             });
@@ -1309,7 +1309,7 @@ type VarsMovedCache = ((Option<(u64, u64)>, u64, ResKey, crate::widgets::Also), 
 fn variables_moved(f: &mut Form<'_>, ui: &Ui) -> std::sync::Arc<VarsMovedCache> {
     let ws_key = f.app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
     let load_order = f.app.load_order;
-    let id = egui::Id::new("area-props-variables-moved-cache");
+    let id = egui::Id::unique("area-props-variables-moved-cache");
     if let Some(cached) = ui.data(|d| d.get_temp::<std::sync::Arc<VarsMovedCache>>(id))
         && cached.0.0 == ws_key
         && cached.0.1 == load_order
@@ -2027,7 +2027,7 @@ fn together_page(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, page: &st
     let held = set.held.clone();
     let viewed = held.is_some();
     let pending = app.actions.len();
-    let refused_id = egui::Id::new("areas-together-refused");
+    let refused_id = egui::Id::unique("areas-together-refused");
     let pass = ui.ctx().cumulative_pass_nr();
     app.panel_form = true;
     crate::tool_sections::scrolled(ui, &format!("areas-together-{page}"), |ui| {
@@ -2138,7 +2138,10 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
     let tilesets = c.tilesets(app, &areas);
     let tileset_label = |t: ResRef| {
         let name = tilesets.iter().find(|(r, _)| *r == t).map_or("", |(_, n)| n.as_str());
-        if name.is_empty() || name == t.to_string() {
+        // (An area with no tileset: its row said nothing.)
+        if t == ResRef::EMPTY {
+            "No tileset".to_string()
+        } else if name.is_empty() || name == t.to_string() {
             t.to_string()
         } else {
             format!("{name} ({t})")
@@ -2178,11 +2181,14 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
                 .inner
             };
             whole_label(ui, "Filter");
-            crate::widgets::SearchField::new(egui::Id::new("area-chooser-filter"), &mut c.filter)
-                .hint("Name or ResRef")
-                .width(field)
-                .find_over()
-                .show(ui);
+            crate::widgets::SearchField::new(
+                egui::Id::unique("area-chooser-filter"),
+                &mut c.filter,
+            )
+            .hint("Name or ResRef")
+            .width(field)
+            .find_over()
+            .show(ui);
             ui.end_row();
             whole_label(ui, "Tileset");
             let options: Vec<_> =
@@ -2430,7 +2436,7 @@ fn checklist(ui: &mut Ui, c: &mut AreaChooser, areas: &Listed, shown: &[usize]) 
             }
         });
     });
-    c.list_seen = (out.state.offset.y, out.inner_rect.height());
+    c.list_seen = (out.state.clamped_offset().y, out.inner_rect.height());
     if let Some(a) = toggled {
         if !c.chosen.remove(&a) {
             c.chosen.insert(a);

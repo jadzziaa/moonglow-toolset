@@ -739,7 +739,7 @@ impl Moonglow {
 const RECOVER_WIDTH: f32 = 548.0;
 
 pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
-    let confirm_id = egui::Id::new("mg-recovery-confirm-discard");
+    let confirm_id = egui::Id::unique("mg-recovery-confirm-discard");
     if app.recoveries.is_empty() {
         ui.ctx().data_mut(|d| d.remove_temp::<PathBuf>(confirm_id));
         return;
@@ -1375,6 +1375,7 @@ mod tests {
         viewer.recovery_dir = Some(dir.join("recovery"));
         viewer.recoveries = vec![copy];
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(800.0, 500.0))
             .build_ui_state(|ui, app: &mut Moonglow| window(app, ui), viewer);
         h.run_steps(2);

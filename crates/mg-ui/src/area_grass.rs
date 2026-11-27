@@ -23,7 +23,7 @@ use crate::{Action, Moonglow};
 type Tried = (u64, Vec<(u32, GrassLook)>);
 
 fn tried_id(area: ResRef) -> egui::Id {
-    egui::Id::new(("mg-grass-tried", area))
+    egui::Id::unique(("mg-grass-tried", area))
 }
 
 /// What the Grass page of `area`'s properties is trying out (a drag, a
@@ -71,7 +71,7 @@ fn materials_present(
     tileset: ResRef,
 ) -> std::sync::Arc<std::collections::BTreeMap<u32, f32>> {
     type Known = (Option<u64>, std::sync::Arc<std::collections::BTreeMap<u32, f32>>);
-    let id = egui::Id::new(("mg-grass-materials", area));
+    let id = egui::Id::unique(("mg-grass-materials", area));
     let revision = app.ws.as_ref().map(|w| w.revision());
     if let Some((at, known)) = ctx.data(|d| d.get_temp::<Known>(id))
         && at == revision
@@ -223,7 +223,7 @@ pub(crate) fn page(
     let taken: Vec<u32> = shown.iter().map(|o| o.material).collect();
     for o in shown {
         let o = current.for_material(o.material).unwrap_or(o);
-        let id = ui.id().with(("grass", o.material));
+        let id = ui.scope_id().with(("grass", o.material));
         egui::Frame::group(ui.style()).show(ui, |ui| {
             let mut changed = o.clone();
             let mut set = false;

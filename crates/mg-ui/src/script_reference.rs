@@ -106,7 +106,7 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         SideTab::Constants => "Find a constant",
         SideTab::Templates => "Find a template",
     };
-    let id = egui::Id::new(("script-reference-find", key));
+    let id = egui::Id::unique(("script-reference-find", key));
     let found = crate::widgets::SearchField::new(id, &mut t.filter).hint(what).show(ui);
     if focus {
         found.response.request_focus();
@@ -206,9 +206,7 @@ fn list_row(ui: &mut Ui, name: &str, chosen: bool, quiet: bool) -> egui::Respons
     let height = mg_uikit::row_height(ui);
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, name)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, chosen, name));
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered() || response.has_focus();
         let (fill, text) = match (chosen, hovered, quiet) {
@@ -248,9 +246,9 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     // (F6 to it: the keyboard's focus on the panel itself, taken from the
     // script's text, so that what is typed goes nowhere, as F6 to any
     // panel takes it from where it was. A stop of Tab of its own.)
-    let id = ui.id().with("script-help-focus");
+    let id = ui.scope_id().with("script-help-focus");
     let focus = ui.interact(ui.max_rect(), id, egui::Sense::FOCUSABLE);
-    focus.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Help's text"));
+    focus.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, "Help's text"));
     if std::mem::take(&mut app.script_tools.help_focus) {
         focus.request_focus();
     }

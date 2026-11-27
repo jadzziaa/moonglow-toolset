@@ -883,7 +883,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     // it is opened from, at once. (Opened again, it came up behind it for
     // a frame, and with nothing to draw another, stayed there: the click
     // looked to do nothing.)
-    let picker = egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some("Select a Color")));
+    let picker = egui::LayerId::new(egui::Order::Middle, egui::Id::unique(Some("Select a Color")));
     let on_top = |h: &Harness<'_, Moonglow>| {
         h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)) == Some(picker)
     };
@@ -4123,6 +4123,7 @@ fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 60.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::SHIFT,
         });
         h.run_steps(1);

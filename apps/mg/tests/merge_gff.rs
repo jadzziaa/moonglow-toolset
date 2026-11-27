@@ -85,13 +85,15 @@ fn objects_both_sides_placed_are_both_kept() {
     let theirs = put(&dir, "theirs", bytes(&area_git(&[blue.clone()])));
     let (ok, m) = mg(&["merge-gff", &base, &ours, &theirs]);
     assert!(!ok && m["merged"] == false && m["written"].is_null(), "{m}");
+    // (Its edit in the conflict file is the first: nothing else merged.)
     assert_eq!(
         m["conflicts"][0],
         serde_json::json!({
             "path": "/Placeable List[plc_chest \"CHEST\" at 1, 1]/Tag",
-            "base": "\"CHEST\"", "ours": "\"RED\"", "theirs": "\"BLUE\"",
+            "base": "\"CHEST\"", "ours": "\"RED\"", "theirs": "\"BLUE\"", "edits": [0],
         })
     );
+    assert_eq!(m["conflict_file"], format!("{ours}.conflicts").as_str());
     assert_eq!(read(Path::new(&ours)), area_git(&[red.clone()]));
     // --prefer takes a side, and the merge is written.
     let out = dir.join("out").to_str().unwrap().to_string();
@@ -285,4 +287,288 @@ fn git_merges_two_builders_branches() {
     assert_eq!(text("module.ifo.json"), json_text(ResType::IFO, &ifo));
     let status = git(&repo, &["status", "--porcelain"]);
     assert!(status.stdout.is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
+}
+
+/// A conflict file's edits, those of the conflicts not in `keep` left out.
+fn conflict_edits(file: &str, m: &serde_json::Value, keep: &[usize]) -> serde_json::Value {
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let mut out_of: Vec<u64> = Vec::new();
+    for (k, c) in m["conflicts"].as_array().unwrap().iter().enumerate() {
+        if !keep.contains(&k) {
+            out_of.extend(c["edits"].as_array().unwrap().iter().map(|e| e.as_u64().unwrap()));
+        }
+    }
+    let edits = json["edits"].as_array().unwrap().iter().enumerate();
+    let kept: Vec<_> =
+        edits.filter(|(i, _)| !out_of.contains(&(*i as u64))).map(|(_, e)| e.clone()).collect();
+    json["edits"] = serde_json::json!(kept);
+    json
+}
+
+/// On a conflict, the edits that make OURS the merge are written beside
+/// it for `mg apply`: what merged, then theirs' side of each conflict.
+/// Applied to a module whose area is OURS, with any of the conflicts' edits
+/// left out, they give the merge with ours' side of those: three
+/// conflicts in one list (a tag both changed, an object one removed and
+/// the other changed, one both moved), with theirs' change to another
+/// object and an object each side added.
+#[test]
+fn a_conflict_file_takes_either_side_of_each_conflict() {
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-conflicts");
+    let (chest, lamp, rug, table) = (
+        placeable("plc_chest", "CHEST", 1.0),
+        placeable("plc_lamp", "LAMP", 2.0),
+        placeable("plc_rug", "RUG", 3.0),
+        placeable("plc_table", "TABLE", 4.0),
+    );
+    let with = |s: &Struct, label: &str, v: Value| {
+        let mut s = s.clone();
+        s.set(label, v);
+        s
+    };
+    let tag = |s: &Struct, t: &str| with(s, "Tag", Value::String(t.into()));
+    let base = area_git(&[chest.clone(), lamp.clone(), rug.clone(), table.clone()]);
+    let ours = area_git(&[
+        tag(&chest, "RED"),
+        with(&rug, "X", Value::Float(3.5)),
+        table.clone(),
+        placeable("plc_stool", "STOOL", 5.0),
+    ]);
+    let theirs = area_git(&[
+        tag(&chest, "BLUE"),
+        with(&lamp, "Locked", Value::Byte(1)),
+        with(&rug, "X", Value::Float(3.75)),
+        tag(&table, "DESK"),
+        placeable("plc_bed", "BED", 6.0),
+    ]);
+    let bytes = |g: &Gff| g.to_bytes().unwrap();
+    let (b, t) = (put(&dir, "base", bytes(&base)), put(&dir, "theirs", bytes(&theirs)));
+    let module = dir.join("module");
+    std::fs::create_dir_all(&module).unwrap();
+    let area = module.join("area1.git");
+    let ours_path = area.to_str().unwrap().to_string();
+    std::fs::write(&area, bytes(&ours)).unwrap();
+    let (ok, m) = mg(&["merge-gff", &b, &ours_path, &t]);
+    assert!(!ok && m["conflicts"].as_array().unwrap().len() == 3, "{m}");
+    assert_eq!(read(&area), ours, "OURS as it was");
+    let file = format!("{ours_path}.conflicts");
+    assert_eq!(m["conflict_file"], file.as_str());
+    // Each edit says what it is for.
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let notes: Vec<&str> =
+        json["edits"].as_array().unwrap().iter().map(|e| e["note"].as_str().unwrap()).collect();
+    assert!(notes[0].starts_with("merged"), "{notes:?}");
+    assert!(notes.iter().any(|n| n.starts_with("conflict 2 of 3, theirs' side:")), "{notes:?}");
+    // (The folder is a module, and the file in it no resource.)
+    let module_dir = module.to_str().unwrap();
+    let edits = dir.join("edits.json");
+    let edits_path = edits.to_str().unwrap();
+    for keep in 0..8usize {
+        let kept: Vec<usize> = (0..3).filter(|k| keep & (1 << k) != 0).collect();
+        std::fs::write(&area, bytes(&ours)).unwrap();
+        std::fs::write(&edits, conflict_edits(&file, &m, &kept).to_string()).unwrap();
+        let (ok, applied) = mg(&["apply", module_dir, edits_path]);
+        assert!(ok, "{applied}");
+        let choose = |i: usize| {
+            if kept.contains(&i) {
+                mg_module::merge::Prefer::Theirs
+            } else {
+                mg_module::merge::Prefer::Ours
+            }
+        };
+        let want = mg_module::merge::merge_choosing(&base, &ours, &theirs, &choose).gff;
+        assert_eq!(read(&area), want, "theirs' side of {kept:?}");
+    }
+    // Whole, it is --prefer theirs; without a conflict's edits, --prefer ours.
+    let out = dir.join("out").to_str().unwrap().to_string();
+    std::fs::write(&area, bytes(&ours)).unwrap();
+    assert!(mg(&["merge-gff", &b, &ours_path, &t, "--prefer", "theirs", "-o", &out]).0);
+    assert!(mg(&["apply", module_dir, &file]).0);
+    assert_eq!(read(&area), read(Path::new(&out)));
+    std::fs::write(&area, bytes(&ours)).unwrap();
+    assert!(mg(&["merge-gff", &b, &ours_path, &t, "--prefer", "ours", "-o", &out]).0);
+    assert_eq!(read(Path::new(&out)).root.list("Placeable List").unwrap().len(), 5);
+}
+
+/// Two builders adding lines to one conversation (a nasher project's JSON)
+/// both keep theirs: theirs numbered after ours, their links with them.
+#[test]
+fn lines_both_builders_added_to_a_conversation_are_both_kept() {
+    use mg_module::dialog::{Kind, Parent, add_link, add_node, new_dialog, outline};
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-dlg");
+    let mut base = new_dialog();
+    let hello = add_node(&mut base, Parent::Root, "Hello.");
+    add_node(&mut base, Parent::Node(Kind::Entry, hello), "Hi.");
+    let mut ours = base.clone();
+    add_node(&mut ours, Parent::Node(Kind::Entry, hello), "Bye.");
+    let theirs_adds = |g: &mut Gff| {
+        let r = add_node(g, Parent::Node(Kind::Entry, hello), "Who are you?");
+        let e = add_node(g, Parent::Node(Kind::Reply, r), "Nobody.");
+        add_link(g, Parent::Node(Kind::Entry, e), r);
+    };
+    let mut theirs = base.clone();
+    theirs_adds(&mut theirs);
+    let text = |g: &Gff| json_text(ResType::DLG, g);
+    let (b, o, t) = (
+        put(&dir, "base", text(&base)),
+        put(&dir, "ours", text(&ours)),
+        put(&dir, "theirs", text(&theirs)),
+    );
+    let (ok, m) = mg(&["merge-gff", &b, &o, &t]);
+    assert!(ok && m["result"] == "merged", "{m}");
+    let mut want = ours.clone();
+    theirs_adds(&mut want);
+    assert_eq!(outline(&read(Path::new(&o))), outline(&want));
+    assert_eq!(std::fs::read_to_string(&o).unwrap(), text(&want));
+}
+
+/// A conflict in a git merge leaves the conflict file beside the file in
+/// the work tree, which `mg apply` on the project takes: the merge, and no
+/// other file changed.
+#[test]
+fn a_conflict_in_a_git_merge_is_settled_by_its_conflict_file() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipped: no git");
+        return;
+    }
+    let root = mg_testkit::scratch_dir("mg-merge-gff-git-conflict");
+    let repo: PathBuf = root.join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    ok(&repo, &["init", "-q", "-b", "main"]);
+    let driver = format!("'{}' merge-gff %O %A %B --path %P", env!("CARGO_BIN_EXE_mg"));
+    ok(&repo, &["config", "merge.mg-gff.driver", &driver]);
+    std::fs::write(repo.join(".gitattributes"), "*.git.json merge=mg-gff\n").unwrap();
+    std::fs::write(
+        repo.join("nasher.cfg"),
+        "[package]\n[target]\nname = \"m\"\nfile = \"m.mod\"\n[target.sources]\ninclude = \"src/**/*.json\"\n",
+    )
+    .unwrap();
+    let file = repo.join("src/area1.git.json");
+    let write = |objects: &[Struct]| {
+        std::fs::write(&file, json_text(ResType::GIT, &area_git(objects))).unwrap();
+    };
+    let chest = placeable("plc_chest", "CHEST", 1.0);
+    let tagged = |t: &str| {
+        let mut s = chest.clone();
+        s.set("Tag", Value::String(t.into()));
+        s
+    };
+    write(std::slice::from_ref(&chest));
+    ok(&repo, &["add", "-A"]);
+    ok(&repo, &["commit", "-q", "-m", "base"]);
+    let (lamp, rug) = (placeable("plc_lamp", "LAMP", 2.0), placeable("plc_rug", "RUG", 3.0));
+    ok(&repo, &["checkout", "-q", "-b", "anna"]);
+    write(&[tagged("RED"), lamp.clone()]);
+    ok(&repo, &["commit", "-q", "-am", "anna"]);
+    ok(&repo, &["checkout", "-q", "main"]);
+    ok(&repo, &["checkout", "-q", "-b", "boris"]);
+    write(&[tagged("BLUE"), rug.clone()]);
+    ok(&repo, &["commit", "-q", "-am", "boris"]);
+    assert!(!git(&repo, &["merge", "-q", "--no-edit", "anna"]).status.success());
+    // (As JSON reads it: its fields sorted.)
+    let as_read = |g: Gff| {
+        Conversion::default().from_source("x", json_text(ResType::GIT, &g).as_bytes()).unwrap()
+    };
+    assert_eq!(read(&file), as_read(area_git(&[tagged("BLUE"), rug.clone()])), "ours in the file");
+    let conflicts = repo.join("src/area1.git.json.conflicts");
+    assert!(conflicts.is_file());
+    let (applied, out) = mg(&["apply", repo.to_str().unwrap(), conflicts.to_str().unwrap()]);
+    assert!(applied, "{out}");
+    assert_eq!(read(&file), as_read(area_git(&[tagged("RED"), rug, lamp])));
+    let status = git(&repo, &["status", "--porcelain"]);
+    let status = String::from_utf8_lossy(&status.stdout);
+    let mut lines: Vec<&str> = status.lines().collect();
+    lines.sort();
+    assert_eq!(lines, ["?? src/area1.git.json.conflicts", "UU src/area1.git.json"], "{status}");
+}
+
+/// A line deleted on one side while the other changed lines is one
+/// conflict of the lines, which the conflict file takes theirs' side of
+/// like any other: applied, it is `--prefer theirs`.
+#[test]
+fn a_conversation_s_lines_conflict_is_settled_by_its_conflict_file() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog, node_mut, remove};
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-dlg-conflict");
+    let mut base = new_dialog();
+    let hello = add_node(&mut base, Parent::Root, "Hello.");
+    for text in ["One.", "Two.", "Three."] {
+        add_node(&mut base, Parent::Node(Kind::Entry, hello), text);
+    }
+    let mut ours = base.clone();
+    remove(&mut ours, Parent::Node(Kind::Entry, hello), 0);
+    let mut theirs = base.clone();
+    node_mut(&mut theirs, Kind::Reply, 1).unwrap().set("Comment", Value::String(b"two".to_vec()));
+    theirs.root.set("DelayReply", Value::Dword(2));
+    let module = dir.join("module");
+    std::fs::create_dir_all(&module).unwrap();
+    let conv = module.join("talk.dlg");
+    let bytes = |g: &Gff| g.to_bytes().unwrap();
+    std::fs::write(&conv, bytes(&ours)).unwrap();
+    let (b, t) = (put(&dir, "base", bytes(&base)), put(&dir, "theirs", bytes(&theirs)));
+    let o = conv.to_str().unwrap().to_string();
+    let (ok, m) = mg(&["merge-gff", &b, &o, &t]);
+    assert!(!ok && m["conflicts"][0]["path"] == "/(lines)", "{m}");
+    assert_eq!(m["conflicts"][0]["ours"], "EntryList 1, ReplyList 2, StartingList 1", "{m}");
+    let out = dir.join("out").to_str().unwrap().to_string();
+    assert!(mg(&["merge-gff", &b, &o, &t, "--prefer", "theirs", "-o", &out]).0);
+    let (ok, applied) = mg(&["apply", module.to_str().unwrap(), &format!("{o}.conflicts")]);
+    assert!(ok, "{applied}");
+    assert_eq!(read(&conv), read(Path::new(&out)));
+    assert_eq!(read(&conv).root.dword("DelayReply"), Some(2));
+}
+
+/// A list's order both changed and a value in it both changed: the
+/// order's edits put items in other places, so the two are one group in
+/// the conflict file, taken together; applied whole it is still `--prefer
+/// theirs`, and without them `--prefer ours`.
+#[test]
+fn conflicts_whose_edits_overlap_are_taken_together() {
+    let dir = mg_testkit::scratch_dir("mg-merge-gff-overlap");
+    let var = |name: &str, value: i32| {
+        let mut s = Struct::new(0);
+        s.set("Name", Value::String(name.into()));
+        s.set("Type", Value::Dword(1));
+        s.set("Value", Value::Int(value));
+        s
+    };
+    let utc = |vars: &[Struct]| {
+        let mut g = Gff::new(*b"UTC ");
+        g.root.set("Tag", Value::String(b"GUARD".to_vec()));
+        g.root.set("VarTable", Value::List(vars.to_vec()));
+        g
+    };
+    let (a, c) = (var("a", 1), var("c", 3));
+    let base = utc(&[a.clone(), var("b", 2), c.clone()]);
+    let ours = utc(&[var("b", 20), a.clone(), c.clone()]);
+    let mut theirs = utc(&[c.clone(), a.clone(), var("b", 21)]);
+    theirs.root.set("Tag", Value::String(b"GATE".to_vec()));
+    let module = dir.join("module");
+    std::fs::create_dir_all(&module).unwrap();
+    let file = module.join("guard.utc");
+    let bytes = |g: &Gff| g.to_bytes().unwrap();
+    std::fs::write(&file, bytes(&ours)).unwrap();
+    let (b, t) = (put(&dir, "base", bytes(&base)), put(&dir, "theirs", bytes(&theirs)));
+    let o = file.to_str().unwrap().to_string();
+    let (ok, m) = mg(&["merge-gff", &b, &o, &t]);
+    assert!(!ok, "{m}");
+    let paths: Vec<&str> =
+        m["conflicts"].as_array().unwrap().iter().map(|c| c["path"].as_str().unwrap()).collect();
+    assert_eq!(paths, ["/VarTable[b, 1]/Value", "/VarTable/(order)"]);
+    assert_eq!(m["conflicts"][0]["edits"], m["conflicts"][1]["edits"], "{m}");
+    let conflicts = format!("{o}.conflicts");
+    let text = std::fs::read_to_string(&conflicts).unwrap();
+    assert!(text.contains("conflicts 1 and 2 of 2, theirs' side of each"), "{text}");
+    let out = dir.join("out").to_str().unwrap().to_string();
+    let module_dir = module.to_str().unwrap();
+    for (keep, prefer) in [(&[0usize, 1][..], "theirs"), (&[][..], "ours")] {
+        std::fs::write(&file, bytes(&ours)).unwrap();
+        assert!(mg(&["merge-gff", &b, &o, &t, "--prefer", prefer, "-o", &out]).0);
+        let edits = dir.join("edits.json");
+        std::fs::write(&edits, conflict_edits(&conflicts, &m, keep).to_string()).unwrap();
+        let (ok, applied) = mg(&["apply", module_dir, edits.to_str().unwrap()]);
+        assert!(ok, "{applied}");
+        assert_eq!(read(&file), read(Path::new(&out)), "--prefer {prefer}");
+    }
 }

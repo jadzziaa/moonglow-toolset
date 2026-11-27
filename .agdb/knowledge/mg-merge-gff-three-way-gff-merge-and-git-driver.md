@@ -21,7 +21,7 @@ asks:
 - GIT placed objects have no id in shipped data (no `ObjectId` in the observed schema; it exists in BIC equipped items). `ListRule::Placed` pairs base to each side in steps: every field equal, `ObjectId`, (TemplateResRef, Tag, position at 4 places), then unique-only (TemplateResRef, Tag) for moves and (TemplateResRef, position) for retags. Additions by both are both kept, identical ones once. Position is `XPosition/YPosition/ZPosition` or, for doors and placeables, `X/Y/Z`.
 - Byte for byte: a merge whose tree equals OURS doesn't write at all; one equal to THEIRS (same form) copies THEIRS's bytes; only other merges are serialized (JSON with `TextStyle::NASHER` and the project's float places, without `Conversion::to_source`'s Mod_ID/Version removal: nasher's input never has them, and a plain nwn_gff JSON keeps them).
 - Format by content, not extension: git's %O/%A/%B are `.merge_file_XXXX` temp files. JSON = first non-space byte `{`.
-- `--prefer ours|theirs` (also `a|b`, as 2da-diff/tlk-diff spell it). Unsettled conflict: `out.failed`, nothing written, exit 1, %A stays ours.
+- `--prefer ours|theirs` (also `a|b`, as 2da-diff/tlk-diff spell it). Unsettled conflict: `out.failed`, nothing written over %A, exit 1, %A stays ours; since 2026-11-26 a `NAME.conflicts` edit file for `mg apply` is written beside the file, and conversations go through `mg_module::merge` (see the note "mg merge-gff: conversation lines renumbered, and the conflict file").
 
 ## Watch out
 - In this worktree's Bash guard, any command text containing "git" in a non-plain form (a heredoc, a `.git.json` file name, an `okf log` message mentioning git) is refused: write such files with Write/Edit and run scratchpad scripts by path.

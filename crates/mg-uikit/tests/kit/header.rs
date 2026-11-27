@@ -394,12 +394,16 @@ fn a_combo_inside_a_popover_leaves_it_open() {
         let button = ui.add(KitButton::new(None, "Lighting").opens(false));
         let mut value = chosen.get();
         let pop = Popover::new("Lighting popover").custom(|ui| {
-            ui.label("Fade geometry");
-            egui::ComboBox::from_id_salt("fade").selected_text(value).show_ui(ui, |ui| {
-                for v in ["Never", "Object Mode Only", "Always"] {
-                    ui.selectable_value(&mut value, v, v);
-                }
-            });
+            let label = ui.label("Fade geometry");
+            egui::ComboBox::from_id_salt("fade")
+                .selected_text(value)
+                .show_ui(ui, |ui| {
+                    for v in ["Never", "Object Mode Only", "Always"] {
+                        ui.selectable_value(&mut value, v, v);
+                    }
+                })
+                .response
+                .labelled_by(label.id);
         });
         let _ = pop.show(ui, &button);
         chosen.set(value);

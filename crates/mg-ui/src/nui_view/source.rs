@@ -146,7 +146,7 @@ impl crate::Moonglow {
 
 /// What [`crate::Moonglow::nui_source_band_for_test`] reads.
 fn band_id() -> egui::Id {
-    egui::Id::new("nui-source-band")
+    egui::Id::unique("nui-source-band")
 }
 
 /// The name of the switch's position designer `state` shows (its open-tabs
@@ -246,7 +246,7 @@ fn header(app: &Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) -> Asked 
     ];
     let width = form::segmented_width(
         ui,
-        egui::Id::new("nui-source-switch-w"),
+        egui::Id::unique("nui-source-switch-w"),
         &[JUI_SOURCE, BINDING_JSON],
     );
     let chosen = std::cell::Cell::new(state.source_of);
@@ -335,7 +335,7 @@ fn body(app: &mut Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) {
     let draft = state.source_draft.take_if(|d| d.of == of).unwrap_or_else(|| fresh(current));
     let draft = state.source_draft.insert(draft);
     // (Changed underneath while not typed in: Undo, the design, a page.)
-    let id = ui.id().with(("nui-source-field", key, of));
+    let id = ui.scope_id().with(("nui-source-field", key, of));
     let focused = ui.memory(|m| m.has_focus(id));
     if !focused
         && !draft.typed

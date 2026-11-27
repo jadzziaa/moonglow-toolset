@@ -104,7 +104,7 @@ const WIDEST: f32 = 640.0;
 
 /// The field's id (its text edit's): the same in the Top Bar and over it.
 pub fn field_id() -> egui::Id {
-    egui::Id::new("quick-open-field")
+    egui::Id::unique("quick-open-field")
 }
 
 /// How well a row matches, best first ([`tier_of`]).
@@ -1469,7 +1469,7 @@ pub(crate) fn after_bar(app: &mut Moonglow, ui: &mut Ui, bar: Rect) {
         );
         let t = mg_uikit::tokens(&ctx);
         let qo = &mut app.quick_open;
-        egui::Area::new(egui::Id::new("quick-open-over-bar"))
+        egui::Area::new(egui::Id::unique("quick-open-over-bar"))
             .order(egui::Order::Foreground)
             .fixed_pos(rect.min)
             .show(&ctx, |ui| {
@@ -1593,7 +1593,7 @@ fn popover(ui: &Ui, qo: &mut QuickOpen, found: &Found, anchor: Rect) -> Option<H
     let mut chosen = None;
     let selected = qo.selected;
     let reveal = std::mem::take(&mut qo.reveal);
-    let shown = egui::Area::new(egui::Id::new("quick-open-popover"))
+    let shown = egui::Area::new(egui::Id::unique("quick-open-popover"))
         .order(egui::Order::Foreground)
         .fixed_pos(egui::pos2(left, top))
         .show(&ctx, |ui| {
@@ -1608,7 +1608,8 @@ fn popover(ui: &Ui, qo: &mut QuickOpen, found: &Found, anchor: Rect) -> Option<H
                     .auto_shrink([false, true]);
                 if reveal {
                     let at = selected as f32 * ROW;
-                    let offset = ui.data(|d| d.get_temp::<f32>(egui::Id::new("quick-open-offset")));
+                    let offset =
+                        ui.data(|d| d.get_temp::<f32>(egui::Id::unique("quick-open-offset")));
                     let offset = offset.unwrap_or(0.0);
                     let new = if at < offset {
                         at
@@ -1629,7 +1630,10 @@ fn popover(ui: &Ui, qo: &mut QuickOpen, found: &Found, anchor: Rect) -> Option<H
                     }
                 });
                 ui.data_mut(|d| {
-                    d.insert_temp(egui::Id::new("quick-open-offset"), out.state.offset.y)
+                    d.insert_temp(
+                        egui::Id::unique("quick-open-offset"),
+                        out.state.clamped_offset().y,
+                    )
                 });
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for n in 0..extra {
@@ -1684,7 +1688,7 @@ fn row_width(ui: &Ui, hit: &Hit) -> f32 {
 fn hit_row(ui: &mut Ui, t: &mg_uikit::Tokens, hit: &Hit, selected: bool, width: f32) -> bool {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(width, ROW), egui::Sense::click());
     r.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, hit.enabled, selected, &hit.name)
+        egui::WidgetInfo::selected(egui::Role::Button, hit.enabled, selected, &hit.name)
     });
     // (Its detail, the dim words after its name, said as its description:
     // three blueprints named Guard are told apart by their files.)
@@ -1781,7 +1785,7 @@ fn elided(
 /// A quiet line after the rows (how many more, "Indexing…").
 fn note_row(ui: &mut Ui, text: &str, width: f32) {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(width, ROW), egui::Sense::hover());
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text));
     let color = ui.visuals().weak_text_color();
     let font = egui::FontId::proportional(mg_uikit::metrics::SMALL_SIZE);
     let pad = mg_uikit::metrics::CONTROL_PADDING_X;

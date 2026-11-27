@@ -314,7 +314,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 /// tip) at the end of its header, where the tab bar's would be. Whether
 /// the button was clicked.
 pub(crate) fn alone(app: &mut Moonglow, ui: &mut Ui, fold: &str) -> bool {
-    let id = egui::Id::new(ALONE_FOLD);
+    let id = egui::Id::unique(ALONE_FOLD);
     ui.data_mut(|d| d.insert_temp(id, (fold.to_string(), false)));
     self::ui(app, ui);
     ui.data_mut(|d| d.remove_temp::<(String, bool)>(id)).is_some_and(|(_, clicked)| clicked)
@@ -327,7 +327,7 @@ const ALONE_FOLD: &str = "outliner-alone-fold";
 /// The Left Dock's fold button, at the end of the Outliner's header where
 /// it is drawn alone in the dock ([`alone`]); not in a window's.
 fn alone_fold(ui: &mut Ui, window: bool) {
-    let id = egui::Id::new(ALONE_FOLD);
+    let id = egui::Id::unique(ALONE_FOLD);
     let Some((tip, _)) = ui.data(|d| d.get_temp::<(String, bool)>(id)).filter(|_| !window) else {
         return;
     };
@@ -393,7 +393,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         o.fold = None;
         o.to_first = keys_are(&ctx, Keys::Outliner);
         o.cursor = None;
-        ctx.data_mut(|d| d.remove_temp::<(String, f64)>(egui::Id::new("outliner-typed")));
+        ctx.data_mut(|d| d.remove_temp::<(String, f64)>(egui::Id::unique("outliner-typed")));
     }
     // (A row of another area kept anyhow: not the keys'.)
     if app.outliner.cursor.and_then(area_of).is_some_and(|a| a != area) {
@@ -552,7 +552,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         let text = |at: TreeAt| contents.map_or_else(String::new, |c| tree::outliner_text(at, c));
         let seek = |from: Option<TreeAt>, typed: &str| tree::seek_in(&listed, from, typed, &text);
         if let Some(at) =
-            tree::typed_row(ui, egui::Id::new("outliner-typed"), app.outliner.cursor, &seek)
+            tree::typed_row(ui, egui::Id::unique("outliner-typed"), app.outliner.cursor, &seek)
         {
             app.outliner.cursor = Some(at);
             app.outliner.cursor_moved = true;
@@ -833,7 +833,7 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
             .then(|| {
                 crate::tree::typed_row(
                     ui,
-                    egui::Id::new(("outliner-marks-typed", key)),
+                    egui::Id::unique(("outliner-marks-typed", key)),
                     cursor,
                     &seek,
                 )
@@ -1020,14 +1020,14 @@ fn tileset(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
                     // (Its arrow a button of its own: it opens and closes
                     // the group; the row goes to its page.)
                     let arrow = (counts[g] > 0).then(|| {
-                        let id = ui.id().with(("outline-arrow", g));
+                        let id = ui.scope_id().with(("outline-arrow", g));
                         let r = ui.interact(shown.arrow, id, egui::Sense::click());
                         let said = match open[g] {
                             true => format!("Close {name}"),
                             false => format!("Open {name}"),
                         };
                         r.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said)
+                            egui::WidgetInfo::labeled(egui::Role::Button, true, &said)
                         });
                         r
                     });
@@ -1148,7 +1148,7 @@ fn tileset(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
         };
         let typed = (!rows.is_empty())
             .then(|| {
-                tree::typed_row(ui, egui::Id::new(("outliner-tileset-typed", id)), cursor, &seek)
+                tree::typed_row(ui, egui::Id::unique(("outliner-tileset-typed", id)), cursor, &seek)
             })
             .flatten();
         if let Some(to) = to.or(typed).filter(|_| !rows.is_empty()) {
@@ -1327,7 +1327,9 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
             crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
         };
         let typed = (!types.is_empty())
-            .then(|| tree::typed_row(ui, egui::Id::new(("outliner-hak-typed", id)), cursor, &seek))
+            .then(|| {
+                tree::typed_row(ui, egui::Id::unique(("outliner-hak-typed", id)), cursor, &seek)
+            })
             .flatten();
         if let Some(to) = to.or(typed).filter(|_| !types.is_empty()) {
             app.outliner.marks_cursor = Some((owner, to));
@@ -1388,7 +1390,7 @@ fn factions(app: &mut Moonglow, ui: &mut Ui, window: bool) {
     let cursor = Some((chosen as usize).min(names.len().saturating_sub(1)));
     // (The chosen faction brought into sight where it was chosen elsewhere:
     // the matrix, the Reactions panel, an Add.)
-    let seen_id = egui::Id::new(("outliner-factions-chosen", window));
+    let seen_id = egui::Id::unique(("outliner-factions-chosen", window));
     let elsewhere = ctx.data(|d| d.get_temp::<u32>(seen_id)) != Some(chosen);
     if elsewhere {
         ctx.data_mut(|d| d.insert_temp(seen_id, chosen));
@@ -1472,7 +1474,9 @@ fn factions(app: &mut Moonglow, ui: &mut Ui, window: bool) {
             crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
         };
         let typed = (!names.is_empty())
-            .then(|| tree::typed_row(ui, egui::Id::new("outliner-factions-typed"), cursor, &seek))
+            .then(|| {
+                tree::typed_row(ui, egui::Id::unique("outliner-factions-typed"), cursor, &seek)
+            })
             .flatten();
         if let Some(to) = to.or(typed).filter(|_| !names.is_empty()) {
             app.outliner.marks_cursor = Some((owner, to));
@@ -1679,7 +1683,7 @@ fn columns(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
         };
         let typed = (!names.is_empty())
             .then(|| {
-                tree::typed_row(ui, egui::Id::new(("outliner-columns-typed", id)), cursor, &seek)
+                tree::typed_row(ui, egui::Id::unique(("outliner-columns-typed", id)), cursor, &seek)
             })
             .flatten();
         if let Some(to) = to.or(typed).filter(|_| !names.is_empty()) {
@@ -1722,7 +1726,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         (false, Owner::Hak(_)) => "Show the Outliner: the hak's contents by type",
         (false, Owner::Factions) => "Show the Outliner: the factions",
     };
-    let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
+    let shown = egui::Panel::left(egui::Id::unique(("outliner-strip", owner)))
         .exact_size(STRIP)
         .resizable(false)
         .frame(egui::Frame::new().fill(t.bar))
@@ -1766,7 +1770,7 @@ pub(crate) fn over(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
     // (Over the editor: its fill and its edge, and the presses there its.)
     child.interact(
         over,
-        egui::Id::new(("outliner-over-ground", owner)),
+        egui::Id::unique(("outliner-over-ground", owner)),
         egui::Sense::click_and_drag(),
     );
     child.painter().rect_filled(over, 0.0, t.panel);

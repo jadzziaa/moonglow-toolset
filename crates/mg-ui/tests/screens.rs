@@ -283,7 +283,7 @@ fn color_button_paste() {
     let mut h = Harness::builder().with_size(egui::vec2(420.0, 420.0)).wgpu().build_ui_state(
         |ui, rgb: &mut [u8; 3]| {
             mg_uikit::apply(ui.ctx(), theme());
-            mg_ui::color_button::edit_srgb(ui, rgb);
+            mg_ui::color_button::edit_srgb(ui, rgb).accessible_name("Color");
         },
         [158, 151, 211],
     );
@@ -419,6 +419,7 @@ fn picture_viewer_zoom() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 40.0 * 9.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     let (_, scale) = still(&mut h);
@@ -1178,6 +1179,7 @@ fn read_only_script_and_text() {
                 unit: egui::MouseWheelUnit::Point,
                 delta,
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(20);
@@ -1251,6 +1253,7 @@ fn table_read_only_and_column_widths() {
             unit: egui::MouseWheelUnit::Point,
             delta,
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(60);
@@ -3082,6 +3085,7 @@ fn whole_item_icons() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -29.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(3);
@@ -3198,13 +3202,16 @@ fn armor_part_pictures() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -100.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         settle(&mut h);
     }
     let named = |n: &str| wide.map_or(n.to_string(), |w| format!("{n}-{w}"));
     shoot(&mut h, &dir, &named("armor-parts-torso"));
-    h.get_all_by_label("Right shoulder").last().unwrap().click();
+    // (The gallery's Right Shoulder toggle: a click on the list's label,
+    // as this was, did nothing, and the torsos were pictured again.)
+    h.get_by_label("Right Shoulder").click();
     settle(&mut h);
     shoot(&mut h, &dir, &named("armor-parts-shoulder"));
 }
@@ -4282,6 +4289,7 @@ fn store_scrolled() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, dy),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(20);
@@ -5209,7 +5217,7 @@ fn script_selection() {
     let from = text.find("    int").unwrap();
     let to = text.find("\n\n").unwrap() + 1;
     for (name, range) in [("lines", (from, to)), ("part", (from + 4, from + 13))] {
-        let id = egui::Id::new(("script", key));
+        let id = egui::Id::unique(("script", key));
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
             egui::text::CCursor::new(range.0),
@@ -5313,6 +5321,8 @@ fn creature_wizard() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    // (The new module's Area Wizard, as Aurora opens it, closed.)
+    h.state_mut().wizard = None;
     h.state_mut().creature_wizard = Some(Default::default());
     h.run();
     for page in 0..8 {
@@ -5353,6 +5363,8 @@ fn item_wizard_magical() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    // (The new module's Area Wizard, as Aurora opens it, closed.)
+    h.state_mut().wizard = None;
     h.state_mut().blueprint_wizard = Some(mg_ui::blueprint_wizard::BlueprintWizard::new(
         mg_module::palette::BlueprintKind::Item,
     ));
@@ -7313,7 +7325,7 @@ fn tile_textures() {
         }
         h.run_steps(2);
         popup_item(&h, "Tile Properties").click();
-        h.run_steps(5);
+        settle(&mut h);
         // (The Right Dock's Tile Properties panel, as wide as the dock.)
         h.get_by_label_contains("Textures of ").click();
         h.run_steps(20);
@@ -9409,12 +9421,9 @@ fn armor_part_none() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
     shoot(&mut h, &dir, &format!("{shot}-appearance"));
-    let label = h.get_by_label("Left bicep").rect();
-    h.get_all_by_role(egui::accesskit::Role::ComboBox)
-        .find(|n| {
-            let r = n.rect();
-            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
-        })
+    // (The list is named by its label.)
+    h.get_all_by_label("Left bicep")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::ComboBox)
         .expect("the left bicep's list")
         .click();
     h.run_steps(3);
@@ -9802,6 +9811,7 @@ fn module_tree_long_names() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(-400.0, 0.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -9810,6 +9820,7 @@ fn module_tree_long_names() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(400.0, 0.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -10200,6 +10211,7 @@ fn main_window_log_and_tree() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, 200.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -10381,7 +10393,7 @@ fn script_selection_menu() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
     let (from, to) = (text.find("  if").unwrap(), text.find("    n++").unwrap() + 2);
     let range =
@@ -11095,13 +11107,8 @@ fn grouped_context_menus() {
     };
     // (A submenu opens with the pointer on it, as a builder's.)
     let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
-        // (The menu's: a popup is a layer of its own, with the fewest containers
-        // above it; the toolbars name some of the same words.)
-        let depth = |n: &egui_kittest::Node<'_>| {
-            std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
-        };
-        let all: Vec<_> = h.get_all_by_label(name).collect();
-        let at = all.into_iter().rev().min_by_key(depth).expect(name).rect().center();
+        // (The menu's: the toolbars name some of the same words.)
+        let at = popup_item(h, name).rect().center();
         h.hover_at(at);
         h.run_steps(4);
     };
@@ -11280,7 +11287,7 @@ fn script_editor_large() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let select = |h: &mut Harness<'_, Moonglow>, from: usize, to: usize| {
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         let c = egui::text::CCursorRange::two(
@@ -11506,6 +11513,7 @@ fn theme_read_only_focus_and_tabs() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -120.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -12113,7 +12121,7 @@ fn shell_doc_tabs() {
         // The script typed in: its dot too.
         let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
         h.state_mut().script_tools.jump = Some((key, 0));
-        let editor = egui::Id::new(("script", key));
+        let editor = egui::Id::unique(("script", key));
         let started = std::time::Instant::now();
         while !h.ctx.memory(|m| m.has_focus(editor)) {
             assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
@@ -12296,6 +12304,7 @@ fn resources_chicken(h: &mut Harness<'_, Moonglow>, size: egui::Vec2, width: Opt
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -300.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -12462,6 +12471,7 @@ fn shell_tree_well_heights() {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, -200.0),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: egui::Modifiers::NONE,
                 });
                 h.run_steps(2);
@@ -12585,6 +12595,7 @@ fn shell_tree_narrowed() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(-100.0, 0.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -14127,13 +14138,15 @@ fn w1_tree_rows_least() {
 /// area's shaders, a preview's model): an area keeps the window
 /// repainting, so not a settle.
 /// The item `name` of the open right-click menu (the header's toggle of
-/// the same name aside): the popup's, with the fewest containers above it.
+/// the same name aside): the last of those in a menu.
 fn popup_item<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    let depth = |n: &egui_kittest::Node<'_>| {
-        std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
+    // (In a menu: egui 0.37 hangs a menu under the widget it opened from,
+    // so not by its depth, and a toolbar names some of the same words.)
+    let in_menu = |n: &egui_kittest::Node<'_>| {
+        std::iter::successors(n.accesskit_node().parent(), |p| p.parent())
+            .any(|p| p.role() == egui::accesskit::Role::Menu)
     };
-    let all: Vec<_> = h.get_all_by_label(name).collect();
-    all.into_iter().rev().min_by_key(depth).unwrap_or_else(|| panic!("no menu item {name}"))
+    h.get_all_by_label(name).rfind(in_menu).unwrap_or_else(|| panic!("no menu item {name}"))
 }
 
 fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
@@ -14329,7 +14342,7 @@ fn board_script_pitch() {
             mg_ui::script_tools::line_start(&text, 17),
             mg_ui::script_tools::line_start(&text, 20),
         );
-        let id = egui::Id::new(("script", key));
+        let id = egui::Id::unique(("script", key));
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
             egui::text::CCursor::new(text[..from].chars().count()),
@@ -15402,6 +15415,7 @@ fn choose_victim(h: &mut Harness<'_, Moonglow>, advanced: bool) {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -6.0 * 22.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(10);
@@ -15590,6 +15604,7 @@ fn board_options() {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Page,
         delta: egui::vec2(0.0, 20.0),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -15718,6 +15733,7 @@ fn gff_scrolled_to(h: &mut Harness<'_, Moonglow>, name: &str) {
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, top - to),
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
         phase: egui::TouchPhase::Move,
     });
@@ -16346,6 +16362,7 @@ fn board_pickers() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -(row.top() - 140.0)),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         pictures_made(&mut h);
@@ -16442,6 +16459,7 @@ fn gallery_as_the_board(h: &mut Harness<'_, Moonglow>, hover: Option<&str>, held
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -30.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -16523,6 +16541,7 @@ fn gallery_as_the_board(h: &mut Harness<'_, Moonglow>, hover: Option<&str>, held
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -10.0),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(2);
@@ -16651,6 +16670,7 @@ fn board_gallery_tiles() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -20.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -16777,6 +16797,7 @@ fn u26_gallery_views() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, if down { -150.0 } else { 600.0 }),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             pictures_shown(h);
@@ -17182,7 +17203,7 @@ fn menus_color_picker_at_a_larger_text() {
             ui.set_style(style.clone());
             let usual = ui.ctx().global_style();
             ui.ctx().set_global_style(style);
-            mg_ui::color_button::edit_srgb(ui, rgb);
+            mg_ui::color_button::edit_srgb(ui, rgb).accessible_name("Color");
             ui.ctx().set_global_style(usual);
         },
         [158, 151, 211],

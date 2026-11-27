@@ -326,7 +326,7 @@ pub(crate) enum Pressed {
 /// changed since opening as one undo step and closes it. Read-only blueprints
 /// show Close alone.
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
-    ok_cancel_saying(ui, egui::Id::new(first), viewed, OK_CANCEL_TIPS)
+    ok_cancel_saying(ui, egui::Id::unique(first), viewed, OK_CANCEL_TIPS)
 }
 
 /// [`ok_cancel`]'s tips: OK's and Cancel's.
@@ -455,7 +455,7 @@ fn ok_cancel_header_with(
         response.widget_info(move || {
             let whole =
                 if sub.is_empty() { name_info.clone() } else { format!("{name_info} {sub}") };
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole)
+            egui::WidgetInfo::labeled(egui::Role::Label, true, &whole)
         });
         let galley = if fits_whole {
             name_galley
@@ -930,7 +930,7 @@ fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> e
     {
         return id.with(("blueprint", name, host));
     }
-    egui::Id::new(("blueprint", key, path, name, host))
+    egui::Id::unique(("blueprint", key, path, name, host))
 }
 
 /// After a frame: what the pages keep while they are drawn, let go of
@@ -1004,7 +1004,7 @@ pub(crate) fn by_name_kept(
     what: &str,
     choices: &Arc<Vec<Choice>>,
 ) -> Arc<Vec<Choice>> {
-    let id = egui::Id::new(("choices-by-name", what));
+    let id = egui::Id::unique(("choices-by-name", what));
     kept_for(ctx, id, choices, &(), || Arc::new(mg_rules::by_name(choices.to_vec())))
 }
 
@@ -1016,7 +1016,7 @@ pub(crate) fn found_kept(
     choices: &Arc<Vec<Choice>>,
     find: &str,
 ) -> Arc<Vec<usize>> {
-    let id = egui::Id::new(("choices-found", what));
+    let id = egui::Id::unique(("choices-found", what));
     kept_for(ctx, id, choices, &find.to_string(), || {
         let needle = mg_core::text::Needle::new(find);
         Arc::new((0..choices.len()).filter(|&i| needle.finds(&choices[i].text)).collect())
@@ -1073,7 +1073,7 @@ impl Form<'_> {
         match self.app.game.as_deref() {
             Some(game) => kept_for(
                 ctx,
-                egui::Id::new(("appearance-rows", kind)),
+                egui::Id::unique(("appearance-rows", kind)),
                 choices,
                 &self.app.load_order,
                 || game.appearance_choices(kind, choices),
@@ -1585,6 +1585,7 @@ impl Form<'_> {
         ) {
             self.set(what, label, Value::String(encode(&v)));
         }
+        crate::widgets::name_node(ui, id, what);
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
@@ -1666,10 +1667,10 @@ impl Form<'_> {
                         ui.visuals_mut().override_text_color = Some(color);
                     }
                     let room = keys.as_ref().map_or(0.0, |k| k.2 + KEYS_PADDING);
-                    ui.data_mut(|d| d.insert_temp(egui::Id::new(FIELD_END_ROOM), room));
+                    ui.data_mut(|d| d.insert_temp(egui::Id::unique(FIELD_END_ROOM), room));
                     let typed =
                         crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width);
-                    ui.data_mut(|d| d.remove::<f32>(egui::Id::new(FIELD_END_ROOM)));
+                    ui.data_mut(|d| d.remove::<f32>(egui::Id::unique(FIELD_END_ROOM)));
                     typed
                 })
                 .inner;
@@ -1761,6 +1762,7 @@ impl Form<'_> {
         let id = self.id(label);
         let typed = crate::widgets::loc_text(self.app, ui, id, &current, rows, f32::INFINITY);
         let shown = crate::widgets::loc_shown(self.app, &current).0;
+        crate::widgets::name_node(ui, id, what);
         self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
@@ -1804,6 +1806,7 @@ impl Form<'_> {
                 )
             })
             .inner;
+        crate::widgets::name_node(ui, id, what);
         self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
@@ -1827,6 +1830,7 @@ impl Form<'_> {
         if let Some(v) = typed {
             self.set(what, label, Value::String(encode(&v)));
         }
+        crate::widgets::name_node(ui, id, what);
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
@@ -2031,11 +2035,7 @@ impl Form<'_> {
                     let popup = ui.auto_id_with("popup");
                     let button = crate::color_button::edit_srgb_with(ui, &mut rgb, swatches);
                     button.widget_info(|| {
-                        egui::WidgetInfo::labeled(
-                            egui::WidgetType::ColorButton,
-                            true,
-                            OUTLINE_COLOR_LABEL,
-                        )
+                        egui::WidgetInfo::labeled(egui::Role::ColorWell, true, OUTLINE_COLOR_LABEL)
                     });
                     let changed = button.on_hover_text(OUTLINE_COLOR_TIP).changed();
                     (changed, egui::Popup::is_id_open(ui.ctx(), popup))
@@ -2807,7 +2807,7 @@ fn resref_beside_buttons(ui: &Ui) -> f32 {
     let s = ui.spacing();
     let small = egui::TextStyle::Button.resolve(ui.style());
     let key = (small.size.to_bits(), ui.ctx().pixels_per_point().to_bits());
-    let id = egui::Id::new("bp-edit-btn-w");
+    let id = egui::Id::unique("bp-edit-btn-w");
     let edit =
         ui.data(|d| d.get_temp::<((u32, u32), f32)>(id)).filter(|(k, _)| *k == key).map_or_else(
             || {
@@ -2845,19 +2845,19 @@ pub(crate) const FIELD_END_ROOM: &str = "blueprint-field-end-room";
 /// window's grid cell is narrower than that, and keeps its look); outside
 /// a form (Area and Module Properties' pages, a wizard's), never.
 pub(crate) fn narrow(ui: &Ui) -> bool {
-    ui.data(|d| d.get_temp::<bool>(egui::Id::new(NARROW_ID))).unwrap_or(false)
+    ui.data(|d| d.get_temp::<bool>(egui::Id::unique(NARROW_ID))).unwrap_or(false)
 }
 
 /// Whether the form being drawn is the Properties panel's single-column
 /// all-pages scroll (`AllPages { panel: true }` in the wide layout).
 pub(crate) fn panel_scroll(ui: &Ui) -> bool {
-    ui.data(|d| d.get_temp::<bool>(egui::Id::new(PANEL_SCROLL_ID))).unwrap_or(false)
+    ui.data(|d| d.get_temp::<bool>(egui::Id::unique(PANEL_SCROLL_ID))).unwrap_or(false)
 }
 
 /// The page name whose own heading was already drawn above its body in
 /// the Properties panel (`None` for a blueprint window without a panel heading).
 fn panel_page(ui: &Ui) -> Option<String> {
-    ui.data(|d| d.get_temp::<String>(egui::Id::new(PANEL_PAGE_ID)))
+    ui.data(|d| d.get_temp::<String>(egui::Id::unique(PANEL_PAGE_ID)))
 }
 
 /// Where [`form_ui`] keeps whether the form it draws is narrow.
@@ -2871,9 +2871,9 @@ const PANEL_PAGE_ID: &str = "blueprint-form-panel-page";
 /// journal's Entry and Category, M4's U22) fill the room they are given,
 /// never wider.
 pub(crate) fn narrow_form<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), true));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique(NARROW_ID), true));
     let r = add(ui);
-    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::unique(NARROW_ID)));
     r
 }
 
@@ -2955,9 +2955,12 @@ pub(crate) fn section(
 
 /// The room from `ui`'s cursor to its right edge (in a grid's cell, to
 /// the page's right edge): what a row of fixed widths has before it runs
-/// past a column of pages side by side (M4's U10).
+/// past a column of pages side by side (M4's U10). At most to what is
+/// in sight: under egui 0.37 a window's scroll can lay its page out wider
+/// than the window shows (a blueprint window off the tree, its Sound set
+/// row run past its edge).
 pub(crate) fn room_right(ui: &Ui) -> f32 {
-    ui.max_rect().right() - ui.cursor().min.x
+    ui.max_rect().right().min(ui.clip_rect().right()) - ui.cursor().min.x
 }
 
 /// A list with what it gives beside it (a creature's spells to choose
@@ -3314,7 +3317,7 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     let FormShown { key, path, also, root, restype, page, held, is_viewed, heading, all } = shown;
     let several = !also.is_empty();
     let viewed = is_viewed || held.is_some();
-    let refused_id = egui::Id::new(("view-refused", key));
+    let refused_id = egui::Id::unique(("view-refused", key));
     if viewed {
         ui.horizontal_wrapped(|ui| {
             // Said strongly for a few seconds after a change was tried.
@@ -3392,7 +3395,7 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
         true => crate::form_pages::narrow(ui.available_width()),
         false => ui.available_width() < NARROW_FORM || form.app.panel_form,
     };
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), narrow));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique(NARROW_ID), narrow));
     let scroll = match narrow {
         true => egui::ScrollArea::vertical(),
         false => egui::ScrollArea::both(),
@@ -3407,11 +3410,11 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
                         ui.label(egui::RichText::new(readout).small().weak());
                     }
                     ui.data_mut(|d| {
-                        d.insert_temp(egui::Id::new(PANEL_PAGE_ID), (*title).to_string());
+                        d.insert_temp(egui::Id::unique(PANEL_PAGE_ID), (*title).to_string());
                     });
                 }
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, page));
-                ui.data_mut(|d| d.remove::<String>(egui::Id::new(PANEL_PAGE_ID)));
+                ui.data_mut(|d| d.remove::<String>(egui::Id::unique(PANEL_PAGE_ID)));
                 ui.add_space(12.0);
             });
         }
@@ -3427,7 +3430,7 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
             // heading, as WideArea draws it under Basic.)
             let readout = heading.and_then(|(_, r)| r).filter(|_| panel);
             if panel {
-                ui.data_mut(|d| d.insert_temp(egui::Id::new(PANEL_SCROLL_ID), true));
+                ui.data_mut(|d| d.insert_temp(egui::Id::unique(PANEL_SCROLL_ID), true));
             }
             scroll.show(ui, top, |ui, i| {
                 if i == 0
@@ -3437,19 +3440,19 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
                 }
                 if panel {
                     ui.data_mut(|d| {
-                        d.insert_temp(egui::Id::new(PANEL_PAGE_ID), pages[i].to_string());
+                        d.insert_temp(egui::Id::unique(PANEL_PAGE_ID), pages[i].to_string());
                     });
                 }
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
                 if panel {
-                    ui.data_mut(|d| d.remove::<String>(egui::Id::new(PANEL_PAGE_ID)));
+                    ui.data_mut(|d| d.remove::<String>(egui::Id::unique(PANEL_PAGE_ID)));
                 }
             });
-            ui.data_mut(|d| d.remove::<bool>(egui::Id::new(PANEL_SCROLL_ID)));
+            ui.data_mut(|d| d.remove::<bool>(egui::Id::unique(PANEL_SCROLL_ID)));
         }
     }
     // (The form drawn: what is drawn after it judges its own room.)
-    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::unique(NARROW_ID)));
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
     if viewed && look_only(form.app, pending, &|k| *k == key) {
@@ -3602,7 +3605,7 @@ fn paint_mixed_mark(
     let font = egui::FontId::proportional(rect.height() - 1.0);
     p.text(rect.center() + egui::vec2(0.0, -0.5), egui::Align2::CENTER_CENTER, MIXED, font, color);
     let r = ui.interact(rect, id, egui::Sense::hover());
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, MIXED));
     ui.ctx().accesskit_node_builder(r.id, |node| {
         node.set_label(MIXED);
         node.set_value("mixed");
@@ -3722,7 +3725,7 @@ mod tests {
         assert_eq!(sorted.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(), ["Asp", "Wolf"]);
         // What is kept for the load order is made again when it changes.
         egui::__run_test_ui(|ui| {
-            let id = egui::Id::new("test-kept");
+            let id = egui::Id::unique("test-kept");
             assert_eq!(kept_for_load_order(ui, 1, id, || 10), 10);
             assert_eq!(kept_for_load_order(ui, 1, id, || 20), 10);
             assert_eq!(kept_for_load_order(ui, 2, id, || 20), 20);
@@ -3802,7 +3805,7 @@ mod tests {
     #[test]
     fn kept_for_key_hits_invalidates_and_adds_no_arc_ref() {
         let ctx = egui::Context::default();
-        let id = egui::Id::new("test-kept-for-key");
+        let id = egui::Id::unique("test-kept-for-key");
         let sentinel = Arc::new(42u32);
         let key1 = (1u64, "Creature", Some((10u64, 1u64)));
         let v1 = kept_for_key(&ctx, id, &key1, || {
@@ -3853,7 +3856,7 @@ mod tests {
                         field_key: &str,
                         typed: &str,
                         draw: &dyn Fn(&mut Form<'_>, &mut Ui)| {
-            let id = egui::Id::new(("blueprint", key, GffPath::root(), field_key, "window"));
+            let id = egui::Id::unique(("blueprint", key, GffPath::root(), field_key, "window"));
             // Warm up layout so egui::Grid finishes its first-frame invisible sizing pass
             // before focus is requested (matching real interaction).
             let mut warmup = ctx.run_ui(Default::default(), |ui| {
@@ -3934,7 +3937,7 @@ mod tests {
         // Pressed::Cancel clears any pending held_text owned by the canceled window.
         let tab = Tab::Blueprint(key);
         app.held_text = Some(HeldText {
-            id: egui::Id::new("c"),
+            id: egui::Id::unique("c"),
             drawn: ctx.cumulative_pass_nr(),
             command: held_sc.command,
             action: None,

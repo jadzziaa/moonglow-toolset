@@ -1499,6 +1499,7 @@ fn a_value_typed_in_a_cell_scrolled_out_of_sight_is_set() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -400.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);

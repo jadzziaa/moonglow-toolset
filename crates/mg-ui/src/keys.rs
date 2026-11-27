@@ -600,7 +600,7 @@ fn is(e: &Event, s: &KeyboardShortcut) -> bool {
 /// Where Find's keys are kept, for the search fields of the panes and the
 /// windows ([`find_pressed`]).
 fn find_keys_id() -> egui::Id {
-    egui::Id::new("keymap-find-keys")
+    egui::Id::unique("keymap-find-keys")
 }
 
 /// Whether one of Find's keys (Ctrl+F, or what Options › Keyboard gave

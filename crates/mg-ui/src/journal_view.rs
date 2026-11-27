@@ -386,7 +386,10 @@ fn object_id(app: &mut Moonglow, path: &GffPath) -> egui::Id {
         view.ids.retain(|p, _| keep.contains(p));
     }
     *view.ids.entry(path.clone()).or_insert_with(|| {
-        egui::Id::new(("journal-object", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+        egui::Id::unique((
+            "journal-object",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
     })
 }
 
@@ -682,7 +685,7 @@ fn draw_row(
     let mono = egui::FontId::monospace(12.0);
     let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
     let right = rect.right() - 12.0;
-    let id = ui.id().with(("journal-row", row_key(row)));
+    let id = ui.scope_id().with(("journal-row", row_key(row)));
     if row == Row::Empty {
         let words = "The module has no journal categories.";
         let galley = painter.layout_no_wrap(words.to_string(), font, t.text_3);
@@ -690,7 +693,7 @@ fn draw_row(
             egui::pos2(rect.left() + 8.0 + ARROW + GAP, rect.center().y - galley.size().y / 2.0);
         painter.galley(at, galley, t.text_3);
         let r = ui.interact(rect, id, egui::Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, words));
         return RowDone::Nothing;
     }
     // (The arrow's button first, so that the keyboard's focus comes to it
@@ -711,7 +714,7 @@ fn draw_row(
         let r = ui.put(arrow, b).on_hover_text(hint);
         r.widget_info(|| {
             let named = format!("{verb} {name}");
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &named)
+            egui::WidgetInfo::labeled(egui::Role::Button, true, &named)
         });
         mg_uikit::say_expanded(&r, open);
         let color = if selected { t.on_fill } else { t.text_3 };
@@ -817,7 +820,7 @@ fn draw_row(
             }
             Row::Empty => String::new(),
         };
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &said)
+        egui::WidgetInfo::selected(egui::Role::Button, true, selected, &said)
     });
     match (
         r.clicked() || r.double_clicked(),

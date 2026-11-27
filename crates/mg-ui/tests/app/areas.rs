@@ -752,6 +752,9 @@ fn a_tag_outside_ascii_is_found_and_retagged() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     let mut h = harness(app, 1100.0, 760.0);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     // Found by its tag, typed as it reads.
     h.state_mut().find_references(mg_ui::references::Query::Tag("Señor".into()));
@@ -847,6 +850,7 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -400.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(1);

@@ -141,7 +141,7 @@ fn portraits_kept(
     let Ok(table) = game.table("portraits") else { return Default::default() };
     let (race, gender, all) = (w.race.unwrap_or(6), w.gender, w.all_portraits);
     let key = (ws.map(mg_edit::Workspace::revision), race, gender, all);
-    let id = egui::Id::new("creature-wizard-portraits");
+    let id = egui::Id::unique("creature-wizard-portraits");
     crate::blueprint::kept_for(ctx, id, &table, &key, || {
         std::sync::Arc::new(portraits(game, ws, race, gender, all))
     })
@@ -283,7 +283,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 let ws_key = (ws.identity(), ws.revision());
                 crate::blueprint::kept_for_key(
                     ctx,
-                    egui::Id::new("creature-wizard-taken"),
+                    egui::Id::unique("creature-wizard-taken"),
                     &ws_key,
                     || {
                         std::sync::Arc::new(
@@ -445,7 +445,7 @@ fn class_page(ui: &mut Ui, w: &mut CreatureWizard, names: &[Choice], name: &dyn 
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         let well = egui::vec2(list, high);
-        let id = egui::Id::new("cw-classes");
+        let id = egui::Id::unique("cw-classes");
         crate::widgets::picture_well(ui, id, well, egui::Margin::ZERO, |ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 mg_uikit::list_rows(ui);
@@ -593,7 +593,7 @@ fn look_page(
             ui.add(egui::Label::new(chosen).truncate());
         });
         crate::widgets::SearchField::new(
-            egui::Id::new("creature-wizard-appearance-find"),
+            egui::Id::unique("creature-wizard-appearance-find"),
             &mut w.appearance_find,
         )
         .hint("Find an appearance")
@@ -610,7 +610,7 @@ fn look_page(
     // (Where the one chosen is among those found, once for them.)
     let current = crate::blueprint::kept_for(
         ui.ctx(),
-        egui::Id::new("cw-appearance-at"),
+        egui::Id::unique("cw-appearance-at"),
         &found,
         &w.appearance,
         || found.iter().position(|&idx| usize::from(w.appearance) == appearances[idx].row),
@@ -626,8 +626,8 @@ fn look_page(
     );
     let pad = egui::Margin { left: 8, right: 8, top: 4, bottom: 4 };
     let shown_area =
-        crate::widgets::picture_well(ui, egui::Id::new("cw-appearances"), well, pad, |ui| {
-            let id = egui::Id::new("cw-appearance-pictures");
+        crate::widgets::picture_well(ui, egui::Id::unique("cw-appearances"), well, pad, |ui| {
+            let id = egui::Id::unique("cw-appearance-pictures");
             let keys = !egui::Popup::is_any_open(ui.ctx());
             let grid = mg_uikit::gallery::GalleryGrid::new(id, found.len(), side)
                 .cursor(current)
@@ -661,7 +661,7 @@ fn look_page(
     // (The well's room taken: the page's rows go on under it.)
     // (Opened at the appearance chosen, once each time the page is
     // shown: a pass missed is the page left.)
-    let placed_id = egui::Id::new("cw-appearances-placed");
+    let placed_id = egui::Id::unique("cw-appearances-placed");
     let pass = ui.ctx().cumulative_pass_nr();
     let (last, placed) = ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
     let fresh = last + 1 < pass;
@@ -669,7 +669,7 @@ fn look_page(
     // the one chosen is ringed in the accent as on the board, and the
     // arrows move it, as Select Portrait's.)
     if fresh {
-        ui.memory_mut(|m| m.request_focus(egui::Id::new("cw-appearance-pictures")));
+        ui.memory_mut(|m| m.request_focus(egui::Id::unique("cw-appearance-pictures")));
     }
     let placed = placed && !fresh;
     let placed = placed
@@ -714,10 +714,10 @@ fn look_page(
         ui.horizontal_top(|ui| {
             // (In a well with its drawn scroll bar, justified rows of
             // 54 by 84 that reach it, as Select Portrait's.)
-            let id = egui::Id::new(("cw-portraits", w.race, w.gender, w.all_portraits));
+            let id = egui::Id::unique(("cw-portraits", w.race, w.gender, w.all_portraits));
             let at = crate::blueprint::kept_for(
                 ui.ctx(),
-                egui::Id::new("cw-portrait-at"),
+                egui::Id::unique("cw-portrait-at"),
                 &list,
                 &w.portrait,
                 || list.iter().position(|(r, _)| Some(*r) == w.portrait),
@@ -935,7 +935,7 @@ fn page(
             let mark = (load_order, loader.ws.map(|ws| (ws.identity(), ws.revision())));
             let nodes = crate::blueprint::kept_for_key(
                 ui.ctx(),
-                egui::Id::new("creature-wizard-categories"),
+                egui::Id::unique("creature-wizard-categories"),
                 &mark,
                 || {
                     std::sync::Arc::new(crate::blueprint_wizard::categories(

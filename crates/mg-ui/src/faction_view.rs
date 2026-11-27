@@ -541,7 +541,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     if let Some((id, mut new_name)) = view.renaming.clone() {
         let mut close = false;
         let footed = crate::widgets::modal(&ctx, "Change Faction Name").show_foot(&ctx, |ui| {
-            let field = ui.add(mg_uikit::text_field(&mut new_name));
+            let field = ui.add(mg_uikit::text_field(&mut new_name)).accessible_name("Faction name");
             crate::widgets::autofocus(ui, &field);
             ((), crate::widgets::Foot::new().main("OK", !new_name.trim().is_empty()).cancel())
         });
@@ -675,7 +675,7 @@ pub(crate) fn keep_tab_for_the_matrix(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     let focused = ctx.memory(|m| m.focused());
-    if app.faction_view.typing.is_some() && focused == Some(egui::Id::new(TYPING_ID)) {
+    if app.faction_view.typing.is_some() && focused == Some(egui::Id::unique(TYPING_ID)) {
         ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         ctx.input_mut(|i| {
             i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
@@ -787,7 +787,7 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
     let mut double = None;
     let mut drag: Option<(u32, u32, f32, bool, bool)> = None;
     let mut set: Option<(u32, u32, u32)> = None;
-    let typing_id = egui::Id::new(TYPING_ID);
+    let typing_id = egui::Id::unique(TYPING_ID);
     let mut typing_drawn = false;
     let mut over_cell = false;
     let shown = egui::ScrollArea::both()
@@ -838,7 +838,7 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
                         _ => stored,
                     };
                     let chosen = (p, tt) == (view.selected, view.target);
-                    let id = ui.id().with(("faction-cell", p, tt));
+                    let id = ui.scope_id().with(("faction-cell", p, tt));
                     // (Not egui's focus: the keys are the matrix's, `Keys`.)
                     let resp = ui.interact(rect, id, egui::Sense::CLICK | egui::Sense::DRAG);
                     over_cell |= resp.hovered();
@@ -876,7 +876,7 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
                             let field = egui::TextEdit::singleline(text)
                                 .id(typing_id)
                                 .char_limit(3)
-                                .horizontal_align(egui::Align::Max)
+                                .align(egui::Align2::RIGHT_TOP)
                                 .frame(egui::Frame::NONE)
                                 .margin(egui::Margin::symmetric(5, 2));
                             let r = ui.put(rect.shrink(1.0), field);
@@ -942,7 +942,7 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
             set = Some((p, tt, v));
         }
     }
-    let offset = shown.state.offset;
+    let offset = shown.state.clamped_offset();
     // The headers, frozen: the columns' over the cells, the rows' at their
     // left, moved with the cells as they scroll.
     let painter = ui.painter_at(whole);
@@ -977,8 +977,9 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
         if let Some(seen) =
             rect.intersect(col_strip).is_positive().then_some(rect.intersect(col_strip))
         {
-            let r = ui.interact(seen, egui::Id::new(("faction-column", c)), egui::Sense::hover());
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &words));
+            let r =
+                ui.interact(seen, egui::Id::unique(("faction-column", c)), egui::Sense::hover());
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &words));
             r.on_hover_text(&words);
         }
     }
@@ -1003,8 +1004,8 @@ fn matrix(app: &mut Moonglow, ui: &mut Ui, f: &Factions) {
         if let Some(seen) =
             rect.intersect(row_strip).is_positive().then_some(rect.intersect(row_strip))
         {
-            let r = ui.interact(seen, egui::Id::new(("faction-row", p)), egui::Sense::hover());
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &words));
+            let r = ui.interact(seen, egui::Id::unique(("faction-row", p)), egui::Sense::hover());
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &words));
             r.on_hover_text(&words);
         }
     }
@@ -1420,7 +1421,7 @@ pub(crate) fn reaction_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Ta
             .inner;
         r.widget_info(|| {
             egui::WidgetInfo::labeled(
-                egui::WidgetType::Label,
+                egui::Role::Label,
                 true,
                 "Hostile 0 to 10, neutral 11 to 89, friendly 90 to 100",
             )
@@ -1496,12 +1497,7 @@ pub(crate) fn reactions_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&T
                 };
                 r.widget_info(|| {
                     let said = format!("{label}: {}", sentence(f, p, x, rep));
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        true,
-                        selected,
-                        &said,
-                    )
+                    egui::WidgetInfo::selected(egui::Role::Button, true, selected, &said)
                 });
                 let cy = rect.center().y;
                 let mut job = egui::text::LayoutJob::simple_singleline(

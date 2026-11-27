@@ -92,7 +92,7 @@ impl Renderer<'_> {
             // NWN evaluates overlapping choice rows independently: a short
             // Options allocation can overlap the next Tabs and update both.
             // Still require a click begun here and the same visible UI layer.
-            let press_id = ui.id().with(("choice-press", source_path, row));
+            let press_id = ui.scope_id().with(("choice-press", source_path, row));
             if ui.input(|i| i.pointer.primary_pressed()) {
                 ui.data_mut(|d| d.remove::<egui::Pos2>(press_id));
                 if interactive && let Some(origin) = ui.input(|i| i.pointer.press_origin()) {

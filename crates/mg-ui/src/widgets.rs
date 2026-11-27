@@ -223,7 +223,7 @@ fn color_swatch(ui: &mut Ui, value: &mut String) {
 
 /// Where a Variables list's color picker says it is open this frame.
 fn picking() -> egui::Id {
-    egui::Id::new("variables-color-picking")
+    egui::Id::unique("variables-color-picking")
 }
 
 /// The Variables window: a VarTable list.
@@ -758,7 +758,7 @@ fn value_choice(
                 // (Its values to choose from, the arrow keys stepping through
                 // them as every dropdown's do.)
                 let picked =
-                    row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
+                    row_choice(egui::Id::unique(("var-value-offer", row)), &offered.rows, current)
                         .shown("")
                         .width(24.0)
                         .ordered()
@@ -776,7 +776,7 @@ fn value_choice(
         None => egui::RichText::new(format!("{value} (not one of its values)"))
             .color(ui.visuals().warn_fg_color),
     };
-    let picked = row_choice(egui::Id::new(("var-value", row)), &offered.rows, current)
+    let picked = row_choice(egui::Id::unique(("var-value", row)), &offered.rows, current)
         .shown(text)
         .width(width)
         .ordered()
@@ -899,7 +899,7 @@ impl<T: Clone + Send + Sync + 'static> SetKind<T> {
         ctx: &egui::Context,
         dir: Option<&std::path::Path>,
     ) -> Vec<(String, Result<T, String>)> {
-        let id = egui::Id::new((self.shelf.folder, "read"));
+        let id = egui::Id::unique((self.shelf.folder, "read"));
         let mut kept: crate::saved::Read<T> =
             ctx.data_mut(|d| d.remove_temp(id)).unwrap_or_default();
         let read = self.shelf.read_all(dir, &mut kept, self.load);
@@ -1260,9 +1260,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let mut remove = None;
             let edit_tokens = &mut edit.tokens;
             for (i, (language, gender, text, _)) in edit.entries.iter_mut().enumerate() {
-                let text_id = egui::Id::new(("loc-text", i));
+                let text_id = egui::Id::unique(("loc-text", i));
                 ui.horizontal(|ui| {
-                    dropdown(("loc-lang", i)).selected_text(language.name().unwrap_or("?")).show(
+                    let entry = i + 1;
+                    let lang = dropdown(("loc-lang", i)).name(format!("Text {entry} language"));
+                    lang.selected_text(language.name().unwrap_or("?")).show(
                         ui,
                         language,
                         &Language::EE,
@@ -1270,6 +1272,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     );
                     let genders = GENDERS.map(|g| g.0);
                     dropdown(("loc-gender", i))
+                        .name(format!("Text {entry} gender"))
                         .selected_text(GENDERS.iter().find(|g| g.0 == *gender).map_or("?", |g| g.1))
                         .show(ui, gender, &genders, |g| {
                             GENDERS.iter().find(|n| n.0 == *g).map_or("?", |n| n.1)
@@ -1305,6 +1308,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 });
                 let field = egui::TextEdit::multiline(text).desired_rows(3).desired_width(420.0);
                 text_area(ui, text_id, field);
+                name_node(ui, text_id, &format!("Text {}", i + 1));
             }
             if let Some(i) = remove {
                 edit.entries.remove(i);
@@ -1430,7 +1434,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 ui.label("Filter");
                 let field = SearchField::new(
-                    egui::Id::new(("resref-picker-find", &p.title)),
+                    egui::Id::unique(("resref-picker-find", &p.title)),
                     &mut p.filter,
                 )
                 .hint("ResRef")
@@ -1519,7 +1523,7 @@ pub(crate) fn in_sight<R>(
     id_salt: impl std::hash::Hash + std::fmt::Debug,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> Option<R> {
-    let key = ui.id().with(("room-in-sight", &id_salt));
+    let key = ui.scope_id().with(("room-in-sight", &id_salt));
     if let Some((size, focused)) = ui.data(|d| d.get_temp::<(egui::Vec2, bool)>(key)) {
         let room = egui::Rect::from_min_size(ui.cursor().min, size);
         if !focused && !ui.is_rect_visible(room) {
@@ -1551,7 +1555,7 @@ const RESREF_WIDTH_ID: &str = "resref-field-width";
 /// `add` with every [`resref_field`] in it `width` wide (a conversation's
 /// panel's rows: as wide as the row leaves them, at least 16 characters).
 pub(crate) fn with_resref_width<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let id = egui::Id::new(RESREF_WIDTH_ID);
+    let id = egui::Id::unique(RESREF_WIDTH_ID);
     let was = ui.data(|d| d.get_temp::<f32>(id));
     ui.data_mut(|d| d.insert_temp(id, width));
     let r = add(ui);
@@ -1564,7 +1568,7 @@ pub(crate) fn with_resref_width<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mu
 
 /// The width [`with_resref_width`] gives the resref fields drawn in it.
 fn resref_width(ui: &Ui) -> Option<f32> {
-    ui.data(|d| d.get_temp::<f32>(egui::Id::new(RESREF_WIDTH_ID)))
+    ui.data(|d| d.get_temp::<f32>(egui::Id::unique(RESREF_WIDTH_ID)))
 }
 
 pub(crate) fn resref_field(
@@ -1640,7 +1644,7 @@ fn var_body(
         let wrap = ui.available_width();
         let font = egui::TextStyle::Body.resolve(ui.style());
         let ppp = ui.ctx().pixels_per_point().to_bits();
-        let id = ui.id().with("together-tall");
+        let id = ui.scope_id().with("together-tall");
         let key = (edit.target.also.len(), wrap.to_bits(), font.size.to_bits(), ppp);
         ui.data(|d| d.get_temp::<((usize, u32, u32, u32), f32)>(id))
             .filter(|(k, _)| *k == key)
@@ -1884,7 +1888,7 @@ fn var_body(
         }
         // (This list's own: with one id for all, the paste went to whichever
         // Variables list was drawn first, another object's.)
-        let paste_id = ui.id().with("var-set-paste");
+        let paste_id = ui.scope_id().with("var-set-paste");
         if ui
             .button("Paste Set")
             .on_hover_text(
@@ -2121,9 +2125,28 @@ pub(crate) fn home_and_end<R>(ui: &Ui, list: &mut egui::scroll_area::ScrollAreaO
     let (home, end) = ui.input(|i| (i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End)));
     if home || end {
         let bottom = (list.content_size.y - list.inner_rect.height()).max(0.0);
-        list.state.offset.y = if home { 0.0 } else { bottom };
+        let x = list.state.clamped_offset().x;
+        set_scroll_offset(&mut list.state, egui::vec2(x, if home { 0.0 } else { bottom }));
         list.state.store(ui.ctx(), list.id);
         ui.ctx().request_repaint();
+    }
+}
+
+/// Sets a scroll's offset in its kept state (store it after: from the
+/// next frame), its velocity stopped. egui 0.37 made the offset private
+/// (`State::clamped_offset` reads it) and has no setter on the state, only
+/// `ScrollArea::scroll_offset` where the area is made; the state's own
+/// serde form, which egui keeps it by, sets it here.
+pub(crate) fn set_scroll_offset(state: &mut egui::scroll_area::State, offset: egui::Vec2) {
+    let Ok(mut value) = serde_json::to_value(*state) else { return };
+    let Ok(offset) = serde_json::to_value(offset) else { return };
+    let Some(fields) = value.as_object_mut() else { return };
+    if !fields.contains_key("offset") {
+        return;
+    }
+    fields.insert("offset".into(), offset);
+    if let Ok(new) = serde_json::from_value(value) {
+        *state = new;
     }
 }
 
@@ -2371,7 +2394,7 @@ fn commit_field(
     };
     // (Room kept inside its right end for words drawn there: a localized
     // name's "StrRef 24650", `Form::locstring`.)
-    let end = ui.data(|d| d.get_temp::<f32>(egui::Id::new(crate::blueprint::FIELD_END_ROOM)));
+    let end = ui.data(|d| d.get_temp::<f32>(egui::Id::unique(crate::blueprint::FIELD_END_ROOM)));
     let edit = match end.filter(|e| *e > 0.0) {
         Some(end) => {
             let mut margin = mg_uikit::controls::FIELD_MARGIN;
@@ -2381,6 +2404,7 @@ fn commit_field(
         None => edit,
     };
     let out = edit.id(id).desired_width(width).show(ui);
+    labelled_by_its_label(ui.ctx(), id);
     if rows.is_some() {
         page_keys(ui, &out);
     }
@@ -2454,7 +2478,15 @@ pub(crate) fn page_keys(ui: &Ui, out: &egui::text_edit::TextEditOutput) {
 }
 
 fn press_leaves_id() -> egui::Id {
-    egui::Id::new("moonglow-text-left-at-a-press")
+    egui::Id::unique("moonglow-text-left-at-a-press")
+}
+
+/// Names the widget `id` (`name`) for a screen reader and a test's
+/// `get_by_label`, where no label beside or over it names it
+/// (`mg_uikit::FieldLabels`): a page's text, which the page's heading
+/// names.
+pub(crate) fn name_node(ui: &Ui, id: egui::Id, name: &str) {
+    ui.ctx().accesskit_node_builder(id, |n| n.set_label(name));
 }
 
 /// Says of a text field that sets its text when the keyboard leaves it
@@ -2594,8 +2626,7 @@ impl egui::Widget for SpinArrow<'_> {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         let enabled = ui.is_enabled();
         let name = self.name.to_string();
-        response
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
         if ui.is_rect_visible(rect) {
             let t = mg_uikit::tokens(ui.ctx());
             let hot = enabled && (response.hovered() || response.is_pointer_button_down_on());
@@ -2630,7 +2661,7 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
 ) -> Option<T> {
     let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
     // (Its label, before the field: the arrows are named with it.)
-    let label = number_name(ui);
+    let (label, own) = number_name(ui).map_or((None, false), |(l, own)| (Some(l), own));
     ui.horizontal(|ui| {
         // (A field with its buttons glued on, the mock's `.field-group`:
         // 1 point between their frames, each a point past its widget.)
@@ -2664,6 +2695,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         let shown = run.map_or(base, |r| r.value);
         let (typed, _, _) =
             drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
+        // (A name drawn nowhere names the field too: one drawn beside it
+        // names it already, `mg_uikit::FieldLabels`.)
+        match label.as_deref().filter(|_| own) {
+            Some(l) => name_node(ui, field, l),
+            None => labelled_by_its_label(ui.ctx(), field),
+        }
         // (A number typed is set as it is, the arrows still drawn.)
         if typed.is_some() {
             run = None;
@@ -2850,7 +2887,7 @@ pub(crate) fn text_then_icon(
     icon: mg_uikit::Icon,
     name: &str,
 ) -> egui::Response {
-    let id = ui.next_auto_id().with("after-icon");
+    let id = egui::IdSalt::new("after-icon");
     let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
     let mut atoms = egui::Atoms::default();
     atoms.push_right(text.to_string());
@@ -3096,7 +3133,7 @@ impl<'a> SearchField<'a> {
 /// talk-table reference and its button ran under the second column).
 pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut egui::Ui, usize)) {
     let gap = ui.spacing().item_spacing.x;
-    let id = ui.id().with("two-columns-widths");
+    let id = ui.scope_id().with("two-columns-widths");
     let drawn: Option<[f32; 2]> = ui.data(|d| d.get_temp(id));
     let half = (ui.available_width() - gap) / 2.0;
     let fits = drawn.is_none_or(|w| w[0].max(w[1]) <= half + 0.5);
@@ -3156,7 +3193,7 @@ struct Dialogs {
 }
 
 fn dialogs_id() -> egui::Id {
-    egui::Id::new("moonglow-dialogs")
+    egui::Id::unique("moonglow-dialogs")
 }
 
 /// Once a frame, before anything is drawn: the dialog opened last stays
@@ -3301,7 +3338,7 @@ fn modal_over(ctx: &egui::Context, layer: egui::LayerId) -> bool {
 /// true when to close it.
 pub(crate) fn escape_closes(ctx: &egui::Context, title: &str) -> bool {
     // (A window's id is made from its title so: `Window::new`.)
-    escape_on(ctx, egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some(title))))
+    escape_on(ctx, egui::LayerId::new(egui::Order::Middle, egui::Id::unique(Some(title))))
 }
 
 /// A window's `open` flag, cleared when Escape closes it
@@ -3362,7 +3399,7 @@ struct PasteAsked {
 
 /// Where [`PasteAsked`] is kept, and the text that came for it.
 fn paste_ids() -> (egui::Id, egui::Id) {
-    (egui::Id::new("mg-paste-asked"), egui::Id::new("mg-paste-came"))
+    (egui::Id::unique("mg-paste-asked"), egui::Id::unique("mg-paste-came"))
 }
 
 /// The passes an asked paste is waited for (the backend sends it the next
@@ -3535,19 +3572,19 @@ impl TextMenus {
 }
 
 fn text_menus_id() -> egui::Id {
-    egui::Id::new("mg-text-menus")
+    egui::Id::unique("mg-text-menus")
 }
 
 /// The id of the text fields' menu (an egui popup, kept open by
 /// [`TextMenus`] and not by egui's one open popup, so that a field inside
 /// a popup, a dropdown's Filter, keeps its popup open under it).
 fn text_menu_id() -> egui::Id {
-    egui::Id::new("mg-text-menu")
+    egui::Id::unique("mg-text-menu")
 }
 
 /// The id a text menu's Paste asks the clipboard under ([`ask_paste`]).
 fn text_paste_id() -> egui::Id {
-    egui::Id::new("mg-text-menu-paste")
+    egui::Id::unique("mg-text-menu-paste")
 }
 
 fn text_menus(ctx: &egui::Context) -> TextMenus {
@@ -4304,7 +4341,7 @@ fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> Dial
         .default_pos(dialog_center(ctx));
     // (egui's windows resize unless told not to.)
     Dialog {
-        id: egui::Id::new(Some(title.as_str())),
+        id: egui::Id::unique(Some(title.as_str())),
         window,
         title,
         open: None,
@@ -4864,8 +4901,9 @@ fn modal_parts<R>(
     if pressed.is_some() {
         window_seen(ui.ctx(), title, ui.min_rect(), margin.left as f32);
     }
-    let named = ui.interact(row.rect, ui.id().with(("modal-title", title)), egui::Sense::hover());
-    named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    let named =
+        ui.interact(row.rect, ui.scope_id().with(("modal-title", title)), egui::Sense::hover());
+    named.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, title));
     (inner, pressed, named)
 }
 
@@ -4994,7 +5032,7 @@ pub(crate) fn files_already(
         FilesThere::Ask => {}
     }
     let mut answer = None;
-    let always_id = egui::Id::new(("files-already-always", place));
+    let always_id = egui::Id::unique(("files-already-always", place));
     let (on, tip) = always_now(ctx, always_id, &format!("{QUESTIONS_AT} › Files there already"));
     let footed = modal(ctx, format!("Files Already in the {place}")).show_foot(ctx, |ui| {
         ui.label(said);
@@ -5293,11 +5331,11 @@ pub struct ButtonSeen {
 }
 
 fn footers_id() -> egui::Id {
-    egui::Id::new("mg-dialog-footers")
+    egui::Id::unique("mg-dialog-footers")
 }
 
 fn footers_record_id() -> egui::Id {
-    egui::Id::new("mg-dialog-footers-record")
+    egui::Id::unique("mg-dialog-footers-record")
 }
 
 /// Starts recording [`FooterSeen`] snapshots on `ctx` (enabled by test
@@ -5354,7 +5392,7 @@ pub fn footers_shown(ctx: &egui::Context) -> Vec<FooterSeen> {
 }
 
 fn presses_id() -> egui::Id {
-    egui::Id::new("mg-dialog-presses")
+    egui::Id::unique("mg-dialog-presses")
 }
 
 /// The footer buttons pressed since this was last asked, each as its
@@ -5576,7 +5614,7 @@ fn cancelled(ui: &Ui, clicked: bool) -> bool {
 /// Where a dialog's Close that is its Cancel ([`Dialog::close_as_cancel`])
 /// is noted for the window on `layer`.
 fn closed_as_cancel_id(layer: egui::LayerId) -> egui::Id {
-    egui::Id::new(("mg-dialog-closed-as-cancel", layer))
+    egui::Id::unique(("mg-dialog-closed-as-cancel", layer))
 }
 
 /// The mouse wheel over a closed choice list `r` (a body or armor part's):
@@ -5637,6 +5675,7 @@ pub(crate) struct RowChoice<'a> {
     numbered: bool,
     hover: Option<String>,
     about: Option<About<'a>>,
+    name: Option<&'a str>,
 }
 
 /// What a row list shows of a row beside it (its picture): [`RowChoice::about`].
@@ -5684,6 +5723,7 @@ pub(crate) fn row_choice<'a>(
         numbered: false,
         hover: None,
         about: None,
+        name: None,
     }
 }
 
@@ -5757,6 +5797,13 @@ impl<'a> RowChoice<'a> {
         self
     }
 
+    /// The box's name, for a screen reader, where no label beside or over
+    /// it names it (`mg_uikit::FieldLabels`): a filter.
+    pub(crate) fn name(mut self, name: &'a str) -> Self {
+        self.name = Some(name);
+        self
+    }
+
     /// What `about` shows of a row (its picture) beside the row the pointer
     /// rests on, and of the chosen one with the pointer on the box.
     pub(crate) fn about(mut self, about: About<'a>) -> Self {
@@ -5785,6 +5832,7 @@ impl<'a> RowChoice<'a> {
             numbered,
             hover,
             mut about,
+            name,
         } = self;
         let shown = shown.unwrap_or_else(|| match current {
             Some(row) => mg_rules::choice_text(choices, row).into(),
@@ -6087,6 +6135,10 @@ impl<'a> RowChoice<'a> {
             }
         }
         let mut response = list.response;
+        match name {
+            Some(name) => response = response.accessible_name(name),
+            None => labelled_by_its_label(ui.ctx(), response.id),
+        }
         if let Some(hover) = hover {
             response = response.on_hover_text(hover);
         }
@@ -6119,7 +6171,7 @@ fn choices_sig(choices: &[mg_rules::Choice]) -> ChoicesSig {
 fn cached_name_order(ui: &Ui, choices: &[mg_rules::Choice]) -> std::sync::Arc<Vec<usize>> {
     type Entry = (ChoicesSig, std::sync::Arc<Vec<usize>>);
     let sig = choices_sig(choices);
-    let cache_id = egui::Id::new("mg-row-choice-name-order");
+    let cache_id = egui::Id::unique("mg-row-choice-name-order");
     if let Some(hit) = ui.data_mut(|d| {
         let lru = d.get_temp_mut_or_default::<Vec<Entry>>(cache_id);
         if let Some(pos) = lru.iter().position(|(s, _)| *s == sig) {
@@ -6200,14 +6252,14 @@ const CHOICE_WITH_KEYS: &str = "choice-with-keys";
 /// keys): a list beside it that takes them while it has no focus of its
 /// own (the conversation tree) leaves them to it.
 fn claim_arrows(ui: &Ui, r: &egui::Response) {
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(CHOICE_WITH_KEYS), r.id));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique(CHOICE_WITH_KEYS), r.id));
 }
 
 /// Whether a list of choices (a dropdown, a list of a table's rows, the
 /// Lighting Scheme grid) has the keyboard now: the arrow keys are its, not
 /// those of a list that has the keys otherwise (the conversation tree).
 pub(crate) fn choice_has_keys(ctx: &egui::Context) -> bool {
-    let id = ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new(CHOICE_WITH_KEYS)));
+    let id = ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::unique(CHOICE_WITH_KEYS)));
     id.is_some() && ctx.memory(|m| m.focused()) == id
 }
 
@@ -6281,7 +6333,7 @@ pub(crate) fn arrow_step<T: PartialEq + Clone>(
 /// the arrow keys ([`arrow_step`]) once clicked or reached with Tab. A
 /// builder over egui's combo box, `id_salt` its id.
 pub(crate) struct Dropdown {
-    combo: egui::ComboBox,
+    combo: egui::ComboBox<'static>,
     /// Its id salt as an id: where [`Dropdown::show_menu`] keeps its keys.
     salt: egui::Id,
     /// [`Dropdown::show_menu`]'s list has a Filter field above its rows.
@@ -6290,6 +6342,8 @@ pub(crate) struct Dropdown {
     stays_open: bool,
     /// The box's width as asked (held to its room as it is shown).
     width: Option<f32>,
+    /// Its name for a screen reader, where no label beside it names it.
+    name: Option<String>,
 }
 
 /// A box's width as asked, `want`, held to `ui`'s room where it is wider
@@ -6315,20 +6369,21 @@ pub(crate) fn wrap_for(ui: &mut Ui, width: f32) {
 
 /// A [`Dropdown`] with the id `id_salt`.
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
-    let salt = egui::Id::new(&id_salt);
+    let salt = egui::Id::unique(&id_salt);
     Dropdown {
         combo: egui::ComboBox::from_id_salt(id_salt).icon(mg_uikit::combo_icon),
         salt,
         filtered: false,
         stays_open: false,
         width: None,
+        name: None,
     }
 }
 
 impl Dropdown {
     /// The box, its width as asked held to `ui`'s room (a narrow form's,
     /// the Properties panel: never past its edge).
-    fn held(combo: egui::ComboBox, width: Option<f32>, ui: &mut Ui) -> egui::ComboBox {
+    fn held<'a>(combo: egui::ComboBox<'a>, width: Option<f32>, ui: &mut Ui) -> egui::ComboBox<'a> {
         match width {
             Some(w) => {
                 let w = held_width(ui, w);
@@ -6336,6 +6391,25 @@ impl Dropdown {
                 combo.width(w)
             }
             None => combo,
+        }
+    }
+
+    /// Its name for a screen reader (and a test's `get_by_label`), where
+    /// no label beside it names it (a header's or a toolbar's box).
+    pub(crate) fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// `r`, the box, named as [`Dropdown::name`] asked.
+    fn named(name: Option<String>, r: egui::Response) -> egui::Response {
+        match name {
+            Some(n) => r.accessible_name(n),
+            None => {
+                // (Else by the field label drawn before it.)
+                labelled_by_its_label(&r.ctx, r.id);
+                r
+            }
         }
     }
 
@@ -6437,6 +6511,7 @@ impl Dropdown {
             })
         })
         .response;
+        let r = Self::named(self.name, r);
         // (The options read only when an arrow key is pressed: not each
         // frame the box has the keys.)
         let keyed = ui.input(|i| {
@@ -6610,6 +6685,7 @@ impl Dropdown {
             })
         })
         .response;
+        let r = Self::named(self.name.clone(), r);
         if self.filtered {
             ui.data_mut(|d| d.insert_temp(filter_id, filter));
             // (Where the field's keys put the cursor: at the first row, or
@@ -6650,7 +6726,9 @@ impl Dropdown {
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
         let combo = Self::held(self.combo, self.width, ui);
-        combo_looks(ui, |ui| combo.show_ui(ui, contents))
+        let mut shown = combo_looks(ui, |ui| combo.show_ui(ui, contents));
+        shown.response = Self::named(self.name, shown.response);
+        shown
     }
 }
 
@@ -6658,6 +6736,12 @@ impl Dropdown {
 /// ([`mg_uikit::combo_style`]: `raised-hover`, not the theme's `bar`), the
 /// look `ui` had kept for what follows it.
 fn combo_looks<R>(ui: &mut Ui, show: impl FnOnce(&mut Ui) -> R) -> R {
+    // (Its own width, not a justified column's: egui 0.37's box grows to
+    // fill one, which 0.36's never did, a list's category filter as wide
+    // as the list.)
+    if ui.layout().is_vertical() && ui.layout().horizontal_justify() {
+        return ui.horizontal(|ui| combo_looks(ui, show)).inner;
+    }
     // (In a narrow form, the Properties panel's, whose grid wraps its
     // text: the box's words cut short with an ellipsis, on one line.)
     if crate::blueprint::narrow(ui) && ui.style().wrap_mode != Some(egui::TextWrapMode::Truncate) {
@@ -6886,7 +6970,51 @@ pub fn field_label(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
     let text = text.into();
     let r = mg_uikit::field_label(ui, text.clone());
     name_number_by(ui, &text, r.rect);
+    // (A label with words: a grid's empty one names nothing.)
+    if !text.trim().is_empty() {
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.data_mut(|d| d.insert_temp(last_label_id(), (pass, r.id, r.rect)));
+    }
     r
+}
+
+fn last_label_id() -> egui::Id {
+    egui::Id::unique("last-field-label")
+}
+
+/// Has the field `field` (drawn this pass) named by the field label drawn
+/// last before it, on its row (before it, from a row over the field's top
+/// to a few under it), where it has no name: a narrow form's label at the top of
+/// its row, over the field's own line, which `mg_uikit::FieldLabels`
+/// doesn't take for beside it. The first such field after a label takes
+/// it.
+pub(crate) fn labelled_by_its_label(ctx: &egui::Context, field: egui::Id) {
+    let pass = ctx.cumulative_pass_nr();
+    let Some((at, label, rect)) =
+        ctx.data(|d| d.get_temp::<(u64, egui::Id, egui::Rect)>(last_label_id()))
+    else {
+        return;
+    };
+    let Some(drawn) = ctx.viewport(|v| v.this_pass.widgets.get(field).map(|w| w.rect)) else {
+        return;
+    };
+    let row = ctx.global_style().spacing.interact_size.y;
+    // (Centered on its row, a label stands under a field whose row holds
+    // more lines under it: a localized name's StrRef.)
+    let beside = rect.right() <= drawn.left() + 1.0
+        && rect.top() <= drawn.bottom() + 4.0 * row
+        && rect.bottom() >= drawn.top() - row;
+    if at != pass || !beside {
+        return;
+    }
+    // (Taken: it names the first field after it alone, a row without a
+    // label of its own is not named by the one before.)
+    ctx.data_mut(|d| d.remove::<(u64, egui::Id, egui::Rect)>(last_label_id()));
+    ctx.accesskit_node_builder(field, |n| {
+        if n.label().is_none() && n.labelled_by().is_empty() {
+            n.push_labelled_by(label.accesskit_id());
+        }
+    });
 }
 
 /// Names the number field after this on the row (its arrows: "Level: One
@@ -6898,7 +7026,7 @@ pub(crate) fn name_next_number(ui: &mut Ui, label: &str) {
 }
 
 fn number_name_id() -> egui::Id {
-    egui::Id::new("number-field-name")
+    egui::Id::unique("number-field-name")
 }
 
 /// The label `text` at `rect`, kept for a number field after it on its row.
@@ -6910,8 +7038,9 @@ fn name_number_by(ui: &Ui, text: &str, rect: egui::Rect) {
 
 /// The label of the number field about to be drawn at `ui`'s cursor: the
 /// last one kept this pass, on the same row and before it (taken: a field
-/// on a later row isn't named by it).
-fn number_name(ui: &Ui) -> Option<String> {
+/// on a later row isn't named by it); and whether it is a name alone
+/// ([`name_number_field`]), drawn nowhere, which names the field too.
+fn number_name(ui: &Ui) -> Option<(String, bool)> {
     let kept = ui.data_mut(|d| {
         let kept = d.get_temp::<(u64, String, egui::Rect)>(number_name_id());
         d.remove::<(u64, String, egui::Rect)>(number_name_id());
@@ -6920,10 +7049,23 @@ fn number_name(ui: &Ui) -> Option<String> {
     let (pass, text, rect) = kept;
     let at = ui.cursor();
     let row = rect.y_range().expand(4.0);
-    let same_row = row.contains(at.top()) || row.contains(at.center().y);
-    let before = rect.left() <= at.left() + 1.0;
+    let own = rect == own_number_rect();
+    let same_row = own || row.contains(at.top()) || row.contains(at.center().y);
+    let before = own || rect.left() <= at.left() + 1.0;
     (pass == ui.ctx().cumulative_pass_nr() && same_row && before && !text.is_empty())
-        .then_some(text)
+        .then_some((text, rect == own_number_rect()))
+}
+
+/// The rect [`name_number_field`] keeps its name at: none a label has.
+fn own_number_rect() -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(f32::MIN, f32::MIN), egui::Vec2::ZERO)
+}
+
+/// Names the number field after this (the next drawn this pass, wherever
+/// it is) and its arrows, where no label is drawn beside or over it to name
+/// it (`mg_uikit::FieldLabels`): a size's two numbers, "16 × 16".
+pub(crate) fn name_number_field(ui: &mut Ui, label: &str) {
+    name_number_by(ui, label, own_number_rect());
 }
 
 /// The field label (`field_label`) of the field about to be drawn at
@@ -6968,14 +7110,15 @@ pub(crate) fn open_gallery_at<R>(
 ) -> bool {
     let Some(layout) = grid.layout.as_ref() else { return false };
     let cell = layout.rect(grid.rect.min, at);
-    let top = shown.inner_rect.top() - shown.state.offset.y;
+    let top = shown.inner_rect.top() - shown.state.clamped_offset().y;
     let most = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
     let wanted = (cell.top() - top).clamp(0.0, most);
-    if (shown.state.offset.y - wanted).abs() < 1.0 {
+    if (shown.state.clamped_offset().y - wanted).abs() < 1.0 {
         return true;
     }
     let mut state = shown.state;
-    state.offset.y = wanted;
+    let x = state.clamped_offset().x;
+    set_scroll_offset(&mut state, egui::vec2(x, wanted));
     state.store(ctx, shown.id);
     ctx.request_repaint();
     false
@@ -7196,6 +7339,18 @@ pub(crate) fn header_with_ok_cancel<'a>(
 
 #[cfg(test)]
 mod tests {
+
+    /// A scroll's offset set in its kept state is read back as set, the
+    /// rest of the state kept (egui 0.37's state has no setter: the serde
+    /// form it is kept by is how `set_scroll_offset` gets at it).
+    #[test]
+    fn a_scroll_offset_set_reads_back() {
+        let mut state = egui::scroll_area::State::default();
+        set_scroll_offset(&mut state, egui::vec2(3.0, 120.5));
+        assert_eq!(state.unclamped_offset(), egui::vec2(3.0, 120.5));
+        set_scroll_offset(&mut state, egui::vec2(0.0, 0.0));
+        assert_eq!(state.unclamped_offset(), egui::Vec2::ZERO);
+    }
     use super::*;
 
     /// A long column's parts out of sight are given the room they took and
@@ -7555,31 +7710,34 @@ mod tests {
         }
 
         let id = (key, GffPath::root());
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                ui.text_edit_singleline(&mut s.other);
-                let actions = std::mem::take(&mut s.app.actions);
-                for action in actions {
-                    if let crate::Action::Apply(cmd) = action {
-                        let _ = s.app.apply(cmd);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    ui.text_edit_singleline(&mut s.other).accessible_name("Other");
+                    let actions = std::mem::take(&mut s.app.actions);
+                    for action in actions {
+                        if let crate::Action::Apply(cmd) = action {
+                            let _ = s.app.apply(cmd);
+                        }
                     }
-                }
-                let list = s
-                    .app
-                    .ws
-                    .as_mut()
-                    .and_then(|w| w.doc(&s.target.key).ok())
-                    .and_then(|g| g.root.list("VarTable"))
-                    .map(<[Struct]>::to_vec)
-                    .unwrap_or_default();
-                super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
-                if s.discard_once {
-                    s.discard_once = false;
-                    ui.ctx().request_discard("multi-pass test");
-                }
-            },
-            State { app, target, other: String::from("external"), discard_once: false },
-        );
+                    let list = s
+                        .app
+                        .ws
+                        .as_mut()
+                        .and_then(|w| w.doc(&s.target.key).ok())
+                        .and_then(|g| g.root.list("VarTable"))
+                        .map(<[Struct]>::to_vec)
+                        .unwrap_or_default();
+                    super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
+                    if s.discard_once {
+                        s.discard_once = false;
+                        ui.ctx().request_discard("multi-pass test");
+                    }
+                },
+                State { app, target, other: String::from("external"), discard_once: false },
+            );
         h.run();
 
         // Add an incomplete draft row (empty name -> does not commit yet).
@@ -7631,19 +7789,25 @@ mod tests {
             show_spin: bool,
         }
 
-        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
-            |ui, s: &mut State| {
-                if s.show_spin
-                    && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
-                {
-                    s.value = next;
-                }
-            },
-            State { value: 10, show_spin: true },
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(400.0, 200.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    if s.show_spin {
+                        super::name_number_field(ui, "Value");
+                    }
+                    if s.show_spin
+                        && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
+                    {
+                        s.value = next;
+                    }
+                },
+                State { value: 10, show_spin: true },
+            );
         h.run();
 
-        let up_pos = h.get_by_label("One More").rect().center();
+        let up_pos = h.get_by_label("Value: One More").rect().center();
         let hold_up = |h: &mut Harness<'_, State>, start: f64| {
             h.hover_at(up_pos);
             h.input_mut().time = Some(start);
@@ -7787,7 +7951,7 @@ mod token_tests {
     #[test]
     fn a_token_goes_where_the_caret_was() {
         let ctx = egui::Context::default();
-        let id = egui::Id::new("field");
+        let id = egui::Id::unique("field");
         // The caret never in the field: at the end.
         assert_eq!(with_token(&ctx, id, "Hello there", "<FirstName>"), "Hello there<FirstName>");
         // After "Hello ": there, and the caret after the token.
@@ -7829,21 +7993,24 @@ mod row_choice_tests {
             choices[count / 2].text = "A choice with a name far longer than its box".into();
         }
         let state = State { choices };
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                // (The application's scroll bars: room of their own.)
-                let bars = egui::style::ScrollStyle::solid();
-                if ui.ctx().global_style().spacing.scroll != bars {
-                    ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
-                }
-                let id = egui::Id::new("list");
-                ui.horizontal(|ui| {
-                    ui.add_space(100.0);
-                    super::row_choice(id, &s.choices, 3).width(160.0).show(ui);
-                });
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    // (The application's scroll bars: room of their own.)
+                    let bars = egui::style::ScrollStyle::solid();
+                    if ui.ctx().global_style().spacing.scroll != bars {
+                        ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
+                    }
+                    let id = egui::Id::unique("list");
+                    ui.horizontal(|ui| {
+                        ui.add_space(100.0);
+                        super::row_choice(id, &s.choices, 3).name("List").width(160.0).show(ui);
+                    });
+                },
+                state,
+            );
         h.run();
         let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
         let at = h.get(combo).rect();
@@ -7889,20 +8056,23 @@ mod row_choice_tests {
     /// answer became the setting again the next time (the review's S26).
     #[test]
     fn an_always_box_is_unticked_when_its_question_is_asked_again() {
-        let id = egui::Id::new("a-question-always");
-        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
-            move |ui, (asked, on): &mut (bool, bool)| {
-                if *asked {
-                    // (As a footer's check box shows it: `Foot::check`.)
-                    let (mut now, tip) = super::always_now(ui.ctx(), id, "Options");
-                    ui.checkbox(&mut now, "Always do this").on_hover_text(tip);
-                    *on = super::always_kept(ui.ctx(), id, Some(now));
-                } else {
-                    ui.label("Nothing asked");
-                }
-            },
-            (true, false),
-        );
+        let id = egui::Id::unique("a-question-always");
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(400.0, 200.0))
+            .build_ui_state(
+                move |ui, (asked, on): &mut (bool, bool)| {
+                    if *asked {
+                        // (As a footer's check box shows it: `Foot::check`.)
+                        let (mut now, tip) = super::always_now(ui.ctx(), id, "Options");
+                        ui.checkbox(&mut now, "Always do this").on_hover_text(tip);
+                        *on = super::always_kept(ui.ctx(), id, Some(now));
+                    } else {
+                        ui.label("Nothing asked");
+                    }
+                },
+                (true, false),
+            );
         h.run();
         h.get_by_label("Always do this").click();
         h.run();
@@ -7987,12 +8157,19 @@ mod row_choice_tests {
             assert_eq!(offered.rows[n].row, n);
         }
         let state = State { choices, offered, value: "12345".into() };
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                super::value_choice(ui, 0, false, &s.choices, &s.offered, &mut s.value, 220.0);
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    ui.horizontal(|ui| {
+                        super::field_label(ui, "Value");
+                        let (choices, offered) = (&s.choices, &s.offered);
+                        super::value_choice(ui, 0, false, choices, offered, &mut s.value, 220.0);
+                    });
+                },
+                state,
+            );
         h.run();
         let t = std::time::Instant::now();
         for _ in 0..20 {
@@ -8033,7 +8210,7 @@ mod row_choice_tests {
             .map(|n| mg_core::ResRef::from_str(&format!("as_sound_{n:03}")).unwrap())
             .collect();
         let mut p = super::Picker {
-            id: egui::Id::new("picker"),
+            id: egui::Id::unique("picker"),
             title: "Select Resource".into(),
             filter: String::new(),
             choices: choices.clone(),
@@ -8064,13 +8241,16 @@ mod row_choice_tests {
         let choices = (0..50_000)
             .map(|row| mg_rules::Choice { row, text: format!("Choice {row:05}") })
             .collect();
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                let id = egui::Id::new("list");
-                super::row_choice(id, &s.choices, 31_234).width(160.0).show(ui);
-            },
-            State { choices },
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    let id = egui::Id::unique("list");
+                    super::row_choice(id, &s.choices, 31_234).name("List").width(160.0).show(ui);
+                },
+                State { choices },
+            );
         h.run();
         h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
         h.run();
@@ -8124,7 +8304,7 @@ mod text_menu_tests {
                         true => egui::TextEdit::singleline(&mut fixed),
                         false => egui::TextEdit::singleline(text),
                     };
-                    ui.add(field.id(egui::Id::new("field")));
+                    ui.add(field.id(egui::Id::unique("field"))).accessible_name("Field");
                     super::text_menus_end(ui.ctx());
                 },
                 "Looked at".to_string(),
@@ -8161,25 +8341,28 @@ mod text_menu_tests {
         }
     }
 
-    /// A click on a button beside a text field leaves the field's
-    /// selection for the button to work on, in the frame it is clicked,
-    /// though the field asks whether its menu is wanted before it is drawn
-    /// (as the script editor does: its Replace works on the selected
-    /// match). egui's `read_response` there gave up the field's focus
-    /// before it was drawn, and the field dropped its selection.
+    /// A press on a button beside a text field leaves the field its
+    /// selection as it is drawn in that frame, though the field asks
+    /// whether its menu is wanted before it is drawn (as the script editor
+    /// does: its Replace works on the selected match). egui's
+    /// `read_response` there gave up the field's focus before it was
+    /// drawn, and the field dropped its selection. (An egui field drops it
+    /// once it has lost the keys, since 0.37: by the release, a frame on,
+    /// it has none.)
     #[test]
-    fn a_click_beside_a_text_field_keeps_its_selection() {
+    fn a_press_beside_a_text_field_keeps_its_selection_as_it_is_drawn() {
         let mut h = Harness::new_ui_state(
             |ui, (text, seen): &mut (String, Option<bool>)| {
-                let id = egui::Id::new("field");
+                let id = egui::Id::unique("field");
                 super::text_menus_begin(ui.ctx());
                 super::text_menu_wanted(ui.ctx(), id);
-                ui.add(egui::TextEdit::singleline(text).id(id));
-                if ui.button("Use Selection").clicked() {
+                ui.add(egui::TextEdit::singleline(text).id(id)).accessible_name("Field");
+                if ui.input(|i| i.pointer.primary_pressed()) {
                     let range = egui::text_edit::TextEditState::load(ui.ctx(), id)
                         .and_then(|s| s.cursor.char_range());
                     *seen = Some(range.is_some_and(|r| r.primary != r.secondary));
                 }
+                let _ = ui.button("Use Selection");
                 super::text_menus_end(ui.ctx());
             },
             ("Selected".to_string(), None),
@@ -8189,9 +8372,14 @@ mod text_menu_tests {
         h.run();
         h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
         h.run();
-        h.get_by_label("Use Selection").click();
+        h.state_mut().1 = None;
+        let at = h.get_by_label("Use Selection").rect().center();
+        h.hover_at(at);
         h.run();
-        assert_eq!(h.state().1, Some(true), "the selection there as the button is clicked");
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers });
+        h.step();
+        assert_eq!(h.state().1, Some(true), "the selection there as the button is pressed");
     }
 
     use egui::accesskit::Role;
@@ -8255,7 +8443,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "Kept".to_string(),
@@ -8295,7 +8484,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).password(true).id(egui::Id::new("pw")));
+                ui.add(egui::TextEdit::singleline(text).password(true).id(egui::Id::unique("pw")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "secret".to_string(),
@@ -8318,7 +8508,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "Kept".to_string(),
@@ -8365,9 +8556,11 @@ mod text_menu_tests {
             |ui, chosen: &mut Option<&'static str>| {
                 super::text_menus_begin(ui.ctx());
                 super::pastes_begin(ui.ctx());
-                super::dropdown("kinds").selected_text("Kinds").filtered(true).show_menu(
-                    ui,
-                    |ui, keys| {
+                super::dropdown("kinds")
+                    .name("Kinds")
+                    .selected_text("Kinds")
+                    .filtered(true)
+                    .show_menu(ui, |ui, keys| {
                         for name in ["Alpha", "Beta", "Gamma"] {
                             if !keys.shows(name) {
                                 continue;
@@ -8377,8 +8570,7 @@ mod text_menu_tests {
                                 *chosen = Some(name);
                             }
                         }
-                    },
-                );
+                    });
                 super::text_menus_end(ui.ctx());
             },
             None,
@@ -8428,7 +8620,8 @@ mod text_menu_tests {
                 mg_uikit::popover::Popover::new("Brush")
                     .title(None, "Brush")
                     .custom(|ui| {
-                        ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("size")));
+                        ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("size")))
+                            .accessible_name("Field");
                     })
                     .show(ui, &button);
                 super::text_menus_end(ui.ctx());
@@ -8461,12 +8654,13 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, value: &mut f32| {
                 super::text_menus_begin(ui.ctx());
-                egui::ComboBox::from_id_salt("picker")
+                let picker = egui::ComboBox::from_id_salt("picker")
                     .selected_text("Color")
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show_ui(ui, |ui| {
-                        ui.add(egui::DragValue::new(value));
+                        ui.add(egui::DragValue::new(value)).accessible_name("Number");
                     });
+                picker.response.accessible_name("Color");
                 super::text_menus_end(ui.ctx());
             },
             40.0,
@@ -8513,7 +8707,8 @@ mod text_menu_tests {
                 super::text_menus_begin(ui.ctx());
                 ui.style_mut().interaction.tooltip_delay = 0.0;
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                    ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                        .accessible_name("Field");
                     ui.button("Beside").on_hover_text("Beside the field");
                 });
                 for i in 0..6 {
@@ -8561,9 +8756,9 @@ mod text_menu_plugin_tests {
     }
 
     fn app(ui: &mut egui::Ui, s: &mut S) {
-        let id = egui::Id::new("field");
+        let id = egui::Id::unique("field");
         super::text_menus_begin(ui.ctx());
-        ui.add(egui::TextEdit::singleline(&mut s.text).id(id));
+        ui.add(egui::TextEdit::singleline(&mut s.text).id(id)).accessible_name("Field");
         if ui.button("Other").clicked() {
             s.other += 1;
         }
@@ -8716,12 +8911,13 @@ mod text_menu_submenu_tests {
     }
 
     fn app(ui: &mut egui::Ui, s: &mut S) {
-        let id = egui::Id::new("field");
-        let idb = egui::Id::new("fieldb");
+        let id = egui::Id::unique("field");
+        let idb = egui::Id::unique("fieldb");
         super::text_menus_begin(ui.ctx());
         let wanted = super::text_menu_wanted(ui.ctx(), id);
-        ui.add(egui::TextEdit::multiline(&mut s.a).id(id).desired_width(600.0));
-        ui.add(egui::TextEdit::singleline(&mut s.b).id(idb));
+        ui.add(egui::TextEdit::multiline(&mut s.a).id(id).desired_width(600.0))
+            .accessible_name("Field");
+        ui.add(egui::TextEdit::singleline(&mut s.b).id(idb)).accessible_name("Field");
         if std::mem::take(&mut s.focus_b) {
             ui.memory_mut(|m| m.request_focus(idb));
         }
@@ -8750,6 +8946,7 @@ mod text_menu_submenu_tests {
 
     fn harness() -> Harness<'static, S> {
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(1400.0, 900.0))
             .build_ui_state(app, S { a: "abc\ndef".into(), b: "bee".into(), ..Default::default() });
         h.run();

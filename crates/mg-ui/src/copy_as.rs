@@ -298,7 +298,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     draft.original_tag.clone(),
                     tag.to_string(),
                 );
-                let warn_id = egui::Id::new("copy-as-tag-warning");
+                let warn_id = egui::Id::unique("copy-as-tag-warning");
                 if !app.references.is_reading()
                     && let Some((was, cached)) = ui.data(|d| d.get_temp::<WarnCache>(warn_id))
                     && was == key

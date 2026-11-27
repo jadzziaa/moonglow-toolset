@@ -2973,8 +2973,10 @@ fn a_read_only_area_s_object_is_not_deleted_from_the_tree() {
         // (One step for each input event.)
         h.step();
     }
+    // (And one for the menu, laid out unseen at first.)
+    h.step();
     let said = h.state().log.entries.len();
-    h.get_all_by_label("Delete").last().unwrap().click();
+    popup_item(&h, "Delete").click();
     until_tree(&mut h, "refused by the menu", |h| refused(h, said));
     assert_eq!(chests(&mut h), 1, "not deleted");
     assert_eq!(h.state().area_views[&area].selection, chosen, "still selected");
@@ -3051,6 +3053,7 @@ fn the_module_tree_s_placed_objects_at_the_size_at_first() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         // (One step for the wheel's event.)
@@ -3113,6 +3116,8 @@ fn the_module_tree_s_placed_objects_at_the_size_at_first() {
             // (One step for each input event.)
             h.step();
         }
+        // (And one for the menu, laid out unseen at first.)
+        h.step();
     };
     menu(&mut h, row);
     h.get_by_label("2 objects chosen");

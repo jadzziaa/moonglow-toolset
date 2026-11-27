@@ -110,7 +110,7 @@ struct Applied {
 }
 
 fn applied_id() -> egui::Id {
-    egui::Id::new("mg-uikit-theme")
+    egui::Id::unique("mg-uikit-theme")
 }
 
 /// Gives `ctx` the suite's look in `theme`: installs the fonts (once a
@@ -128,6 +128,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     fonts::install_fonts(ctx);
     if before_any(ctx) {
         ctx.on_end_pass("mg-uikit", std::sync::Arc::new(crate::controls::end_pass));
+        crate::labels::FieldLabels::install(ctx);
     }
     let now = Applied { theme };
     let before = ctx.data(|d| d.get_temp::<Applied>(applied_id()));
@@ -215,6 +216,12 @@ pub fn style(theme: Theme, old: &Style) -> Style {
         bar_inner_margin: 2.0,
         bar_outer_margin: 2.0,
         handle_min_length: 16.0,
+        // (No rubber band past a scroll's ends, egui 0.37's on a touch
+        // drag and a trackpad: the suite's views put a scroll where it
+        // may not reach (a page chosen, a gallery's cell, a table's kept
+        // place), which egui held to its end at once and with the band
+        // springs back from over a few frames.)
+        kinetic: egui::style::KineticScrollStyle { rubber_band: false, ..Default::default() },
         ..egui::style::ScrollStyle::solid()
     };
     style.text_styles = text_styles();

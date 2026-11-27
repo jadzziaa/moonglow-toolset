@@ -178,7 +178,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let mut incoming = inventory::Incoming::default();
     let mut edits = Vec::new();
     // (Ctrl and Shift select several, to drag, copy or cut together.)
-    let chosen_id = egui::Id::new(("item-rows-selected", key, base.to_string()));
+    let chosen_id = egui::Id::unique(("item-rows-selected", key, base.to_string()));
     let selected = inventory::selected_rows(ui, chosen_id, items.len());
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {

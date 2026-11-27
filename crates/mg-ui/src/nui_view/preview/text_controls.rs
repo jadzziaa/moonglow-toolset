@@ -147,12 +147,12 @@ impl Renderer<'_> {
             };
             let response = ui.interact(
                 strip,
-                ui.id().with(("text-scroll", axis, source_path, row)),
+                ui.scope_id().with(("text-scroll", axis, source_path, row)),
                 Sense::click_and_drag(),
             );
             response.widget_info(|| {
                 egui::WidgetInfo::labeled(
-                    egui::WidgetType::Slider,
+                    egui::Role::Slider,
                     !disabled,
                     format!("Scroll text {name} {path}"),
                 )
@@ -226,10 +226,14 @@ impl Renderer<'_> {
             let input = ui.put(
                 content,
                 editor
-                    .id(ui.id().with(("nui-input", source_path, row)))
+                    .id(ui.scope_id().with(("nui-input", source_path, row)))
                     .font(a.font(ui.ctx(), font, scale).0)
                     .text_color(fg)
-                    .vertical_align(if multiline { egui::Align::Min } else { egui::Align::Center })
+                    .align(if multiline {
+                        egui::Align2::LEFT_TOP
+                    } else {
+                        egui::Align2::LEFT_CENTER
+                    })
                     .frame(egui::Frame::NONE)
                     .margin(0)
                     .hint_text(localized_string(&node["label"], s, row, a)),

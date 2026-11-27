@@ -568,6 +568,7 @@ fn a_click_on_a_row_leaves_the_outliner_still() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -by),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         rest(&mut h);

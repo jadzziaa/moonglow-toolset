@@ -4,7 +4,7 @@ use crate::common::*;
 use mg_ui::search_results::Hit;
 
 fn script_cursor(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<(usize, usize)> {
-    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))?;
+    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::unique(("script", key)))?;
     let r = state.cursor.char_range()?;
     Some((r.primary.index.into(), r.secondary.index.into()))
 }
@@ -182,7 +182,7 @@ fn the_save_key_in_a_script_editor_saves_the_script_not_the_module() {
         h.run_steps(3);
     };
     let leave = |h: &mut Harness<'_, Moonglow>| {
-        h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new(("script", key))));
+        h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::unique(("script", key))));
         h.run();
     };
     type_in(&mut h, "// one\n");
@@ -471,7 +471,7 @@ fn edit_row(h: &Harness<'_, Moonglow>, what: &str) -> String {
 
 /// Whether a script's editor has the keys.
 fn script_has_keys(h: &Harness<'_, Moonglow>, key: ResKey) -> bool {
-    h.ctx.memory(|m| m.focused()) == Some(egui::Id::new(("script", key)))
+    h.ctx.memory(|m| m.focused()) == Some(egui::Id::unique(("script", key)))
 }
 
 /// A builder's report (October 2026): Edit › Undo and the toolbar's in a
@@ -759,6 +759,9 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), text);
     h.get_by_label("Windows-1250");
@@ -957,7 +960,7 @@ fn tab_indents_as_the_script_does() {
 
     // With lines selected (the editor's context menu): those lines alone.
     let mut h = open(two);
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let (from, to) = (two.find("  if").unwrap(), two.find("    n++").unwrap() + 2);
     let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
     let range =
@@ -1648,7 +1651,7 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     // (Where the text begins: it does not move as an error comes and
     // goes, Jasperre's report; since M4's U13 the error is the Status
     // Bar's message and a wavy underline, no row of its own.)
-    let editor = egui::Id::new(("script", main));
+    let editor = egui::Id::unique(("script", main));
     let top =
         |h: &Harness<'_, Moonglow>| h.ctx.read_response(editor).expect("the editor").rect.top();
     let before = top(&h);
@@ -2636,7 +2639,7 @@ fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
     h.run_steps(4);
     // The cursor after "int n;", and Enter, then a letter.
     let at = text.find("int n;").unwrap() + "int n;".len();
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
     let cursor = egui::text::CCursor::new(at);
     state.cursor.set_char_range(Some(egui::text::CCursorRange::one(cursor)));
@@ -2684,6 +2687,9 @@ fn a_long_script_s_lines_out_of_sight_are_edited_where_they_are() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
+    // (Text no font of the suite has, as a builder's may be: drawn as
+    // boxes, which the harness takes for a mistake by default.)
+    h.ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
     h.run();
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run();
@@ -2976,7 +2982,7 @@ fn the_script_editor_s_menu_cuts_copies_pastes_and_undoes() {
             .rect()
     };
     // "void main()" selected, the editor with the keys.
-    let id = egui::Id::new(("script", key));
+    let id = egui::Id::unique(("script", key));
     let select = |h: &mut Harness<'_, Moonglow>, a: usize, b: usize| {
         let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
         let range =

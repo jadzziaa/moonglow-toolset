@@ -328,7 +328,7 @@ fn a_creature_s_sound_set_and_faction_are_on_its_basic_page() {
         return;
     };
     h.run();
-    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
+    let y = |h: &Harness<'_, Moonglow>, label: &str| label_node(h, label).rect().center().y;
     assert!(y(&h, "Gender") < y(&h, "Sound set"), "after the gender");
     h.get_by_label("Play Sample");
     h.get_by_label("Faction");
@@ -375,10 +375,7 @@ fn body_parts_lists_offer_the_default_phenotype_s_parts() {
     h.run();
     // The torso's list: beside its label, on its row. The wheel over it
     // steps to the next part it offers.
-    let label = (h.get_all_by_label("Torso"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Torso").next().unwrap().rect();
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
@@ -389,6 +386,7 @@ fn body_parts_lists_offer_the_default_phenotype_s_parts() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -50.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(2);
@@ -467,7 +465,7 @@ fn a_skill_s_description_shows_on_hover() {
     page(&mut h, "Skills");
     h.run();
     assert!(h.query_by_label_contains("opposed test").is_none());
-    let hide = h.get_by_label("Hide").rect().center();
+    let hide = label_nodes(&h, "Hide").next().unwrap().rect().center();
     h.hover_at(hide);
     // (A tooltip waits a moment.)
     h.run_steps(60);
@@ -733,6 +731,7 @@ fn a_long_store_page_lays_out_the_rows_in_sight() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -300.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(4);
@@ -1878,7 +1877,7 @@ fn a_color_typed_into_the_picker_s_hex_field_is_taken() {
     // (The row's own field shows it too: the picker's is the last.)
     let hex = |h: &Harness<'_, Moonglow>, v: &str| h.get_all_by_value(v).count();
     assert!(hex(&h, "#ffffff") >= 2, "the picker's field shows the color");
-    h.get_all_by_value("#ffffff").last().unwrap().click();
+    h.get_all_by_value("#ffffff").rfind(in_popup).unwrap().click();
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.event(egui::Event::Text("#ff0000".into()));
@@ -1945,10 +1944,10 @@ fn a_cleric_s_domains_fit_a_narrow_window() {
     let window = h.state_mut().dock.get_window_state_mut(at.surface).expect("a window");
     window.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(480.0, 600.0));
     h.run_steps(3);
-    let right = h.get_by_label("Domains").rect().left() + 470.0;
+    let right = label_node(&h, "Domains").rect().left() + 470.0;
     let pickers: Vec<egui::Rect> = h.get_all_by_value("Not set").map(|n| n.rect()).collect();
     assert!(pickers.len() >= 2, "both domains");
-    let domain_row = h.get_by_label("Domains").rect().center().y;
+    let domain_row = label_node(&h, "Domains").rect().center().y;
     let domains: Vec<_> =
         pickers.iter().filter(|r| (r.center().y - domain_row).abs() < 4.0).collect();
     assert_eq!(domains.len(), 2, "both on the Domains row");
@@ -3286,13 +3285,10 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let level0 = spell_list(&mut h, &key, "MemorizedList0");
     let lights = level0.iter().filter(|e| e.0 == light).count();
     let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
-    let up = h
-        .get_all_by_label("One More")
-        // (The upper of the two at the field's end: M4's U10.)
-        .find(|n| (n.rect().center().y - row.center().y).abs() < 8.0)
-        .expect("its arrow up")
-        .rect()
-        .center();
+    // (The upper of the two at the field's end, M4's U10, named with it.)
+    let up = h.get_by_label("Light prepared: One More").rect();
+    assert!((up.center().y - row.center().y).abs() < 8.0, "on its row");
+    let up = up.center();
     h.hover_at(up);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
@@ -3973,10 +3969,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     // The torso's list: beside its label, on its row, the first after it
     // (the area's tab under the window has lists on that row too).
     // (The field's label: the part's button under the lists is named so too.)
-    let label = (h.get_all_by_label("Torso"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Torso").next().unwrap().rect();
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
@@ -3989,6 +3982,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, y),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -4005,6 +3999,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -50.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(2);
@@ -4023,10 +4018,7 @@ fn an_armor_s_part_can_be_none() {
     settle(&mut h);
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
-    let label = (h.get_all_by_label("Left bicep"))
-        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
-        .unwrap()
-        .rect();
+    let label = label_nodes(&h, "Left bicep").next().unwrap().rect();
     h.get_all_by_role(egui::accesskit::Role::ComboBox)
         .find(|n| {
             let r = n.rect();
@@ -4135,8 +4127,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     // (Its colors' lists are beside their labels, the armor's Cloth 1
     // above the part's; part numbers, some the same, are in the left
     // column.)
-    let label = (h.get_all_by_label("Cloth 1"))
-        .filter(|n| n.accesskit_node().role() != combo)
+    let label = label_nodes(&h, "Cloth 1")
         .map(|n| n.rect())
         .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
         .expect("the armor's Cloth 1 label");
@@ -4278,6 +4269,7 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -(seen.height() * 0.8).max(40.0)),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::NONE,
                     });
                     h.run_steps(8);

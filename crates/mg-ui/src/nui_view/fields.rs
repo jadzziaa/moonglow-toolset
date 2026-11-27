@@ -48,16 +48,16 @@ pub(super) enum Place {
 /// fields keep their own stores, so that one drawn between another's
 /// panels and its editor never clears what the other shows.
 fn designer(ctx: &egui::Context) -> egui::Id {
-    ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new("nui-fields-designer")))
+    ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::unique("nui-fields-designer")))
         .unwrap_or(egui::Id::NULL)
 }
 
 fn unset_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-unset").with(designer(ctx))
+    egui::Id::unique("nui-fields-unset").with(designer(ctx))
 }
 
 fn drawn_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-drawn").with(designer(ctx))
+    egui::Id::unique("nui-fields-drawn").with(designer(ctx))
 }
 
 fn shows_unset(ui: &Ui, field: egui::Id, set: Value, shown: Value) {
@@ -77,13 +77,13 @@ fn drawn(ui: &Ui, field: egui::Id) {
 }
 
 fn of_id(ctx: &egui::Context) -> egui::Id {
-    egui::Id::new("nui-fields-of").with(designer(ctx))
+    egui::Id::unique("nui-fields-of").with(designer(ctx))
 }
 
 /// The fields drawn from here on are designer `key`'s (each part of it
 /// that draws fields enters it: its panels, its editor).
 pub(super) fn enter(ctx: &egui::Context, key: ResKey) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nui-fields-designer"), egui::Id::new(key)));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("nui-fields-designer"), egui::Id::unique(key)));
 }
 
 /// Once a frame for designer `key`, before the first of its parts draws.
@@ -280,7 +280,7 @@ pub(super) fn hinted(
 
 fn text_field(ui: &mut Ui, text: &mut String, width: f32, hint: &str) -> Option<egui::Response> {
     let id = ui.next_auto_id().with("nui-text");
-    let held = egui::Id::new("nui-fields-typed");
+    let held = egui::Id::unique("nui-fields-typed");
     let mut typed = ui.data_mut(|d| d.remove_temp::<Typed>(held)).unwrap_or_default();
     let set =
         crate::widgets::commit_text_hinted(&mut typed.0, ui, id, text, None, width, None, hint);
@@ -379,7 +379,7 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
             {
                 field.widget_info(|| {
                     egui::WidgetInfo::labeled(
-                        egui::WidgetType::TextEdit,
+                        egui::Role::TextInput,
                         true,
                         format!("Option {} label", i + 1),
                     )
@@ -446,10 +446,10 @@ fn more(ui: &mut Ui, all: usize, what: &str) {
     }
 }
 
-pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
+pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) -> Option<egui::Response> {
     if depth > 12 {
         ui.weak("Nested value: use JUI Source");
-        return;
+        return None;
     }
     match v {
         Value::Array(values) => {
@@ -462,7 +462,10 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                         .icon(mg_uikit::collapsing_icon)
                         .default_open(values_simple(item))
                         .show(ui, |ui| {
-                            value(ui, item, depth + 1);
+                            // (A text, number or color named by its header.)
+                            if let Some(r) = value(ui, item, depth + 1) {
+                                widgets::name_node(ui, r.id, &format!("Item {}", i + 1));
+                            }
                             if ui.small_button("Remove Item").clicked() {
                                 remove = Some(i);
                             }
@@ -481,15 +484,18 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             if o.len() == 4
                 && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
         {
-            scalar(ui, v);
+            return scalar(ui, v);
         }
         Value::Object(o) => {
             for (key, item) in o.iter_mut() {
                 ui.push_id(key, |ui| {
                     if item.is_array() || item.is_object() {
-                        egui::CollapsingHeader::new(key)
-                            .icon(mg_uikit::collapsing_icon)
-                            .show(ui, |ui| value(ui, item, depth + 1));
+                        egui::CollapsingHeader::new(key).icon(mg_uikit::collapsing_icon).show(
+                            ui,
+                            |ui| {
+                                value(ui, item, depth + 1);
+                            },
+                        );
                     } else {
                         widgets::field_label(ui, key);
                         value(ui, item, depth + 1);
@@ -514,10 +520,9 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                 }
             });
         }
-        _ => {
-            scalar(ui, v);
-        }
+        _ => return scalar(ui, v),
     }
+    None
 }
 
 fn values_simple(v: &Value) -> bool {

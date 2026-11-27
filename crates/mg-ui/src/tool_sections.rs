@@ -437,7 +437,7 @@ pub(crate) fn scrolled_in<R>(
     margin: egui::Margin,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
-    let id = ui.id().with((salt, "focus-seen"));
+    let id = ui.scope_id().with((salt, "focus-seen"));
     egui::ScrollArea::vertical()
         .id_salt(salt)
         .auto_shrink([false, false])

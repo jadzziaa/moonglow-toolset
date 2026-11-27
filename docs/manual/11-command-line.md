@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T12:35:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T22:23:00Z }
 ---
 
 # Command-line tools
@@ -239,6 +239,10 @@ applies it as the editors would.
 
 - Values and list items are written as `mg gff` writes them (the JSON of
   neverwinter.nim and nasher).
+- An edit may carry a `"note"`, words for people about what it is for
+  (`mg merge-gff`'s conflict file says which conflict each edit is
+  of), which `mg apply` reads past. Any other key it doesn't know is
+  refused, as a misspelling most likely is.
 - `set_resource` takes `"text"`, `"base64"` (any bytes) or `"gff"` (a
   whole GFF as `mg gff` prints it).
 - In a path, a label's `/`, `[`, `]` and `~` are written `~1`, `~2`, `~3`
@@ -624,7 +628,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
 | `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`): those changed since they were last compiled, as `mg compile` does (a project keeps no compiled scripts, so those are all of them unless it keeps some among its sources); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte. Where the project file says `[pack] compile_models = true` ([Modules](03-modules.md#the-project-file-moonglowtoml)), the models kept as text go in compiled, each against its supermodel from the project, its haks or the game, and those that can't be are named |
 | `mg merge-claims BASE OURS THEIRS` | merge two copies of a project's [claims table](03-modules.md#claimed-areas), both made from BASE, area by area, and write the merge over OURS (`-o FILE` elsewhere): what one side changed of an area's row is taken, both sides' new areas kept (theirs after ours, numbered on), an area both changed each its own way a conflict, which fails and writes nothing unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
-| `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON or NWNT of one, and write the merge over OURS (`-o FILE` elsewhere; `--project DIR` names the nasher project whose float places and codepage the text is written with, where it isn't above the file). Placed objects merge by object, the area list as a union, variables by name and type, inventories by item, localized strings by language, a list's order in sequence. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
+| `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON or NWNT of one, and write the merge over OURS (`-o FILE` elsewhere; `--project DIR` names the nasher project whose float places and codepage the text is written with, where it isn't above the file). Placed objects merge by object, the area list as a union, variables by name and type, inventories by item, localized strings by language, a list's order in sequence. A conversation's lines both sides added are both kept, theirs numbered after ours. Two different changes to one value are a conflict: it fails, names each by its path and leaves OURS as it was, unless `--prefer ours` or `--prefer theirs`, and writes beside the file (`--path`'s, else OURS's) the edits that make OURS the merge, for `mg apply`: `NAME.conflicts`, what merged and then theirs' side of each conflict, each edit's `note` saying which (`conflict_file` in the JSON, and each conflict's `edits`). Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:
 - `--keep-going` packs the module anyway.

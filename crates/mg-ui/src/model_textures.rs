@@ -75,7 +75,7 @@ fn listing(app: &Moonglow, ui: &Ui, model: &str, area_env: Option<&str>) -> Arc<
     };
     let model = model.trim().to_ascii_lowercase();
     let area_env = area_env.map(str::to_ascii_lowercase).filter(|e| !e.is_empty());
-    let id = egui::Id::new(("model-textures", &model, &area_env));
+    let id = egui::Id::unique(("model-textures", &model, &area_env));
     let stamp: Stamp = (app.ws.as_ref().map(|w| w.revision()), app.load_order);
     if let Some((was, l)) = ui.data(|d| d.get_temp::<(Stamp, Arc<Listing>)>(id))
         && was == stamp
@@ -257,7 +257,7 @@ pub(crate) fn section(
         (n, 0) => format!("Textures of {model} ({n})"),
         (n, m) => format!("Textures of {model} ({n}, {m} missing)"),
     };
-    let id = egui::Id::new(("model-textures-section", salt));
+    let id = egui::Id::unique(("model-textures-section", salt));
     let header = egui::CollapsingHeader::new(title)
         .icon(mg_uikit::collapsing_icon)
         .id_salt(id)
@@ -353,7 +353,7 @@ pub(crate) fn panel(
     let mut first = focus;
     // (The row chosen, by a click, as the board's `.list-row.sel`: Copy at
     // its right alone; F6 chooses the first.)
-    let chosen_id = egui::Id::new(("texture-chosen", model.to_ascii_lowercase()));
+    let chosen_id = egui::Id::unique(("texture-chosen", model.to_ascii_lowercase()));
     let mut chosen: Option<String> = ui.data(|d| d.get_temp(chosen_id));
     if focus {
         chosen = l.rows.first().map(|r| r.name.clone());

@@ -14,6 +14,7 @@
 //!   { "op": "remove_resource", "resource": "old.utc" } ] }
 //! ```
 //!
+//! An edit may say what it is for in `"note"`, which is not read.
 //! Values and structs are nwn-lib JSON (`mg_gff::json`). A path is a
 //! [`GffPath`] as it writes itself: the
 //! labels from a resource's root, each after a `/`, a list's item as
@@ -34,6 +35,10 @@ use crate::{Command, Edit, GffPath, Step};
 
 /// The version of the format written; a file of a later one is refused.
 pub const VERSION: u64 = 1;
+
+/// The key an edit may carry words for people in (`mg merge-gff`'s
+/// conflict file says which conflict an edit is of): read past.
+pub const NOTE: &str = "note";
 
 /// JSON that is not a command, or a command JSON cannot hold.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -193,7 +198,7 @@ fn edit_from_json(json: &Json, cp: Codepage, at: &str) -> Result<Edit, WireError
     };
     match op {
         "set_field" => {
-            known(o, &["op", "resource", "field", "value"], at)?;
+            known(o, &["op", "resource", "field", "value", NOTE], at)?;
             let (path, label) = field("field")?;
             let Some(value) = o.get("value") else { return fault(at, "no \"value\"") };
             let value =
@@ -201,12 +206,12 @@ fn edit_from_json(json: &Json, cp: Codepage, at: &str) -> Result<Edit, WireError
             Ok(Edit::SetField { key, path, label, value: Some(value) })
         }
         "remove_field" => {
-            known(o, &["op", "resource", "field"], at)?;
+            known(o, &["op", "resource", "field", NOTE], at)?;
             let (path, label) = field("field")?;
             Ok(Edit::SetField { key, path, label, value: None })
         }
         "insert_item" => {
-            known(o, &["op", "resource", "list", "index", "item"], at)?;
+            known(o, &["op", "resource", "list", "index", "item", NOTE], at)?;
             let (path, list) = field("list")?;
             let Some(index) = o.get("index").and_then(Json::as_u64) else {
                 return fault(at, "\"index\" must be a position in the list (0 is first)");
@@ -219,7 +224,7 @@ fn edit_from_json(json: &Json, cp: Codepage, at: &str) -> Result<Edit, WireError
             Ok(Edit::InsertItem { key, path, list, index, item })
         }
         "remove_item" => {
-            known(o, &["op", "resource", "item"], at)?;
+            known(o, &["op", "resource", "item", NOTE], at)?;
             let at_item = format!("{at}.item");
             let path: GffPath = text(o, "item", at)?
                 .parse()
@@ -233,7 +238,7 @@ fn edit_from_json(json: &Json, cp: Codepage, at: &str) -> Result<Edit, WireError
             }
         }
         "set_resource" => {
-            known(o, &["op", "resource", "text", "base64", "gff"], at)?;
+            known(o, &["op", "resource", "text", "base64", "gff", NOTE], at)?;
             let given = ["text", "base64", "gff"].iter().filter(|k| o.contains_key(**k)).count();
             if given != 1 {
                 return fault(at, "give one of \"text\", \"base64\" or \"gff\"");
@@ -264,7 +269,7 @@ fn edit_from_json(json: &Json, cp: Codepage, at: &str) -> Result<Edit, WireError
             Ok(Edit::SetResource { key, data: Some(data) })
         }
         "remove_resource" => {
-            known(o, &["op", "resource"], at)?;
+            known(o, &["op", "resource", NOTE], at)?;
             Ok(Edit::SetResource { key, data: None })
         }
         other => fault(
@@ -436,6 +441,12 @@ mod tests {
             one(json!({"op": "set_field", "resource": "a.utc", "feild": "Tag"}))
                 .contains("unknown key \"feild\"")
         );
+        // A note, on any edit, is read past.
+        let noted = json!({"edits": [
+            {"op": "remove_field", "resource": "a.utc", "field": "/Tag", "note": "conflict 1"},
+            {"op": "remove_resource", "resource": "b.utc", "note": "gone"},
+        ]});
+        assert_eq!(command_from_json(&noted, cp).unwrap().edits.len(), 2);
         assert!(
             one(json!({"op": "remove_item", "resource": "a.git", "item": "/List"}))
                 .contains("expected a list's item")

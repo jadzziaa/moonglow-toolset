@@ -554,7 +554,7 @@ fn sizes_kept_by_older_versions_are_taken_once() {
         for (id, axis, size) in
             [("tree", 0, egui_sizes.0), ("right-dock", 0, egui_sizes.1), ("log", 1, egui_sizes.2)]
         {
-            let id = egui::Id::new(id);
+            let id = egui::Id::unique(id);
             match size {
                 Some(size) => {
                     let mut wh = egui::vec2(600.0, 600.0);

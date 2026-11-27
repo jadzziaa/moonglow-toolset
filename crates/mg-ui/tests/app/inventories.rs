@@ -500,7 +500,7 @@ fn find_in_palette_chooses_an_item_s_blueprint() {
     open_menu(&mut h, row.center());
     let items = menu_items(&h, "Properties");
     assert_eq!(items.last().map(String::as_str), Some("Properties"), "{items:?}");
-    h.get_all_by_label("Properties").last().unwrap().click();
+    popup_item(&h, "Properties").click();
     settle(&mut h);
     let uti = ResKey::parse("nw_it_torch001", ResType::UTI).unwrap();
     assert!(

@@ -322,7 +322,7 @@ fn form_frame<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, egui::Rect)
     let room = ui.available_height() - rows;
     let lines = ((room - top - line) / pitch).floor().max(0.0) + 1.0;
     let most = top + (lines - 1.0) * pitch + line;
-    let id = ui.id().with("search-form-lines");
+    let id = ui.scope_id().with("search-form-lines");
     let mut state: FormScroll = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let mut area = egui::ScrollArea::vertical()
         .id_salt("search-form")
@@ -333,9 +333,17 @@ fn form_frame<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, egui::Rect)
     if let Some(want) = state.want.take() {
         area = area.vertical_scroll_offset(want);
     }
-    let out = area.show(ui, |ui| egui::Frame::new().inner_margin(margin).show(ui, add).inner);
+    // (Laid out as wide as with its scroll bar, shown or not: the bar's
+    // room taken and given back rewrapped the form a line taller or
+    // shorter, which moved the dock's least height, which showed or hid
+    // the bar, every frame.)
+    let width = ui.available_width() - ui.spacing().scroll.allocated_width();
+    let out = area.show(ui, |ui| {
+        ui.set_max_width(width);
+        egui::Frame::new().inner_margin(margin).show(ui, add).inner
+    });
     let shown = out.inner_rect;
-    let at = out.state.offset.y;
+    let at = out.state.clamped_offset().y;
     let most_offset = (out.content_size.y - shown.height()).max(0.0);
     // (Content's top, in the window: where line 0 is, less the margin.)
     let content_top = shown.top() - at;
@@ -692,7 +700,7 @@ fn instances(app: &mut Moonglow, ui: &mut Ui) {
         );
         let t = mg_uikit::tokens(ui.ctx());
         let spec = report_table::Spec {
-            id: egui::Id::new("find-instance-table"),
+            id: egui::Id::unique("find-instance-table"),
             name: INSTANCES_FOUND,
             cols: &INSTANCE_COLUMNS,
             keys: Keys::SearchResults,
@@ -944,7 +952,7 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                 let is = current == Some(i);
                 row.widget_info(|| {
                     let said = format!("{}: {}", hit.place, hit.text);
-                    egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is, &said)
+                    egui::WidgetInfo::selected(egui::Role::Button, true, is, &said)
                 });
                 if row.clicked() || row.secondary_clicked() {
                     chosen = Some(i);
@@ -975,7 +983,7 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                     let r = ui.add(mg_uikit::Checkbox::without_text(&mut ticked));
                     r.widget_info(|| {
                         let said = format!("Replace in {}", hit.place);
-                        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, ticked, &said)
+                        egui::WidgetInfo::selected(egui::Role::CheckBox, true, ticked, &said)
                     });
                     if r.changed() {
                         tick = Some((i, ticked));

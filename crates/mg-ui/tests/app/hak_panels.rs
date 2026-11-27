@@ -872,7 +872,8 @@ fn the_model_s_view_rests_until_played() {
     assert!(facts.contains("Type Model, text") && facts.contains("Faces 1"), "{facts}");
     assert!(facts.contains("Textures 1") && facts.contains("Supermodel (none)"), "{facts}");
     h.get_by_label("Play").click();
-    assert!(h.try_run().is_err(), "played: it asks for frames");
+    h.run_steps(2);
+    assert!(model_view_asks_for_frames(&h), "played: it asks for frames");
     h.get_by_label("Pause").click();
     settle(&mut h);
     assert!(!view(&h).0, "paused again, at rest");

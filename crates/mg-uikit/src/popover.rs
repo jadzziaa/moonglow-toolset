@@ -36,8 +36,8 @@
 //! own name ("Show overlays"); unfolded, the same names on toggles.
 
 use egui::{
-    Align2, Color32, FontId, Id, Margin, Rect, Response, Sense, Stroke, Ui, UiBuilder, Vec2,
-    WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, FontId, Id, Margin, Rect, Response, Role, Sense, Stroke, Ui, UiBuilder, Vec2,
+    WidgetInfo, pos2, vec2,
 };
 
 use crate::button::KitButton;
@@ -1023,7 +1023,7 @@ pub(crate) fn opened_by_keyboard(ctx: &egui::Context) -> bool {
 /// The id under which the pass a kit popover was last shown open in is
 /// kept ([`Popover::any_open`]).
 fn any_open_id() -> Id {
-    Id::new("mg-uikit-popover-any-open")
+    Id::unique("mg-uikit-popover-any-open")
 }
 
 /// The width of `words` in the body's font.
@@ -1080,11 +1080,11 @@ fn title_row(
     if let Some((on, name)) = switch {
         let at = pos2(rect.right() - ROW_PADDING - SWITCH.x, y - SWITCH.y / 2.0);
         let switch_rect = Rect::from_min_size(at, SWITCH);
-        let id = ui.id().with(("mg-uikit-switch", &name));
+        let id = ui.scope_id().with(("mg-uikit-switch", &name));
         let sense = if enabled { Sense::click() } else { Sense::hover() };
         let response = ui.interact(switch_rect, id, sense);
         let enabled = enabled && ui.is_enabled();
-        response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, *on, &name));
+        response.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, *on, &name));
         // (A switch, as accesskit has the role: egui's widget types have
         // none, so the check box's role is replaced; its toggled state and
         // name stay.)
@@ -1183,7 +1183,7 @@ fn check_row(ui: &mut Ui, width: f32, c: &PopCheck<'_>, enabled: bool) -> Respon
     let response = row(ui, width, enabled);
     let enabled = enabled && ui.is_enabled();
     response.widget_info(|| {
-        WidgetInfo::selected(WidgetType::Checkbox, enabled, *c.value, c.accessible_name())
+        WidgetInfo::selected(Role::CheckBox, enabled, *c.value, c.accessible_name())
     });
     let rect = response.rect;
     if ui.is_rect_visible(rect) {
@@ -1213,7 +1213,7 @@ fn check_row(ui: &mut Ui, width: f32, c: &PopCheck<'_>, enabled: bool) -> Respon
 fn action_row(ui: &mut Ui, width: f32, a: &PopAction, enabled: bool) -> Response {
     let response = row(ui, width, enabled);
     let enabled = enabled && ui.is_enabled();
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &a.words));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, &a.words));
     let rect = response.rect;
     if ui.is_rect_visible(rect) {
         let t = ui.tokens();

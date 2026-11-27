@@ -643,6 +643,7 @@ fn an_update_out_of_the_page_s_sight_is_told_in_the_strip() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -40.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -925,6 +926,7 @@ fn an_update_line_half_in_sight_is_the_strip_s() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -3.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });
@@ -957,6 +959,7 @@ fn an_update_line_half_in_sight_is_the_strip_s() {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -3.0),
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         });

@@ -38,8 +38,8 @@
 use std::ops::Range;
 
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
-    Vec2, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, Response, Role, Sense, Stroke,
+    StrokeKind, Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use crate::icons::Icon;
@@ -522,7 +522,7 @@ impl<'a> GalleryCell<'a> {
         let said = self.said.unwrap_or(self.name).to_string();
         let (selected, enabled) = (self.selected, !self.disabled);
         response.widget_info(|| {
-            let mut info = WidgetInfo::selected(WidgetType::Button, enabled, selected, &said);
+            let mut info = WidgetInfo::selected(Role::Button, enabled, selected, &said);
             info.label = Some(said.clone());
             info
         });
@@ -840,7 +840,7 @@ impl GalleryGrid {
         // screen reader.)
         let grid = ui.interact(rect, id, Sense::focusable_noninteractive());
         let name = self.name.clone();
-        grid.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, &name));
+        grid.widget_info(|| WidgetInfo::labeled(Role::Unknown, true, &name));
         // (A list to a screen reader, of all its cells: those out of sight
         // are not built, and each built one says its place among them.)
         said_as_list(ui.ctx(), id, self.count);
@@ -1023,7 +1023,7 @@ pub fn show_beside<R>(
 ) -> Option<R> {
     let window = ctx.content_rect();
     // (Its size as drawn last time, and of what; a first guess before.)
-    let what = Id::new(what);
+    let what = Id::unique(what);
     let kept: Option<(Id, Vec2)> = ctx.data(|d| d.get_temp(id.with("size")));
     let fresh = kept.is_none_or(|(was, _)| was != what);
     let size = kept.map_or(vec2(width, width + 60.0), |(_, size)| size);

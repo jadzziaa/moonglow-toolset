@@ -25,8 +25,8 @@
 //! the suite's look (the NUI windows drawn off the screen) draws as before.
 
 use egui::{
-    Atom, AtomLayout, Atoms, Color32, Id, IntoAtoms, NumExt as _, Pos2, Rect, Response, Sense,
-    Shape, Stroke, Style, Ui, Vec2, Widget, WidgetInfo, WidgetType, pos2, vec2,
+    Atom, Atoms, Color32, Id, IntoAtoms, NumExt as _, Pos2, Rect, Response, Role, Sense, Shape,
+    Stroke, Style, Ui, Vec2, Widget, WidgetAtom, WidgetInfo, pos2, vec2,
 };
 
 use crate::metrics;
@@ -254,7 +254,7 @@ fn segmented_in<T: PartialEq + Copy>(
     // (Named on the scope's response of this frame, not on `ui.response()`
     // within it, which is the last frame's: a group in a window moved since
     // was said to be where it was. M4's U18.)
-    inner.response.widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
+    inner.response.widget_info(|| WidgetInfo::labeled(Role::RadioGroup, enabled, name));
     if changed {
         inner.response.mark_changed();
     }
@@ -295,7 +295,7 @@ fn segment(
     let sense = if stop { Sense::click() } else { Sense::CLICK };
     let response = ui.interact(rect, id, sense);
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, on, words));
+    response.widget_info(|| WidgetInfo::selected(Role::RadioButton, enabled, on, words));
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -390,10 +390,10 @@ impl Widget for Checkbox<'_> {
         let mut min_size = Vec2::splat(ui.spacing().interact_size.y);
         min_size.y = min_size.y.at_least(BOX);
         let icon_size = vec2(BOX, BOX.at_least(min_size.y));
-        let rect_id = Id::new("egui::checkbox");
+        let rect_id = egui::IdSalt::new("egui::checkbox");
         atoms.push_left(Atom::custom(rect_id, icon_size));
         let text = atoms.text().map(String::from);
-        let mut prepared = AtomLayout::new(atoms)
+        let mut prepared = WidgetAtom::new(atoms)
             .sense(Sense::click())
             .min_size(min_size)
             .frame(egui::Frame::new())
@@ -406,8 +406,8 @@ impl Widget for Checkbox<'_> {
         prepared.response.widget_info(|| {
             let text = text.as_deref().unwrap_or("");
             match indeterminate {
-                true => WidgetInfo::labeled(WidgetType::Checkbox, enabled, text),
-                false => WidgetInfo::selected(WidgetType::Checkbox, enabled, *checked, text),
+                true => WidgetInfo::labeled(Role::CheckBox, enabled, text),
+                false => WidgetInfo::selected(Role::CheckBox, enabled, *checked, text),
             }
         });
         if !ui.is_rect_visible(prepared.response.rect) {
@@ -485,15 +485,15 @@ impl Widget for RadioButton<'_> {
         let mut min_size = Vec2::splat(ui.spacing().interact_size.y);
         min_size.y = min_size.y.at_least(BOX);
         let icon_size = vec2(BOX, BOX.at_least(min_size.y));
-        let rect_id = Id::new("egui::radio_button");
+        let rect_id = egui::IdSalt::new("egui::radio_button");
         atoms.push_left(Atom::custom(rect_id, icon_size));
         let text = atoms.text().map(String::from);
         let mut prepared =
-            AtomLayout::new(atoms).sense(Sense::click()).min_size(min_size).allocate(ui);
+            WidgetAtom::new(atoms).sense(Sense::click()).min_size(min_size).allocate(ui);
         let enabled = ui.is_enabled();
         prepared.response.widget_info(|| {
             let text = text.as_deref().unwrap_or("");
-            WidgetInfo::selected(WidgetType::RadioButton, enabled, checked, text)
+            WidgetInfo::selected(Role::RadioButton, enabled, checked, text)
         });
         if !ui.is_rect_visible(prepared.response.rect) {
             return prepared.response;

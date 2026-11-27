@@ -46,26 +46,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `mg_core::release` is in v2.9.0 and after, so the line can only go in
   with the viewer's move to a newer tag (in its repository, not this
   one). (S, waits on the viewer's next toolset tag)
-- **Tests of the review of November 2026 not seen failing before their
-  fix:** each of its fixes came with a test, but these were not run
-  against the code before the fix, and rest on the review's trace or
-  the fixer's reading: the command line's and plugin host's C1 to C28
-  but C7 (C4's timed before the fix); the formats' timed tests (F9, F13
-  to F15) and hostile-file tests (F2, F8), whose old code would take
-  gigabytes or minutes; opening and saving's P2 to P23 but P7, P16, P20
-  and P21. D28's test passed before its change too, as did the test of
-  a rename's list made through a set (seen on the way): both findings
-  were suspected. Each test run at its fix's parent commit would show
-  which fail there. The X and B parts were run on 10 November: each
-  test of X3 to X25 and of the blueprint editors' fixer (but B15's and
-  B19's) that can run at its fix's parent failed there for its
-  finding's reason; those of X11, X18, X20, X22 and X23 cannot run
-  there, as they call functions their fixes added (`found`,
-  `spans_lines` and `lines_text`, the `reads` counter, `binds_uses`
-  and the new `element`, `holds`), and X25's commit has no test of its
-  own. (S, waits on the reviewer's run against the code before the
-  fixes) (the review of November 2026, [its
-  fixes](review-2026-11/fixes.md))
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
@@ -82,21 +62,32 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## nasher projects
 
-- **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
-  has the rules):
-  - **Conversations** merge their entry and reply lists by place, and the
-    links name nodes by number: two builders adding nodes to one
-    conversation conflict, where renumbering one side's new nodes (and
-    the links to them: `RepliesList`, `EntriesList` and `StartingList`
-    `Index`) would keep both; a node deleted on one side renumbers every
-    node after it, so matching by place pairs the wrong nodes too, and
-    nodes would first need matching by what they are. (M)
-  - **On a conflict nothing is written** and git leaves ours in the file;
-    there is no file of the conflicts to edit, and no way to take one
-    side for one conflict and the other for the next but `-o` from
-    git's stages. A conflict file (the edits each side wants, for `mg
-    apply`) or a Moonglow window would. (M)
-  (The Domains of Dread's builder proposal, C9)
+- **`mg merge-gff`: a conversation's lines deleted, moved or renumbered
+  on one side** (the [manual](manual/03-modules.md#merging-in-git) has
+  the rules). Lines both sides added are both kept, theirs numbered after
+  ours (`mg_module::merge`, 2026-11-26), and a conflict writes the
+  edits for `mg apply` beside the file. But a side that deleted a line
+  (which renumbers every line after it), moved one under another line,
+  or has its lines in another order is told apart (fewer lines, a link
+  that owned its line gone, a line of the base found at another number
+  by `Renumbering::by_lines`) and, with a side that changed lines too,
+  is one conflict of all the lines (`/(lines)`), one side's whole.
+  Matching lines by what they are (text, speaker, the lines above;
+  a line both sides changed is what `by_lines` can't find) would merge
+  those as well. Aurora numbers a conversation's lines anew whenever it
+  saves one, so a conversation edited in Aurora on both sides is that
+  conflict whenever both change lines; and so is the everyday second
+  merge: once a branch has merged the other's lines (numbered after its
+  own) and both go on adding lines, the next merge's base has the other
+  branch's numbers, and its lines are at other numbers on this one (a
+  rebase of two commits that add lines onto a branch that did meets it
+  at the second). What the guard can't tell from an
+  edit: the last line of a list deleted and another added under the same
+  line at the same place, taken for that line changed (nothing in the
+  file says otherwise), and coincidences like it. (M) (beyond what was
+  asked: the work of 2026-11-26 was the lines both sides added and the
+  conflict file; deletion was kept filed) (The Domains of Dread's builder
+  proposal, C9)
 
 ## Test loop
 
@@ -819,9 +810,15 @@ Nothing open.
   Reactions panel's bars (legible on both: `screens.rs`'s
   `board_factions` in the light theme, Advanced with Reactions beside
   it, shows the red and blue cells and a friendly bar), and the area
-  view's overlays are drawn over the 3D view, whatever the theme. What
-  else a builder who uses it finds wanting waits on such a pass. (S) (a
-  senior builder's review, October 2026)
+  view's overlays are drawn over the 3D view, whatever the theme. Every
+  window picture of `screens.rs` was looked through in it on 26 November
+  (1,266 pictures, 495 distinct, about 384 looked at): the conversation
+  tree's words, garbled after a theme switch, were the one fault, fixed;
+  disabled text (2.9:1, as designed), warning text and empty fields
+  measured within the tokens' rules; a selected gallery card's thin rim
+  on a dark card is left to the owner, who ruled on the gallery's rims.
+  What else a builder who uses it finds wanting waits on that builder.
+  (S) (a senior builder's review, October 2026)
 - **The docks' fold controls and a window dropped on the middle, by
   hand** (GitHub issues 10 and 21, open: wait on a hand in the running
   program). Issue 10's one-button rule is built as the shell's (M3, the
@@ -897,14 +894,16 @@ contribution itself states as not done or not checked.
   `mg-ui`" to "`mg` builds the GPU stack by default", "the preview is not
   the game" and `layout`'s `overlaps` to "Where the preview is known to
   differ from the game"):
-  - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
-    `accesskit_unix` (0.21) offers the tree only when the session bus's
-    `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core
-    2.62 (the development machine's) has only `IsEnabled`, so there it
-    never starts; `accesskit_unix` 0.24 watches `IsEnabled`, and comes
-    with an egui/eframe whose `accesskit_winit` uses it (0.34; eframe
-    0.36.2, the newest on 2026-10-29, has 0.32). Until then the desktop
-    agents here can't read the window. (S, with that upgrade)
+  - *AccessKit on newer Linux desktops, not yet read there*: eframe
+    0.37 (2026-11-26) brings `accesskit_winit` 0.34 and `accesskit_unix`
+    0.24.1, which watches the session bus's `org.a11y.Status.IsEnabled`
+    (at-spi2-core 2.62's), so the tree is offered where 0.36's waited
+    for `ScreenReaderEnabled` forever. Every input of the suite is named
+    (`mg_uikit::FieldLabels`, kittest 0.37's check over the UI tests).
+    What is left: a desktop agent's or Orca's reading of the running
+    window on the owner's desktop, which a session here doesn't start
+    (Moonglow is never run on the desktop by it). (S, waits on the
+    owner's run on the desktop)
   - *AccessKit was checked on Linux only*: the GUI checks for Windows
     (`x86_64-pc-windows-gnu`) and eframe's AccessKit for macOS
     (`aarch64-apple-darwin`); CI builds them, and no one has read the

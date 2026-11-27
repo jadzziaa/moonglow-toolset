@@ -325,7 +325,7 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             // chosen, kept for the listing: its objects are listed once.)
             type ShownKey = (Option<ResRef>, u64);
             let shown_key: ShownKey = (only, draft.listing);
-            let shown_id = egui::Id::new("bulk-update-shown");
+            let shown_id = egui::Id::unique("bulk-update-shown");
             let shown: std::sync::Arc<Vec<usize>> = if let Some((was, cached)) =
                 ui.data(|d| d.get_temp::<(ShownKey, std::sync::Arc<Vec<usize>>)>(shown_id))
                 && was == shown_key

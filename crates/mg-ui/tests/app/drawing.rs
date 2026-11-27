@@ -118,6 +118,7 @@ fn the_model_viewer_s_wheel_is_the_area_view_s() {
         unit: egui::MouseWheelUnit::Point,
         delta,
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers,
     };
     let up = egui::vec2(0.0, 120.0);

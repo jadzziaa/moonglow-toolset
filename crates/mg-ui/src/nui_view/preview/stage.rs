@@ -414,7 +414,7 @@ const ZOOMS: [(f32, &str, &str); 2] =
 
 /// The zoom's width, as the kit lays out its choices.
 fn zoom_width(ui: &Ui) -> f32 {
-    form::segmented_width(ui, egui::Id::new("nui-zoom-switch-w"), &[ZOOMS[0].1, ZOOMS[1].1])
+    form::segmented_width(ui, egui::Id::unique("nui-zoom-switch-w"), &[ZOOMS[0].1, ZOOMS[1].1])
 }
 
 /// One frame of the canvas: the window as it is shown, and what drawing it
@@ -645,7 +645,7 @@ impl Stage<'_> {
                 Color32::WHITE,
             );
             if self.state.preview_interactive
-                && ui.interact(close, ui.id().with("close-window"), Sense::click()).clicked()
+                && ui.interact(close, ui.scope_id().with("close-window"), Sense::click()).clicked()
             {
                 self.close_requested = true;
             }
@@ -656,10 +656,10 @@ impl Stage<'_> {
                     - vec2((17.0 + if closable { 26.0 } else { 0.0 }) * scale, 0.0),
                 vec2(16.0, 16.0) * scale,
             );
-            let r = ui.interact(collapse, ui.id().with("collapse-window"), Sense::click());
+            let r = ui.interact(collapse, ui.scope_id().with("collapse-window"), Sense::click());
             r.widget_info(|| {
                 egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
+                    egui::Role::Button,
                     true,
                     if collapsed { "Expand preview window" } else { "Collapse preview window" },
                 )
@@ -683,7 +683,7 @@ impl Stage<'_> {
             && !self.authored["geometry"]["bind"].is_string();
         let r = ui.interact(
             title_hit,
-            ui.id().with("nui-window"),
+            ui.scope_id().with("nui-window"),
             if movable { Sense::click_and_drag() } else { Sense::click() },
         );
         if movable
@@ -698,9 +698,7 @@ impl Stage<'_> {
                 scale,
             });
         }
-        r.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Canvas window")
-        });
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Canvas window"));
         if self.context_prefix.is_none() && r.clicked() && self.state.resize.is_none() {
             self.state.selected.clear();
         }

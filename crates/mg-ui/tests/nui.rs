@@ -617,8 +617,9 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     assert!(text.contains("// mg:begin click mg_close"));
     assert!(h.state().dock.find_tab(&Tab::Script(script_key)).is_some());
     let at = mg_nui::handler_offset(&text, "click mg_close").unwrap();
-    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", script_key)))
-        .expect("script editor state");
+    let state =
+        egui::text_edit::TextEditState::load(&h.ctx, egui::Id::unique(("script", script_key)))
+            .expect("script editor state");
     let r = state.cursor.char_range().expect("script cursor range");
     assert_eq!(usize::from(r.primary.index), at, "cursor jumped to handler offset {at}");
     assert!(h.state().script_tools.jump.is_none(), "jump consumed by script editor");

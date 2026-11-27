@@ -30,9 +30,9 @@ pub enum Prefer {
 /// What tells a list's items apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListRule {
-    /// An item is its place in the list (a tile, a skill, a conversation
-    /// node that others name by number). Two items added at one place are
-    /// a conflict.
+    /// An item is its place in the list (a tile, a skill, a conversation's
+    /// line, which its links name by number). Two items added at one place
+    /// are a conflict.
     ByIndex,
     /// An item is the values of these fields (a variable's name, an
     /// area's resref). Kept items stay in the base's order, then come
@@ -87,11 +87,26 @@ pub fn merge(
     prefer: Prefer,
     rules: &dyn Fn(&str, Option<&str>, &str) -> ListRule,
 ) -> Merged {
+    merge_choosing(base, ours, theirs, &|_| prefer, rules)
+}
+
+/// [`merge`], each conflict taking the side `choose` gives for its number
+/// (0 for the first found): a merge with one conflict settled one way and
+/// the others the other. Conflicts are found in the same order whichever
+/// sides they take, so their numbers are the same in each merge of three
+/// trees.
+pub fn merge_choosing(
+    base: &Gff,
+    ours: &Gff,
+    theirs: &Gff,
+    choose: &dyn Fn(usize) -> Prefer,
+    rules: &dyn Fn(&str, Option<&str>, &str) -> ListRule,
+) -> Merged {
     let mut m = Merger {
         file_type: ours.file_type_str(),
         rules,
         inside: Vec::new(),
-        prefer,
+        choose,
         conflicts: Vec::new(),
     };
     let header = |g: &Gff| Value::String([g.file_type, g.version].concat());
@@ -114,7 +129,7 @@ struct Merger<'a> {
     rules: &'a dyn Fn(&str, Option<&str>, &str) -> ListRule,
     /// The lists the merge is inside of, outermost first.
     inside: Vec<String>,
-    prefer: Prefer,
+    choose: &'a dyn Fn(usize) -> Prefer,
     conflicts: Vec<Conflict>,
 }
 
@@ -152,13 +167,14 @@ impl Merger<'_> {
         o: Option<&Value>,
         t: Option<&Value>,
     ) -> Option<Value> {
+        let side = (self.choose)(self.conflicts.len());
         self.conflicts.push(Conflict {
             path: path.to_string(),
             base: b.cloned(),
             ours: o.cloned(),
             theirs: t.cloned(),
         });
-        match self.prefer {
+        match side {
             Prefer::Ours => o.cloned(),
             Prefer::Theirs => t.cloned(),
         }
@@ -375,8 +391,9 @@ impl Merger<'_> {
                     Value::List(order.iter().filter_map(|&i| kept[i].clone()).collect())
                 };
                 let (bl, ol, tl) = (as_list(&base_order), as_list(&o_order), as_list(&t_order));
+                let side = (self.choose)(self.conflicts.len());
                 self.conflict(&format!("{path}/(order)"), Some(&bl), Some(&ol), Some(&tl));
-                match self.prefer {
+                match side {
                     Prefer::Ours => o_order,
                     Prefer::Theirs => t_order,
                 }
@@ -787,13 +804,13 @@ mod tests {
         s.fields.iter().map(|f| f.label.to_string()).collect()
     }
 
-    /// An area of 5,000 objects, every one moved on one side and a
-    /// thousand added on each: merged as a small one is, in well under a
-    /// second (each unmatched item was held against the whole other
-    /// list: 25 million struct comparisons).
+    /// An area of 40,000 objects, every one moved on one side and a
+    /// thousand added on each: merged in a fraction of a second (each
+    /// unmatched item was held against the whole other list: 1,600 million
+    /// struct comparisons, some ten seconds; the lookups take 0.15 s).
     #[test]
     fn a_long_list_changed_throughout_merges_at_once() {
-        let n = 5000;
+        let n = 40_000;
         let item = |i: usize, x: f32| placed("plc", &format!("t{i}"), x, i as f32);
         let list = |items: Vec<Struct>| root(&[("Placeable List", Value::List(items))]);
         let b: Vec<Struct> = (0..n).map(|i| item(i, 1.0)).collect();
@@ -807,7 +824,7 @@ mod tests {
         let started = std::time::Instant::now();
         let m = run(&list(b.clone()), &list(o.clone()), &list(t), Prefer::Ours);
         let took = started.elapsed();
-        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
+        assert!(took < std::time::Duration::from_millis(1500), "{n} items merged in {took:?}");
         let merged = m.gff.root.list("Placeable List").unwrap();
         // Ours' moves, theirs' removal (changed by ours: a conflict, ours
         // kept), and both sides' new items, the shared one once.
@@ -1208,6 +1225,50 @@ mod tests {
         // Taking theirs: A as they changed it, and B.
         let m = run(&b, &o, &t, Prefer::Theirs);
         assert_eq!(m.gff.root, list(vec![b_chest, lit, lamp]));
+    }
+
+    /// Each conflict takes the side chosen for its number, the others
+    /// theirs: the same conflicts found whichever sides they take.
+    #[test]
+    fn each_conflict_can_take_its_own_side() {
+        let b = root(&[("A", Value::Int(1)), ("B", Value::Int(1)), ("C", Value::Int(1))]);
+        let o = root(&[("A", Value::Int(2)), ("B", Value::Int(2)), ("C", Value::Int(2))]);
+        let t = root(&[("A", Value::Int(3)), ("B", Value::Int(3)), ("C", Value::Int(1))]);
+        let theirs_for =
+            |n: usize| move |i: usize| if i == n { Prefer::Theirs } else { Prefer::Ours };
+        let m = merge_choosing(
+            &gff(b.clone()),
+            &gff(o.clone()),
+            &gff(t.clone()),
+            &theirs_for(1),
+            &rules,
+        );
+        assert_eq!(m.conflicts.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), ["/A", "/B"]);
+        assert_eq!(
+            m.gff.root,
+            root(&[("A", Value::Int(2)), ("B", Value::Int(3)), ("C", Value::Int(2))])
+        );
+        // An order conflict is one too.
+        let area = |name: &str| {
+            let mut s = Struct::new(6);
+            s.set("Area_Name", Value::ResRef(name.into()));
+            s
+        };
+        let list = |a: &str, names: &[&str]| {
+            root(&[
+                ("A", Value::Int(a.len() as i32)),
+                ("Mod_Area_list", Value::List(names.iter().map(|n| area(n)).collect())),
+            ])
+        };
+        let b = gff(list("", &["x", "y", "w"]));
+        let o = gff(list("oo", &["y", "x", "w"]));
+        let t = gff(list("ttt", &["x", "w", "y", "z"]));
+        let m = merge_choosing(&b, &o, &t, &theirs_for(1), &rules);
+        assert_eq!(m.conflicts[1].path, "/Mod_Area_list/(order)");
+        assert_eq!(m.gff.root, list("oo", &["x", "w", "y", "z"]));
+        let m = merge_choosing(&b, &o, &t, &theirs_for(0), &rules);
+        assert_eq!(m.conflicts.len(), 2);
+        assert_eq!(m.gff.root, list("ttt", &["y", "z", "x", "w"]));
     }
 
     #[test]

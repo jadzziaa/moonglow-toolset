@@ -133,6 +133,30 @@ mod tree;
 pub mod updates;
 pub mod viewers;
 pub use browser::RESOURCE_HEADER;
+
+/// The id egui keeps the window's panel `salt` by (its `PanelState`,
+/// its edge's handle under `"__resize"`): since egui 0.37 a panel's id is
+/// its salt under the `Ui` it is shown in (the window's root `Ui`, a test
+/// harness's own, or a dock's for a panel inside it), as the shell noted
+/// where it last drew it; under the root `Ui` before. (0.36 kept it by
+/// the salt alone, `Id::unique(salt)`: where an earlier version left a
+/// dock's size.)
+pub fn panel_id(ctx: &egui::Context, salt: &str) -> egui::Id {
+    let noted = ctx.data(|d| d.get_temp::<egui::Id>(panel_key(salt)));
+    noted.unwrap_or_else(|| ctx.viewport_id().root_ui_id().with(salt))
+}
+
+/// Notes that the panel `salt` is shown in `ui` (for [`panel_id`]), and
+/// gives its id.
+pub(crate) fn note_panel(ui: &egui::Ui, salt: &str) -> egui::Id {
+    let id = ui.scope_id().with(salt);
+    ui.ctx().data_mut(|d| d.insert_temp(panel_key(salt), id));
+    id
+}
+
+fn panel_key(salt: &str) -> egui::Id {
+    egui::Id::unique("mg-ui-panel").with(salt)
+}
 pub use outliner::OUTLINER;
 pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES, FOUND_AS_YOU_TYPE};
 pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
@@ -3726,7 +3750,8 @@ impl Moonglow {
     /// is opened.
     pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
         for id in ["tree", "log", shell::RIGHT_DOCK_ID, shell::MODULE_PANEL_ID] {
-            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::new(id)));
+            let id = panel_id(ctx, id);
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(id));
         }
         self.settings.hide_tree = false;
         self.settings.hide_log = Settings::new_installation().hide_log;
@@ -4360,7 +4385,7 @@ impl Moonglow {
             let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
             let bar = egui::Rect::from_x_y_ranges(left.min(end_left)..=end_left, row);
             let response = bar.is_positive().then(|| {
-                let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
+                let id = egui::Id::unique(("window-bar", path.surface.0, path.node.0));
                 let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
                 ui.scope_builder(builder, |ui| {
                     // (Not cut to the editor area: a window's bar lies over

@@ -167,7 +167,8 @@ impl Renderer<'_> {
                 };
                 let step = chart.width() / data.len().max(1) as f32;
                 let color = rgba(val(&slot["color"], s, row), Color32::LIGHT_BLUE) * tint;
-                let cache_id = egui::Id::new(("nui-chart-series", c.source_path, c.row, slot_idx));
+                let cache_id =
+                    egui::Id::unique(("nui-chart-series", c.source_path, c.row, slot_idx));
                 if slot["type"] == 1 {
                     // (A long series walked again only where the window may
                     // have changed: 1.3 ms for a million, the review's N16.)

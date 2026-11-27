@@ -279,7 +279,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
-    let state_id = egui::Id::new("mg-adjust-win-state");
+    let state_id = egui::Id::unique("mg-adjust-win-state");
     let Some(mut a) = app.adjust.take() else {
         ui.ctx().data_mut(|d| d.remove_temp::<AdjustWinState>(state_id));
         return;
@@ -1440,7 +1440,7 @@ mod tests {
     #[test]
     fn what_a_window_reads_from_disk_is_kept_while_it_is_shown() {
         let ctx = egui::Context::default();
-        let id = egui::Id::new("kept");
+        let id = egui::Id::unique("kept");
         let made = std::cell::Cell::new(0);
         let shown = |show: bool| {
             let out = ctx.run_ui(Default::default(), |ui| {

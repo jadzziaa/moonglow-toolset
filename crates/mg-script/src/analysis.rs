@@ -1146,16 +1146,19 @@ mod tests {
         assert!(idx.rename(&member, "b", &files, &mut src).is_err());
     }
 
-    /// A long script of many functions is indexed in the time its length
-    /// takes, with every function's parameters and locals found.
+    /// A long script of many functions (2,000 of 30 lines: every function
+    /// took every token of the file, some five seconds an index, against
+    /// 0.05 s) is indexed in the time its length takes, with every
+    /// function's parameters and locals found.
     #[test]
     fn a_script_of_many_functions_is_indexed_at_once() {
         let mut text = String::new();
-        for f in 0..400 {
+        let (nf, nl) = (2000, 30);
+        for f in 0..nf {
             text.push_str(&format!(
                 "int F{f}(int nA{f}, object oB)\n{{\n    int nSum{f} = nA{f};\n"
             ));
-            for line in 0..30 {
+            for line in 0..nl {
                 text.push_str(&format!(
                     "    nSum{f} = nSum{f} + {line} * GetLocalInt(oB, \"x\");\n"
                 ));
@@ -1166,9 +1169,12 @@ mod tests {
         let started = std::time::Instant::now();
         let file = File::new(text.clone());
         let took = started.elapsed();
-        assert!(took < std::time::Duration::from_millis(250), "{took:?}");
-        assert_eq!(file.locals.len(), 400 * 4);
-        for f in [0, 199, 399] {
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "{nf} functions of {nl} lines indexed in {took:?}"
+        );
+        assert_eq!(file.locals.len(), nf * 4);
+        for f in [0, nf / 2, nf - 1] {
             let of = |name: String| file.locals.iter().find(|l| l.name == name).unwrap();
             let (a, sum, inner) =
                 (of(format!("nA{f}")), of(format!("nSum{f}")), of(format!("fIn{f}")));
@@ -1183,8 +1189,9 @@ mod tests {
     /// Completions are what `top_level` finds for each of the unit's
     /// names, in the order the unit first has them: a prototype in one
     /// file and its definition in another, a name that is a function
-    /// here and a constant there, a local over a global; and the engine's
-    /// thousands of names take no time.
+    /// here and a constant there, a local over a global; and the
+    /// engine's names (here 57,000) take no time: a search of the unit
+    /// for each was some three seconds.
     #[test]
     fn completions_are_the_unit_s_declarations_in_one_pass() {
         const A: &str = "// Documented here.\nint Later(int n);\nint Only(int n);\nint Both = 1;\n\
@@ -1195,8 +1202,12 @@ mod tests {
         const M: &str =
             "#include \"a\"\n#include \"b\"\nvoid main()\n{\n    int Shadowed = 1;\n    \n}\n";
         let mut engine = String::from(NWS);
-        for n in 0..7000 {
+        let (nc, nf) = (7000, 50_000);
+        for n in 0..nc {
             engine.push_str(&format!("int CONSTANT_{n} = {n};\n"));
+        }
+        for n in 0..nf {
+            engine.push_str(&format!("int GetThing{n}(int nA);\n"));
         }
         let engine: Arc<str> = Arc::from(engine);
         let mut src = |name: &str| match name {
@@ -1212,13 +1223,17 @@ mod tests {
         let started = std::time::Instant::now();
         let all = idx.completions("m", at, &mut src);
         let took = started.elapsed();
-        assert!(took < std::time::Duration::from_millis(250), "{took:?}");
-        assert_eq!(all.len(), 9 + 7000, "each name once");
+        assert!(
+            took < std::time::Duration::from_millis(400),
+            "{} names completed in {took:?}",
+            nc + nf
+        );
+        assert_eq!(all.len(), 9 + nc + nf, "each name once");
         assert_eq!((all[0].name.as_str(), all[0].kind), ("Shadowed", DeclKind::Local));
         let names: Vec<&str> = all[1..9].iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, ["main", "Later", "Only", "Twice", "Both", "Shape", "TRUE", "GetSelf"]);
         // Each is what `top_level` finds.
-        for d in &all[1..] {
+        for d in all[1..].iter().step_by(1 + (nc + nf) / 1000) {
             let found = idx.top_level("m", &d.name, &mut src).unwrap();
             assert_eq!(*d, found, "{}", d.name);
         }

@@ -43,12 +43,12 @@ pub(crate) fn begin(app: &mut Moonglow, ui: &mut Ui, name: &str, keys: Keys) {
     crate::palette_view::keys_outline(ui, ui.max_rect(), keys);
     // (A stop of F6, not of Tab: the panel is made focusable only while
     // F6 brings the keys to it, or it has them.)
-    let id = ui.id().with("bottom-panel-focus");
+    let id = ui.scope_id().with("bottom-panel-focus");
     let asked = app.script_tools.list_focus.take_if(|k| *k == keys).is_some();
     if asked || ui.memory(|m| m.has_focus(id)) {
         let focus = ui.interact(ui.max_rect(), id, egui::Sense::FOCUSABLE);
         let said = format!("{name}, the panel");
-        focus.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &said));
+        focus.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, &said));
         if asked {
             focus.request_focus();
         }
@@ -97,7 +97,7 @@ pub(crate) fn compiler(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                 let r = ui.add(row);
                 r.widget_info(|| {
                     let name = format!("{FOUND_AS_YOU_TYPE}: {said}");
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, name)
                 });
                 match row_copy::row_menu(ui, &r, false, |_| false) {
                     Some(row_copy::Asked::Row) => copy = Some(said.to_string()),

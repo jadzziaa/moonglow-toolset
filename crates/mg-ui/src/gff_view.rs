@@ -187,7 +187,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
         |ui| {
             for f in &s.fields {
                 let label = f.label.to_string_lossy();
-                let id = egui::Id::new(("gff", ctx.key, path.to_string(), &label));
+                let id = egui::Id::unique(("gff", ctx.key, path.to_string(), &label));
                 match &f.value {
                     Value::Struct(child) => {
                         ui.label(&label);

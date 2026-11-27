@@ -643,13 +643,13 @@ const TREE_KEYS: [egui::Key; 11] = [
 /// its from then on, until another list or an area's view takes them.
 fn take_keys(ctx: &egui::Context, key: ResKey) {
     crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Dialog);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("dialog-keys-of"), key));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("dialog-keys-of"), key));
 }
 
 /// Whether conversation `key`'s tree has the keys.
 pub(crate) fn has_keys(ctx: &egui::Context, key: ResKey) -> bool {
     crate::palette_view::keys_are(ctx, crate::palette_view::Keys::Dialog)
-        && ctx.data(|d| d.get_temp::<ResKey>(egui::Id::new("dialog-keys-of"))) == Some(key)
+        && ctx.data(|d| d.get_temp::<ResKey>(egui::Id::unique("dialog-keys-of"))) == Some(key)
 }
 
 /// What was pressed or typed for the tree.
@@ -1019,17 +1019,17 @@ fn follow_outside(app: &mut Moonglow, key: ResKey, followed: &[Renumbering]) {
 fn row_fields(key: ResKey, row: Row, (kind, index): (Kind, u32)) -> ([egui::Id; 7], [egui::Id; 2]) {
     let (link, own) = (link_path(row).to_string(), node_path(kind, index).to_string());
     let typed = [
-        egui::Id::new(("dlg-text", key, kind, index)),
-        egui::Id::new(("dlg-speaker", key, index)),
-        egui::Id::new(("dlg-comment", key, kind, index, "Comment")),
-        egui::Id::new(("dlg-comment", key, kind, index, "LinkComment")),
-        egui::Id::new(("dlg-sound", key, kind, index)),
-        egui::Id::new(("dlg-script", key, "cond", link.clone())),
-        egui::Id::new(("dlg-script", key, "act", own.clone())),
+        egui::Id::unique(("dlg-text", key, kind, index)),
+        egui::Id::unique(("dlg-speaker", key, index)),
+        egui::Id::unique(("dlg-comment", key, kind, index, "Comment")),
+        egui::Id::unique(("dlg-comment", key, kind, index, "LinkComment")),
+        egui::Id::unique(("dlg-sound", key, kind, index)),
+        egui::Id::unique(("dlg-script", key, "cond", link.clone())),
+        egui::Id::unique(("dlg-script", key, "act", own.clone())),
     ];
     let params = [
-        egui::Id::new(("dlg-params-buf", key, "cond", link)),
-        egui::Id::new(("dlg-params-buf", key, "act", own)),
+        egui::Id::unique(("dlg-params-buf", key, "cond", link)),
+        egui::Id::unique(("dlg-params-buf", key, "act", own)),
     ];
     (typed, params)
 }
@@ -1202,7 +1202,7 @@ fn larger_text(app: &Moonglow, ui: &mut Ui) -> Option<std::sync::Arc<egui::Style
     // another style made at the same address took the old one's.)
     type Kept = ((u8, std::sync::Arc<egui::Style>, u32), std::sync::Arc<egui::Style>);
     let key = (size, usual.clone(), body_size.to_bits());
-    let id = egui::Id::new("dlg-larger-style");
+    let id = egui::Id::unique("dlg-larger-style");
     let same = |was: &(u8, std::sync::Arc<egui::Style>, u32)| {
         was.0 == key.0 && std::sync::Arc::ptr_eq(&was.1, &key.1) && was.2 == key.2
     };
@@ -1979,11 +1979,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
         let prompt = &prompts[usize::from(input.parent.child_kind() == Kind::Reply)];
         let (mut ok, mut cancel) = (false, false);
         let window =
-            crate::widgets::modal(ui.ctx(), "Input Text").id(egui::Id::new(("dlg-input", key)));
+            crate::widgets::modal(ui.ctx(), "Input Text").id(egui::Id::unique(("dlg-input", key)));
         let footed = window.show_foot(ui.ctx(), |ui| {
             ui.set_width(340.0);
             ui.label(prompt.as_str());
-            let id = egui::Id::new(("dlg-input-text", key));
+            let id = egui::Id::unique(("dlg-input-text", key));
             let field = egui::TextEdit::multiline(&mut input.text).desired_rows(6);
             let out = crate::widgets::text_area(ui, id, field);
             if !input.shown {
@@ -2448,11 +2448,12 @@ fn data_body(
     } else {
         (node_path(kind, index), "Comment", decode(n.string("Comment").unwrap_or_default()))
     };
-    let id = egui::Id::new(("dlg-comment", key, kind, index, label));
+    let id = egui::Id::unique(("dlg-comment", key, kind, index, label));
     let width = ui.available_width();
     if let Some(v) = commit_text(app, ui, id, &value, true, width) {
         actions.push(set(key, "Comment", path, label, Value::String(encode(&v))));
     }
+    crate::widgets::name_node(ui, id, "Comments");
 }
 
 /// The conversation's Search (M4's U14, the Node section's second tab):
@@ -2873,8 +2874,10 @@ fn tree_levels(ui: &Ui, width: f32, least: f32) -> usize {
 /// `text` in `font` (`italics`) laid out on one line, cut with an ellipsis
 /// at `room` points (whole where `room` is infinite), its color left to
 /// whoever paints it: from what `view` keeps of this frame and the last,
-/// laid out anew only where the words, the font or the room changed
-/// (counted in [`DialogView::cuts_made`]).
+/// laid out anew only where the words, the font or the room changed, or
+/// egui made its fonts again (a theme switched: one kept would be drawn
+/// from the old atlas's places, garbled) (counted in
+/// [`DialogView::cuts_made`]).
 fn cut_words(
     ui: &Ui,
     view: &mut DialogView,
@@ -2886,7 +2889,8 @@ fn cut_words(
     use std::hash::{Hash as _, Hasher as _};
     let room = if room.is_finite() { room.max(1.0).floor() } else { f32::INFINITY };
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (text, font, italics, room.to_bits()).hash(&mut hasher);
+    let fonts = (crate::script_layout::fonts_made(ui.ctx()), ui.ctx().pixels_per_point().to_bits());
+    (text, font, italics, room.to_bits(), fonts).hash(&mut hasher);
     let key = hasher.finish();
     if let Some(galley) = view.cuts.0.get(&key) {
         return galley.clone();
@@ -2955,12 +2959,10 @@ fn line_row(
     let whole = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(room, height));
     let (enabled, selected) = (ui.is_enabled(), line.selected);
     let named = |r: &egui::Response, name: &str| {
-        r.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, name)
-        });
+        r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, selected, name));
     };
     let mark_named = |r: &egui::Response, words: &str| {
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, enabled, words));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, enabled, words));
     };
     let marks: &[String] = line.marks.as_ref().map_or(&[], |(m, _, _)| m.as_slice());
     if !ui.is_rect_visible(whole) {
@@ -3303,7 +3305,7 @@ fn creature_tags(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<Vec<
     // (Kept until the module changes: the arrow keys ask each frame the
     // box has the keys, and every area's objects were read each time.
     // A revision is no other workspace's.)
-    let id = egui::Id::new("dlg-creature-tags");
+    let id = egui::Id::unique("dlg-creature-tags");
     let revision = ws.revision();
     type Kept = (u64, std::sync::Arc<Vec<String>>);
     if let Some((r, tags)) = ctx.data(|d| d.get_temp::<Kept>(id))
@@ -3350,7 +3352,7 @@ fn text_panel(
         let arrow = 24.0 + ui.spacing().icon_width + 2.0 * ui.spacing().button_padding.x;
         let least = name_least(ui) + arrow;
         form_row_least(ui, "Speaker tag", least, |ui| {
-            let id = egui::Id::new(("dlg-speaker", key, index));
+            let id = egui::Id::unique(("dlg-speaker", key, index));
             if focus {
                 ui.memory_mut(|m| m.request_focus(id));
             }
@@ -3413,7 +3415,7 @@ fn text_panel(
         .text(crate::text::edit_language(), mg_core::Gender::Male)
         .map(|t| t.into_owned())
         .unwrap_or_default();
-    let id = egui::Id::new(("dlg-text", key, kind, index));
+    let id = egui::Id::unique(("dlg-text", key, kind, index));
     // (F6 to the panel: its first field, a player's line's text.)
     if focus && kind != Kind::Entry {
         ui.memory_mut(|m| m.request_focus(id));
@@ -3439,7 +3441,7 @@ fn text_panel(
             if from_tlk.is_some() {
                 ui.visuals_mut().override_text_color = Some(crate::blueprint::talk_table_color(ui));
             }
-            crate::widgets::commit_loc_text_in(
+            let typed = crate::widgets::commit_loc_text_in(
                 &mut app.buffers,
                 ui,
                 id,
@@ -3447,7 +3449,9 @@ fn text_panel(
                 Some(2),
                 width,
                 None,
-            )
+            );
+            crate::widgets::name_node(ui, id, "Line text");
+            typed
         })
         .inner
     };
@@ -3551,7 +3555,7 @@ fn script_with_params(
     let mut script_now = current;
     let edit = button_room(ui, "Edit");
     resref_row(ui, "Script", edit, |ui| {
-        let id = egui::Id::new(("dlg-script", key, salt, path.to_string()));
+        let id = egui::Id::unique(("dlg-script", key, salt, path.to_string()));
         let types = [ResType::NSS, ResType::NCS];
         let picked = resref_field(app, ui, id, current, "Select a script", &types);
         if let Some(v) = picked {
@@ -3568,7 +3572,7 @@ fn script_with_params(
     // The pairs being edited live in a buffer until a field loses focus or a
     // row is added or removed; with no field focused the file's pairs show.
     let stored = params(s, list);
-    let buf_id = egui::Id::new(("dlg-params-buf", key, salt, path.to_string()));
+    let buf_id = egui::Id::unique(("dlg-params-buf", key, salt, path.to_string()));
     let mut pairs: Vec<(String, String)> =
         ui.ctx().data_mut(|d| d.get_temp(buf_id)).unwrap_or_else(|| stored.clone());
     // Parameter sets, kept in Moonglow's data folder, and in files anywhere:
@@ -3580,7 +3584,7 @@ fn script_with_params(
     let mut from_file = false;
     let mut to_file = false;
     // Paste Set's clipboard, come this frame: added as a saved set is.
-    let paste_id = egui::Id::new(("dlg-param-paste", key, salt, path.to_string()));
+    let paste_id = egui::Id::unique(("dlg-param-paste", key, salt, path.to_string()));
     let mut pasted = false;
     if let Some(text) = crate::widgets::asked_paste(ui.ctx(), paste_id) {
         match param_sets::from_text(&text) {
@@ -3606,7 +3610,7 @@ fn script_with_params(
         let tip = "Add a parameter (EE: read with GetScriptParam)";
         add = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Add Parameter", tip).clicked();
         // (The board's Add Set and its ⌄: a button that opens a menu.)
-        let popup = egui::Id::new(("dlg-add-set", key, salt, path.to_string()));
+        let popup = egui::Id::unique(("dlg-add-set", key, salt, path.to_string()));
         let open = egui::Popup::is_id_open(ui.ctx(), popup);
         let tip = "Add a saved set's parameters and script. Same names take its values.";
         // (At the editor's text size, as its neighbors: panel content, the
@@ -3889,7 +3893,7 @@ fn script_preview_cached(
         app.scripts.get(&script_key).map(|b| (b.text.len(), fast_bytes_hash(b.text.as_bytes())));
     let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
     let mark = (script_key, ws_key, app.load_order, open_sig);
-    crate::blueprint::kept_for_key(ctx, egui::Id::new(("dlg-preview-src", salt)), &mark, || {
+    crate::blueprint::kept_for_key(ctx, egui::Id::unique(("dlg-preview-src", salt)), &mark, || {
         app.script_source(&script_key).map(|src| {
             let ranges = std::sync::Arc::new(split_line_ranges(&src));
             (std::sync::Arc::new(src), ranges)
@@ -3902,7 +3906,7 @@ fn journal_summary_kept(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::A
     // codepage: kept for those and the load order too.)
     let ws_key = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
     let key = (ws_key, app.game_names(), crate::text::edit_language().0, crate::text::game_table());
-    crate::blueprint::kept_for_key(ctx, egui::Id::new("dlg-journal-summary"), &key, || {
+    crate::blueprint::kept_for_key(ctx, egui::Id::unique("dlg-journal-summary"), &key, || {
         let cats = app
             .ws
             .as_mut()
@@ -3973,7 +3977,7 @@ fn other_tab(
     let play = button_room(ui, "Play");
     resref_row(ui, "Play sound", play, |ui| {
         let sound = n.resref("Sound").unwrap_or(ResRef::EMPTY);
-        let id = egui::Id::new(("dlg-sound", key, kind, index));
+        let id = egui::Id::unique(("dlg-sound", key, kind, index));
         let picked = resref_field(app, ui, id, sound, "Select a sound", &[ResType::WAV]);
         if let Some(v) = picked {
             actions.push(set(key, "Sound", path.clone(), "Sound", Value::resref(v)));
@@ -4059,7 +4063,7 @@ fn file_tab(
     for (label, field) in [("Normal end", "EndConversation"), ("Aborted", "EndConverAbort")] {
         resref_row(ui, label, 0.0, |ui| {
             let current = g.root.resref(field).unwrap_or(ResRef::EMPTY);
-            let id = egui::Id::new(("dlg-end", key, field));
+            let id = egui::Id::unique(("dlg-end", key, field));
             if focus && field == "EndConversation" {
                 ui.memory_mut(|m| m.request_focus(id));
             }
@@ -4433,7 +4437,7 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
         let footed = window.show_foot(&ctx, |ui| {
             // What was said so far, taking the room the window has over the
             // turn under it (that turn's height the frame before).
-            let under_id = ui.id().with("test-under-history");
+            let under_id = ui.scope_id().with("test-under-history");
             let under_was: Option<f32> = ui.data(|d| d.get_temp(under_id));
             let row = ui.spacing().interact_size.y;
             let height = (ui.available_height() - under_was.unwrap_or(8.0 * row)).max(3.0 * row);

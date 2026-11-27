@@ -621,7 +621,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
     crate::widgets::section_heading(ui, "Body Parts");
     let parts_choices: std::sync::Arc<Vec<Vec<mg_rules::Choice>>> = super::kept_for_key(
         ui.ctx(),
-        egui::Id::new(("utc-body-parts", prefix)),
+        egui::Id::unique(("utc-body-parts", prefix)),
         &f.app.load_order,
         || {
             let single = prefix[0] == prefix[1];
@@ -787,6 +787,7 @@ fn class_list(
             let level = c.integer("ClassLevel").unwrap_or(1);
             let mut row_edits: Vec<(&str, Vec<Edit>)> = Vec::new();
             let mut level_and_remove = |ui: &mut Ui| {
+                crate::widgets::name_number_field(ui, &format!("Class {} level", i + 1));
                 if let Some(v) = spin_number(ui, level, 1..=60) {
                     row_edits.push((
                         "Class level",
@@ -908,6 +909,7 @@ fn classes_together(
             }
             super::row(ui, |ui| {
                 f.mark_if(ui, &format!("ClassLevel#{class}"), differs);
+                crate::widgets::name_number_field(ui, &format!("Class {} level", i + 1));
                 if let Some(v) = spin_number(ui, level, 1..=60) {
                     let out = lists::set(&targets, "ClassList", is, &["ClassLevel"], |e, l| {
                         Some(lists::like(e.get(l), v, Value::Short(0)))
@@ -1095,7 +1097,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let rows = skills.iter().map(|s| s.row + 1).max().unwrap_or(0);
     let differ: std::sync::Arc<Vec<bool>> = super::kept_for(
         ui.ctx(),
-        egui::Id::new(("utc-skills-differ", key)),
+        egui::Id::unique(("utc-skills-differ", key)),
         &targets,
         &rows,
         || std::sync::Arc::new(skills_differ(&targets, rows)),
@@ -1268,11 +1270,12 @@ fn sound_set(f: &mut Form<'_>, ui: &mut Ui) {
             let gender_name =
                 |g: &Option<i64>| name(*g, "Both", &|g| ["Male", "Female"][g as usize].into());
             crate::widgets::dropdown(id.with("gender"))
+                .name("Sound set gender")
                 .selected_text(gender_name(&gender))
                 .width(70.0)
                 .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
             let list = crate::widgets::row_choice(id.with("type"), &types, kind);
-            if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
+            if let Some(k) = list.none("All").name("Sound set type").width(90.0).show_optional(ui) {
                 kind = k;
             }
             ui.data_mut(|d| d.insert_temp(id, (gender, kind)));

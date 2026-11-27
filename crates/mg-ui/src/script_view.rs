@@ -411,7 +411,7 @@ impl Moonglow {
 
 /// What [`Moonglow::script_gutter_for_test`] reads.
 fn gutter_id(key: ResKey) -> egui::Id {
-    egui::Id::new(("script-gutter", key))
+    egui::Id::unique(("script-gutter", key))
 }
 
 /// What of the 0-based `line` of `text` an error's wavy underline spans
@@ -1028,7 +1028,7 @@ pub(crate) fn selection_rects(
 }
 
 pub(crate) fn editor_id(key: ResKey) -> egui::Id {
-    egui::Id::new(("script", key))
+    egui::Id::unique(("script", key))
 }
 
 /// Whether a script's editor has the keyboard: Undo and Redo are its own
@@ -1132,7 +1132,7 @@ fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
 /// Where [`set_cursor`] leaves the keys for the editors not drawn: the
 /// scripts', until each is drawn or its tab closed (`forget_closed`).
 fn focus_when_drawn() -> egui::Id {
-    egui::Id::new("scripts to focus when drawn")
+    egui::Id::unique("scripts to focus when drawn")
 }
 
 /// Whether `key`'s editor was left the keys while it was not drawn; no
@@ -1857,13 +1857,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 let origin = out.text_origin.to_vec2();
                 let pointer =
                     (out.response.hover_pos()).filter(|_| !error_tip && !menu_up).and_then(|p| {
-                        let slot = egui::Id::new(("name-at-pointer", key));
+                        let slot = egui::Id::unique(("name-at-pointer", key));
                         let at = (p - origin).to_vec2();
                         name_at(ui, slot, h, &symbols, cached, &buf.text, &palette, at)
                     });
                 if let Some(s) = pointer {
                     let detail =
-                        symbol_detail(&ctx, egui::Id::new(("symbol-tip", key)), s, &palette);
+                        symbol_detail(&ctx, egui::Id::unique(("symbol-tip", key)), s, &palette);
                     out.response.clone().on_hover_ui_at_pointer(|ui| {
                         detail_ui(ui, &detail, TIP_MOST);
                     });
@@ -1875,11 +1875,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     && ui.clip_rect().contains_rect(caret.translate(origin))
                 {
                     let at = caret.center_bottom() - egui::vec2(0.0, 1.0);
-                    let slot = egui::Id::new(("name-at-caret", key));
+                    let slot = egui::Id::unique(("name-at-caret", key));
                     let found =
                         name_at(ui, slot, h, &symbols, cached, &buf.text, &palette, at.to_vec2());
                     if let Some(s) = found {
-                        let slot = egui::Id::new(("symbol-tip", key));
+                        let slot = egui::Id::unique(("symbol-tip", key));
                         let detail = symbol_detail(&ctx, slot, s, &palette);
                         let id = editor_id(key).with("caret-tip");
                         let anchor = caret.translate(origin);
@@ -1933,7 +1933,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let (a, b): (usize, usize) = (r.primary.index.into(), r.secondary.index.into());
         (a.min(b), a.max(b))
     });
-    buf.seen = Some((shown.state.offset, cursor_now));
+    buf.seen = Some((shown.state.clamped_offset(), cursor_now));
     if let Some(i) = plugin_chosen {
         app.actions.push(crate::plugins::run_on(&commands[i], script.to_vec()));
     }
@@ -1964,10 +1964,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 egui::vec2(width + frame.x, height + frame.y),
             );
             let detail =
-                symbol_detail(&ctx, egui::Id::new(("completion-detail", key)), s, &palette);
+                symbol_detail(&ctx, egui::Id::unique(("completion-detail", key)), s, &palette);
             completion_detail(&ctx, key, list, &detail);
         }
-        egui::Area::new(egui::Id::new(("completion", key)))
+        egui::Area::new(egui::Id::unique(("completion", key)))
             .fixed_pos(egui::pos2(at_x, pos.y))
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
@@ -2073,7 +2073,7 @@ fn completion_size(
     items: &[crate::script_tools::Symbol],
     x: f32,
 ) -> (f32, f32, f32) {
-    let id = egui::Id::new(("completion-width", key));
+    let id = egui::Id::unique(("completion-width", key));
     let style = ctx.global_style();
     let font = egui::TextStyle::Button.resolve(&style);
     let asked =
@@ -2254,7 +2254,7 @@ fn completion_detail(ctx: &egui::Context, key: ResKey, list: egui::Rect, detail:
     // or below it in a small one, and the detail then covers the list's
     // end rather than leave the window.)
     at.y = at.y.min(screen.bottom() - size.y).max(screen.top());
-    egui::Area::new(egui::Id::new(("completion-detail-area", key)))
+    egui::Area::new(egui::Id::unique(("completion-detail-area", key)))
         .fixed_pos(at)
         .order(egui::Order::Foreground)
         .interactable(false)
@@ -2353,7 +2353,7 @@ fn find_name(
 /// data.
 fn caret_tip(ctx: &egui::Context, key: ResKey, at: usize, kept_off: bool) -> bool {
     use egui::Key;
-    let slot = egui::Id::new(("caret-tip", key));
+    let slot = egui::Id::unique(("caret-tip", key));
     let focused = ctx.memory(|m| m.has_focus(editor_id(key))) && !kept_off;
     let (moved, other) = ctx.input(|i| {
         let mut moved = false;

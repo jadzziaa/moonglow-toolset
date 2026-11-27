@@ -352,6 +352,7 @@ fn frames(
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, 60.0 * down),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: egui::Modifiers::NONE,
                 });
             }
@@ -375,6 +376,7 @@ fn frames(
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, -by),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     modifiers: egui::Modifiers::NONE,
                 });
             }
@@ -2781,7 +2783,7 @@ fn talk_table(h: &mut App<'_>, r: &mut Report) {
     h.run_steps(5);
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::String), "String not shown");
     let seen = |h: &App<'_>| {
-        let id = egui::Id::new(("talk-rows-seen", mg_ui::talk_view::Which::Game));
+        let id = egui::Id::unique(("talk-rows-seen", mg_ui::talk_view::Which::Game));
         h.ctx.data(|d| d.get_temp::<(usize, usize)>(id))
     };
     let lines = h.state().game_talk.as_ref().map_or(0, |g| g.table.len());
@@ -4091,6 +4093,7 @@ fn read_only_and_options() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, by),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             h.run_steps(2);

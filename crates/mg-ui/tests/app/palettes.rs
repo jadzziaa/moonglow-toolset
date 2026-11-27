@@ -820,6 +820,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(30);
@@ -829,6 +830,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 400.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(30);
@@ -893,6 +895,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers,
     });
     h.run_steps(20);
@@ -2025,7 +2028,9 @@ fn the_palette_shown_last_is_remembered() {
             let r = n.rect();
             r.top() > at.bottom() && r.top() < at.bottom() + 40.0 && r.left() > at.left()
         };
-        h.query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Button))
+        // (Its rows: a category's folds, a disclosure triangle in egui 0.37.)
+        use egui::accesskit::Role;
+        h.query_all_by(|n| matches!(n.role(), Role::Button | Role::DisclosureTriangle))
             .any(|n| under(&n))
     };
     assert!(!open_now(&h), "{header} closed at first");
@@ -3036,6 +3041,7 @@ fn a_search_s_categories_out_of_sight_keep_their_room() {
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, -step),
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
             settle(&mut h);

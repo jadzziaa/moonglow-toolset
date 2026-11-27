@@ -224,7 +224,7 @@ pub(crate) fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
         return;
     }
     let text = failed_text(why);
-    egui::Panel::bottom(egui::Id::new(("side-failed", tab)))
+    egui::Panel::bottom(egui::Id::unique(("side-failed", tab)))
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
         .show_separator_line(false)
         .show(ui, |ui| {
@@ -746,7 +746,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let mut answer = None;
     let footed = widgets::modal(ctx, "Unsaved Changes")
-        .id(egui::Id::new("side-doc-closing"))
+        .id(egui::Id::unique("side-doc-closing"))
         .show_foot(ctx, |ui| {
             ui.label(format!("Save changes to {title}?"));
             for note in &notes {

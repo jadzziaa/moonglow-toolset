@@ -33,8 +33,8 @@
 
 use egui::collapsing_header::{CollapsingResponse, CollapsingState};
 use egui::{
-    Color32, Pos2, Rect, Response, Sense, TextStyle, TextWrapMode, Ui, WidgetInfo, WidgetText,
-    WidgetType, pos2, vec2,
+    Color32, Pos2, Rect, Response, Role, Sense, TextStyle, TextWrapMode, Ui, WidgetInfo,
+    WidgetText, pos2, vec2,
 };
 
 use crate::icons::Icon;
@@ -330,9 +330,8 @@ fn eye_rect(ui: &Ui, rect: Rect) -> Rect {
 fn eye_button(ui: &mut Ui, rect: Rect, row_id: egui::Id, eye: &Eye) -> Response {
     let response = ui.interact(rect, row_id.with("eye"), Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| {
-        WidgetInfo::selected(WidgetType::Button, enabled, eye.shown, eye.name.clone())
-    });
+    response
+        .widget_info(|| WidgetInfo::selected(Role::Button, enabled, eye.shown, eye.name.clone()));
     if eye.tip.is_empty() { response } else { response.on_hover_text(&eye.tip) }
 }
 
@@ -422,7 +421,7 @@ impl TreeGroup {
     /// The group `name`, its open state kept under `id_salt`.
     pub fn new(id_salt: impl std::hash::Hash + std::fmt::Debug, name: impl Into<String>) -> Self {
         TreeGroup {
-            id_salt: egui::Id::new(id_salt),
+            id_salt: egui::Id::unique(id_salt),
             line: Line::new(name.into()),
             default_open: false,
             open: None,
@@ -524,7 +523,7 @@ impl TreeGroup {
             }
             let enabled = ui.is_enabled();
             row.response.widget_info(|| {
-                WidgetInfo::labeled(WidgetType::CollapsingHeader, enabled, line.label())
+                WidgetInfo::labeled(Role::DisclosureTriangle, enabled, line.label())
             });
             let openness = state.openness(ui.ctx());
             let row = line.paint(ui, row, Some(openness));
@@ -702,11 +701,10 @@ impl TreeRow {
         let (enabled, selected) = (ui.is_enabled(), line.marked);
         // (A row that takes no click, as [`TreeRow::dim`]'s, is a label.)
         if !sense.senses_click() {
-            row.response
-                .widget_info(|| WidgetInfo::labeled(WidgetType::Label, enabled, line.label()));
+            row.response.widget_info(|| WidgetInfo::labeled(Role::Label, enabled, line.label()));
         } else {
             row.response.widget_info(|| {
-                WidgetInfo::selected(WidgetType::SelectableLabel, enabled, selected, line.label())
+                WidgetInfo::selected(Role::Button, enabled, selected, line.label())
             });
         }
         let rect = row.rect;

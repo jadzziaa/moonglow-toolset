@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T20:18:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:51Z }
 ---
 
 # Areas
@@ -30,7 +30,7 @@ The row over the view is the area's **header**: on the left what you do
 (which objects show, how they are placed; while Paint is the tool in
 hand, the brush's settings: [Painting placeables](#painting-placeables)),
 on the right how the view looks (day or night, and the **Lighting**,
-**Overlays** and **Audio** popovers), then **Area Properties** and **⋯**
+**Overlays** and **Audio** popovers), then **Area Properties** and **…**
 (More). The tools are on the [tool shelf](#the-tool-shelf-and-the-compass)
 at the view's left, the compass at its top right. It never wraps:
 where the editor is narrow it gives way, a step at a time, and every
@@ -364,7 +364,7 @@ Transform** turns it on, to show the walkmeshes before and after.
 
 - **Area Properties**: the area's properties ([Area
   Properties](#area-properties)).
-- **⋯** (More): **To Scratch** and **Save N as Prefab…** (several
+- **…** (More): **To Scratch** and **Save N as Prefab…** (several
   objects selected; see [Prefabs](#placing-objects)). More holds what
   the row has no room for, too, in the row's order.
 - A **warning** sign with a count, at the right group's end, when
@@ -384,7 +384,7 @@ brush chosen in the palette), and taking one puts the others down. A
 tool's button clicked again puts it down too (Select Objects is in hand
 again). The buttons are reached with Tab, and their tips name their
 keys. In a view too short for them, those that don't fit go into **More
-Tools** (`⋮`) at the shelf's foot.
+Tools** (three dots) at the shelf's foot.
 
 - **Select Objects**: select, move and place objects (no other tool in
   hand).
@@ -2264,7 +2264,7 @@ Terrains and Crossers, Painting Rules, Tiles, Groups), **Save** (the
 tileset's file), **Make Palette**, **Check** and **Render Minimap
 Pictures**, and **OK** (save and close) and **Cancel** (close as last
 saved, asking first about unsaved changes) at its end. Where the editor is
-narrow the buttons show their icons alone, then go into **⋯** (More), the
+narrow the buttons show their icons alone, then go into **…** (More), the
 switch and Save last. **Undo** and **Redo** are the Top Bar's: they take
 the tileset's steps while the pointer is over the editor or its panels, or
 it was worked in last (Ctrl+Z and Ctrl+Y the same); saving the module

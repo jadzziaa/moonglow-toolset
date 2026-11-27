@@ -484,7 +484,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let game = app.game.as_deref().expect("checked");
                 let types = crate::blueprint::kept_for_key(
                     ui.ctx(),
-                    egui::Id::new("blueprint-wizard-item-types"),
+                    egui::Id::unique("blueprint-wizard-item-types"),
                     &app.game_names(),
                     || std::sync::Arc::new(item_types(game)),
                 );
@@ -509,7 +509,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         Some("STRREF"),
                         Some("LABEL"),
                     );
-                    let id = egui::Id::new("wizard-waypoint-look");
+                    let id = egui::Id::unique("wizard-waypoint-look");
                     let current = i64::from(w.appearance);
                     if let Some(row) = crate::widgets::row_choice(id, &looks, current).show(ui) {
                         w.appearance = row as u8;
@@ -556,7 +556,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             Step::Waves => {
                 ui.label("Select the Wave files that this Sound Object will play");
-                let pick_id = egui::Id::new("wizard-waves");
+                let pick_id = egui::Id::unique("wizard-waves");
                 if let Some(r) = app.take_pick(pick_id).filter(|r| !r.is_empty()) {
                     // A looping sound plays one wave.
                     if w.looping == Some(true) {
@@ -591,7 +591,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui,
                     BlueprintKind::Creature,
                     "Add Creature",
-                    egui::Id::new("wizard-creatures"),
+                    egui::Id::unique("wizard-creatures"),
                     Some(360.0),
                 );
                 if let Some(r) = add {
@@ -622,7 +622,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     w.kind.label(),
                     app.ws.as_ref().map(|ws| (ws.identity(), ws.revision())),
                 );
-                let id = egui::Id::new("blueprint-wizard-categories");
+                let id = egui::Id::unique("blueprint-wizard-categories");
                 let nodes: std::sync::Arc<Vec<PaletteNode>> =
                     crate::blueprint::kept_for_key(ui.ctx(), id, &mark, || {
                         std::sync::Arc::new(categories(game, module, w.kind))

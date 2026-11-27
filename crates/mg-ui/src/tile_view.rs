@@ -23,7 +23,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, tileset: ResRef, tile: u
         ui.label(format!("{tileset} has no tile {tile}."));
         return;
     };
-    egui::Panel::left(egui::Id::new(("tile-facts", tileset, tile)))
+    egui::Panel::left(egui::Id::unique(("tile-facts", tileset, tile)))
         .resizable(true)
         .default_size(300.0)
         .show(ui, |ui| {

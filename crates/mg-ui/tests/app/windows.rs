@@ -2119,7 +2119,7 @@ fn views_open_again_as_they_were() {
             .expect("the script's editor")
     };
     let cursor = |h: &Harness<'_, Moonglow>| {
-        let id = egui::Id::new(("script", script));
+        let id = egui::Id::unique(("script", script));
         let state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap();
         let r = state.cursor.char_range().unwrap();
         (usize::from(r.primary.index), usize::from(r.secondary.index))
@@ -2128,7 +2128,7 @@ fn views_open_again_as_they_were() {
     assert_eq!(cursor(&h), (at, at));
     assert!(scrolled < -1000.0, "scrolled to line 150: {scrolled}");
     // Line 150 bookmarked (F5), and numbered 3 (Ctrl+Shift+3).
-    h.ctx.memory_mut(|m| m.request_focus(egui::Id::new(("script", script))));
+    h.ctx.memory_mut(|m| m.request_focus(egui::Id::unique(("script", script))));
     h.run();
     h.key_press(egui::Key::F5);
     h.run();
@@ -2179,6 +2179,7 @@ fn a_script_only_scrolled_opens_again_scrolled() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -600.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(30);
@@ -2940,7 +2941,7 @@ fn escape_in_front(mode: Mode) {
     press(&h, beside, false, egui::Modifiers::NONE);
     h.run_steps(3);
     let top = h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)).unwrap();
-    assert_eq!(top.id, egui::Id::new(Some("Variables")), "in front of Properties");
+    assert_eq!(top.id, egui::Id::unique(Some("Variables")), "in front of Properties");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(h.state().var_edit.is_none(), "Escape closed Variables");
@@ -3055,7 +3056,7 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     m.set(script, b"void main()\n{\n}\n".to_vec());
     m.save().unwrap();
     let (tab, panel, share) =
-        (Tab::Script(script), egui::Id::new(("window-bottom", Tab::Script(script))), 1.0 / 3.0);
+        (Tab::Script(script), egui::Id::unique(("window-bottom", Tab::Script(script))), 1.0 / 3.0);
     {
         let mut app = app_with(Vec::new());
         app.settings.no_last_area = true;
@@ -3067,7 +3068,11 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
         own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
         h.run_steps(4);
         let rect = |h: &Harness<'_, Moonglow>| {
-            egui::containers::panel::PanelState::load(&h.ctx, panel)
+            // (The pane's own id, under its window's `Ui`, as the shell
+            // keeps it.)
+            let panel = h.ctx.data(|d| d.get_temp::<egui::Id>(panel.with("panel")));
+            panel
+                .and_then(|panel| egui::containers::panel::PanelState::load(&h.ctx, panel))
                 .unwrap_or_else(|| panic!("{tab:?}: no lower half"))
                 .outer_rect
         };

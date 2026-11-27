@@ -10,8 +10,8 @@
 //! for `ui.add`.
 
 use egui::{
-    Color32, CornerRadius, FontId, Galley, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2,
-    WidgetInfo, WidgetType, vec2,
+    Color32, CornerRadius, FontId, Galley, Painter, Pos2, Rect, Response, Role, Sense, Stroke, Ui,
+    Vec2, WidgetInfo, vec2,
 };
 use std::sync::Arc;
 
@@ -108,7 +108,7 @@ impl egui::Widget for KeyCap {
         let size = vec2(key_cap_width(ui, &self.text), MARK_HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
         let text = self.text;
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, ui.is_enabled(), &text));
+        response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), &text));
         if ui.is_rect_visible(rect) {
             paint_key_cap(ui.painter(), &ui.tokens(), rect, &text);
         }
@@ -249,7 +249,7 @@ impl egui::Widget for Badge {
         let size = vec2(self.width(ui), MARK_HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
         let text = self.text.clone();
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, ui.is_enabled(), &text));
+        response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), &text));
         if ui.is_rect_visible(rect) {
             self.paint(ui.painter(), &ui.tokens(), rect);
         }
@@ -272,7 +272,7 @@ pub fn paint_modified_dot(painter: &Painter, t: &Tokens, center: Pos2) {
 /// the light theme), a label named "Modified".
 pub fn modified_dot(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(DOT), Sense::hover());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, ui.is_enabled(), "Modified"));
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), "Modified"));
     if ui.is_rect_visible(rect) {
         paint_modified_dot(ui.painter(), &ui.tokens(), rect.center());
     }

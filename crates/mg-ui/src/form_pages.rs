@@ -128,10 +128,12 @@ mod tests {
     fn body_at(width: f32) -> f32 {
         let mut body = 0.0;
         let mut h = egui_kittest::Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(width + 16.0, 400.0))
             .build_ui(|ui| {
                 let mut top = 0;
-                let listed = list(ui, egui::Id::new("t"), "Pages", &["Basic", "Scripts"], &mut top);
+                let listed =
+                    list(ui, egui::Id::unique("t"), "Pages", &["Basic", "Scripts"], &mut top);
                 body = listed.body.available_width();
             });
         h.run();
@@ -188,10 +190,12 @@ mod tests {
         // (The page at the top kept from frame to frame, as a host keeps it.)
         let at = std::rc::Rc::new(std::cell::Cell::new(0));
         let kept = at.clone();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(2200.0, 316.0)).build_ui(
-            move |ui| {
+        let mut h = egui_kittest::Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(2200.0, 316.0))
+            .build_ui(move |ui| {
                 mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
-                let id = egui::Id::new("marks");
+                let id = egui::Id::unique("marks");
                 let mut top = kept.get();
                 let mut listed = list(ui, id, "Pages", &pages, &mut top);
                 scroll(id, &pages, false, listed.chosen, 4).show(
@@ -205,12 +209,11 @@ mod tests {
                     },
                 );
                 kept.set(top);
-            },
-        );
+            });
         h.run();
         h.get_by_label("Skills").click();
         h.run();
-        let seen = PageScroll::seen(&h.ctx, egui::Id::new("marks")).unwrap();
+        let seen = PageScroll::seen(&h.ctx, egui::Id::unique("marks")).unwrap();
         // (Classes, its column's last, reaches down the view.)
         assert_eq!(seen.pages_in_view, vec![1, 3, 4, 5], "all but Basic and Appearance in view");
         let t = mg_uikit::tokens::Tokens::DARK;

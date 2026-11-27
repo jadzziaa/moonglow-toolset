@@ -339,7 +339,7 @@ pub(super) fn inspector(
     // (Its bind chips' clicks are this designer's: `form::chip_asked`.)
     ui.ctx().data_mut(|d| d.insert_temp(form::chip_owner(), key));
     let whose = (key, &state.edit_view, &state.selected, state.typing);
-    fields::of(ui.ctx(), Some(egui::Id::new(whose)));
+    fields::of(ui.ctx(), Some(egui::Id::unique(whose)));
     let swap = layouts::is_swap(s, node);
     // What the selection is first: a swap layout's variants, any control's
     // own properties; then how it changes (binds, events, drawing).
@@ -683,7 +683,7 @@ pub(super) fn bindings_table(
         };
     // (Its header row: the columns' names, on the bar's ground.)
     let (head, said) = ui.allocate_exact_size(egui::vec2(width, row), egui::Sense::hover());
-    said.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, BINDS_TABLE));
+    said.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, BINDS_TABLE));
     ui.painter().rect_filled(head, 0.0, t.bar);
     let cols = |r: egui::Rect| {
         let n = egui::Rect::from_min_size(r.min, egui::vec2(name_w, r.height()));
@@ -755,14 +755,12 @@ pub(super) fn bindings_table(
             .on_hover_text("A handler runs when the event script's value of it changes");
         c.widget_info(|| {
             let said = format!("Watch {name}");
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, &said)
+            egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, &said)
         });
         if on != watched {
             toggled = Some((name.clone(), on));
         }
-        r.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, name)
-        });
+        r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, chosen, name));
         if bound {
             let said = "Bound to the property chosen";
             ui.ctx().accesskit_node_builder(r.id, |node| node.set_description(said));
@@ -989,17 +987,17 @@ mod tests {
         let key = ResKey::parse("fixture", ResType::JUI).unwrap();
         fields::begin(ui.ctx(), key);
         let right = f.widths.map_or(280.0, |(_, right)| right);
-        egui::Panel::right(ui.id().with("nui-inspector")).exact_size(right).resizable(false).show(
-            ui,
-            |ui| {
+        egui::Panel::right(ui.scope_id().with("nui-inspector"))
+            .exact_size(right)
+            .resizable(false)
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("nui-properties").auto_shrink(false).show(
                     ui,
                     |ui| {
                         inspector(ui, &mut f.doc, &mut f.settings, &mut f.state, &mut f.assets, key)
                     },
                 );
-            },
-        );
+            });
         egui::CentralPanel::default().show(ui, |ui| {
             preview::canvas(ui, &mut f.doc, &f.settings, &mut f.state, &mut f.assets);
         });
@@ -1036,8 +1034,10 @@ mod tests {
 
     #[test]
     fn properties_stay_in_their_panel_as_the_window_and_panels_are_sized() {
-        let mut h =
-            Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, fixture());
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(1130.0, 760.0))
+            .build_ui_state(show, fixture());
         h.run();
         assert_inspector_fits(&h);
         let before = h.state().doc.clone();
@@ -1074,7 +1074,10 @@ mod tests {
             },
         );
         f.widths = Some((0.0, 280.0));
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 760.0)).build_ui_state(show, f);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 760.0))
+            .build_ui_state(show, f);
         h.run();
         assert_inspector_fits(&h);
         h.get_by_label("Bind Formatting").click();
@@ -1087,8 +1090,10 @@ mod tests {
         for (highest, expected) in [(i32::MAX, 1), (7, 8)] {
             let mut f = fixture();
             f.doc["root"]["children"][0]["children"][0]["elements"][1][1] = json!(highest);
-            let mut h =
-                Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+            let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
+                .with_size(egui::vec2(1130.0, 760.0))
+                .build_ui_state(show, f);
             h.run();
             h.get_by_label("Add Option").click();
             h.run();
@@ -1207,7 +1212,10 @@ mod tests {
         f.state.selected = "/root/row_template/0/0".into();
         f.state.binding_property = "value".into();
         let before = f.settings.bindings["names"].value.clone();
-        let mut h = Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(1130.0, 760.0))
+            .build_ui_state(show, f);
         h.run();
         let headers = |h: &Harness<'_, Fixture>, what: &str| {
             let all = h.query_all_by_label_contains(what);

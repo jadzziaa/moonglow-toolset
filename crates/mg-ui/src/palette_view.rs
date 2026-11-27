@@ -834,7 +834,7 @@ fn flat_step(rows: &[FlatRow], at: usize, key: egui::Key, page: f32) -> Step {
 /// there, as W, A, S and D go on doing all along). The palette moves by
 /// them with the pointer over it.
 pub(crate) fn has_arrows(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(egui::Id::new("palette-arrow-keys"))).unwrap_or(false)
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::unique("palette-arrow-keys"))).unwrap_or(false)
 }
 
 /// Gives the arrow keys to the palette, or back to the area's view.
@@ -967,9 +967,9 @@ pub(crate) enum Keys {
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
     ctx.data_mut(|d| {
-        d.insert_temp(egui::Id::new("palette-arrow-keys"), to != Keys::Area);
-        d.insert_temp(egui::Id::new("arrow-keys-of"), to);
-        d.remove_temp::<bool>(egui::Id::new(KEYS_HELD));
+        d.insert_temp(egui::Id::unique("palette-arrow-keys"), to != Keys::Area);
+        d.insert_temp(egui::Id::unique("arrow-keys-of"), to);
+        d.remove_temp::<bool>(egui::Id::unique(KEYS_HELD));
     });
 }
 
@@ -980,7 +980,7 @@ pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
 /// another pane is given them.
 pub(crate) fn hold_keys(ctx: &egui::Context, to: Keys) {
     give_keys(ctx, to);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(KEYS_HELD), true));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique(KEYS_HELD), true));
 }
 
 const KEYS_HELD: &str = "arrow-keys-held";
@@ -988,14 +988,14 @@ const KEYS_HELD: &str = "arrow-keys-held";
 /// Whether the keys are held by the pane a command gave them to
 /// ([`hold_keys`]).
 pub(crate) fn keys_held(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(KEYS_HELD))).unwrap_or(false)
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::unique(KEYS_HELD))).unwrap_or(false)
 }
 
 /// Each frame's start: a press anywhere ends a command's hold on the keys
 /// (they stay where they are, to be taken by a click as any pane's are).
 pub(crate) fn let_go_of_held_keys(ctx: &egui::Context) {
     if ctx.input(|i| i.pointer.any_pressed()) {
-        ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(KEYS_HELD)));
+        ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::unique(KEYS_HELD)));
     }
 }
 
@@ -1026,7 +1026,7 @@ pub fn keys_are_the_logs(ctx: &egui::Context) -> bool {
 /// the window's tests (F6's order).
 #[doc(hidden)]
 pub fn arrow_keys_are(ctx: &egui::Context) -> String {
-    let of = ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of")));
+    let of = ctx.data(|d| d.get_temp::<Keys>(egui::Id::unique("arrow-keys-of")));
     match of {
         Some(keys) if has_arrows(ctx) => format!("{keys:?}"),
         _ => format!("{:?}", Keys::Area),
@@ -1087,7 +1087,7 @@ pub(crate) fn list_hints(app: &Moonglow, ctx: &egui::Context) -> Vec<mg_uikit::s
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
     has_arrows(ctx)
-        && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
+        && ctx.data(|d| d.get_temp::<Keys>(egui::Id::unique("arrow-keys-of"))) == Some(list)
 }
 
 /// Says that the letters and digits typed this frame are a list's (the
@@ -1095,7 +1095,7 @@ pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
 /// [`letters_taken`].
 pub(crate) fn take_letters(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("letters-taken-in"), pass));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("letters-taken-in"), pass));
 }
 
 /// Whether the letters and digits are a list's: the conversation tree's
@@ -1105,7 +1105,7 @@ pub(crate) fn take_letters(ctx: &egui::Context) {
 /// letter typed to go to a line went to the camera too.
 pub(crate) fn letters_taken(ctx: &egui::Context) -> bool {
     keys_are(ctx, Keys::Dialog)
-        || ctx.data(|d| d.get_temp::<u64>(egui::Id::new("letters-taken-in")))
+        || ctx.data(|d| d.get_temp::<u64>(egui::Id::unique("letters-taken-in")))
             == Some(ctx.cumulative_pass_nr())
 }
 
@@ -1796,7 +1796,7 @@ pub(crate) fn fold_keys(ui: &egui::Ui, keymap: &crate::keys::Keymap) -> Option<b
 /// are the palette's go to it; Escape clears it; Escape again, or Down,
 /// goes back to the list. Whether Down left it for the list.
 fn search_row(ui: &mut egui::Ui, view: &mut PaletteView, hint: &str) -> bool {
-    let search_id = egui::Id::new("palette-search-field");
+    let search_id = egui::Id::unique("palette-search-field");
     let left = crate::widgets::SearchField::new(search_id, &mut view.filter)
         .hint(hint)
         .find_when(keys_are(ui.ctx(), Keys::Palette))
@@ -2131,6 +2131,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     false => 0.0,
                 };
                 crate::widgets::dropdown("palette-type")
+                    .name("Palette type")
                     .selected_text(shown.2)
                     .width((ui.available_width() - after).max(60.0))
                     .show_with(
@@ -2388,7 +2389,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         });
         // (New… and More's width as drawn last time: the slider's room is
         // what is left before them.)
-        let tail_id = egui::Id::new("palette-toolbar-tail");
+        let tail_id = egui::Id::unique("palette-toolbar-tail");
         let tail = ui.data(|d| d.get_temp::<f32>(tail_id)).unwrap_or(120.0);
         let room = ui.available_size_before_wrap().x - tail - ui.spacing().item_spacing.x;
         let slider_here = shown && room >= SLIDER_LEAST;
@@ -2460,7 +2461,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // A search typed opens every category with a match, as it is typed.
     // (So does another palette shown with the search still there.)
     let said = format!("{:?}/{}/{}/{}", view.kind, view.custom, view.tiles, view.filter);
-    let typed = crate::widgets::text_changed(ui, egui::Id::new("palette-filter"), &said);
+    let typed = crate::widgets::text_changed(ui, egui::Id::unique("palette-filter"), &said);
     if typed && !view.filter.trim().is_empty() {
         view.fold = view.fold.or(Some(true));
     }
@@ -2576,7 +2577,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let brush = app.paint
         && kind == BlueprintKind::Placeable
         && view.area.is_none_or(|a| crate::claims::read_only(app, a).is_none());
-    let brush_id = egui::Id::new("palette-brush-height");
+    let brush_id = egui::Id::unique("palette-brush-height");
     let brush_room = brush.then(|| ui.data(|d| d.get_temp::<f32>(brush_id)).unwrap_or(120.0));
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
     let ext = kind.restype().extension().unwrap_or_default();
@@ -3307,7 +3308,7 @@ impl Tree<'_> {
         // it holds and shows is as it was then (a search finding 8,000 items
         // built a header for each of their categories every frame). Drawn
         // whole where the keys need every place or ask something of it.
-        let room_id = egui::Id::new(("palette-room", kind, custom, path, &self.grouping));
+        let room_id = egui::Id::unique(("palette-room", kind, custom, path, &self.grouping));
         let fresh = self.room_fresh(ui);
         if self.listed.is_none()
             && !self.reveal
@@ -3407,7 +3408,7 @@ impl Tree<'_> {
         shown.header_response.widget_info(|| {
             let name = shown_name(&node.name, game);
             let said = if count > 0 { format!("{name} ({count})") } else { name };
-            egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, &said)
+            egui::WidgetInfo::labeled(egui::Role::DisclosureTriangle, true, &said)
         });
         self.header(ui, &branch, listing, &shown.header_response, behind);
         if let Some(remembered) = remembered {
@@ -3782,7 +3783,7 @@ impl Tree<'_> {
         // (Found once for the palette and the list, and kept: every
         // blueprint of the palette was listed twice a frame and each of
         // the list's looked for among them by its text.)
-        let id = egui::Id::new(("palette-remembered-kept", title, self.kind, self.custom));
+        let id = egui::Id::unique(("palette-remembered-kept", title, self.kind, self.custom));
         let kind = self.kind;
         let kept = crate::blueprint::kept_for(ui.ctx(), id, palette, &list.to_vec(), || {
             Arc::new(remembered_in(palette, kind, list))
@@ -3893,7 +3894,7 @@ impl Tree<'_> {
         let (rect, grid) = ui.allocate_exact_size(size, egui::Sense::hover());
         // (A list of all of the category's pictures to a screen reader:
         // those out of sight are not built, the keys reach them.)
-        grid.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Pictures"));
+        grid.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, true, "Pictures"));
         mg_uikit::gallery::said_as_list(ui.ctx(), grid.id, rows.len());
         let clip = ui.clip_rect();
         let in_sight = layout.rows_in(rect.top(), clip.y_range(), rows.len());
@@ -3920,7 +3921,7 @@ impl Tree<'_> {
             && let Some(b) = rows.get(i)
         {
             let key = ResKey::new(b.resref, kind);
-            let cell = ui.id().with(("palette-cell", key)).accesskit_id();
+            let cell = ui.scope_id().with(("palette-cell", key)).accesskit_id();
             ui.ctx().accesskit_node_builder(grid.id, |n| n.set_active_descendant(cell));
         }
     }
@@ -3947,7 +3948,7 @@ impl Tree<'_> {
         let key = ResKey::new(b.resref, self.kind.restype());
         let pictured = crate::model_view::Pictured::Resource(key);
         let made = self.ready.made(pictured);
-        let id = ui.id().with(("palette-cell", key));
+        let id = ui.scope_id().with(("palette-cell", key));
         let r = ui.interact(cell.at, id, egui::Sense::CLICK | egui::Sense::DRAG);
         let state = mg_uikit::gallery::CellState {
             hovered: r.hovered(),
@@ -3995,7 +3996,7 @@ fn enlargement(app: &Moonglow, ui: &egui::Ui, e: &Enlarged, dock: egui::Rect) {
         .and_then(|(_, t)| t.as_deref())
         .filter(|t| !t.is_empty());
     let no_model = app.thumbnails.blueprint_has_no_model(e.key);
-    let id = egui::Id::new("palette-enlargement");
+    let id = egui::Id::unique("palette-enlargement");
     // (Measured anew for another cell, or as its picture, Tag or lines
     // come.)
     let what = (e.key, thumb.is_some(), tag, about.len(), no_model);
@@ -4179,7 +4180,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     }
     // The prefab Rename… was chosen for, and the name typed so far.
-    let renamed_id = egui::Id::new("palette-prefab-rename");
+    let renamed_id = egui::Id::unique("palette-prefab-rename");
     let mut renamed: Option<(String, String)> = ui.data(|d| d.get_temp(renamed_id));
     // (Renamed this frame: the list read again, so the old name isn't
     // listed, nor its missing file read for its hover.)

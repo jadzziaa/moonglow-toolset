@@ -95,6 +95,7 @@ pub(crate) fn wheel(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, time
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, dy),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -633,6 +634,7 @@ fn wheel_sideways(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dx: f32, times:
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(dx, 0.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(2);
@@ -720,6 +722,7 @@ fn the_well_keeps_its_rows_whatever_else_is_open() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -60.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         h.step();

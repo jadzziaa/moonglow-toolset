@@ -1242,9 +1242,10 @@ fn the_model_chooser_lays_out_the_models_in_sight() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -400.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
-        h.run();
+        settle(&mut h);
         if h.query_by_label(last).is_some() {
             break;
         }

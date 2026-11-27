@@ -245,7 +245,7 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
         let font = egui::TextStyle::Button.resolve(ui.style());
         let pad = ui.spacing().button_padding.x * 2.0;
         let ppp = ui.ctx().pixels_per_point().to_bits();
-        let width_id = egui::Id::new("hak-report-buttons-width");
+        let width_id = egui::Id::unique("hak-report-buttons-width");
         let width_key = (font.size.to_bits(), pad.to_bits(), ppp);
         let both = ui
             .data(|d| d.get_temp::<((u32, u32, u32), f32)>(width_id))
@@ -321,7 +321,7 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
         );
     let t = mg_uikit::tokens(ui.ctx());
     let spec = report_table::Spec {
-        id: egui::Id::new("hak-report-table"),
+        id: egui::Id::unique("hak-report-table"),
         name: HAK_ROWS,
         cols,
         keys: Keys::HakReport,
@@ -424,7 +424,7 @@ pub(crate) fn used_body(app: &mut Moonglow, ui: &mut Ui) {
             ui.weak(area.to_string());
         }
     });
-    let order_id = egui::Id::new("used-rows-order");
+    let order_id = egui::Id::unique("used-rows-order");
     let order = ui
         .data(|d| d.get_temp::<Arc<Vec<usize>>>(order_id))
         .filter(|o| o.len() == rows.len())
@@ -435,7 +435,7 @@ pub(crate) fn used_body(app: &mut Moonglow, ui: &mut Ui) {
         });
     let t = mg_uikit::tokens(ui.ctx());
     let spec = report_table::Spec {
-        id: egui::Id::new("resources-used-table"),
+        id: egui::Id::unique("resources-used-table"),
         name: USED_ROWS,
         cols: &USED_COLUMNS,
         keys: Keys::ResourcesUsed,

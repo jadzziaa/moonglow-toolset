@@ -30,13 +30,16 @@ fn harness(children: Value, settings: Settings) -> Harness<'static, Case> {
     let mut doc = mg_nui::window();
     doc["geometry"]["h"] = 520.0.into();
     doc["root"]["children"] = children;
-    Harness::builder().with_size(egui::vec2(900.0, 850.0)).build_ui_state(
-        |ui, t: &mut Case| {
-            header(ui, &mut t.state);
-            preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
-        },
-        Case { doc, settings, state: State::default(), assets: skin::Assets::default() },
-    )
+    Harness::builder()
+        .with_context_setup(mg_uikit::FieldLabels::install)
+        .with_size(egui::vec2(900.0, 850.0))
+        .build_ui_state(
+            |ui, t: &mut Case| {
+                header(ui, &mut t.state);
+                preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
+            },
+            Case { doc, settings, state: State::default(), assets: skin::Assets::default() },
+        )
 }
 
 fn click_at(h: &mut Harness<'_, Case>, pos: egui::Pos2) {
@@ -288,18 +291,21 @@ fn wrapped_preview_toolbar_stays_compact() {
         for live in [false, true] {
             let mut assets = skin::Assets::default();
             assets.loaded = true;
-            let mut h = Harness::builder().with_size(egui::vec2(width, 760.0)).build_ui_state(
-                |ui, t: &mut Case| {
-                    header(ui, &mut t.state);
-                    preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
-                },
-                Case {
-                    doc: mg_nui::window(),
-                    settings: Settings::default(),
-                    state: State { preview_interactive: live, ..Default::default() },
-                    assets,
-                },
-            );
+            let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
+                .with_size(egui::vec2(width, 760.0))
+                .build_ui_state(
+                    |ui, t: &mut Case| {
+                        header(ui, &mut t.state);
+                        preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
+                    },
+                    Case {
+                        doc: mg_nui::window(),
+                        settings: Settings::default(),
+                        state: State { preview_interactive: live, ..Default::default() },
+                        assets,
+                    },
+                );
             h.run();
             let top = h.get_by_label("Interact").rect().top();
             let canvas = h.state().state.preview_rect.unwrap();
@@ -1562,6 +1568,7 @@ fn progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -1000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run();
@@ -1598,6 +1605,7 @@ fn a_combo_popup_s_bar_is_dragged_and_clicked() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 1000.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run();

@@ -308,6 +308,8 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
                             for k in 1..=4 {
                                 let label = format!("Float{k}");
                                 let v = e.float(&label).unwrap_or(0.0);
+                                // (Named: the Value heading is over the first.)
+                                let id = ui.next_auto_id();
                                 if let Some(n) = crate::widgets::drag_number(ui, v, |d| {
                                     d.speed(0.01).max_decimals(3)
                                 }) {
@@ -315,6 +317,7 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
                                     all[i].set(&label, Value::Float(n));
                                     changed = Some(all);
                                 }
+                                crate::widgets::name_node(ui, id, &format!("Value {k}"));
                             }
                         }
                         _ => {}

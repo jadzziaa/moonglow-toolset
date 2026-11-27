@@ -758,6 +758,7 @@ fn smooth_scrolling_off_moves_a_list_by_a_whole_notch_at_once() {
             unit: egui::MouseWheelUnit::Line,
             delta: egui::vec2(0.0, -1.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: egui::Modifiers::NONE,
         });
         // (A scroll area moves by what it was given as it ends a frame:

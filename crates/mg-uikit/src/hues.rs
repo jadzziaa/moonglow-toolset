@@ -73,7 +73,7 @@ pub const fn kind_hue(icon: Icon, theme: Theme) -> Option<Color32> {
 }
 
 fn colored_id() -> egui::Id {
-    egui::Id::new("mg-uikit-colored-icons")
+    egui::Id::unique("mg-uikit-colored-icons")
 }
 
 /// Turns colored icons on or off for every view of `ctx`, from this

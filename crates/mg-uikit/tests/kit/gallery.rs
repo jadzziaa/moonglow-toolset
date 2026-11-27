@@ -41,7 +41,7 @@ fn a_grid_lays_out_and_paints_only_the_rows_in_sight() {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
         drawn.borrow_mut().clear();
         egui::ScrollArea::vertical().id_salt("grid").show(ui, |ui| {
-            let id = egui::Id::new("cells");
+            let id = egui::Id::unique("cells");
             let out = GalleryGrid::new(id, count, 64.0).show(ui, |ui, i, rect, tile, r, state| {
                 drawn.borrow_mut().push(i);
                 let name = format!("Cell {i}");
@@ -93,7 +93,7 @@ fn the_grid_is_one_tab_stop_and_its_keys_move_a_cursor_into_sight() {
         let _ = ui.button("Before");
         seen.borrow_mut().clear();
         let shown = egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            let id = egui::Id::new("cells");
+            let id = egui::Id::unique("cells");
             GalleryGrid::new(id, count, 64.0).show(ui, |ui, i, rect, tile, r, state| {
                 if state.cursor {
                     cursor.set(Some(i));
@@ -182,7 +182,7 @@ fn the_grid_is_a_list_its_cells_their_places_in_it() {
     let mut h = Harness::builder().with_size(egui::vec2(300.0, 400.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            let id = egui::Id::new("cells");
+            let id = egui::Id::unique("cells");
             GalleryGrid::new(id, count, 64.0).name("Pictures").show(
                 ui,
                 |ui, i, rect, tile, r, state| {
@@ -232,7 +232,7 @@ fn a_grid_shown_again_starts_from_the_one_chosen() {
             return;
         }
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            let id = egui::Id::new("cells");
+            let id = egui::Id::unique("cells");
             GalleryGrid::new(id, 300, 64.0).cursor(given.get()).show(
                 ui,
                 |ui, i, rect, tile, r, state| {
@@ -266,14 +266,18 @@ fn a_grid_shown_again_starts_from_the_one_chosen() {
 fn each_cell_is_a_named_button_said_selected_with_a_click() {
     let mut h = Harness::builder().with_size(egui::vec2(400.0, 300.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
-        GalleryGrid::new(egui::Id::new("cells"), 3, 100.0).show(ui, |ui, i, rect, tile, r, s| {
-            let (name, said) = [("Wraith", "Wraith  (CR 5)"), ("Bat", "Bat"), ("Off", "Off")][i];
-            GalleryCell::new(name, Picture::Missing)
-                .said(said)
-                .selected(i == 0)
-                .disabled(i == 2)
-                .paint(ui, rect, tile, s, r);
-        });
+        GalleryGrid::new(egui::Id::unique("cells"), 3, 100.0).show(
+            ui,
+            |ui, i, rect, tile, r, s| {
+                let (name, said) =
+                    [("Wraith", "Wraith  (CR 5)"), ("Bat", "Bat"), ("Off", "Off")][i];
+                GalleryCell::new(name, Picture::Missing)
+                    .said(said)
+                    .selected(i == 0)
+                    .disabled(i == 2)
+                    .paint(ui, rect, tile, s, r);
+            },
+        );
     });
     h.run();
     let wraith = h.get_by_label("Wraith  (CR 5)");
@@ -439,7 +443,7 @@ fn a_filled_picture_covers_its_tile_with_the_part_named() {
     let mut h = Harness::builder().with_size(egui::vec2(200.0, 200.0)).build_ui(move |ui| {
         let (rect, r) = ui.allocate_exact_size(egui::vec2(54.0, 84.0), egui::Sense::click());
         seen.set(rect);
-        GalleryCell::new("", Picture::Fill(texture, uv)).lines(0).paint(
+        GalleryCell::new("Ring", Picture::Fill(texture, uv)).lines(0).paint(
             ui,
             rect,
             egui::vec2(54.0, 84.0),
@@ -471,7 +475,7 @@ fn a_filled_picture_covers_its_tile_with_the_part_named() {
 /// across left as the layout makes it (justified: at least its least).
 #[test]
 fn a_row_gap_sets_the_rows_apart() {
-    let grid = GalleryGrid::new(egui::Id::new("rows"), 40, 54.0)
+    let grid = GalleryGrid::new(egui::Id::unique("rows"), 40, 54.0)
         .justified(egui::vec2(54.0, 84.0), 8.0)
         .row_gap(3.0)
         .label(0.0);
@@ -482,7 +486,7 @@ fn a_row_gap_sets_the_rows_apart() {
     assert!((below.top() - first.bottom() - 3.0).abs() < 0.01, "{first:?} {below:?}");
     assert!((l.height(2 * l.columns) - (2.0 * 84.0 + 3.0)).abs() < 0.01);
     // (Without it, the layout's own.)
-    let plain = GalleryGrid::new(egui::Id::new("rows"), 40, 54.0)
+    let plain = GalleryGrid::new(egui::Id::unique("rows"), 40, 54.0)
         .justified(egui::vec2(54.0, 84.0), 8.0)
         .label(0.0)
         .layout(500.0);

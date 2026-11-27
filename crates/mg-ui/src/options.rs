@@ -705,7 +705,7 @@ const USER_FOLDER_KEPT: std::time::Duration = std::time::Duration::from_secs(2);
 /// often in a synced Documents or on a network share.
 fn user_folder_seen(ui: &Ui, user: &std::path::Path, now: std::time::Instant) -> UserFolder {
     type Kept = (std::path::PathBuf, std::time::Instant, UserFolder);
-    let id = egui::Id::new("options-user-folder-seen");
+    let id = egui::Id::unique("options-user-folder-seen");
     let kept = ui.data(|d| d.get_temp::<Kept>(id));
     if let Some((of, at, seen)) = kept
         && of == user
@@ -854,7 +854,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 // (Why not, looked at once per folder: it
                 // reads the folder.)
                 let why_not = path(&draft.game_root).map(|p| {
-                    let id = egui::Id::new(("game-folder-why-not", &p));
+                    let id = egui::Id::unique(("game-folder-why-not", &p));
                     ui.data(|d| d.get_temp::<Option<String>>(id)).unwrap_or_else(|| {
                         let why = GameInstall::why_not(&p);
                         ui.data_mut(|d| d.insert_temp(id, why.clone()));
@@ -1117,6 +1117,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     );
                     ui.add_enabled_ui(draft.dialog_backup, |ui| {
                         let minutes = &mut draft.dialog_backup_minutes;
+                        crate::widgets::name_number_field(ui, "Minutes between backups");
                         crate::widgets::spin_draft(ui, minutes, 1..=180, 1.0, |d| d);
                     });
                     ui.label("minutes");
@@ -1856,7 +1857,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
     let mut rows: Vec<(Group, String, String)> =
         general.chain(plugins).chain(project).chain(others).collect();
     // The list is long: narrow it by a command's name, or its group's.
-    let filter_id = egui::Id::new("options-keys-filter");
+    let filter_id = egui::Id::unique("options-keys-filter");
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
     crate::widgets::SearchField::new(filter_id.with("field"), &mut filter)
         .hint("Find a command")
@@ -1907,7 +1908,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                     let add = add.on_hover_text("Add a key (Escape: none)");
                     add.widget_info(|| {
                         egui::WidgetInfo::labeled(
-                            egui::WidgetType::Button,
+                            egui::Role::Button,
                             true,
                             format!("Add a key for {name}"),
                         )
@@ -1957,7 +1958,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
 /// Where the Keyboard page leaves its wish for a file dialog (true: to
 /// export).
 fn keys_file_id() -> egui::Id {
-    egui::Id::new("options-keys-file")
+    egui::Id::unique("options-keys-file")
 }
 
 /// The width of a label column of the General page (the Options board's
@@ -2024,7 +2025,7 @@ fn labelled<R>(ui: &mut Ui, label_w: f32, label: &str, add: impl FnOnce(&mut Ui)
             ui.add(egui::Label::new(text).truncate())
         });
         let shown = shown.inner;
-        shown.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label));
+        shown.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, label));
         add(ui)
     })
     .inner
@@ -2601,7 +2602,7 @@ mod tests {
         h.run();
         h.state_mut().actions.push(Action::OptionsDialog);
         h.run();
-        let field = egui::Id::new("a field's text, in English");
+        let field = egui::Id::unique("a field's text, in English");
         h.state_mut().buffers.insert(field, "English".into());
         h.get_by_label("Language").click();
         h.run();

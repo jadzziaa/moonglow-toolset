@@ -332,7 +332,7 @@ fn handles(
             .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
         if inside {
             corner.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Size the draw layer")
+                egui::WidgetInfo::labeled(egui::Role::Button, true, "Size the draw layer")
             });
         }
         ui.painter().rect_filled(corner.rect.shrink(2.0), 0, colour);
@@ -376,7 +376,7 @@ pub(super) fn canvas_handles(
         d.gesture.drag_to(p, scale);
     }
     let shown = state.draw_drag.as_ref().map_or(&item, |d| &d.gesture.draft).clone();
-    let id = ui.id().with(("nui-canvas-draw", &path));
+    let id = ui.scope_id().with(("nui-canvas-draw", &path));
     if let Some((field, size, pressed)) = handles(ui, id, &shown, body.min, scale, s, true) {
         let gesture = Gesture::begin(&item, field, size, pressed);
         state.draw_drag = Some(CanvasDrag { path: path.clone(), gesture });
@@ -441,21 +441,21 @@ impl Gesture {
 /// of `owner`'s Properties (a designer's key and the control's path,
 /// `draw_owner`): one designer's choice never opens another's.
 pub(super) fn reveal_of(owner: egui::Id) -> egui::Id {
-    egui::Id::new("nui-reveal-draw").with(owner)
+    egui::Id::unique("nui-reveal-draw").with(owner)
 }
 
 /// The owner of the Draw Layers drawn next (Properties says it before them,
 /// [`draw_owner`]), its reveal's id.
 fn reveal_id(ctx: &egui::Context) -> egui::Id {
-    let owner = ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new("nui-draw-owner")));
+    let owner = ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::unique("nui-draw-owner")));
     reveal_of(owner.unwrap_or(egui::Id::NULL))
 }
 
 /// Says whose control's Draw Layers are drawn next: designer `key`'s at
 /// `path`.
 pub(super) fn draw_owner(ctx: &egui::Context, key: ResKey, path: &str) -> egui::Id {
-    let owner = egui::Id::new((key, path));
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nui-draw-owner"), owner));
+    let owner = egui::Id::unique((key, path));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("nui-draw-owner"), owner));
     owner
 }
 
@@ -516,7 +516,7 @@ pub(super) fn editor(
                 // gesture are kept by a key of the layer's own, which Up, Down and
                 // Remove Drawing take along: by its number, the open header stayed
                 // at the place, on the layer that came there.
-                let keys_id = ui.id().with("draw-layer-keys");
+                let keys_id = ui.scope_id().with("draw-layer-keys");
                 let mut keys: Vec<u64> = ui.data(|d| d.get_temp(keys_id)).unwrap_or_default();
                 keys.truncate(total);
                 while keys.len() < total {
@@ -536,7 +536,7 @@ pub(super) fn editor(
                         ui.ctx().data_mut(|d| d.insert_temp(reveal_id, other));
                     }
                     header.show(ui, |ui| {
-                        let id = ui.id().with("draw-gesture");
+                        let id = ui.scope_id().with("draw-gesture");
                         let mut drag = ui.ctx().data_mut(|d| d.get_temp::<Gesture>(id));
                         if drag.as_ref().is_some_and(|g| g.source != *item)
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
@@ -852,17 +852,20 @@ mod tests {
         }
         let assets = skin::Assets::default();
         let state = Shown { node: layers(3), chosen: chosen(2) };
-        let mut h = Harness::builder().with_size(vec2(420.0, 1400.0)).build_ui_state(
-            |ui, shown: &mut Shown| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let mut s = Settings::default();
-                    if let Some(moved) = editor(ui, &mut shown.node, &mut s, &assets) {
-                        moved.follow(&mut shown.chosen, "/root/children/0");
-                    }
-                });
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(vec2(420.0, 1400.0))
+            .build_ui_state(
+                |ui, shown: &mut Shown| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let mut s = Settings::default();
+                        if let Some(moved) = editor(ui, &mut shown.node, &mut s, &assets) {
+                            moved.follow(&mut shown.chosen, "/root/children/0");
+                        }
+                    });
+                },
+                state,
+            );
         h.run();
         h.get_by_label("Draw Layers").click();
         h.run();

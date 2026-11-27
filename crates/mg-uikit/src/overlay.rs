@@ -24,8 +24,8 @@
 //! ```
 
 use egui::{
-    FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2, Widget, WidgetInfo,
-    WidgetType, pos2, vec2,
+    FontId, Painter, Pos2, Rect, Response, Role, Sense, Shape, Stroke, Ui, Vec2, Widget,
+    WidgetInfo, pos2, vec2,
 };
 
 use crate::icons::{ButtonState, Icon};
@@ -141,7 +141,7 @@ impl Widget for ViewButton {
         let sense = if self.enabled { Sense::click() } else { Sense::hover() };
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(VIEW_BUTTON), sense);
         let enabled = self.enabled && ui.is_enabled();
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &self.name));
+        response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, &self.name));
         if ui.is_rect_visible(rect) {
             let t = ui.tokens();
             let state = if enabled { ButtonState::of(&response) } else { ButtonState::Rest };

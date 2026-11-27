@@ -390,6 +390,8 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                             {
                                 set_new = Some((row.entry, row.name.clone(), r));
                             }
+                            let what = p.titles.1.to_lowercase();
+                            crate::widgets::name_node(ui, id, &format!("{} {what}", row.name));
                             f.hold_command(ui, id, false, |form, buf| {
                                 if buf == new {
                                     return None;
@@ -588,7 +590,7 @@ fn icon_prefixes(game: &mg_rules::GameData) -> Vec<String> {
 /// module's each time.
 fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     let Some(game) = app.game.clone() else { return Arc::default() };
-    let id = egui::Id::new("select-texture-names");
+    let id = egui::Id::unique("select-texture-names");
     let listed = super::kept_for_load_order(ui, app.load_order, id, || {
         // (The layers' names looked through once for both types, each
         // ResRef sorted and made a name once: listed type by type, a
@@ -623,7 +625,7 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     }
     super::kept_for_key(
         ui.ctx(),
-        egui::Id::new("select-texture-names-merged"),
+        egui::Id::unique("select-texture-names-merged"),
         &(app.load_order, own_sig),
         || {
             let Some(ws) = &app.ws else { return listed.clone() };
@@ -951,7 +953,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
 type Open = Vec<(egui::Id, u64)>;
 
 fn open_id() -> egui::Id {
-    egui::Id::new("select-texture-open")
+    egui::Id::unique("select-texture-open")
 }
 
 /// Notes that the Select Texture window `id` is drawn in this pass.
@@ -1083,8 +1085,9 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
                     let id = f.id(&format!("{}#pick#{k}", p.field));
                     let unset =
                         if k == 0 { "Choose an animation" } else { "Choose the one to play" };
-                    let list =
-                        crate::widgets::row_choice(id, &choices, *slot).width(180.0).unset(unset);
+                    let list = crate::widgets::row_choice(id, &choices, *slot).width(180.0);
+                    let what = [p.titles.0, p.titles.1][k];
+                    let list = list.unset(unset).name(what);
                     if let Some(r) = list.show(ui) {
                         *slot = Some(r);
                     }

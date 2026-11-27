@@ -79,7 +79,7 @@ fn switch(h: &mut Harness<'_, Moonglow>, name: &str) {
 /// The cursor of `key`'s editor (characters: where it is, where the
 /// selection began).
 fn cursor_of(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<(usize, usize)> {
-    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))?;
+    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::unique(("script", key)))?;
     let r = state.cursor.char_range()?;
     Some((r.primary.index.into(), r.secondary.index.into()))
 }
@@ -281,7 +281,7 @@ fn an_error_has_a_wavy_underline_and_the_status_bar_says_it() {
         let wave = &painted[0];
         // Under the line's own text, `int n = 1 +;`, from its first
         // character to after its last.
-        let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+        let editor = h.ctx.read_response(egui::Id::unique(("script", key))).unwrap().rect;
         let (left, right) = (wave[0].x, wave.last().unwrap().x);
         assert!(left > editor.left() + 20.0, "after the indentation: {left} in {editor:?}");
         let char_w = (right - left) / "int n = 1 +;".len() as f32;
@@ -373,7 +373,7 @@ fn a_floating_script_under_the_pointer_has_the_status_bar_s_count_and_message() 
     let key = keys[0];
     settle(&mut h);
     assert!(h.state().script_error_for_test(key).is_some(), "the check found its error");
-    let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+    let editor = h.ctx.read_response(egui::Id::unique(("script", key))).unwrap().rect;
     let bar = |h: &Harness<'_, Moonglow>| {
         let said = h.state().status_said();
         let count = said.iter().any(|s| s == "Line 1, column 1");
@@ -561,7 +561,7 @@ fn a_small_script_window_keeps_two_thirds_for_its_code() {
         let room = leaf.rect.height();
         let pane = window_pane(&h, keys[0]);
         let pane_high = leaf.rect.bottom() - pane.top();
-        let editor = h.ctx.read_response(egui::Id::new(("script", keys[0]))).unwrap().rect;
+        let editor = h.ctx.read_response(egui::Id::unique(("script", keys[0]))).unwrap().rect;
         assert!(pane_high <= room / 3.0 + 2.0, "{high}: the pane {pane_high} of {room}");
         assert!(pane_high >= 26.0, "{high}: its tab bar at least: {pane_high}");
         assert!(editor.top() < pane.top(), "{high}: the code above it");
@@ -786,7 +786,7 @@ fn end_of_file_and_include_errors_are_underlined_and_said_in_either_host() {
             settle(&mut h);
             let at = mg_ui::script_tools::line_start(text, line);
             assert_eq!(cursor_of(&h, key), Some((at, at)), "{mode:?} {key}: to line {line}");
-            let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+            let editor = h.ctx.read_response(egui::Id::unique(("script", key))).unwrap().rect;
             assert!(editor.contains(wave[0]), "{mode:?} {key}: in its editor");
         }
     }
@@ -1618,6 +1618,7 @@ fn a_name_s_declaration_shows_in_a_tip() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -40.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.hover_at(egui::pos2(1.0, 1.0));

@@ -241,6 +241,7 @@ fn a_sideways_scroll_pans_the_area_view() {
                 unit: egui::MouseWheelUnit::Point,
                 delta,
                 phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             },
             modifiers,
@@ -264,6 +265,7 @@ fn a_sideways_scroll_pans_the_area_view() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: shift,
     });
     h.run_steps(30);
@@ -649,6 +651,7 @@ fn area_viewer_paints_placeables() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: shift,
     });
     h.run_steps(30);
@@ -2097,7 +2100,8 @@ fn tags_typed_placed_or_named_by_create_set_are_weighed_as_a_paste_s() {
             value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
         };
         h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
-        h.run_steps(2);
+        // (The third for the window it opens, laid out unseen at first.)
+        h.run_steps(3);
         h.state().tag_clash.clone()
     };
     // Typed: the second waypoint given the first's tag, once the first has
@@ -3760,7 +3764,8 @@ fn adjust_location_says_an_uneven_scale_is_kept() {
     let turned = VisualTransform { rotate: Vec3::new(30.0, 0.0, 0.0), ..uneven };
     assert_eq!(visual(&mut h), Some(turned));
     // Scale changed (dragged): the three alike, and no note.
-    let scale = h.get_by_label("Scale").rect().right_center() + egui::vec2(40.0, 0.0);
+    let scale =
+        label_nodes(&h, "Scale").next().unwrap().rect().right_center() + egui::vec2(40.0, 0.0);
     drag(&mut h, scale, scale + egui::vec2(10.0, 0.0));
     h.run_steps(2);
     assert!(h.query_by_label(&note).is_none(), "the note goes");
@@ -4673,6 +4678,7 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
         unit: egui::MouseWheelUnit::Line,
         delta: egui::vec2(0.0, -3.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: egui::Modifiers::NONE,
     });
     h.run_steps(20);
@@ -6592,6 +6598,7 @@ fn ctrl_and_the_wheel_scale_what_is_selected() {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, by),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: ctrl,
         });
         h.run_steps(12);
@@ -8087,6 +8094,7 @@ fn a_wheel_scaling_under_way_is_not_given_to_the_next_object_by_a_cut() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         modifiers: ctrl,
     });
     h.run_steps(8);
@@ -9365,7 +9373,7 @@ fn custom_light_is_whole_in_sight_and_says_why_it_is_disabled() {
         assert!(seen >= 8, "{size:?}: {seen} controls");
         // Properties' grid: its label column at least the stylesheet's,
         // the check boxes in the fields' column.
-        let label = h.get_by_label("Multiplier").rect();
+        let label = label_nodes(&h, "Multiplier").next().unwrap().rect();
         let shadows = h.get_by_label("Creatures' shadows are cast from it").rect();
         let gap = shadows.left() - label.left();
         assert!(gap >= mg_uikit::metrics::LABEL_WIDTH, "{size:?}: the label column {gap}");

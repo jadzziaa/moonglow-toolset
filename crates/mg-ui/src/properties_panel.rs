@@ -373,7 +373,7 @@ pub(crate) fn panel(
     // shows the place the last was left at.)
     let mut top = at;
     let all = one_scroll.then(|| crate::blueprint::AllPages {
-        id: egui::Id::new(("properties-scroll", restype)),
+        id: egui::Id::unique(("properties-scroll", restype)),
         pages: &pages,
         top: &mut top,
         bring,

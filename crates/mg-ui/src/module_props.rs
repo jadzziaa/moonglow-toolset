@@ -125,7 +125,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
     let names: Vec<&'static str> = PAGES.iter().map(|(_, n)| *n).collect();
     let asked = app.module_page;
     let mut top = PAGES.iter().position(|(p, _)| *p == asked).unwrap_or(0);
-    let id = egui::Id::new("module-properties-pages");
+    let id = egui::Id::unique("module-properties-pages");
     let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &names, &mut top);
     let narrow = crate::form_pages::narrow(listed.body.available_width());
     let scroll = crate::form_pages::scroll(
@@ -578,9 +578,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         // (Commands, not a choice: the arrows move along them, Enter adds.)
         // (A Filter field over a long list: a builder's hundreds of haks.)
         let long = available.len() > crate::widgets::FILTERED_CHOICES;
-        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").filtered(long).show_menu(
-            ui,
-            |ui, keys| {
+        crate::widgets::dropdown("ifo-add-hak")
+            .name("Add hak")
+            .selected_text("Add hak…")
+            .filtered(long)
+            .show_menu(ui, |ui, keys| {
                 for h in &available {
                     if !keys.shows(h) {
                         continue;
@@ -600,8 +602,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                         app.actions.push(command(vec![insert], "Add hak"));
                     }
                 }
-            },
-        );
+            });
         if ui
             .button("Add Haks and Talk Table…")
             .on_hover_text(
@@ -752,7 +753,7 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
         .map_or_else(|| mg_module::project_file::FILE_NAME.to_string(), |p| p.team_name());
     // (Its lines as kept while the file is as it was: not read again.)
     let map = crate::talk_typed::map_lines(app);
-    let id = egui::Id::new("typed-lines");
+    let id = egui::Id::unique("typed-lines");
     let shown = |l: Option<Lines>| {
         l.map_or((String::new(), String::new()), |l| (l.from.to_string(), l.to.to_string()))
     };
