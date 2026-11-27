@@ -493,11 +493,13 @@ fn server_env(
         env.retain(|(k, _)| k != "LD_PRELOAD");
         env.insert(0, ("LD_PRELOAD".into(), value));
     }
-    let nwnx = env.iter().filter(|(k, _)| k == "LD_PRELOAD").any(|(_, v)| {
+    let core_in = env.iter().filter(|(k, _)| k == "LD_PRELOAD").any(|(_, v)| {
         let v = v.to_string_lossy();
         v.split([':', ' ']).any(|l| Path::new(l).file_name().is_some_and(|n| n == CORE_FILE))
     });
-    Ok(ServerEnv { vars: env, nwnx })
+    // (The project's NWNX is held to its checks whatever an --env line
+    // put in its core's place: the server is to run with it.)
+    Ok(ServerEnv { vars: env, nwnx: nwnx.is_some() || core_in })
 }
 
 /// The project file of the module a run serves (`original`: the
@@ -1636,6 +1638,15 @@ mod tests {
         let e = server_env(Some(&n), &[], Some(&lib), true).unwrap();
         assert_eq!(preloaded(&e), [format!("{}:{}", core.display(), lib.display())]);
         assert!(e.nwnx);
+        // An --env LD_PRELOAD in the core's place: NWNX still checked (the
+        // server then says it ran without it, and is stopped).
+        let displaced = lines(&[("LD_PRELOAD", &lib.display().to_string())]);
+        // (As resolve_with has --env's lines: in NWNX's own.)
+        let mut d = n.clone();
+        d.env.extend(displaced.iter().cloned());
+        let e = server_env(Some(&d), &displaced, None, true).unwrap();
+        assert_eq!(preloaded(&e), [lib.display().to_string()]);
+        assert!(e.nwnx, "the project's NWNX is checked");
         let e = server_env(Some(&n), &[], Some(&other), true).unwrap_err().to_string();
         assert!(e.contains("is another NWNX than the project's"), "{e}");
         assert!(server_env(None, &[], Some(&lib), false).is_err(), "LD_PRELOAD is Linux's");
