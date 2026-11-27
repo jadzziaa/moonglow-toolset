@@ -357,6 +357,69 @@ fn tests_run_again_after_a_change() {
     }
 }
 
+/// `--test`'s server is given NWNX as `mg test`'s is: `--nwnx` names a
+/// folder with no NWNX in it, and the tests are not run for it.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tests_server_takes_nwnx() {
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("mg-watch-test-nwnx");
+    let (project, dev, home) = (dir.join("chess"), dir.join("development"), dir.join("nwnx"));
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let unpack = [chess.to_str().unwrap(), project.to_str().unwrap()];
+    assert!(mg(&root, &[&["unpack"][..], &unpack[..]].concat()).status().unwrap().success());
+    std::fs::write(
+        project.join("test_nwnx.nss"),
+        "#include \"mg_test\"\nvoid main() { Assert(TRUE, \"true\"); }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let (p, d, h) = (project.to_str().unwrap(), dev.to_str().unwrap(), home.to_str().unwrap());
+    let mut child = mg(&root, &["watch", p, "--dev-dir", d, "--test", "--nwnx", h])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = child.stdout.take().unwrap();
+    let (send, events) = channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                let _ = send.send(v);
+            }
+        }
+    });
+    let note = loop {
+        let note = next(&events, "note");
+        let text = note["note"].as_str().unwrap_or_default().to_string();
+        if text.starts_with("tests not run") {
+            break text;
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(note.contains("NWNX's core") && note.contains(h), "{note}");
+}
+
+/// `--nwnx` (and `--env`, `--preload`) is for a server: --serve's or
+/// --test's.
+#[test]
+fn nwnx_wants_a_server() {
+    let dir = mg_testkit::scratch_dir("mg-watch-nwnx-alone");
+    let (p, d) = (dir.join("none"), dir.join("development"));
+    let out = crate::mg()
+        .args(["watch", p.to_str().unwrap(), "--dev-dir", d.to_str().unwrap()])
+        .args(["--nwnx", "x"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{said}");
+    assert!(said.contains("--serve") || said.contains("--test"), "{said}");
+    assert!(!d.exists(), "nothing made");
+}
+
 /// `--test-filter` is --test's.
 #[test]
 fn the_test_filter_wants_test() {

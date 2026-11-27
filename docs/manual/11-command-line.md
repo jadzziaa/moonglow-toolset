@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:21:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T23:09:02Z }
 ---
 
 # Command-line tools
@@ -468,7 +468,9 @@ home = "~/.local/opt/nwnx/current"   # Binaries/ and NWScript/
   language, time zone and temporary folder: a setting of your shell's
   (an `LD_PRELOAD` of NWNX, an NWNX setting, a webhook's address) does
   not load or post from a test; give what the server needs with
-  `--env`. Nothing is written into the project. `--preload` of NWNX's
+  `--env`. That is by design, and stays so: a server's environment is
+  that short list, the project's NWNX, `--env` and `--preload`, and
+  nothing else. Nothing is written into the project. `--preload` of NWNX's
   own core is the same core; another library is preloaded beside it;
   another NWNX's core is refused (pass `--no-nwnx` to preload it
   alone). With `--no-nwnx` (or no NWNX), a preloaded library is only
