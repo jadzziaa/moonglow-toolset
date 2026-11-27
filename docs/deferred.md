@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:51:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:10:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -766,9 +766,10 @@ Nothing open.
     casting creature close up (30 creatures under one lamp: 4.1 ms the
     quickest tenth; 100: 11.6 ms, over the 6.94 ms line, where Fast's maps
     take 1.2; 1,590 MHz, 2026-11-26): each creature's volume reaches to
-    the light's radius. batch6's room (eight) is as before. Whether to
-    cut the volumes short (at the ground, say) waits on the ruling above,
-    which would leave far fewer of them (S, the owner's ruling);
+    the light's radius. batch6's room (eight) is as before. Cutting the
+    volumes short (at the ground, say) would change High's geometry
+    beyond what was asked, and whether to do it, or to cap High's
+    casters, is the owner's call (S, the owner's ruling);
   (Grass and the see-through meshes of tiles and static placeables,
   their solid and soft parts, take the shadows as the client's since
   2026-11-25: [the findings](findings.md), "Grass and a tile's

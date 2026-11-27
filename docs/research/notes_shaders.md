@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:51:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:10:00Z }
 sources:
   - id: shadows-on-see-through
     resource: crates/mg-corpus-tests/tests/client_render/shadows.rs (shadows_on_see_through, shadows_look with MG_SHADOW_GRASS=1), run 2026-11-25 on 89.8193.37-17

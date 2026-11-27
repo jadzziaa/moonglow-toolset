@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:51:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:10:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2163,7 +2163,10 @@ reads it, in its `settings.tml`) changed nothing.
   up: 0.87 ms at 30 creatures, 1.2 to 1.4 at 100, 2.8 at 500 (about 4 µs
   a creature; 2.2 with only 16 casting), the median the same. The
   creatures play their animations, so every map is drawn again each
-  frame there; kept maps save that only where nothing moves. Sixteen
+  frame there (the timings include it); with the scene's time held
+  still none is (500: 2.65 ms against 2.94). The maps past 64 are
+  smaller: 512 texels up to 64 creatures, 256 up to 256, 128 up to
+  1,024, 64 up to 4,096. Sixteen
   lamps of 500, close up, from 2.6 to 4.9 ms as the camera turns and
   more lamps' maps come into its squares (the quickest tenth 2.7, the
   median 4.4). High's volumes grow with the casting creatures: 4.1 ms at

@@ -7190,9 +7190,10 @@ fn ring_of_casters(
 
 /// Every creature in a lamp's reach casts its shadow, as the client's
 /// (`batch6_light_shadow_ring`: 24 round one lamp post): 16, 17 (one past
-/// what Moonglow cast until 2026-11-26) and 24 plates in a ring, with the
-/// lights' maps and with their stencil volumes; each a pixel of shadow
-/// where it falls, the ground beside lit.
+/// what Moonglow cast until 2026-11-26), 24, 64 and 65 (one past the
+/// maps of 512 texels, the atlas's tiles 256 then) plates in a ring, with
+/// the lights' maps and with their stencil volumes; each a pixel of
+/// shadow where it falls, the ground beside lit.
 #[test]
 fn every_creature_in_a_lamp_s_reach_casts() {
     let Some(gpu) = gpu() else { return };
@@ -7216,7 +7217,7 @@ fn every_creature_in_a_lamp_s_reach_casts() {
         (x, y)
     };
     for volumes in [false, true] {
-        for n in [16, 17, 24] {
+        for n in [16, 17, 24, 64, 65] {
             let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
             r.shadow_volumes = volumes;
             let (with, falls) = ring_of_casters(&ground, &plate, n, 0.0, true);
