@@ -45,7 +45,7 @@ pub(crate) fn game_for(
 ) -> (Option<Arc<GameData>>, NwSyncState) {
     let Some(gi) = gi else {
         out.note("no game install found: a plugin's game data is empty (--root, or NWN_ROOT)");
-        return (None, None);
+        return (None, nwsync_alone(m));
     };
     let found = m.game_data(gi).map_err(anyhow::Error::from).and_then(|found| {
         let nwsync = (found.nwsync.as_ref())
@@ -59,6 +59,24 @@ pub(crate) fn game_for(
             (None, None)
         }
     }
+}
+
+/// The user folder `mg` was given or found (none with `--no-user-dir`),
+/// set once from the command line: where the game's NWSync storage is
+/// read without a game install.
+pub(crate) static USER_DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// The module's NWSync content as a plugin's `mg.nwsync.status()` tells
+/// it where no game install was found: the manifest is read from the
+/// game's storage in the user folder, or Moonglow's cache, neither of
+/// which needs the game, and put into game data of its own alone.
+fn nwsync_alone(m: &Module) -> NwSyncState {
+    let settings = m.project_file.nwsync_settings()?;
+    let user = USER_DIR.get().cloned().flatten();
+    let install = GameInstall::new(PathBuf::new(), user, "en");
+    let mounted =
+        m.mount_nwsync(&mut mg_resman::ResMan::new(), &install, &settings, &mut Vec::new());
+    Some(mg_module::nwsync_content::State::of(&settings.url, Some(&mounted), None))
 }
 
 /// The command line as a plugin's host: the log kept for the output, a

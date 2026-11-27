@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, mg.nwsync (the module's NWSync content and its state), findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:12:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:54:10Z }
 ---
 
 # Plugin API reference
@@ -116,8 +116,10 @@ sign-in to a private server, only whether there is one. The table:
 
 The table is a copy: it does not change while the job runs, and a Sync
 that ends meanwhile is seen by the next job. With `mg plugin run`, the
-manifest is the one `mg` puts into the game data; `survey` is nil and
-nothing is under way.
+manifest is the one `mg` puts into the game data, also where it finds no
+game install (the manifest is read from the game's storage in the user
+folder, or Moonglow's cache, neither of which needs the game); `survey`
+is nil and nothing is under way.
 
 ```lua
 local s = mg.nwsync.status()
