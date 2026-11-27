@@ -1413,15 +1413,18 @@ mod tests {
     fn the_rail_s_pages_are_named_buttons_at_its_measures() {
         let mut page = 1;
         let mut clicked = false;
-        let mut h = Harness::builder().with_size(vec2(200.0, 300.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let out = PageRail::new("rail")
-                .page(Icon::Info, "Basic")
-                .page(Icon::Inventory, "Inventory")
-                .page(Icon::Lock, "Lock")
-                .show(ui, &mut page);
-            clicked |= out.changed;
-        });
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(200.0, 300.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let out = PageRail::new("rail")
+                    .page(Icon::Info, "Basic")
+                    .page(Icon::Inventory, "Inventory")
+                    .page(Icon::Lock, "Lock")
+                    .show(ui, &mut page);
+                clicked |= out.changed;
+            });
         h.run();
         let _ = h.get_by_label(PAGES);
         let basic = h.get_by_label("Basic").rect();
@@ -1451,18 +1454,21 @@ mod tests {
         let mut page = 4;
         // (The rail in a room 50 high at 100 down: two pages fit.)
         let room = egui::Rect::from_min_size(pos2(20.0, 100.0), vec2(100.0, 50.0));
-        let mut h = Harness::builder().with_size(vec2(200.0, 300.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let mut part = ui.new_child(egui::UiBuilder::new().max_rect(room));
-            part.set_clip_rect(room);
-            let _ = PageRail::new("short")
-                .page(Icon::Info, "Basic")
-                .page(Icon::Inventory, "Inventory")
-                .page(Icon::Lock, "Lock")
-                .page(Icon::Trap, "Trap")
-                .page(Icon::Script, "Scripts")
-                .show(&mut part, &mut page);
-        });
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(200.0, 300.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let mut part = ui.new_child(egui::UiBuilder::new().max_rect(room));
+                part.set_clip_rect(room);
+                let _ = PageRail::new("short")
+                    .page(Icon::Info, "Basic")
+                    .page(Icon::Inventory, "Inventory")
+                    .page(Icon::Lock, "Lock")
+                    .page(Icon::Trap, "Trap")
+                    .page(Icon::Script, "Scripts")
+                    .show(&mut part, &mut page);
+            });
         h.run();
         let scripts = h.get_by_label("Scripts").rect();
         assert!(room.contains_rect(scripts), "in sight: {scripts:?}");
@@ -1473,14 +1479,17 @@ mod tests {
     #[test]
     fn up_and_down_take_the_page_and_the_keyboard_along_the_rail() {
         let mut page = 0;
-        let mut h = Harness::builder().with_size(vec2(200.0, 300.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let _ = PageRail::new("keys")
-                .page(Icon::Info, "Basic")
-                .page(Icon::Inventory, "Inventory")
-                .page(Icon::Lock, "Lock")
-                .show(ui, &mut page);
-        });
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(200.0, 300.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let _ = PageRail::new("keys")
+                    .page(Icon::Info, "Basic")
+                    .page(Icon::Inventory, "Inventory")
+                    .page(Icon::Lock, "Lock")
+                    .show(ui, &mut page);
+            });
         h.run();
         h.get_by_label("Basic").focus();
         h.run();
@@ -1517,59 +1526,61 @@ mod tests {
         extras: bool,
     ) -> Harness<'static> {
         let high = if extras { 346.0 } else { 316.0 };
-        Harness::builder().with_size(vec2(600.0, high)).build_ui(move |ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let names = ["One", "Two", "Three", "Four", "Five", "Six"];
-            let seen = PageScroll::seen(ui.ctx(), "form").map(|s| s.in_view).unwrap_or(0..0);
-            let mut top = page.get();
-            let mut room = ui.available_rect_before_wrap();
-            if extras {
-                let band = Rect::from_min_size(room.min, vec2(room.width(), 30.0));
-                let mut header = ui.new_child(egui::UiBuilder::new().max_rect(band));
-                header.horizontal(|ui| {
-                    ui.add_space(200.0);
-                    let _ = ui.button("Header");
-                });
-                room.min.y += 30.0;
-                egui::Area::new(egui::Id::unique("floating"))
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(pos2(450.0, room.top() + 60.0))
-                    .show(ui.ctx(), |ui| {
-                        let _ = ui.button("Floating");
+        Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(600.0, high))
+            .build_ui(move |ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let names = ["One", "Two", "Three", "Four", "Five", "Six"];
+                let seen = PageScroll::seen(ui.ctx(), "form").map(|s| s.in_view).unwrap_or(0..0);
+                let mut top = page.get();
+                let mut room = ui.available_rect_before_wrap();
+                if extras {
+                    let band = Rect::from_min_size(room.min, vec2(room.width(), 30.0));
+                    let mut header = ui.new_child(egui::UiBuilder::new().max_rect(band));
+                    header.horizontal(|ui| {
+                        ui.add_space(200.0);
+                        let _ = ui.button("Header");
                     });
-            }
-            let mut left = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
-            );
-            let mut list = PageList::new("form-list").in_view(seen);
-            let mut scroll = PageScroll::new("form");
-            for n in names {
-                list = list.page(Icon::Info, n);
-                scroll = scroll.page(Icon::Info, n);
-            }
-            let chosen = list.show(&mut left, &mut top).changed;
-            let mut body =
-                ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+                    room.min.y += 30.0;
+                    egui::Area::new(egui::Id::unique("floating"))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(pos2(450.0, room.top() + 60.0))
+                        .show(ui.ctx(), |ui| {
+                            let _ = ui.button("Floating");
+                        });
+                }
+                let mut left = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
+                );
+                let mut list = PageList::new("form-list").in_view(seen);
+                let mut scroll = PageScroll::new("form");
+                for n in names {
+                    list = list.page(Icon::Info, n);
+                    scroll = scroll.page(Icon::Info, n);
+                }
+                let chosen = list.show(&mut left, &mut top).changed;
+                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
                     pos2(room.left() + PAGE_LIST, room.top()),
                     room.max,
                 )));
-            let heights = heights.borrow().clone();
-            scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
-                ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
-                let mut text = String::new();
-                let id = egui::Id::unique(("field", i));
-                ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
-                let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
-                ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
+                let heights = heights.borrow().clone();
+                scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
+                    ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
+                    let mut text = String::new();
+                    let id = egui::Id::unique(("field", i));
+                    ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
+                    let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
+                    ui.add(field).widget_info(|| {
+                        WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, text));
+                    let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0;
+                    ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
                 });
-                ui.data_mut(|d| d.insert_temp(id, text));
-                let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0;
-                ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
-            });
-            page.set(top);
-        })
+                page.set(top);
+            })
     }
 
     #[test]
@@ -1860,30 +1871,35 @@ mod tests {
             let grown = std::rc::Rc::new(std::cell::Cell::new(0.0f32));
             let g = grown.clone();
             let page = std::rc::Rc::new(std::cell::Cell::new(2));
-            let mut h = Harness::builder().with_size(vec2(700.0, 400.0)).build_ui(move |ui| {
-                crate::apply(ui.ctx(), crate::Theme::Dark);
-                let mut scroll = PageScroll::new("flips").columns(columns);
-                for n in ["One", "Two", "Three", "Four", "Five", "Six"] {
-                    scroll = scroll.page(Icon::Info, n);
-                }
-                let flip = ui.ctx().cumulative_pass_nr() % 2 == 0;
-                let mut top = page.get();
-                scroll.show(ui, &mut top, |ui, i| {
-                    ui.label(format!("page {i}"));
-                    // (Flipping each pass, or as tall as the room in sight
-                    // under its top, as the blueprint pages' model beside their fields
-                    // was sized before M4's U11.)
-                    let tall = match (i, flip, follows) {
-                        (1, _, true) => (ui.clip_rect().bottom() - ui.cursor().top()).max(300.0),
-                        (1, true, false) => 300.0,
-                        (1, false, false) => 340.0,
-                        _ => 260.0,
-                    } + if i == 1 { g.get() } else { 0.0 };
-                    ui.allocate_exact_size(vec2(10.0, tall), Sense::hover());
-                    ui.label(format!("end {i}"));
+            let mut h = Harness::builder()
+                .with_context_setup(crate::FieldLabels::install)
+                .with_size(vec2(700.0, 400.0))
+                .build_ui(move |ui| {
+                    crate::apply(ui.ctx(), crate::Theme::Dark);
+                    let mut scroll = PageScroll::new("flips").columns(columns);
+                    for n in ["One", "Two", "Three", "Four", "Five", "Six"] {
+                        scroll = scroll.page(Icon::Info, n);
+                    }
+                    let flip = ui.ctx().cumulative_pass_nr() % 2 == 0;
+                    let mut top = page.get();
+                    scroll.show(ui, &mut top, |ui, i| {
+                        ui.label(format!("page {i}"));
+                        // (Flipping each pass, or as tall as the room in sight
+                        // under its top, as the blueprint pages' model beside their fields
+                        // was sized before M4's U11.)
+                        let tall = match (i, flip, follows) {
+                            (1, _, true) => {
+                                (ui.clip_rect().bottom() - ui.cursor().top()).max(300.0)
+                            }
+                            (1, true, false) => 300.0,
+                            (1, false, false) => 340.0,
+                            _ => 260.0,
+                        } + if i == 1 { g.get() } else { 0.0 };
+                        ui.allocate_exact_size(vec2(10.0, tall), Sense::hover());
+                        ui.label(format!("end {i}"));
+                    });
+                    page.set(top);
                 });
-                page.set(top);
-            });
             let extra = |h: &mut Harness<'_>| {
                 let (p, f) = (h.ctx.cumulative_pass_nr(), h.ctx.cumulative_frame_nr());
                 for _ in 0..20 {
@@ -1949,48 +1965,50 @@ mod tests {
         columns: usize,
         high: f32,
     ) -> Harness<'static> {
-        Harness::builder().with_size(vec2(700.0, high + 16.0)).build_ui(move |ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let names = ["One", "Two", "Three", "Four", "Five", "Six"];
-            let seen =
-                PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
-            let mut top = page.get();
-            let room = ui.available_rect_before_wrap();
-            let mut left = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
-            );
-            let mut list = PageList::new("cols-list").pages_in_view(seen);
-            let mut scroll = PageScroll::new("cols").columns(columns);
-            for n in names {
-                list = list.page(Icon::Info, n);
-                scroll = scroll.page(Icon::Info, n);
-            }
-            let chosen = list.show(&mut left, &mut top).changed;
-            let mut body =
-                ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+        Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(700.0, high + 16.0))
+            .build_ui(move |ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let names = ["One", "Two", "Three", "Four", "Five", "Six"];
+                let seen =
+                    PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
+                let mut top = page.get();
+                let room = ui.available_rect_before_wrap();
+                let mut left = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
+                );
+                let mut list = PageList::new("cols-list").pages_in_view(seen);
+                let mut scroll = PageScroll::new("cols").columns(columns);
+                for n in names {
+                    list = list.page(Icon::Info, n);
+                    scroll = scroll.page(Icon::Info, n);
+                }
+                let chosen = list.show(&mut left, &mut top).changed;
+                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
                     pos2(room.left() + PAGE_LIST, room.top()),
                     room.max,
                 )));
-            let heights = heights.borrow().clone();
-            scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
-                ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
-                let mut text = String::new();
-                let id = egui::Id::unique(("cols-field", i));
-                ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
-                let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
-                ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
+                let heights = heights.borrow().clone();
+                scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
+                    ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
+                    let mut text = String::new();
+                    let id = egui::Id::unique(("cols-field", i));
+                    ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
+                    let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
+                    ui.add(field).widget_info(|| {
+                        WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, text));
+                    let rest = match heights[i] < 0.0 {
+                        true => ui.available_height(),
+                        false => heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0,
+                    };
+                    ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
                 });
-                ui.data_mut(|d| d.insert_temp(id, text));
-                let rest = match heights[i] < 0.0 {
-                    true => ui.available_height(),
-                    false => heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0,
-                };
-                ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
-            });
-            page.set(top);
-        })
+                page.set(top);
+            })
     }
 
     /// In columns each page goes under the column that ends highest, the
@@ -2144,61 +2162,63 @@ mod tests {
         columns: std::rc::Rc<std::cell::Cell<usize>>,
         high: f32,
     ) -> Harness<'static> {
-        Harness::builder().with_size(vec2(700.0, high + 16.0)).build_ui(move |ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let names = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
-            let n = heights.borrow().len();
-            let seen =
-                PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
-            let mut top = page.get();
-            let room = ui.available_rect_before_wrap();
-            let mut left = ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
-            );
-            let mut list = PageList::new("cols-list").pages_in_view(seen);
-            let mut scroll = PageScroll::new("cols").columns(columns.get());
-            for nm in &names[..n] {
-                list = list.page(Icon::Info, *nm);
-                scroll = scroll.page(Icon::Info, *nm);
-            }
-            let chosen = list.show(&mut left, &mut top).changed;
-            let mut body =
-                ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+        Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(700.0, high + 16.0))
+            .build_ui(move |ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let names = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
+                let n = heights.borrow().len();
+                let seen =
+                    PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
+                let mut top = page.get();
+                let room = ui.available_rect_before_wrap();
+                let mut left = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
+                );
+                let mut list = PageList::new("cols-list").pages_in_view(seen);
+                let mut scroll = PageScroll::new("cols").columns(columns.get());
+                for nm in &names[..n] {
+                    list = list.page(Icon::Info, *nm);
+                    scroll = scroll.page(Icon::Info, *nm);
+                }
+                let chosen = list.show(&mut left, &mut top).changed;
+                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
                     pos2(room.left() + PAGE_LIST, room.top()),
                     room.max,
                 )));
-            let heights = heights.borrow().clone();
-            scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
-                ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
-                let mut text = String::new();
-                let id = egui::Id::unique(("cols-field", i));
-                ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
-                let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
-                ui.add(field).widget_info(|| {
-                    WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
-                });
-                ui.data_mut(|d| d.insert_temp(id, text));
-                // (A page that fills its room: no last field, the rest of
-                // its room taken.)
-                if heights[i] < 0.0 {
-                    let rest = ui.available_height();
+                let heights = heights.borrow().clone();
+                scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
+                    ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
+                    let mut text = String::new();
+                    let id = egui::Id::unique(("cols-field", i));
+                    ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
+                    let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
+                    ui.add(field).widget_info(|| {
+                        WidgetInfo::labeled(Role::TextInput, true, format!("field {i}"))
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, text));
+                    // (A page that fills its room: no last field, the rest of
+                    // its room taken.)
+                    if heights[i] < 0.0 {
+                        let rest = ui.available_height();
+                        ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
+                        return;
+                    }
+                    let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0 - 30.0;
                     ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
-                    return;
-                }
-                let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0 - 30.0;
-                ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
-                // A last field at the page's foot.
-                let mut t2 = String::new();
-                let id2 = egui::Id::unique(("cols-last", i));
-                ui.data_mut(|d| t2 = d.get_temp::<String>(id2).unwrap_or_default());
-                ui.add(egui::TextEdit::singleline(&mut t2).id(id2.with("edit"))).widget_info(
-                    || WidgetInfo::labeled(Role::TextInput, true, format!("last {i}")),
-                );
-                ui.data_mut(|d| d.insert_temp(id2, t2));
-            });
-            page.set(top);
-        })
+                    // A last field at the page's foot.
+                    let mut t2 = String::new();
+                    let id2 = egui::Id::unique(("cols-last", i));
+                    ui.data_mut(|d| t2 = d.get_temp::<String>(id2).unwrap_or_default());
+                    ui.add(egui::TextEdit::singleline(&mut t2).id(id2.with("edit"))).widget_info(
+                        || WidgetInfo::labeled(Role::TextInput, true, format!("last {i}")),
+                    );
+                    ui.data_mut(|d| d.insert_temp(id2, t2));
+                });
+                page.set(top);
+            })
     }
 
     /// The field with the keyboard.
@@ -2397,26 +2417,29 @@ mod tests {
         let mut page = 0usize;
         let rail_room = egui::Rect::from_min_size(pos2(10.0, 10.0), vec2(44.0, 52.0));
         let list_room = egui::Rect::from_min_size(pos2(70.0, 10.0), vec2(120.0, 60.0));
-        let mut h = Harness::builder().with_size(vec2(220.0, 100.0)).build_ui(move |ui| {
-            crate::apply(ui.ctx(), theme);
-            let mut r_ui = ui.new_child(egui::UiBuilder::new().max_rect(rail_room));
-            r_ui.set_clip_rect(rail_room);
-            let _ = PageRail::new("cue-rail")
-                .page(Icon::Info, "One")
-                .page(Icon::Inventory, "Two")
-                .page(Icon::Lock, "Three")
-                .page(Icon::Trap, "Four")
-                .show(&mut r_ui, &mut page);
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(220.0, 100.0))
+            .build_ui(move |ui| {
+                crate::apply(ui.ctx(), theme);
+                let mut r_ui = ui.new_child(egui::UiBuilder::new().max_rect(rail_room));
+                r_ui.set_clip_rect(rail_room);
+                let _ = PageRail::new("cue-rail")
+                    .page(Icon::Info, "One")
+                    .page(Icon::Inventory, "Two")
+                    .page(Icon::Lock, "Three")
+                    .page(Icon::Trap, "Four")
+                    .show(&mut r_ui, &mut page);
 
-            let mut l_ui = ui.new_child(egui::UiBuilder::new().max_rect(list_room));
-            l_ui.set_clip_rect(list_room);
-            let _ = PageList::new("cue-list")
-                .page(Icon::Info, "One")
-                .page(Icon::Inventory, "Two")
-                .page(Icon::Lock, "Three")
-                .page(Icon::Trap, "Four")
-                .show(&mut l_ui, &mut page);
-        });
+                let mut l_ui = ui.new_child(egui::UiBuilder::new().max_rect(list_room));
+                l_ui.set_clip_rect(list_room);
+                let _ = PageList::new("cue-list")
+                    .page(Icon::Info, "One")
+                    .page(Icon::Inventory, "Two")
+                    .page(Icon::Lock, "Three")
+                    .page(Icon::Trap, "Four")
+                    .show(&mut l_ui, &mut page);
+            });
         h.run();
         h.run();
         (rail_room, list_room, h)

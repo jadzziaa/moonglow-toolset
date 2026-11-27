@@ -1285,15 +1285,18 @@ mod tests {
     #[test]
     fn the_shell_s_named_groups_have_bounds() {
         use egui_kittest::kittest::Queryable as _;
-        let h = egui_kittest::Harness::builder().with_size(vec2(800.0, 400.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            top_bar(ui, 300.0, |ui| ui.label("File"), |_, _| (), |_| ());
-            FoldStrip::new("Left Dock", Side::Left)
-                .panel(Icon::Module, "Module", "Module")
-                .show(ui);
-            DockTabs::new("Right Dock").tab("Palette").show(ui, &mut 0, |_| ());
-            PanelHeader::new("Preview").name("Preview Panel").show(ui, |_| ());
-        });
+        let h = egui_kittest::Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(800.0, 400.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                top_bar(ui, 300.0, |ui| ui.label("File"), |_, _| (), |_| ());
+                FoldStrip::new("Left Dock", Side::Left)
+                    .panel(Icon::Module, "Module", "Module")
+                    .show(ui);
+                DockTabs::new("Right Dock").tab("Palette").show(ui, &mut 0, |_| ());
+                PanelHeader::new("Preview").name("Preview Panel").show(ui, |_| ());
+            });
         for name in [TOP_BAR, "Left Dock", "Right Dock", "Preview Panel"] {
             let node = h.get_by_label(name);
             let r = node.rect();

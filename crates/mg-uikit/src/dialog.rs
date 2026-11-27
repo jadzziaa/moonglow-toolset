@@ -527,16 +527,19 @@ mod tests {
     fn an_empty_state_stands_in_the_middle_of_its_room() {
         let places = |width: f32| {
             let mut out: Vec<(Rect, Vec<Rect>)> = Vec::new();
-            let mut h = Harness::builder().with_size(vec2(width, 600.0)).build_ui(|ui| {
-                crate::apply(ui.ctx(), crate::Theme::Dark);
-                let room = ui.available_rect_before_wrap();
-                let shown = EmptyState::new(Icon::Area, "No area open")
-                    .why("Double-click an area in the Module panel to open it.")
-                    .button(KitButton::new(None, "Area Wizard…"))
-                    .button(KitButton::new(None, "Go to Start"))
-                    .show(ui);
-                out.push((room, shown.iter().map(|r| r.rect).collect()));
-            });
+            let mut h = Harness::builder()
+                .with_context_setup(crate::FieldLabels::install)
+                .with_size(vec2(width, 600.0))
+                .build_ui(|ui| {
+                    crate::apply(ui.ctx(), crate::Theme::Dark);
+                    let room = ui.available_rect_before_wrap();
+                    let shown = EmptyState::new(Icon::Area, "No area open")
+                        .why("Double-click an area in the Module panel to open it.")
+                        .button(KitButton::new(None, "Area Wizard…"))
+                        .button(KitButton::new(None, "Go to Start"))
+                        .show(ui);
+                    out.push((room, shown.iter().map(|r| r.rect).collect()));
+                });
             h.run_steps(3);
             let _ = h.get_by_label("No area open");
             let _ = h.get_by_label("Double-click an area in the Module panel to open it.");
@@ -564,18 +567,21 @@ mod tests {
     /// the buttons' rects, the note's.
     fn footer_at(width: f32, note: &str, words: &[&str]) -> (Rect, Vec<Rect>, Option<Rect>) {
         let mut out = Vec::new();
-        let mut h = Harness::builder().with_size(vec2(width, 200.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            ui.add_space(20.0);
-            let mut footer = Footer::new().note(note);
-            for (i, w) in words.iter().enumerate() {
-                let look =
-                    if i == 0 { crate::ButtonLook::Primary } else { crate::ButtonLook::Raised };
-                footer = footer.button(KitButton::new(None, *w).look(look));
-            }
-            let shown = footer.show(ui);
-            out.push((shown.rect, shown.buttons.iter().map(|r| r.rect).collect(), shown.note));
-        });
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(width, 200.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                ui.add_space(20.0);
+                let mut footer = Footer::new().note(note);
+                for (i, w) in words.iter().enumerate() {
+                    let look =
+                        if i == 0 { crate::ButtonLook::Primary } else { crate::ButtonLook::Raised };
+                    footer = footer.button(KitButton::new(None, *w).look(look));
+                }
+                let shown = footer.show(ui);
+                out.push((shown.rect, shown.buttons.iter().map(|r| r.rect).collect(), shown.note));
+            });
         h.run_steps(3);
         for w in words {
             let _ = h.get_by_label(w);
@@ -650,14 +656,17 @@ mod tests {
         let mut seen = Vec::new();
         for states in states {
             let out = std::cell::RefCell::new(None);
-            let mut h = Harness::builder().with_size(vec2(600.0, 400.0)).build_ui(|ui| {
-                crate::apply(ui.ctx(), crate::Theme::Dark);
-                let mut list = StepList::new("Step 1 of 4");
-                for (name, state) in ["One", "Two", "Three", "Four"].iter().zip(states) {
-                    list = list.step(*name, state);
-                }
-                *out.borrow_mut() = Some(list.show(ui));
-            });
+            let mut h = Harness::builder()
+                .with_context_setup(crate::FieldLabels::install)
+                .with_size(vec2(600.0, 400.0))
+                .build_ui(|ui| {
+                    crate::apply(ui.ctx(), crate::Theme::Dark);
+                    let mut list = StepList::new("Step 1 of 4");
+                    for (name, state) in ["One", "Two", "Three", "Four"].iter().zip(states) {
+                        list = list.step(*name, state);
+                    }
+                    *out.borrow_mut() = Some(list.show(ui));
+                });
             h.run_steps(2);
             let shown = out.borrow_mut().take().unwrap();
             assert_eq!(shown.rect.width(), STEP_LIST_WIDTH, "{shown:?}");
@@ -696,12 +705,15 @@ mod tests {
     #[test]
     fn a_page_bar_is_26_high_across_its_room() {
         let mut out = None;
-        let mut h = Harness::builder().with_size(vec2(500.0, 200.0)).build_ui(|ui| {
-            crate::apply(ui.ctx(), crate::Theme::Dark);
-            let room = ui.available_rect_before_wrap();
-            let r = page_bar(ui, Some(Icon::Wizard), "Class and Level");
-            out = Some((room, r.rect, ui.cursor().top()));
-        });
+        let mut h = Harness::builder()
+            .with_context_setup(crate::FieldLabels::install)
+            .with_size(vec2(500.0, 200.0))
+            .build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let room = ui.available_rect_before_wrap();
+                let r = page_bar(ui, Some(Icon::Wizard), "Class and Level");
+                out = Some((room, r.rect, ui.cursor().top()));
+            });
         h.run_steps(2);
         let _ = h.get_by_label("Class and Level");
         let spacing = h.ctx.global_style().spacing.item_spacing.y;

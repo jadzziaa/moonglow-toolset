@@ -128,6 +128,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     fonts::install_fonts(ctx);
     if before_any(ctx) {
         ctx.on_end_pass("mg-uikit", std::sync::Arc::new(crate::controls::end_pass));
+        crate::labels::FieldLabels::install(ctx);
     }
     let now = Applied { theme };
     let before = ctx.data(|d| d.get_temp::<Applied>(applied_id()));

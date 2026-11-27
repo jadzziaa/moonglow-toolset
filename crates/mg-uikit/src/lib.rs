@@ -42,6 +42,7 @@ pub mod gallery;
 pub mod header;
 pub mod hues;
 pub mod icons;
+pub mod labels;
 pub mod marks;
 pub mod menu;
 pub mod metrics;
@@ -80,6 +81,7 @@ pub use icons::{
     icon_label, icon_text_button, icon_text_toggle, icon_toggle, icons_drawn, joined_spacing,
     menu_button, name_group, record_icons, say_expanded, submenu_button,
 };
+pub use labels::FieldLabels;
 pub use marks::{
     Badge, BadgeKind, KeyCap, WAVE_HEIGHT, modified_dot, paint_modified_dot, paint_wavy_line,
 };
