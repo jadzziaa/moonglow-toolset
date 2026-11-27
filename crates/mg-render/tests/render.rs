@@ -7360,6 +7360,178 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
     }
 }
 
+/// `n` plates that cast (as creatures do) in a ring 4 m round a lamp that
+/// casts, a metre up (`phase` turns the ring by that many plates' steps),
+/// over a ground that receives: each plate's shadow falls outward, about
+/// 5.3 m from the lamp. The scene, and where each shadow falls.
+fn ring_of_casters(
+    ground: &Arc<GpuModel>,
+    plate: &Arc<GpuModel>,
+    n: usize,
+    phase: f32,
+    shadows: bool,
+) -> (Scene, Vec<Vec3>) {
+    let turn = |i: usize| (i as f32 + phase) / n as f32 * std::f32::consts::TAU;
+    let at = |i: usize, r: f32| Vec3::new(r * turn(i).cos(), r * turn(i).sin(), 0.0);
+    let mut instances = vec![Instance {
+        receives_shadows: true,
+        ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(8.0)))
+    }];
+    instances.extend((0..n).map(|i| Instance {
+        casts_light_shadows: true,
+        object: Some(i as u32 + 1),
+        ..Instance::new(
+            plate.clone(),
+            Mat4::from_scale_rotation_translation(
+                Vec3::splat(0.2),
+                glam::Quat::IDENTITY,
+                at(i, 4.0) + Vec3::Z,
+            ),
+        )
+    }));
+    let scene = Scene {
+        instances,
+        lights: vec![
+            mg_render::PointLight::new(Vec3::new(0.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
+                .casting(true, 10.0, 2.0),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.004),
+            diffuse: Vec3::splat(0.012),
+            direction: Vec3::Z,
+        },
+        light_shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    (scene, (0..n).map(|i| at(i, 5.33)).collect())
+}
+
+/// Every creature in a lamp's reach casts its shadow, as the client's
+/// (`batch6_light_shadow_ring`: 24 round one lamp post): 16, 17 (one past
+/// what Moonglow cast until 2026-11-26), 24, 64 and 65 (one past the
+/// maps of 512 texels, the atlas's tiles 256 then) plates in a ring, with
+/// the lights' maps and with their stencil volumes; each a pixel of
+/// shadow where it falls, the ground beside lit.
+#[test]
+fn every_creature_in_a_lamp_s_reach_casts() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 18.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let size = 192;
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let aspect = 1.0;
+    let to_screen = camera.projection(aspect) * camera.view();
+    let pixel = |p: Vec3| {
+        let c = to_screen * p.extend(1.0);
+        let x = ((c.x / c.w + 1.0) * 0.5 * size as f32) as u32;
+        let y = ((1.0 - c.y / c.w) * 0.5 * size as f32) as u32;
+        (x, y)
+    };
+    for volumes in [false, true] {
+        for n in [16, 17, 24, 64, 65] {
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+            r.shadow_volumes = volumes;
+            let (with, falls) = ring_of_casters(&ground, &plate, n, 0.0, true);
+            let (without, _) = ring_of_casters(&ground, &plate, n, 0.0, false);
+            let cast = r.render_image(&gpu, &NoAssets, &with, &camera, size, size);
+            assert_eq!(r.drawn.light_shadows, n);
+            let off = r.render_image(&gpu, &NoAssets, &without, &camera, size, size);
+            let name = format!("shadows_light_ring_{n}{}.png", if volumes { "_high" } else { "" });
+            save(&cast, &mg_testkit::output_dir("render").join(name));
+            let casting: Vec<usize> = (0..n)
+                .filter(|&i| {
+                    let (x, y) = pixel(falls[i]);
+                    grey(cast.pixel(x, y)) < 0.8 * grey(off.pixel(x, y))
+                })
+                .collect();
+            assert_eq!(casting.len(), n, "volumes {volumes}, {n} plates: casting {casting:?}");
+            // (Between two shadows, a little nearer the lamp: lit.)
+            let between = Vec3::new(4.6, 0.0, 0.0);
+            let between = glam::Quat::from_rotation_z(std::f32::consts::PI / n as f32) * between;
+            let (x, y) = pixel(between);
+            assert!(
+                (grey(cast.pixel(x, y)) - grey(off.pixel(x, y))).abs() <= 2.0,
+                "volumes {volumes}, {n}: between"
+            );
+        }
+    }
+}
+
+/// The lights' maps are kept from frame to frame, each drawn again only
+/// when what it holds changes, and their atlas grows as more creatures
+/// cast: a frame of 24 plates, the same again (no map drawn), one plate
+/// moved (its map alone), 8 other plates, the 24 again (every one of them
+/// casting: the atlas cleared for the 8 must not be taken to hold the
+/// rest), and two views of two scenes drawn by turns through one renderer.
+#[test]
+fn the_lights_maps_are_kept_and_drawn_again_when_they_change() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 18.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let size = 192;
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let to_screen = camera.projection(1.0) * camera.view();
+    let pixel = |p: Vec3| {
+        let c = to_screen * p.extend(1.0);
+        let x = ((c.x / c.w + 1.0) * 0.5 * size as f32) as u32;
+        let y = ((1.0 - c.y / c.w) * 0.5 * size as f32) as u32;
+        (x, y)
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu, format, 4);
+    let (a, b) = (
+        mg_render::Targets::new(&gpu, format, 4, size, size),
+        mg_render::Targets::new(&gpu, format, 4, size, size),
+    );
+    let mut lit = Renderer::new(&gpu, format, 4);
+    // (Each shadow where it falls, against the same scene without them.)
+    let mut check =
+        |r: &mut Renderer, targets: &mg_render::Targets, n: usize, phase: f32, what: &str| {
+            let (with, falls) = ring_of_casters(&ground, &plate, n, phase, true);
+            r.render_targets(&gpu, &NoAssets, &with, &camera, targets);
+            let drawn = r.drawn.light_maps_drawn;
+            let cast = gpu.read_rgba(&targets.color);
+            let (without, _) = ring_of_casters(&ground, &plate, n, phase, false);
+            let off = lit.render_image(&gpu, &NoAssets, &without, &camera, size, size);
+            let missing: Vec<usize> = (0..n)
+                .filter(|&i| {
+                    let (x, y) = pixel(falls[i]);
+                    grey(cast.pixel(x, y)) >= 0.8 * grey(off.pixel(x, y))
+                })
+                .collect();
+            assert!(missing.is_empty(), "{what}: no shadow of {missing:?}");
+            drawn
+        };
+    assert_eq!(check(&mut r, &a, 24, 0.0, "24"), 24);
+    assert_eq!(check(&mut r, &a, 24, 0.0, "24 again"), 0, "held: none drawn again");
+    // (One plate moved: its map alone.)
+    let (mut moved, _) = ring_of_casters(&ground, &plate, 24, 0.0, true);
+    moved.instances[3].transform *= Mat4::from_translation(Vec3::new(0.0, 0.0, -0.5));
+    r.render_targets(&gpu, &NoAssets, &moved, &camera, &a);
+    assert_eq!(r.drawn.light_maps_drawn, 1);
+    assert_eq!(check(&mut r, &a, 8, 0.5, "8 others"), 8);
+    assert_eq!(check(&mut r, &a, 24, 0.0, "the 24 after the 8"), 24);
+    // Two views by turns: each frame right, whatever the other drew.
+    for round in 0..2 {
+        check(&mut r, &a, 24, 0.0, &format!("view a, round {round}"));
+        check(&mut r, &b, 20, 0.5, &format!("view b, round {round}"));
+    }
+}
+
 /// The sun's map is drawn again when another model stands where one
 /// stood: it went by where a caster's mesh lies in memory, so a model
 /// dropped and another built at the same address, at the same place in
@@ -7727,8 +7899,9 @@ fn a_fifth_view_binds_its_own_targets() {
 
 /// A creature made of parts is one object to the lights' shadows: two of
 /// 20 part instances each under one lamp cast every part's shadow, from
-/// two maps. (A map was planned for each instance: the 16 parts nearest
-/// the camera's target cast and the other 24 cast nothing.)
+/// two maps. (A map was planned for each instance: while the maps were
+/// 16 at most, the 16 parts nearest the camera's target cast and the
+/// other 24 cast nothing; apart, each now casts from 40 maps.)
 #[test]
 fn a_creature_of_parts_casts_one_shadow_from_a_light() {
     let Some(gpu) = gpu() else { return };
@@ -7788,9 +7961,16 @@ fn a_creature_of_parts_casts_one_shadow_from_a_light() {
     for volumes in [false, true] {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.shadow_volumes = volumes;
-        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 256, 256);
-        let (cast, off, apart) =
-            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let mut draw = |s: &Scene| {
+            let img = r.render_image(&gpu, &NoAssets, s, &camera, 256, 256);
+            (img, r.drawn.light_maps_drawn)
+        };
+        let (cast, maps) = draw(&scene(true, true));
+        let (off, _) = draw(&scene(false, true));
+        let (apart, maps_apart) = draw(&scene(true, false));
+        if !volumes {
+            assert_eq!((maps, maps_apart), (2, 40), "a map for each creature");
+        }
         let name = format!("shadows_light_parts{}.png", if volumes { "_high" } else { "" });
         save(&cast, &mg_testkit::output_dir("render").join(name));
         let dark = |img: &mg_image::Rgba| {
@@ -7804,8 +7984,8 @@ fn a_creature_of_parts_casts_one_shadow_from_a_light() {
                 .count()
         };
         assert_eq!(dark(&cast), 40, "volumes {volumes}: every part of both");
-        // (Each instance an object by itself: the 16 nearest alone.)
-        assert_eq!(dark(&apart), 16, "volumes {volumes}: parts as creatures");
+        // (Each instance an object by itself: each casts, from a map of its own.)
+        assert_eq!(dark(&apart), 40, "volumes {volumes}: parts as creatures");
         // Between the two, no shadow.
         let between = (128, 40);
         let (a, b) = (grey(cast.pixel(between.0, between.1)), grey(off.pixel(128, 40)));

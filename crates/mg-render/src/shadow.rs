@@ -35,15 +35,34 @@ static NEXT_SUN_ID: AtomicU64 = AtomicU64::new(1);
 /// across) a texel is 4 cm, finer than the game's volumes are made.
 pub(crate) const MAP_SIZE: u32 = 2048;
 
-/// The lights' maps' side, texels: each covers one creature seen from its
-/// light, a few metres across.
+/// The lights' maps' side, texels, where they are few: each covers one
+/// creature seen from its light, a few metres across. They are tiles of
+/// one atlas ([`LightMaps`]), [`LIGHT_ATLAS_SIZE`] at most across: past
+/// 64 maps they are made smaller, a half each time the count is four
+/// times as many (256 at 256 texels, 1,024 at 128).
 pub(crate) const LIGHT_MAP_SIZE: u32 = 512;
 
-/// How many creatures cast the lights' shadows at once (the nearest the
-/// camera looks at; a creature made of parts is one:
-/// [`Instance::object`]): the client's `max-casting-lights` (3 by default)
-/// didn't change what one creature casts, and was not settled for many.
-pub(crate) const MAX_LIGHT_SHADOWS: usize = 16;
+/// The lights' maps' atlas's greatest side, texels: 64 MiB of depth.
+pub(crate) const LIGHT_ATLAS_SIZE: u32 = 4096;
+
+/// The lights' maps' least side, texels: at that many creatures (4,096) a
+/// creature's shadow from a lamp a few metres off is still some 6 cm a
+/// texel on the ground beyond it.
+pub(crate) const LEAST_LIGHT_MAP: u32 = 64;
+
+/// How many creatures cast the lights' shadows at once: every creature in
+/// the reach of a light that casts, as the client's (24 round one lamp
+/// post: `batch6_light_shadow_ring`; the client casts from one light, the
+/// nearest the player, which waits on the owner's ruling: the deferred
+/// list's "Shadows"), as many as the atlas holds at its least maps. Past
+/// that, the nearest the camera looks at (a creature made of parts is one:
+/// [`Instance::object`]).
+pub(crate) const MAX_LIGHT_SHADOWS: usize =
+    ((LIGHT_ATLAS_SIZE / LEAST_LIGHT_MAP) * (LIGHT_ATLAS_SIZE / LEAST_LIGHT_MAP)) as usize;
+
+/// The side of the screen's squares the darkening pass looks up which
+/// lights' maps reach a pixel in, pixels ([`bins`]).
+const BIN: u32 = 32;
 
 /// The depth bias in a light's map (perspective, in its clip space's
 /// depth): what casts there (a creature) receives none, so a little
@@ -411,12 +430,28 @@ pub(crate) struct LightPlan<'a> {
     /// how far the light reaches from there (its shadow volume's radius).
     pub(crate) sources: Vec<(Vec3, f32)>,
     pub(crate) ranges: Vec<std::ops::Range<u32>>,
+    /// Per creature, its bones in [`LightPlan::bones`].
+    pub(crate) bone_ranges: Vec<std::ops::Range<u32>>,
     pub(crate) casters: Vec<Caster<'a>>,
     pub(crate) bones: Vec<Mat4>,
     pub(crate) shadows: SunShadows,
     /// The light at the receivers a shadow's darkness is the casting
     /// light's share of ([`Share`]).
     pub(crate) share: Share,
+    /// Per creature, its light's place in the share's lights (`u32::MAX`
+    /// where it is not one of them).
+    pub(crate) share_index: Vec<u32>,
+    /// The height of the lowest of what receives shadows: no shadow falls
+    /// below it ([`bins`]).
+    pub(crate) floor: f32,
+}
+
+impl LightPlan<'_> {
+    /// Whether a map's light is not one of the share's (more lights cast
+    /// than [`MAX_SHARE_LIGHTS`]): its shadow is as dark as the opacity.
+    pub(crate) fn overflows(&self) -> bool {
+        self.share_index.contains(&u32::MAX)
+    }
 }
 
 /// How many of a scene's lights a light's shadow's share of the light at
@@ -439,10 +474,9 @@ pub(crate) struct Share {
     /// The area's ambient and diffuse colors, and the way to its light.
     area: [[f32; 4]; 3],
     /// 1 over the lights' greatest intensity and their falloff (the
-    /// shader's attenuation), and how many of `lights` there are.
+    /// shader's attenuation), how many of `lights` there are, and how many
+    /// of them (the first) the maps' shadows are cast from.
     falloff: [f32; 4],
-    /// Each map's light: its place in `lights`.
-    sources: [[u32; 4]; MAX_LIGHT_SHADOWS / 4],
     /// Each its place (w: its reach squared, less than 0 for an ambient
     /// one) and color.
     lights: [[[f32; 4]; 2]; MAX_SHARE_LIGHTS],
@@ -450,8 +484,9 @@ pub(crate) struct Share {
 
 impl Share {
     /// Of `scene`, the lights `sources` (each map's, by its place in the
-    /// scene's), and the others nearest `target`.
-    fn of(scene: &Scene, sources: &[usize], target: Vec3) -> Share {
+    /// scene's), and the others nearest `target`; and each map's light's
+    /// place in them (`u32::MAX` past [`MAX_SHARE_LIGHTS`] lights casting).
+    fn of(scene: &Scene, sources: &[usize], target: Vec3) -> (Share, Vec<u32>) {
         let mut chosen: Vec<usize> = Vec::with_capacity(MAX_SHARE_LIGHTS);
         for &s in sources {
             if !chosen.contains(&s) {
@@ -461,6 +496,7 @@ impl Share {
                 }
             }
         }
+        let casting = chosen.len();
         let need = MAX_SHARE_LIGHTS.saturating_sub(chosen.len());
         if need > 0 {
             let mut others: Vec<(f32, usize)> = (0..scene.lights.len())
@@ -483,7 +519,7 @@ impl Share {
             a.direction.normalize_or_zero().extend(0.0).to_array(),
         ];
         let (max_inv, falloff) = crate::renderer::attenuation_params();
-        share.falloff = [max_inv, falloff, chosen.len() as f32, 0.0];
+        share.falloff = [max_inv, falloff, chosen.len() as f32, casting as f32];
         for (to, &i) in share.lights.iter_mut().zip(&chosen) {
             let l: &PointLight = &scene.lights[i];
             let r2 = l.cutoff * l.cutoff;
@@ -492,11 +528,11 @@ impl Share {
                 l.color.extend(1.0).to_array(),
             ];
         }
-        for (k, s) in sources.iter().enumerate().take(MAX_LIGHT_SHADOWS) {
-            let at = chosen.iter().position(|c| c == s).map_or(u32::MAX, |p| p as u32);
-            share.sources[k / 4][k % 4] = at;
-        }
-        share
+        let places = sources
+            .iter()
+            .map(|s| chosen[..casting].iter().position(|c| c == s).map_or(u32::MAX, |p| p as u32))
+            .collect();
+        (share, places)
     }
 }
 
@@ -574,15 +610,24 @@ pub(crate) fn light_plan<'a>(
             }
         }
     }
-    creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // (In the scene's order, which keeps each creature's map where it was
+    // from one frame to the next, and drawn again only when it changes:
+    // the nearest the camera's target first only where there are more
+    // than the maps.)
+    if creatures.len() > MAX_LIGHT_SHADOWS {
+        creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
     let mut plan = LightPlan {
         lights: Vec::new(),
         sources: Vec::new(),
         ranges: Vec::new(),
+        bone_ranges: Vec::new(),
         casters: Vec::new(),
         bones: Vec::new(),
         shadows,
         share: bytemuck::Zeroable::zeroed(),
+        share_index: Vec::new(),
+        floor: f32::NEG_INFINITY,
     };
     // (Each map's light, by its place in the scene's.)
     let mut cast_from = Vec::new();
@@ -640,9 +685,31 @@ pub(crate) fn light_plan<'a>(
         plan.sources.push((from, reach));
         in_drawing_order(&mut plan.casters[first..]);
         plan.ranges.push(first as u32..plan.casters.len() as u32);
+        plan.bone_ranges.push(first_bone as u32..plan.bones.len() as u32);
     }
-    plan.share = Share::of(scene, &cast_from, camera.target);
-    (!plan.lights.is_empty()).then_some(plan)
+    if plan.lights.is_empty() {
+        return None;
+    }
+    (plan.share, plan.share_index) = Share::of(scene, &cast_from, camera.target);
+    plan.floor = receivers_floor(scene);
+    Some(plan)
+}
+
+/// The height of the lowest mesh that receives shadows in `scene` (as it
+/// is posed), minus infinity where none does.
+fn receivers_floor(scene: &Scene) -> f32 {
+    let mut floor = f32::INFINITY;
+    for inst in scene.instances.iter().filter(|i| i.receives_shadows) {
+        let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
+        for mesh in &inst.model.meshes {
+            let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+            let low = world_box(world, mesh).0.z;
+            if low.is_finite() {
+                floor = floor.min(low);
+            }
+        }
+    }
+    if floor.is_finite() { floor } else { f32::NEG_INFINITY }
 }
 
 /// The frame's values the darkening pass reads (`darken_source`).
@@ -660,10 +727,13 @@ struct DarkenUniform {
     fog: [f32; 4],
     /// The bias in the maps' depth.
     bias: [f32; 4],
-    /// How many maps (the lights'; the sun's is one).
+    /// How many maps (the lights'; the sun's is one), how many squares
+    /// across and down the screen is binned in ([`bins`]), and 1 where a
+    /// map's light is not one of the share's ([`MAX_SHARE_LIGHTS`]).
     count: [u32; 4],
-    /// From the world to each map's clip space.
-    lights: [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS],
+    /// From the world to the sun's map's clip space (the lights' are in
+    /// [`MapData`]).
+    sun: [[f32; 4]; 4],
     /// The lights' shadows' share of the light ([`Share`]; zeros for the
     /// sun's).
     share: Share,
@@ -717,16 +787,17 @@ pub(crate) fn stencil_uniform(
     fog: Option<crate::scene::Fog>,
 ) -> Vec<u8> {
     let count = lights.map_or(0, |l| l.lights.len() as u32);
-    let look = (shadows, 0.0, count, [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS]);
+    let look = (shadows, 0.0, [count, 0, 0, u32::from(lights.is_some_and(LightPlan::overflows))]);
     let share = lights.map(|l| l.share);
-    bytemuck::bytes_of(&uniform(look, share, camera, size, fog)).to_vec()
+    bytemuck::bytes_of(&uniform(look, [[0.0; 4]; 4], share, camera, size, fog)).to_vec()
 }
 
 /// The darkening pass's shader for `samples` samples a pixel: from the
-/// sun's map (orthographic), or from the lights' (perspective, a layer
-/// each, the darkest taken); or, where `stencil`, over every pixel the
-/// pass's stencil test lets through (the shadow volumes' counts), the
-/// sun's or the `lights`' way.
+/// sun's map (orthographic), or from the lights' (perspective, a tile of
+/// the atlas each, the darkest taken of those whose light's view takes in
+/// the pixel's square of the screen: [`bins`]); or, where `stencil`, over
+/// every pixel the pass's stencil test lets through (the shadow volumes'
+/// counts), the sun's or the `lights`' way.
 ///
 /// The sun's: no more opaque than the plane's fade up the screen nor the
 /// opacity. A light's: its share of the light at the receiver ([`Share`],
@@ -748,31 +819,47 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
     };
     let (map, dark) = match (stencil, lights) {
         (true, false) => ("", "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0);"),
+        // (Which light cast what the volumes count isn't known: the
+        // greatest share of the lights casting, each once.)
         (true, true) => (
             "",
             "var a = 0.0;
-    for (var k = 0u; k < p.count.x; k = k + 1u) {
-        a = max(a, min(share_of(k, world, n), cap));
+    if (p.count.w != 0u) { a = cap; }
+    let casting = u32(p.share_falloff.w);
+    for (var i = 0u; i < casting; i = i + 1u) {
+        a = max(a, min(share_of(i, world, n), cap));
     }",
         ),
         (false, true) => (
-            "texture_depth_2d_array",
+            "texture_depth_2d",
             "var a = 0.0;
-    for (var k = 0u; k < p.count.x; k = k + 1u) {
-        let c = p.lights[k] * vec4<f32>(world, 1.0);
+    // (With one light casting, every map darkens by its share alone: the
+    // first that shades the pixel whole is the darkest.)
+    let single = u32(p.share_falloff.w) == 1u && p.count.w == 0u;
+    let cell = min(vec2<u32>(frag.xy) / BIN, p.count.yz - vec2<u32>(1u));
+    let b = cell.y * p.count.y + cell.x;
+    let list = p.count.y * p.count.z + 1u;
+    for (var j = bins[b]; j < bins[b + 1u]; j = j + 1u) {
+        let k = bins[list + j];
+        let c = maps[k].m * vec4<f32>(world, 1.0);
         if (c.w <= 0.0) { continue; }
         let m = c.xyz / c.w;
         if (any(abs(m.xy) > vec2<f32>(1.0)) || m.z < 0.0 || m.z > 1.0) { continue; }
-        let uv = vec2<f32>(m.x * 0.5 + 0.5, 0.5 - m.y * 0.5);
-        let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, i32(k), m.z - p.bias.x);
+        // (Within its tile, half a texel in from the edge: the compare
+        // takes the texels about it, not its neighbour's.)
+        let t = maps[k].tile;
+        let inner = clamp(vec2<f32>(m.x * 0.5 + 0.5, 0.5 - m.y * 0.5), vec2<f32>(t.w), vec2<f32>(1.0 - t.w));
+        let uv = t.xy + inner * t.z;
+        let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, m.z - p.bias.x);
         if (shade > 0.0) {
-            a = max(a, shade * min(share_of(k, world, n), cap));
+            a = max(a, shade * min(share_of(maps[k].source.x, world, n), cap));
+            if (a >= cap || (single && shade >= 1.0)) { break; }
         }
     }",
         ),
         (false, false) => (
             "texture_depth_2d",
-            "let l = p.lights[0] * vec4<f32>(world, 1.0);
+            "let l = p.sun * vec4<f32>(world, 1.0);
     let uv = vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5);
     if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) {
         discard;
@@ -782,7 +869,7 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
     let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;",
         ),
     };
-    let maps = if stencil {
+    let mut maps = if stencil {
         String::new()
     } else {
         format!(
@@ -790,6 +877,24 @@ pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String
 @group(0) @binding(3) var cmp: sampler_comparison;"
         )
     };
+    if lights && !stencil {
+        maps.push_str(&format!(
+            "
+// Each light's map: from the world to its clip space; its tile (its
+// corner and side in the atlas, and half a texel of it); its light's
+// place in the share's.
+struct Map {{
+    m: mat4x4<f32>,
+    tile: vec4<f32>,
+    source: vec4<u32>,
+}}
+@group(0) @binding(4) var<storage, read> maps: array<Map>;
+// Per square of the screen, where its maps start in the list after the
+// squares' starts (and one more, the end), then the list.
+@group(0) @binding(5) var<storage, read> bins: array<u32>;
+const BIN: u32 = {BIN}u;"
+        ));
+    }
     format!(
         "// The picture's darkening, and the same in the shadows' mask (what
 // the picture was multiplied by, read by what is drawn after it).
@@ -804,10 +909,9 @@ struct Params {{
     fog: vec4<f32>,
     bias: vec4<f32>,
     count: vec4<u32>,
-    lights: array<mat4x4<f32>, {MAX_LIGHT_SHADOWS}>,
+    sun: mat4x4<f32>,
     share_area: array<vec4<f32>, 3>,
     share_falloff: vec4<f32>,
-    share_sources: array<vec4<u32>, {sources}>,
     share_lights: array<vec4<f32>, {share_lights}>,
 }}
 @group(0) @binding(0) var<uniform> p: Params;
@@ -836,11 +940,10 @@ fn light_at(i: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     if (at.w < 0.0) {{ return bright; }}
     return lit(bright, n, normalize(to));
 }}
-// Map `k`'s light's share of the brightness at `world` (facing `n`): what
-// would be lost without it, in the picture's (gamma) terms. 1 where its
-// light isn't known.
-fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
-    let source = p.share_sources[k / 4u][k % 4u];
+// The share's light `source`'s share of the brightness at `world` (facing
+// `n`): what would be lost without it, in the picture's (gamma) terms. 1
+// where its light isn't known.
+fn share_of(source: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     let count = u32(p.share_falloff.z);
     if (source >= count) {{ return 1.0; }}
     var total = brightness(p.share_area[0].rgb)
@@ -890,7 +993,6 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     return Out(vec4<f32>(0.0, 0.0, 0.0, a), vec4<f32>(0.0, 0.0, 0.0, a));
 }}
 ",
-        sources = MAX_LIGHT_SHADOWS / 4,
         share_lights = 2 * MAX_SHARE_LIGHTS,
         vs = crate::framebuffer::FULLSCREEN_VS,
     )
@@ -1156,10 +1258,8 @@ impl ShadowMaps {
         fog: Option<crate::scene::Fog>,
         cache: Option<&mut Option<(u64, wgpu::BindGroup)>>,
     ) {
-        let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
-        lights[0] = plan.light.to_cols_array_2d();
-        let look = (plan.shadows, BIAS / plan.depth.max(1e-3), 1, lights);
-        let params = uniform(look, None, camera, size, fog);
+        let look = (plan.shadows, BIAS / plan.depth.max(1e-3), [1, 0, 0, 0]);
+        let params = uniform(look, plan.light.to_cols_array_2d(), None, camera, size, fog);
         gpu.queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
         let darkener = self
             .darkeners
@@ -1178,19 +1278,56 @@ impl ShadowMaps {
         }
     }
 
-    /// Draws the lights' maps of `plan`.
+    /// Draws the lights' maps of `plan` that their tiles don't hold as
+    /// they are already (each creature's in the tile of its place in the
+    /// plan, kept from frame to frame): how many it drew.
     pub(crate) fn cast_lights(
         &mut self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         plan: &LightPlan,
-    ) {
+    ) -> usize {
         let maps = self.lights.get_or_insert_with(|| LightMaps::new(&gpu.device));
-        maps.casting.upload(gpu, &plan.casters, &plan.bones, &plan.lights);
-        for (k, range) in plan.ranges.iter().enumerate() {
-            let casters = &plan.casters[range.start as usize..range.end as usize];
-            maps.casting.draw(encoder, &maps.layers[k], k as u32, casters, range.start, true);
+        maps.hold(&gpu.device, plan.lights.len());
+        let stale: Vec<usize> = (0..plan.lights.len()).filter(|&k| !maps.holds(k, plan)).collect();
+        if stale.is_empty() {
+            return 0;
         }
+        maps.casting.upload(gpu, &plan.casters, &plan.bones, &plan.lights);
+        // (Cleared whole where every tile is drawn again; else each tile
+        // drawn is cleared alone, the others kept.)
+        let whole = stale.len() == plan.lights.len();
+        if whole {
+            // (Every tile cleared: those past this plan's too.)
+            maps.held.iter_mut().for_each(|h| *h = None);
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("light shadow maps"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &maps.atlas,
+                depth_ops: Some(wgpu::Operations {
+                    load: if whole { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        for &k in &stale {
+            let (x, y, side) = maps.tile(k);
+            pass.set_viewport(x as f32, y as f32, side as f32, side as f32, 0.0, 1.0);
+            pass.set_scissor_rect(x, y, side, side);
+            if !whole {
+                pass.set_pipeline(&maps.clear);
+                pass.draw(0..3, 0..1);
+            }
+            let range = &plan.ranges[k];
+            let casters = &plan.casters[range.start as usize..range.end as usize];
+            maps.casting.draw_in(&mut pass, k as u32, casters, range.start);
+            maps.held[k] = Some(HeldTile::of(plan, k));
+        }
+        stale.len()
     }
 
     /// Lays the lights' shadows of `plan` over what is drawn, as
@@ -1207,26 +1344,28 @@ impl ShadowMaps {
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
-        cache: Option<&mut Option<wgpu::BindGroup>>,
+        cache: Option<&mut Option<(u64, wgpu::BindGroup)>>,
     ) {
-        let Some(maps) = &self.lights else { return };
-        let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
-        for (to, from) in lights.iter_mut().zip(&plan.lights) {
-            *to = from.to_cols_array_2d();
-        }
-        let look = (plan.shadows, LIGHT_BIAS, plan.lights.len() as u32, lights);
-        let params = uniform(look, Some(plan.share), camera, size, fog);
+        let Some(maps) = &mut self.lights else { return };
+        let (across, down) = (size.0.max(1).div_ceil(BIN), size.1.max(1).div_ceil(BIN));
+        let count = [plan.lights.len() as u32, across, down, u32::from(plan.overflows())];
+        let look = (plan.shadows, LIGHT_BIAS, count);
+        let params = uniform(look, [[0.0; 4]; 4], Some(plan.share), camera, size, fog);
         gpu.queue.write_buffer(&maps.params, 0, bytemuck::bytes_of(&params));
+        maps.upload_maps(gpu, plan, camera, size);
         let darkener = self
             .darkeners
             .entry((format.0, format.1, true))
             .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, true));
         let mut scratch = None;
         let slot = cache.unwrap_or(&mut scratch);
-        let group = slot.get_or_insert_with(|| {
-            darkener.make_group(&gpu.device, targets.1, &maps.params, &maps.array, &self.sampler)
-        });
-        darkener.lay_with(encoder, (targets.0, mask), group);
+        if slot.as_ref().is_none_or(|(id, _)| *id != maps.id) {
+            let group = darkener.make_lights_group(&gpu.device, targets.1, maps, &self.sampler);
+            *slot = Some((maps.id, group));
+        }
+        if let Some((_, group)) = slot.as_ref() {
+            darkener.lay_with(encoder, (targets.0, mask), group);
+        }
     }
 }
 
@@ -1234,7 +1373,8 @@ impl ShadowMaps {
 /// many maps and their projections; the lights' shadows' share of the
 /// light; the camera, the picture's size, the fog.
 fn uniform(
-    (shadows, bias, count, lights): (SunShadows, f32, u32, [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS]),
+    (shadows, bias, count): (SunShadows, f32, [u32; 4]),
+    sun: [[f32; 4]; 4],
     share: Option<Share>,
     camera: &Camera,
     size: (u32, u32),
@@ -1253,59 +1393,357 @@ fn uniform(
         ],
         fog: fog.map_or([0.0; 4], |f| [1.0, f.start, f.end, 1.0 / (f.end - f.start).max(1e-3)]),
         bias: [bias, 0.0, 0.0, 0.0],
-        count: [count, 0, 0, 0],
-        lights,
+        count,
+        sun,
         share: share.unwrap_or_else(bytemuck::Zeroable::zeroed),
     }
 }
 
-/// The lights' shadow maps: a layer each, what draws into them, the
-/// darkening pass's values.
+/// Numbers that tell one set of the lights' maps' resources from another
+/// (the darkening's bind group is made again when they change).
+static NEXT_LIGHTS_ID: AtomicU64 = AtomicU64::new(1);
+
+/// The lights' shadow maps: one atlas, a square tile a creature, grown
+/// as more creatures cast (never shrunk); what each tile holds (drawn
+/// again only when that changes); what draws into them; the darkening
+/// pass's values, the maps' projections and tiles, and which of them reach
+/// each square of the screen.
 #[derive(Debug)]
 struct LightMaps {
-    layers: Vec<wgpu::TextureView>,
-    array: wgpu::TextureView,
+    /// Changed whenever the atlas or a buffer the darkening reads is made
+    /// again.
+    id: u64,
+    atlas: wgpu::TextureView,
+    /// Tiles across (and down) the atlas, and a tile's side, texels.
+    across: u32,
+    side: u32,
+    held: Vec<Option<HeldTile>>,
     casting: Casting,
+    /// Clears a tile (its depth to the farthest) before it is drawn again.
+    clear: wgpu::RenderPipeline,
     params: wgpu::Buffer,
+    maps: wgpu::Buffer,
+    bins: wgpu::Buffer,
+    map_scratch: Vec<MapData>,
+    bin_scratch: Vec<u32>,
 }
+
+/// What a light's map holds: the light's projection, its casters (mesh,
+/// transform, first bone counted from the creature's first) and their
+/// bones.
+#[derive(Debug, PartialEq)]
+struct HeldTile {
+    light: Mat4,
+    casters: Vec<((u64, usize), Mat4, Option<u32>)>,
+    bones: Vec<Mat4>,
+}
+
+impl HeldTile {
+    /// What creature `k` of `plan` casts into its map.
+    fn of(plan: &LightPlan, k: usize) -> HeldTile {
+        let (range, bones) = (&plan.ranges[k], &plan.bone_ranges[k]);
+        let casters = &plan.casters[range.start as usize..range.end as usize];
+        HeldTile {
+            light: plan.lights[k],
+            casters: casters.iter().map(|c| HeldTile::key(c, bones.start)).collect(),
+            bones: plan.bones[bones.start as usize..bones.end as usize].to_vec(),
+        }
+    }
+
+    /// A caster's key, its bones counted from `first`.
+    fn key(c: &Caster, first: u32) -> ((u64, usize), Mat4, Option<u32>) {
+        let (mesh, world, bones) = c.key();
+        (mesh, world, bones.map(|b| b - first))
+    }
+
+    /// Whether it holds what creature `k` of `plan` casts.
+    fn holds(&self, plan: &LightPlan, k: usize) -> bool {
+        let (range, bones) = (&plan.ranges[k], &plan.bone_ranges[k]);
+        let casters = &plan.casters[range.start as usize..range.end as usize];
+        self.light == plan.lights[k]
+            && self.casters.len() == casters.len()
+            && self.casters.iter().zip(casters).all(|(h, c)| *h == HeldTile::key(c, bones.start))
+            && self.bones[..] == plan.bones[bones.start as usize..bones.end as usize]
+    }
+}
+
+/// A light's map as the darkening pass reads it ([`darken_source`]).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MapData {
+    /// From the world to the map's clip space.
+    m: [[f32; 4]; 4],
+    /// Its tile's corner and side in the atlas (0 to 1), and half a texel.
+    tile: [f32; 4],
+    /// Its light's place in the share's lights.
+    source: [u32; 4],
+}
+
+/// How many tiles across the atlas holds `n` maps in, and their side
+/// (texels): at least 4 across (16 maps of [`LIGHT_MAP_SIZE`]), as many
+/// across as a power of two holds them, the tiles smaller where the atlas
+/// would pass [`LIGHT_ATLAS_SIZE`].
+fn atlas_layout(n: usize) -> (u32, u32) {
+    let most = LIGHT_ATLAS_SIZE / LEAST_LIGHT_MAP;
+    let mut across = 4u32;
+    while (across * across) < n as u32 && across < most {
+        across *= 2;
+    }
+    (across, LIGHT_MAP_SIZE.min(LIGHT_ATLAS_SIZE / across))
+}
+
+/// Which of the lights' maps (each from the world to its clip space) can
+/// darken each square of the screen ([`BIN`] pixels a side) of a picture of
+/// `size` seen by `camera`: its light's view's box, cut off below `floor`
+/// (nothing that receives lies there: most of a lamp's view of a creature
+/// runs into the ground), seen on the screen; every square where part of
+/// it is behind the eye. Written to `out` as the darkening pass reads it:
+/// per square, where its maps start in the list (and one more, the end),
+/// then the list.
+pub(crate) fn bins(
+    lights: &[Mat4],
+    floor: f32,
+    camera: &Camera,
+    size: (u32, u32),
+    out: &mut Vec<u32>,
+) {
+    let (w, h) = (size.0.max(1), size.1.max(1));
+    let (across, down) = (w.div_ceil(BIN), h.div_ceil(BIN));
+    let n = (across * down) as usize;
+    let to_screen = camera.projection(w as f32 / h as f32) * camera.view();
+    let all = Some([0, 0, across - 1, down - 1]);
+    let rects: Vec<Option<[u32; 4]>> = lights
+        .iter()
+        .map(|light| {
+            let to_world = light.inverse();
+            let mut corners = [Vec3::ZERO; 8];
+            for (corner, at) in corners.iter_mut().enumerate() {
+                let x = if corner & 1 == 0 { -1.0 } else { 1.0 };
+                let y = if corner & 2 == 0 { -1.0 } else { 1.0 };
+                let z = if corner & 4 == 0 { 0.0 } else { 1.0 };
+                let p = to_world * glam::Vec4::new(x, y, z, 1.0);
+                if p.w.abs() < 1e-9 || !p.is_finite() {
+                    return all;
+                }
+                *at = p.truncate() / p.w;
+            }
+            // (The box cut at the floor: its corners above it, and where
+            // its edges cross it.)
+            let mut kept = Vec::with_capacity(12);
+            kept.extend(corners.iter().copied().filter(|p| p.z >= floor));
+            for a in 0..8 {
+                for bit in [1, 2, 4] {
+                    let b = a | bit;
+                    let (p, q) = (corners[a], corners[b]);
+                    if b != a && (p.z < floor) != (q.z < floor) {
+                        kept.push(p.lerp(q, (floor - p.z) / (q.z - p.z)));
+                    }
+                }
+            }
+            if kept.is_empty() {
+                return None;
+            }
+            let (mut lo, mut hi) = (glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN));
+            for p in kept {
+                let c = to_screen * p.extend(1.0);
+                if c.w <= 1e-4 || !c.is_finite() {
+                    return all;
+                }
+                let ndc = glam::Vec2::new(c.x, c.y) / c.w;
+                (lo, hi) = (lo.min(ndc), hi.max(ndc));
+            }
+            if hi.x < -1.0 || lo.x > 1.0 || hi.y < -1.0 || lo.y > 1.0 {
+                return None;
+            }
+            // (In pixels from the top left, then squares.)
+            let px = |x: f32| ((x + 1.0) * 0.5 * w as f32).clamp(0.0, w as f32 - 1.0) as u32;
+            let py = |y: f32| ((1.0 - y) * 0.5 * h as f32).clamp(0.0, h as f32 - 1.0) as u32;
+            Some([px(lo.x) / BIN, py(hi.y) / BIN, px(hi.x) / BIN, py(lo.y) / BIN])
+        })
+        .collect();
+    out.clear();
+    out.resize(n + 1, 0);
+    for r in rects.iter().flatten() {
+        for y in r[1]..=r[3] {
+            for x in r[0]..=r[2] {
+                out[(y * across + x) as usize + 1] += 1;
+            }
+        }
+    }
+    for b in 1..=n {
+        out[b] += out[b - 1];
+    }
+    let mut cursor: Vec<u32> = out[..n].to_vec();
+    out.resize(n + 1 + out[n] as usize, 0);
+    for (k, r) in rects.iter().enumerate() {
+        let Some(r) = r else { continue };
+        for y in r[1]..=r[3] {
+            for x in r[0]..=r[2] {
+                let b = (y * across + x) as usize;
+                out[n + 1 + cursor[b] as usize] = k as u32;
+                cursor[b] += 1;
+            }
+        }
+    }
+}
+
+/// The pass that clears a light's map's tile: a triangle over it at the
+/// farthest depth.
+const CLEAR_TILE: &str = "
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let p = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(p * 2.0 - 1.0, 1.0, 1.0);
+}
+";
 
 impl LightMaps {
     fn new(device: &wgpu::Device) -> LightMaps {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("light shadow maps"),
-            size: wgpu::Extent3d {
-                width: LIGHT_MAP_SIZE,
-                height: LIGHT_MAP_SIZE,
-                depth_or_array_layers: MAX_LIGHT_SHADOWS as u32,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: MAP_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let layers = (0..MAX_LIGHT_SHADOWS as u32)
-            .map(|k| {
-                texture.create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: k,
-                    array_layer_count: Some(1),
-                    ..Default::default()
-                })
+        let (across, side) = atlas_layout(0);
+        let buffer = |label, size, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
             })
-            .collect();
-        let array = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
+        };
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("light shadow map tile"),
+            source: wgpu::ShaderSource::Wgsl(CLEAR_TILE.into()),
         });
-        let params = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light shadow darkening"),
-            size: std::mem::size_of::<DarkenUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("light shadow map tile"),
+            bind_group_layouts: &[],
+            immediate_size: 0,
         });
-        LightMaps { layers, array, casting: Casting::new(device, None), params }
+        let clear = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("light shadow map tile"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: MAP_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: None,
+            multiview_mask: None,
+            cache: None,
+        });
+        let storage = wgpu::BufferUsages::STORAGE;
+        LightMaps {
+            id: NEXT_LIGHTS_ID.fetch_add(1, Ordering::Relaxed),
+            atlas: LightMaps::atlas(device, across * side),
+            across,
+            side,
+            held: Vec::new(),
+            casting: Casting::new(device, None),
+            clear,
+            params: buffer(
+                "light shadow darkening",
+                std::mem::size_of::<DarkenUniform>() as u64,
+                wgpu::BufferUsages::UNIFORM,
+            ),
+            maps: buffer("light shadow maps' views", 96 * 16, storage),
+            bins: buffer("light shadow maps' squares", 4 * 4096, storage),
+            map_scratch: Vec::new(),
+            bin_scratch: Vec::new(),
+        }
+    }
+
+    /// The atlas, `size` texels a side.
+    fn atlas(device: &wgpu::Device, size: u32) -> wgpu::TextureView {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("light shadow maps"),
+                size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: MAP_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default())
+    }
+
+    /// Room for `n` maps: the atlas made again, larger (what it held
+    /// lost), where it has less.
+    fn hold(&mut self, device: &wgpu::Device, n: usize) {
+        let (across, side) = atlas_layout(n);
+        if across > self.across {
+            (self.across, self.side) = (across, side);
+            self.atlas = LightMaps::atlas(device, across * side);
+            self.held.clear();
+            self.id = NEXT_LIGHTS_ID.fetch_add(1, Ordering::Relaxed);
+        }
+        let tiles = (self.across * self.across) as usize;
+        self.held.resize_with(tiles, || None);
+    }
+
+    /// Whether tile `k` holds what creature `k` of `plan` casts.
+    fn holds(&self, k: usize, plan: &LightPlan) -> bool {
+        self.held.get(k).and_then(Option::as_ref).is_some_and(|h| h.holds(plan, k))
+    }
+
+    /// Tile `k`'s corner and side in the atlas, texels.
+    fn tile(&self, k: usize) -> (u32, u32, u32) {
+        let k = k as u32;
+        ((k % self.across) * self.side, (k / self.across) * self.side, self.side)
+    }
+
+    /// Uploads `plan`'s maps' views, tiles and lights, and which reach each
+    /// square of the screen ([`bins`]) of a picture of `size` seen by
+    /// `camera`.
+    fn upload_maps(
+        &mut self,
+        gpu: &crate::Gpu,
+        plan: &LightPlan,
+        camera: &Camera,
+        size: (u32, u32),
+    ) {
+        let atlas = (self.across * self.side) as f32;
+        self.map_scratch.clear();
+        for (k, light) in plan.lights.iter().enumerate() {
+            let (x, y, side) = self.tile(k);
+            self.map_scratch.push(MapData {
+                m: light.to_cols_array_2d(),
+                tile: [x as f32 / atlas, y as f32 / atlas, side as f32 / atlas, 0.5 / side as f32],
+                source: [plan.share_index[k], 0, 0, 0],
+            });
+        }
+        bins(&plan.lights, plan.floor, camera, size, &mut self.bin_scratch);
+        let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
+        let least = std::mem::size_of::<MapData>();
+        let maps = &self.map_scratch;
+        let mut grown = crate::renderer::upload(
+            gpu,
+            &mut self.maps,
+            "light shadow maps' views",
+            usage,
+            maps,
+            least,
+        );
+        grown |= crate::renderer::upload(
+            gpu,
+            &mut self.bins,
+            "light shadow maps' squares",
+            usage,
+            &self.bin_scratch,
+            4,
+        );
+        if grown {
+            self.id = NEXT_LIGHTS_ID.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -1513,6 +1951,17 @@ impl Casting {
             }),
             ..Default::default()
         });
+        self.draw_in(&mut pass, light_index, casters, first);
+    }
+
+    /// [`Casting::draw`] in a pass begun: into its viewport.
+    pub(crate) fn draw_in(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        light_index: u32,
+        casters: &[Caster<'_>],
+        first: u32,
+    ) {
         let group = self.group.as_ref().expect("casters uploaded before draw");
         pass.set_bind_group(0, group, &[light_index * self.light_stride]);
         let (mut chunk, mut skinned) = (None, None);
@@ -1556,51 +2005,62 @@ impl Darkener {
             label: Some("shadow darkening"),
             source: wgpu::ShaderSource::Wgsl(darken_source(samples, lights, false).into()),
         });
-        let maps = if lights {
-            wgpu::TextureViewDimension::D2Array
-        } else {
-            wgpu::TextureViewDimension::D2
+        let storage = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
         };
+        let extra: &[wgpu::BindGroupLayoutEntry] =
+            if lights { &[storage(4), storage(5)] } else { &[] };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow darkening"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: crate::framebuffer::DEPTH_READ,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: samples > 1,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: crate::framebuffer::DEPTH_READ,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: samples > 1,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: maps,
-                        multisampled: false,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                    count: None,
-                },
-            ],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                        count: None,
+                    },
+                ],
+                extra,
+            ]
+            .concat(),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow darkening"),
@@ -1665,6 +2125,38 @@ impl Darkener {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
+            ],
+        })
+    }
+
+    /// The lights' darkening's bind group: `depth`, and `maps`' values,
+    /// atlas, views and squares.
+    fn make_lights_group(
+        &self,
+        device: &wgpu::Device,
+        depth: &wgpu::TextureView,
+        maps: &LightMaps,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("light shadow darkening"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: maps.params.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&maps.atlas),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry { binding: 4, resource: maps.maps.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: maps.bins.as_entire_binding() },
             ],
         })
     }
@@ -1990,12 +2482,111 @@ mod tests {
             })
             .collect();
         let scene = Scene { lights, ..Default::default() };
-        let share = Share::of(&scene, &[2], Vec3::ZERO);
+        let (share, places) = Share::of(&scene, &[2, 2], Vec3::ZERO);
         assert_eq!(share.falloff[2] as usize, MAX_SHARE_LIGHTS);
+        // (One light casting, both maps': the first.)
+        assert_eq!((share.falloff[3], places), (1.0, vec![0, 0]));
         assert_eq!(share.lights[0][0][0], 78.0, "explicit source comes first");
         // Closest remaining lights are x = 1.0 .. 31.0 (31 lights).
         for (k, light) in share.lights[..MAX_SHARE_LIGHTS].iter().enumerate().skip(1) {
             assert_eq!(light[0][0], k as f32, "slot {k}");
+        }
+        // More lights casting than the share holds: those past it unknown.
+        let sources: Vec<usize> = (0..40).collect();
+        let (share, places) = Share::of(&scene, &sources, Vec3::ZERO);
+        assert_eq!(share.falloff[3] as usize, MAX_SHARE_LIGHTS);
+        assert_eq!(places[31], 31);
+        assert!(places[32..].iter().all(|&p| p == u32::MAX));
+    }
+
+    /// The atlas holds 16 maps of 512 texels at least, grows to 64 of them,
+    /// then makes them smaller, never past its greatest side; its least
+    /// maps hold [`MAX_LIGHT_SHADOWS`].
+    #[test]
+    fn the_atlas_grows_then_its_maps_shrink() {
+        assert_eq!(atlas_layout(0), (4, 512));
+        assert_eq!(atlas_layout(16), (4, 512));
+        assert_eq!(atlas_layout(17), (8, 512));
+        assert_eq!(atlas_layout(64), (8, 512));
+        assert_eq!(atlas_layout(65), (16, 256));
+        assert_eq!(atlas_layout(512), (32, 128));
+        assert_eq!(atlas_layout(MAX_LIGHT_SHADOWS), (64, LEAST_LIGHT_MAP));
+        assert_eq!(atlas_layout(MAX_LIGHT_SHADOWS + 1), (64, LEAST_LIGHT_MAP));
+        for n in [1, 17, 100, 512, 4096] {
+            let (across, side) = atlas_layout(n);
+            assert!(across * side <= LIGHT_ATLAS_SIZE && (across * across) as usize >= n.min(4096));
+        }
+    }
+
+    /// Each square of the screen lists the maps whose light's view it sees
+    /// part of, and only those: a map's own pixels all fall in squares
+    /// that list it; a map out of sight is in none; one behind the eye in
+    /// every one. Cut at the floor, a map's view is in fewer squares, and
+    /// still in those of its pixels on the floor.
+    #[test]
+    fn the_squares_list_the_maps_that_reach_them() {
+        let camera = Camera {
+            eye: Vec3::new(0.0, -10.0, 12.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 200.0,
+        };
+        let size: (u32, u32) = (640, 360);
+        let lamp = |x: f32, y: f32| {
+            let light = Vec3::new(x, y, 5.0);
+            light_projection(light, Vec3::new(x + 1.0, y, 1.0), 1.0, 13.0)
+        };
+        // (Two in sight, one far out of it, one about the eye.)
+        let lights = [
+            lamp(-3.0, 0.0),
+            lamp(3.0, 1.0),
+            lamp(500.0, 0.0),
+            light_projection(camera.eye + Vec3::Z, camera.eye, 1.0, 13.0),
+        ];
+        let (across, down) = (size.0.div_ceil(BIN), size.1.div_ceil(BIN));
+        let n = (across * down) as usize;
+        let mut uncut = Vec::new();
+        bins(&lights, f32::NEG_INFINITY, &camera, size, &mut uncut);
+        let mut out = Vec::new();
+        bins(&lights, 0.0, &camera, size, &mut out);
+        let listed = |b: usize| out[n + 1 + out[b] as usize..n + 1 + out[b + 1] as usize].to_vec();
+        assert!(out.len() < uncut.len(), "{} {}", out.len(), uncut.len());
+        assert!((0..n).all(|b| listed(b).contains(&3)), "behind the eye: everywhere");
+        assert!((0..n).all(|b| !listed(b).contains(&2)), "out of sight: nowhere");
+        let to_screen = camera.projection(size.0 as f32 / size.1 as f32) * camera.view();
+        for (k, light) in lights.iter().enumerate().take(2) {
+            // (Points of the floor in the map's view: in its squares.)
+            let mut seen = 0;
+            for i in 0..80 {
+                for j in 0..80 {
+                    let p = Vec3::new(-10.0 + i as f32 * 0.25, -10.0 + j as f32 * 0.25, 0.0);
+                    let c = *light * p.extend(1.0);
+                    let m = c.truncate() / c.w;
+                    if c.w <= 0.0
+                        || m.x.abs() > 1.0
+                        || m.y.abs() > 1.0
+                        || !(0.0..=1.0).contains(&m.z)
+                    {
+                        continue;
+                    }
+                    let s = to_screen * p.extend(1.0);
+                    let (x, y) = ((s.x / s.w + 1.0) * 0.5, (1.0 - s.y / s.w) * 0.5);
+                    if !(0.0..1.0).contains(&x) || !(0.0..1.0).contains(&y) {
+                        continue;
+                    }
+                    let (bx, by) =
+                        ((x * size.0 as f32) as u32 / BIN, (y * size.1 as f32) as u32 / BIN);
+                    assert!(
+                        listed((by * across + bx) as usize).contains(&(k as u32)),
+                        "map {k} at {p}"
+                    );
+                    seen += 1;
+                }
+            }
+            assert!(seen > 10, "map {k}: {seen}");
+            // (And not every square: it is a few metres across.)
+            assert!((0..n).filter(|&b| listed(b).contains(&(k as u32))).count() < n / 2);
         }
     }
 }

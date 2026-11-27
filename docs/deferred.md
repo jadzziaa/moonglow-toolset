@@ -759,15 +759,31 @@ Nothing open.
   beside the client in `high_shadows_beside_the_client`; their volumes
   made apart from the frames and kept by the renderer, let go of with
   their models, since 2026-11-25 ([the frames
-  note](research/notes_frames.md)). Left:
-  - every creature in a lamp's reach casts at once (eight ogres in a
-    row, each its shadow: `batch6_light_shadow_casters`), as Moonglow
-    casts up to 16; and a player's own light casts the shadows of the
-    creatures about the player (`batch6_player_light_at_night`), which
-    the toolset, placing no player, has nothing of. (A light's shadow
-    darkens by the light's share of the light there, as the client's,
-    since 2026-11-02: [the findings](findings.md), "A light's shadow
-    takes the light's share".);
+  note](research/notes_frames.md)). Every creature in a lamp's reach
+  casts at once, as the client's, since 2026-11-26 (24 round one lamp
+  post, `batch6_light_shadow_ring`; Moonglow cast 16: a tile each of an
+  atlas that grows now, up to 4,096 creatures; [the
+  findings](findings.md), "Every creature in a lamp's reach casts; one
+  lamp casts"). A player's own light casting the shadows of the
+  creatures about the player (`batch6_player_light_at_night`) is
+  settled by design: the toolset places no player. Settled by the
+  owner's rulings of 2026-11-26, nothing left open (the entry kept as
+  the record):
+  - each creature casts from its own nearest lamp, by design: the
+    client casts from one light alone, the one nearest the player
+    (every creature in its reach casts from it, and the creatures by
+    other lamps cast nothing: six lamp posts, `batch6_light_shadow_ring`'s
+    `lamps`), and the toolset has no player to take it from. (A light's
+    shadow darkens by the light's share of the light there, as the
+    client's, since 2026-11-02: [the findings](findings.md), "A light's
+    shadow takes the light's share".);
+  - High's volumes for the lights are not capped and not cut short:
+    they cost their fill, about 0.1 ms a casting creature close up (30
+    creatures under one lamp: 4.1 ms the quickest tenth; 100: 11.6 ms,
+    over the 6.94 ms line, where Fast's maps take 1.2; 1,590 MHz,
+    2026-11-26), since each creature's volume reaches to the light's
+    radius. batch6's room (eight) is as before. Kept as the record of
+    the cost.
   (Grass and the see-through meshes of tiles and static placeables,
   their solid and soft parts, take the shadows as the client's since
   2026-11-25: [the findings](findings.md), "Grass and a tile's

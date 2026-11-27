@@ -1689,6 +1689,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         let (mut build, mut particles, mut encode, mut drawn) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut encode_cpu = Vec::new();
+        // (The lights' maps drawn again over the timed frames: none at rest.)
+        let mut light_maps = 0;
         let mut counts = (0, 0, 0, 0);
         let mut yaw = -std::f32::consts::FRAC_PI_2;
         let mut clocks = None;
@@ -1759,6 +1761,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             // (The first frames load the textures.)
             if n >= 4 {
                 build.push(t1 - t0);
+                light_maps += renderer.drawn.light_maps_drawn;
                 particles.push(t2 - t1);
                 encode.push(t3 - t2);
                 if let (Some(a), Some(b)) = (c2, c3) {
@@ -1816,7 +1819,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
              meshes in {} draws of {} materials, {} pipelines and {} chunks in turn, {} of the game's, {} \
-             meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
+             meshes out of sight; {} casting the sun's shadows, {} creatures the lights', {light_maps} of their \
+             maps drawn again)",
             ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
@@ -3521,7 +3525,8 @@ fn sound_ranges_frames_at_144() {
 /// taken apart off and on. Needs the game and a GPU; run in release:
 /// `cargo test --release -p mg-ui --test frame_perf game_shaders -- --ignored --nocapture`.
 /// `FRAME_AREA=stock`, `water` ([`water_area`]: water, grass, fires,
-/// a skybox) or `tdod` times only that one.
+/// a skybox), `tdod` or `lamps` ([`lamps_area`]: creatures under lamp
+/// posts at night, not timed unless asked for) times only that one.
 #[test]
 #[ignore]
 fn game_shaders_frames_at_144() {
@@ -3548,6 +3553,19 @@ fn game_shaders_frames_at_144() {
     }
     if wanted("water") {
         let (module, area, tiles) = water_area(&root);
+        let rs = render_state();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&module);
+        let mut h = harness(app, rs);
+        shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+    }
+    if only.as_deref() == Some("lamps") {
+        let (module, area, tiles) = lamps_area(&root);
         let rs = render_state();
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),
@@ -3634,6 +3652,124 @@ fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
     let path = mg_testkit::scratch_dir("frame-water").join("water.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     println!("Water and fires: {side} by {side} of ttr01, half water, 160 fires");
+    (path, area, i64::from(side) * i64::from(side))
+}
+
+/// Creatures under lamp posts at night, for the lights' shadows' cost:
+/// `FRAME_LAMP_CREATURES` of them (100 by default; ogres and commoners by
+/// turns: a commoner is made of parts, an instance each) round
+/// `FRAME_LAMPS` lamp posts (placeables.2da row 73, whose light casts
+/// shadows; 1 by default, 16 m apart in a square), in rings from 1.5 to
+/// 7.5 m from each (0.6 m apart, every one in its lamp's reach), on 8 by 8
+/// of the rural tileset (`ttr01`), no sun or moon shadows, dark. Or
+/// `FRAME_LAMP_LAYOUT=batch6`: `batch6_light_shadow_casters`'s room (4 by
+/// 4 of `tic01`, eight ogres in a row 3 m south of one lamp post). Time it
+/// with `FRAME_SHADOWS=creatures,lights`. The module, the area and its
+/// tiles.
+fn lamps_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let game = mg_rules::GameData::open(&GameInstall::new(root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Lamps", &mut rng).unwrap();
+    let batch6 = std::env::var("FRAME_LAMP_LAYOUT").is_ok_and(|l| l == "batch6");
+    let var =
+        |name: &str, or: usize| std::env::var(name).ok().and_then(|n| n.parse().ok()).unwrap_or(or);
+    let (tileset, side) = if batch6 { ("tic01", 4) } else { ("ttr01", 8) };
+    let spec = AreaSpec {
+        name: "Lamps".into(),
+        tileset: ResRef::from_str(tileset).unwrap(),
+        width: side,
+        height: side,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 60)] {
+        are.root.set(label, Value::Byte(v));
+    }
+    are.root.set("IsNight", Value::Byte(1));
+    for label in ["SunAmbientColor", "SunDiffuseColor", "MoonAmbientColor", "MoonDiffuseColor"] {
+        are.root.set(label, Value::Dword(0x303030));
+    }
+    m.set_gff(key, &are).unwrap();
+    let centre = side as f32 * 5.0;
+    // (A creature: where it stands, and its facing in degrees.)
+    type Placed = ([f32; 2], f32);
+    let (lamps, creatures): (Vec<[f32; 2]>, Vec<Placed>) = if batch6 {
+        let ogres = (0..8).map(|i| ([20.0 + 1.2 * (i as f32 - 3.5), 22.0], 270.0)).collect();
+        (vec![[20.0, 25.0]], ogres)
+    } else {
+        let count = var("FRAME_LAMPS", 1).max(1);
+        let n = var("FRAME_LAMP_CREATURES", 100);
+        let across = (count as f32).sqrt().ceil() as usize;
+        let lamps: Vec<[f32; 2]> = (0..count)
+            .map(|i| {
+                let (x, y) = ((i % across) as f32, (i / across) as f32);
+                let off = (across as f32 - 1.0) / 2.0;
+                [centre + (x - off) * 16.0, centre + (y - off) * 16.0]
+            })
+            .collect();
+        // (Each lamp's rings filled in turn, out from the lamp.)
+        let mut spots = Vec::new();
+        let mut r = 1.5f32;
+        while spots.len() < n.div_ceil(count) && r <= 7.6 {
+            let k = ((std::f32::consts::TAU * r / 0.6) as usize).max(1);
+            spots.extend((0..k).map(|j| {
+                let turn = (j as f32 + r) / k as f32 * std::f32::consts::TAU;
+                ([r * turn.cos(), r * turn.sin()], turn.to_degrees())
+            }));
+            r += 0.6;
+        }
+        let creatures = (0..n)
+            .map(|i| {
+                let (l, s) = (lamps[i % count], spots[(i / count) % spots.len()]);
+                ([l[0] + s.0[0], l[1] + s.0[1]], s.1)
+            })
+            .collect();
+        (lamps, creatures)
+    };
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let lamp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let placed: Vec<_> = lamps
+        .iter()
+        .map(|&[x, y]| {
+            let mut root = lamp.root.clone();
+            root.set("Appearance", Value::Dword(73));
+            root.set("Static", Value::Byte(0));
+            let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+            instance(&placing, ResType::UTP, &root, at, &[]).unwrap()
+        })
+        .collect();
+    let kinds = ["nw_ogre01", "nw_commale"];
+    let blueprints: Vec<Gff> = kinds
+        .iter()
+        .map(|k| Gff::read(&game.resman.get_named(k, ResType::UTC).unwrap()).unwrap())
+        .collect();
+    let people: Vec<_> = creatures
+        .iter()
+        .enumerate()
+        .map(|(i, &([x, y], facing))| {
+            let bp = &blueprints[if batch6 { 0 } else { i % kinds.len() }];
+            let at = Placement { position: [x, y, 0.0], rotation: facing.to_radians() };
+            instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Placeable List", Value::List(placed));
+    git.root.set("Creature List", Value::List(people));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir("frame-lamps").join("lamps.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    println!(
+        "Lamps: {side} by {side} of {tileset}, {} creatures round {} lamp posts",
+        creatures.len(),
+        lamps.len()
+    );
     (path, area, i64::from(side) * i64::from(side))
 }
 
