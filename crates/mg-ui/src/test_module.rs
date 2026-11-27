@@ -4,6 +4,7 @@
 //! module by name in the user directory's `modules` folder, so the module
 //! must be saved there.
 
+use mg_module::links::{link_dir, link_file};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -294,53 +295,6 @@ pub const CONTENT_USER_DIR: &str = "test-user";
 /// What the Status Bar calls the writing of a module's haks from its
 /// NWSync content for Test Module.
 pub const WRITE_TITLE: &str = "Write Haks from NWSync";
-
-/// Links `to` to the folder `from`: a symbolic link, else (Windows,
-/// without the right to make one) a junction.
-fn link_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(from, to)
-    }
-    #[cfg(windows)]
-    {
-        if std::os::windows::fs::symlink_dir(from, to).is_ok() {
-            return Ok(());
-        }
-        let made =
-            Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(to).arg(from).output()?;
-        if made.status.success() {
-            Ok(())
-        } else {
-            Err(std::io::Error::other(String::from_utf8_lossy(&made.stderr).trim().to_string()))
-        }
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (from, to);
-        Err(std::io::Error::other("no links on this system"))
-    }
-}
-
-/// Links `to` to the file `from`: a symbolic link (Unix); a hard link,
-/// else a symbolic link, else a copy (Windows).
-fn link_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(from, to)
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::hard_link(from, to)
-            .or_else(|_| {
-                #[cfg(windows)]
-                return std::os::windows::fs::symlink_file(from, to);
-                #[cfg(not(windows))]
-                Err(std::io::Error::other("no links"))
-            })
-            .or_else(|_| std::fs::copy(from, to).map(|_| ()))
-    }
-}
 
 /// Whether there is anything at `path`, a link that leads nowhere
 /// included.

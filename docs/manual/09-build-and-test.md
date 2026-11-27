@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:44:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:25:27Z }
 ---
 
 # Build, verify and test
@@ -427,7 +427,9 @@ first, and given to the game:
   YOUR_NWN_FOLDER --real-user-dir` a file of your own there (not a link
   Moonglow made) is never replaced: one the manifest's would replace
   stops the run, saying so. Nothing is ever written into your own `hak`
-  folder, nor into the game's NWSync storage.
+  folder, nor into the game's NWSync storage. Their folder has your
+  `development` folder as a link, as `test-user` has it, so work in
+  progress there is the server's too.
 
 **What Test Module does with your user folder.** Test Module (and Test
 From Here) starts the game with a user folder of Moonglow's, `test-user`

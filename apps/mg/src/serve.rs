@@ -1,6 +1,7 @@
 //! `mg serve`: a module in the game's headless server, on a user
-//! directory that is not the player's, its log followed and its console
-//! passed through. `mg test` runs its tests through the same.
+//! directory that is not the player's (the player's `development`
+//! folder linked into it), its log followed and its console passed
+//! through. `mg test` runs its tests through the same.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -46,6 +47,9 @@ pub(crate) struct Config {
     /// NWSync server (`--no-nwsync`; `source = ""` in the builder's own
     /// file does the same).
     pub no_nwsync: bool,
+    /// What the server's `development` folder is: the player's, linked,
+    /// or `mg watch`'s own.
+    pub development: Development,
 }
 
 /// The server's passwords, as `mg serve` and `mg watch --serve` take
@@ -371,6 +375,77 @@ pub(crate) fn players_dir(user: Option<&Path>, dir: &Path) -> Option<PathBuf> {
     (user.map(Path::to_path_buf).into_iter())
         .chain(mg_resman::default_user_dir())
         .find(|p| same(p, &dir))
+}
+
+/// What the server's `development` folder is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Development {
+    /// A link to the player's own, as Test Module's game has it.
+    #[default]
+    Players,
+    /// The folder `mg watch --serve` writes into: the server's own.
+    Watched,
+}
+
+/// Gives the server's folder `dir` the player's `development` folder
+/// (in `user`, the user folder `mg` was given or found), as Test Module
+/// gives its game: a link to it (a junction on Windows without the right
+/// to make a symbolic link), made again at every start so that it
+/// follows `--user-dir`. Nothing is written into the player's folder.
+/// Nothing is done where the player has none, where `dir` is the
+/// player's own (`--real-user-dir`), or for `mg watch`'s folder. A
+/// folder (or file) of `dir`'s own there is kept, and said in the note
+/// returned; in Moonglow's own `scratch` folder a folder there was left
+/// by `mg watch --serve`, and gives way.
+pub(crate) fn link_development(
+    user: Option<&Path>,
+    dir: &Path,
+    development: Development,
+    scratch: bool,
+) -> Result<Option<String>> {
+    let Some(user) = user.filter(|_| development == Development::Players) else {
+        return Ok(None);
+    };
+    if players_dir(Some(user), dir).is_some() {
+        return Ok(None);
+    }
+    let to = dir.join("development");
+    let from = user.join("development");
+    let from = std::path::absolute(&from).unwrap_or(from);
+    let context = || to.display().to_string();
+    if mg_module::links::is_link(&to) {
+        // (The link an earlier run made: made again, to where the player's
+        // folder is now.)
+        mg_module::links::unlink(&to).with_context(context)?;
+    } else if let Ok(meta) = std::fs::symlink_metadata(&to) {
+        if scratch && meta.is_dir() {
+            std::fs::remove_dir_all(&to).with_context(context)?;
+        } else {
+            return Ok(from.is_dir().then(|| {
+                format!(
+                    "the server's folder has a development folder of its own ({}): kept, so \
+                     yours ({}) is not given to the server",
+                    to.display(),
+                    from.display()
+                )
+            }));
+        }
+    }
+    if from.is_dir() {
+        mg_module::links::link_dir(&from, &to).with_context(context)?;
+    }
+    Ok(None)
+}
+
+/// Takes away a link to the player's `development` folder that `mg
+/// serve` left in the server's folder `dir`, before `mg watch --serve`
+/// makes the folder it writes into there: never written through.
+pub(crate) fn unlink_development(dir: &Path) -> Result<()> {
+    let to = dir.join("development");
+    if mg_module::links::is_link(&to) {
+        mg_module::links::unlink(&to).with_context(|| to.display().to_string())?;
+    }
+    Ok(())
 }
 
 /// Saves a module's copy for a server as an archive at `to`, keeping no
@@ -791,7 +866,9 @@ pub(crate) fn serve(
     loop {
         let (name, notes) =
             prepare(gi, &c.module, &dir, c.project.as_deref(), c.progress, c.no_nwsync)?;
-        for note in notes {
+        let development =
+            link_development(gi.user_dir.as_deref(), &dir, c.development, scratch.is_some())?;
+        for note in notes.into_iter().chain(development) {
             each(&Event::Note(note));
         }
         let seen = signature(&c.module);
@@ -1415,6 +1492,185 @@ mod tests {
         assert!(e.to_string().contains("is your own NWN folder"), "{e}");
         assert!(refuse_players_dir(Some(&user), &user, Some(true)).is_ok());
         assert!(refuse_players_dir(Some(&user), &dir.join("other"), None).is_ok());
+    }
+
+    /// Every entry under `dir` (links not followed) with its contents: a
+    /// player's made-up folder, compared before and after.
+    fn entries(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut all = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let path = e.path();
+                let rel = path.strip_prefix(dir).unwrap().to_path_buf();
+                let kind = e.file_type().unwrap();
+                if kind.is_dir() {
+                    todo.push(path);
+                    all.push((rel, Vec::new()));
+                } else {
+                    all.push((rel, std::fs::read(&path).unwrap_or_default()));
+                }
+            }
+        }
+        all.sort();
+        all
+    }
+
+    /// A made-up player's folder with a script in `development`.
+    fn players_folder(dir: &Path, name: &str, script: &str) -> PathBuf {
+        let user = dir.join(name);
+        std::fs::create_dir_all(user.join("development")).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        std::fs::write(user.join("development/mg_dev.nss"), script).unwrap();
+        std::fs::write(user.join("nwn.ini"), "[Alias]\n").unwrap();
+        user
+    }
+
+    /// The server's folder gets a link to the player's `development`
+    /// folder: a file there is read through it, and nothing is made or
+    /// changed in the player's folder. Made again, it is still one link.
+    #[test]
+    fn the_players_development_folder_is_linked_for_the_server() {
+        let dir = mg_testkit::scratch_dir("mg-serve-development");
+        let user = players_folder(&dir, "user", "// mine\n");
+        let server = dir.join("server");
+        std::fs::create_dir_all(&server).unwrap();
+        let before = entries(&user);
+        for _ in 0..2 {
+            let note = link_development(Some(&user), &server, Development::Players, false);
+            assert_eq!(note.unwrap(), None);
+            let link = server.join("development");
+            assert!(mg_module::links::is_link(&link));
+            assert!(same(&link, &user.join("development")));
+            assert_eq!(std::fs::read_to_string(link.join("mg_dev.nss")).unwrap(), "// mine\n");
+        }
+        assert_eq!(entries(&user), before);
+    }
+
+    /// No `development` folder of the player's: no link, no note, and
+    /// none made in the player's folder; none for `mg watch`'s own folder
+    /// either, nor with no user folder at all.
+    #[test]
+    fn no_development_folder_means_no_link() {
+        let dir = mg_testkit::scratch_dir("mg-serve-no-development");
+        let user = dir.join("user");
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        let server = dir.join("server");
+        std::fs::create_dir_all(&server).unwrap();
+        let before = entries(&user);
+        let note = link_development(Some(&user), &server, Development::Players, false);
+        assert_eq!(note.unwrap(), None);
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+        assert_eq!(entries(&user), before);
+
+        let user = players_folder(&dir, "user2", "");
+        assert_eq!(
+            link_development(Some(&user), &server, Development::Watched, false).unwrap(),
+            None
+        );
+        assert_eq!(link_development(None, &server, Development::Players, false).unwrap(), None);
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+    }
+
+    /// A `--dir` with a development folder of its own keeps it, with its
+    /// files, and says so; in Moonglow's own scratch folder one (`mg watch
+    /// --serve`'s) gives way to the link.
+    #[test]
+    fn a_servers_own_development_folder_is_kept() {
+        let dir = mg_testkit::scratch_dir("mg-serve-own-development");
+        let user = players_folder(&dir, "user", "// mine\n");
+        let server = dir.join("server");
+        std::fs::create_dir_all(server.join("development")).unwrap();
+        std::fs::write(server.join("development/builder.nss"), "// builder's\n").unwrap();
+        let note = link_development(Some(&user), &server, Development::Players, false).unwrap();
+        let note = note.expect("a note");
+        assert!(note.contains("of its own"), "{note}");
+        assert!(!mg_module::links::is_link(&server.join("development")));
+        let kept = std::fs::read_to_string(server.join("development/builder.nss")).unwrap();
+        assert_eq!(kept, "// builder's\n");
+
+        let note = link_development(Some(&user), &server, Development::Players, true).unwrap();
+        assert_eq!(note, None);
+        assert!(mg_module::links::is_link(&server.join("development")));
+        assert!(user.join("development/mg_dev.nss").is_file());
+        assert!(!user.join("development/builder.nss").exists());
+    }
+
+    /// The link leads into the `development` folder of the user folder
+    /// the run was given (`--user-dir`), made again when it changes; a
+    /// relative one is made absolute.
+    #[test]
+    fn the_development_link_follows_the_user_folder() {
+        let dir = mg_testkit::scratch_dir("mg-serve-development-user-dir");
+        let a = players_folder(&dir, "a", "// a\n");
+        let b = players_folder(&dir, "b", "// b\n");
+        let server = dir.join("server");
+        std::fs::create_dir_all(&server).unwrap();
+        let script = || std::fs::read_to_string(server.join("development/mg_dev.nss")).unwrap();
+        link_development(Some(&a), &server, Development::Players, false).unwrap();
+        assert_eq!(script(), "// a\n");
+        link_development(Some(&b), &server, Development::Players, false).unwrap();
+        assert_eq!(script(), "// b\n");
+        assert!(same(&server.join("development"), &b.join("development")));
+        // (A user folder that no longer has one: the old link goes.)
+        std::fs::remove_dir_all(b.join("development")).unwrap();
+        link_development(Some(&b), &server, Development::Players, false).unwrap();
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+        // (A relative user folder: the link still leads to it from the
+        // server's folder.)
+        let cwd = std::env::current_dir().unwrap();
+        if let Some(rel) = pathdiff(&a, &cwd) {
+            link_development(Some(&rel), &server, Development::Players, false).unwrap();
+            assert_eq!(script(), "// a\n");
+        }
+    }
+
+    /// `a` relative to `base` (`..` where it goes up), where both are on
+    /// one drive.
+    fn pathdiff(a: &Path, base: &Path) -> Option<PathBuf> {
+        let (a, base): (Vec<_>, Vec<_>) = (a.components().collect(), base.components().collect());
+        if a.first() != base.first() {
+            return None;
+        }
+        let common = a.iter().zip(&base).take_while(|(x, y)| x == y).count();
+        let mut rel: PathBuf = base[common..].iter().map(|_| "..").collect();
+        rel.extend(a[common..].iter());
+        Some(rel)
+    }
+
+    /// With `--real-user-dir` the player's own folder is the server's: its
+    /// `development` folder is already there, and is left as it is.
+    #[test]
+    fn the_players_own_folder_gets_no_link() {
+        let dir = mg_testkit::scratch_dir("mg-serve-development-real");
+        let user = players_folder(&dir, "user", "// mine\n");
+        let before = entries(&user);
+        let note = link_development(Some(&user), &user, Development::Players, false).unwrap();
+        assert_eq!(note, None);
+        assert!(!mg_module::links::is_link(&user.join("development")));
+        assert_eq!(entries(&user), before);
+    }
+
+    /// `mg watch --serve` writes into the server's own development folder:
+    /// a link `mg serve` left there goes first, and the player's folder is
+    /// not written through it.
+    #[test]
+    fn mg_watch_takes_the_link_away_first() {
+        let dir = mg_testkit::scratch_dir("mg-serve-development-watch");
+        let user = players_folder(&dir, "user", "// mine\n");
+        let server = dir.join("server");
+        std::fs::create_dir_all(&server).unwrap();
+        link_development(Some(&user), &server, Development::Players, false).unwrap();
+        assert!(mg_module::links::is_link(&server.join("development")));
+        let before = entries(&user);
+        unlink_development(&server).unwrap();
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+        std::fs::create_dir_all(server.join("development")).unwrap();
+        std::fs::write(server.join("development/watched.ncs"), b"x").unwrap();
+        assert_eq!(entries(&user), before);
+        // (A folder of its own is left.)
+        unlink_development(&server).unwrap();
+        assert!(server.join("development/watched.ncs").is_file());
     }
 
     #[test]
