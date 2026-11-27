@@ -116,16 +116,21 @@ pub(crate) fn take_in(
     }
 }
 
-/// The processes holding slots `0..n` of `dir`, from `/proc/locks` on Linux
-/// (matched by the file's inode); none elsewhere or where it can't be read.
+/// The processes holding slots `0..n` of `dir`.
 fn holders(dir: &Path, n: usize) -> Vec<u32> {
+    let paths: Vec<PathBuf> = (0..n).map(|i| dir.join(i.to_string())).collect();
+    lock_holders(&paths)
+}
+
+/// The processes holding a lock (shared or exclusive) on any of `paths`,
+/// from `/proc/locks` on Linux (matched by the file's inode); none
+/// elsewhere or where it can't be read.
+pub(crate) fn lock_holders(paths: &[PathBuf]) -> Vec<u32> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::MetadataExt;
-        let inodes: Vec<u64> = (0..n)
-            .filter_map(|i| std::fs::metadata(dir.join(i.to_string())).ok())
-            .map(|m| m.ino())
-            .collect();
+        let inodes: Vec<u64> =
+            paths.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.ino()).collect();
         let Ok(locks) = std::fs::read_to_string("/proc/locks") else { return Vec::new() };
         let mut pids: Vec<u32> = Vec::new();
         for line in locks.lines() {
@@ -151,7 +156,7 @@ fn holders(dir: &Path, n: usize) -> Vec<u32> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (dir, n);
+        let _ = paths;
         Vec::new()
     }
 }

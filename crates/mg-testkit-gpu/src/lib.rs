@@ -12,10 +12,13 @@
 //!
 //! Beyond the process, a test also takes one slot of the machine
 //! ([`slots`]), so that test binaries run at once keep the same few devices
-//! open between them.
+//! open between them; and the process shares the machine's quiet lock
+//! ([`quiet`]) from its first hold, so that a timing run can have the
+//! machine to itself.
 
 pub mod gpu;
 pub mod places;
+pub mod quiet;
 pub mod slots;
 
 pub use gpu::{alone, hold, holding, open, release};

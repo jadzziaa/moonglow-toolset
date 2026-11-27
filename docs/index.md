@@ -45,7 +45,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 # Reference
 
 * [Moonglow Toolset: Architecture and Record of the Phases](PLAN.md) - What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
-* [The machine's locks on the off-screen display and the GPU](locks.md) - The protocol every program shares to take turns at the off-screen display (the game client, Aurora, the display's restarts) and at the GPU devices that tests open - the lock files, their modes, the order, MOONGLOW_LOCKS_HELD, the holder line, the waits and messages, who takes what and what takes nothing - for an outside program that wants to honor it.
+* [The machine's locks - quiet, the off-screen display and the GPU](locks.md) - The protocol every program shares to keep the machine quiet for a timing run, to take turns at the off-screen display (the game client, Aurora, the display's restarts) and at the GPU devices that tests open - the lock files, their modes, the order, MOONGLOW_LOCKS_HELD, the holder line, the waits and messages, who takes what and what takes nothing - for an outside program that wants to honor it.
 
 # Report
 
