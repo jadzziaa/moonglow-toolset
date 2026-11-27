@@ -4,7 +4,7 @@ title: 'Animated objects in the area scene: a proposal'
 description: How mg-area's AreaScene could play each object's own animation for a game client (Moonglow Client's request) - the cut between crates (a GPU-free player and the visual effects' rows in mg-preview, a per-object pose with transitions on Composed, the run-time state held by the caller beside the scene and keyed by a key of the caller's), one section for each of the eight capabilities asked with its API sketch and cost, how the run-time state relates to the saved AnimationState, the viewer's part, the migration of today's idle animation, the tests and client comparisons, risks, open questions and milestones after 5.5.0.
 tags: [proposal, animation, mg-area, mg-preview, mg-render, moonglow-client, moonglow-viewer, visual-effects]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:39:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:42:24Z }
 sources:
   - id: request
     resource: '~/Projects/moonglow-client, branch main at b6d7bbb: docs/research/stage-for-a-client.md, the section "Draft request for Moonglow Toolset" (a draft Finding, read at the client''s pin v5.4.0)'
@@ -222,6 +222,22 @@ impl Live { pub fn forget(&mut self, key: ObjectKey); }
 // The particle sims' key, opaque, in place of (usize, usize):
 pub struct SimKey(/* tile | object place | keyed object, source | effect, source */);
 ```
+
+**What the client does without it (its result, 2026-11-27).** At
+`v5.4.0`, adding, moving and removing objects at run time works with no
+toolset change. This is Moonglow Client's test
+`objects_are_added_moved_and_removed_at_run_time` (`mc-scene/tests/shard.rs`,
+on a builder's area):
+- A move of 1.5 m and 45° redraws all 23 of the object's instances at the
+  new place in the next scene, with nothing reloaded.
+- `update_objects` adds a creature's parts exactly.
+- `remove_object` takes out only that object, and the later indices shift
+  correctly.
+
+The client keeps its own map from server id to index, and a counter per
+kind for the particle keys. So for the client, `ObjectKey` only saves that
+map. What it adds beyond that is a re-dress that keeps the particles (below)
+and keys that the playback and effects can share.
 
 **Why a new key rather than `(kind, index)`.** `index` is already the
 particles' key, and the client sets it. But it is also the object's place
