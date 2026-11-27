@@ -264,8 +264,8 @@ narrower, or fold it.
 Moonglow's own fonts cover Western scripts and the symbols it draws.
 A character they lack (a builder's Japanese, Chinese or Korean text, a
 rare symbol) is drawn with a font of your system's that has it, found
-through fontconfig on Linux and the system's font list on Windows and
-macOS. A box means no installed font has that character: install one
+through the system's font service (fontconfig on Linux, DirectWrite on
+Windows, Core Text on macOS). A box means no installed font has that character: install one
 that does (on Linux, the Noto CJK fonts, for example).
 
 ## Something fails without a word
