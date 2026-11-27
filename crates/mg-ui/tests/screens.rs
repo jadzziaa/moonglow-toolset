@@ -16774,8 +16774,13 @@ fn u26_gallery_views() {
         while in_sight(h).is_none() {
             assert!(
                 start.elapsed().as_secs() < 20,
-                "no barrel's picture in sight: {:?} {screen:?}",
-                h.query_all_by_label_contains("Barrel").map(|n| n.rect()).collect::<Vec<_>>()
+                "no barrel's picture in sight: {:?} {screen:?}, the grid {:?}, down {}",
+                h.query_all_by_label_contains("Barrel").map(|n| n.rect()).collect::<Vec<_>>(),
+                h.query_all_by(|n| n.role() == egui::accesskit::Role::List
+                    && n.label().as_deref() == Some("Placeables"))
+                    .map(|n| n.rect())
+                    .collect::<Vec<_>>(),
+                down_now.get()
             );
             let grid = h
                 .query_all_by(|n| {

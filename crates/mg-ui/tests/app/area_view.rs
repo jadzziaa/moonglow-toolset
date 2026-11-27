@@ -1853,7 +1853,7 @@ fn a_paste_warns_of_builders_tags_not_scenery() {
         h.hover_at(over);
         press(h, over, true, egui::Modifiers::NONE);
         press(h, over, false, egui::Modifiers::NONE);
-        h.run_steps(3);
+        settle(h);
         assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
         h.state().tag_clash.clone()
     };
@@ -1949,7 +1949,7 @@ fn a_paste_weighs_every_kind_alike_and_the_option_silences_it() {
         h.hover_at(over);
         press(h, over, true, egui::Modifiers::NONE);
         press(h, over, false, egui::Modifiers::NONE);
-        h.run_steps(3);
+        settle(h);
         assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"), "{picked:?}");
         h.state().tag_clash.clone()
     };

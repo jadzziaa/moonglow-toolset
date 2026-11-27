@@ -312,14 +312,17 @@ impl GridLayout {
     }
 
     /// The rows of `count` cells, the grid's top at `top`, that `y`
-    /// reaches into (the rows in sight: `y` the clip's).
+    /// reaches into (the rows in sight: `y` the clip's). A row whose gap
+    /// below it alone is in sight is not (a row brought into sight with
+    /// [`RING_ROOM`] above it shows that much of the gap).
     pub fn rows_in(&self, top: f32, y: egui::Rangef, count: usize) -> Range<usize> {
         let rows = self.rows(count);
         let pitch = self.cell.y + self.gap.y;
         if rows == 0 || y.max < top || pitch <= 0.0 {
             return 0..0;
         }
-        let first = (((y.min - top) / pitch).floor().max(0.0) as usize).min(rows);
+        let past = ((y.min - top - self.cell.y) / pitch).floor() + 1.0;
+        let first = (past.max(0.0) as usize).min(rows);
         let last = ((((y.max - top) / pitch).floor().max(0.0) as usize) + 1).min(rows);
         first..last.max(first)
     }
@@ -1171,6 +1174,11 @@ mod tests {
         let r = l.rows_in(0.0, egui::Rangef::new(10.0 * pitch + 1.0, 12.0 * pitch), count);
         assert_eq!(r, 10..13);
         assert_eq!(l.cells_of(r, count), 20..26);
+        // Only row 9's gap in sight (row 10 brought in with its ring's room).
+        let y = egui::Rangef::new(10.0 * pitch - 3.0, 12.0 * pitch);
+        assert_eq!(l.rows_in(0.0, y, count).start, 10);
+        let y = egui::Rangef::new(9.0 * pitch + l.cell.y - 1.0, 12.0 * pitch);
+        assert_eq!(l.rows_in(0.0, y, count).start, 9, "a point of row 9's cell");
         // Above the grid, and past its end.
         assert_eq!(l.rows_in(1000.0, egui::Rangef::new(0.0, 500.0), count), 0..0);
         assert_eq!(l.rows_in(0.0, egui::Rangef::new(1e9, 2e9), count), 2500..2500);

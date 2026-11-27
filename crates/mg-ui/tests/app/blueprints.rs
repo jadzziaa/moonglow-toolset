@@ -4067,7 +4067,7 @@ fn an_armor_whose_torso_is_0_is_clothing() {
         set("PropertiesList", mg_gff::Value::List(Vec::new())),
     ];
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Torso", edits)));
-    h.run();
+    settle(&mut h);
     // Each statistic's value, beside its label on its row.
     let stat = |h: &Harness<'_, Moonglow>, label: &str, value: &str| {
         let at = h.get_by_label(label).rect();
