@@ -1957,6 +1957,15 @@ fn options_pages_whole() {
             shoot(&mut h, &dir, &file);
         }
     }
+    // Test Module with every field shown: a command of one's own, joining.
+    let draft = h.state_mut().options.as_mut().unwrap();
+    draft.page = P::TestModule;
+    draft.test_starts = mg_ui::settings::TestStarts::Command;
+    draft.test_command =
+        "wsl.exe -d Ubuntu -- bash -lc \"~/start-nwnx-server.sh '{module_path}'\"".into();
+    draft.test_joins = true;
+    h.run();
+    shoot(&mut h, &dir, "test-module");
     eprintln!("{}", dir.display());
 }
 

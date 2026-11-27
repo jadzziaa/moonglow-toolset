@@ -627,6 +627,45 @@ fn verify_s_words_without_a_box_stay_in_its_field() {
     assert!(saved.contains("verify_skip:[\"tilesets\",\"tdod_tiles01.hak\"]"), "{saved}");
 }
 
+/// Options › Test Module (GitHub issue 52): the game by default, and its
+/// command's fields only once A command of my own is chosen; the address
+/// and password only with Then start the game. Set by OK, trimmed.
+#[test]
+fn the_test_module_page_sets_a_command_of_ones_own() {
+    use mg_ui::settings::TestStarts;
+    let mut h = options(Mode::Tabs, 1600.0, "Test Module");
+    assert_eq!(h.state().settings.test_starts, TestStarts::Game);
+    // (The page's fields, after the window's own (Quick Open's), in order:
+    // the command and the address; the password is a password field.)
+    let input = egui::accesskit::Role::TextInput;
+    let base = h.get_all_by_role(input).count();
+    h.get_by_label("A command of my own").click();
+    settle(&mut h);
+    assert_eq!(h.get_all_by_role(input).count(), base + 2, "the command and address");
+    assert_eq!(h.get_all_by_role(egui::accesskit::Role::PasswordInput).count(), 1);
+    let typed = |h: &mut Harness<'_, Moonglow>, at: usize, text: &str| {
+        h.get_all_by_role(input).nth(at).unwrap().click();
+        settle(h);
+        h.get_all_by_role(input).nth(at).unwrap().type_text(text);
+        settle(h);
+    };
+    typed(&mut h, base, "  ~/server.sh '{module_path}' ");
+    let address = h.get_all_by_role(input).nth(base + 1).unwrap();
+    assert!(address.accesskit_node().is_disabled(), "only with Then start the game");
+    h.get_by_label("Then start the game, joining the server").click();
+    settle(&mut h);
+    typed(&mut h, base + 1, "127.0.0.1:5122");
+    h.get_by_label("Options header").get_by_label("OK").click();
+    settle(&mut h);
+    let s = &h.state().settings;
+    assert_eq!(s.test_starts, TestStarts::Command);
+    assert_eq!(s.test_command, "~/server.sh '{module_path}'");
+    assert!(s.test_joins);
+    assert_eq!(s.test_address, "127.0.0.1:5122");
+    let saved = s.saved_text();
+    assert!(saved.contains("test_starts:Command"), "{saved}");
+}
+
 /// One switch for the Workshop and the test (the owner's ruling of
 /// 2026-11-22): General's Testing has no Steam row of its own any more,
 /// and Folders' Read Steam Workshop content, ticked and set by OK, has a

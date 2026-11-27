@@ -80,6 +80,7 @@ mg-resman.workspace = true
 mg-rules.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
+mg-serve.workspace = true
 mg-set.workspace = true
 mg-shader.workspace = true
 mg-ssf.workspace = true
