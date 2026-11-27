@@ -2761,6 +2761,7 @@ dependencies = [
  "mg-mdl",
  "mg-module",
  "mg-nui",
+ "mg-nwsync",
  "mg-preview",
  "mg-render",
  "mg-resman",
