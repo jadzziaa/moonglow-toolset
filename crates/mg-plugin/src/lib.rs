@@ -425,6 +425,14 @@ pub struct Input {
     /// or a field set; API 0.9), by field id, as a form's come back
     /// (`ctx.values`): empty for a command run from anywhere else.
     pub values: BTreeMap<String, serde_json::Value>,
+    /// What the host knows of the module's NWSync content
+    /// (`mg.nwsync.status()`; API 0.11): the manifest in the game data,
+    /// how much of its data was here when last looked, and a Sync or a
+    /// clean-up under way, as the job begins. None where the host knows
+    /// nothing of it: the status then says what the module's project says
+    /// alone (its source, turned off, a sign-in), which the job reads from
+    /// its own copy of the module.
+    pub nwsync: Option<mg_module::nwsync_content::State>,
 }
 
 impl Input {
@@ -438,6 +446,7 @@ impl Input {
             settings: None,
             budget: None,
             values: BTreeMap::new(),
+            nwsync: None,
         }
     }
 }

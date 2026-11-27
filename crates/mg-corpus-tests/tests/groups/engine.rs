@@ -89,6 +89,8 @@ mod engine_rules;
 mod engine_runner;
 #[path = "../engine_saves.rs"]
 mod engine_saves;
+#[path = "../engine_server_query.rs"]
+mod engine_server_query;
 #[path = "../engine_special_abilities.rs"]
 mod engine_special_abilities;
 #[path = "../engine_static_placeables.rs"]

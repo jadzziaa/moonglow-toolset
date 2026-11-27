@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T14:24:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:21:06Z }
 ---
 
 # Modules
@@ -831,7 +831,7 @@ beside it, named by it, as its folder holds other modules too:
 `krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
 `krezk.mod`. There, what is a checkout's or a
 builder's own is not read (the log says so): `[claims]`, `[commands]`,
-`[plugins]`, `[builder]`, `[nwsync]`'s `upload` and `cache`, and
+`[plugins]`, `[builder]`, `[nwsync]`'s `upload`, `cache` and sign-in, and
 `.moonglow/user.toml` are a module folder's or a nasher project's. The
 rest of `[nwsync]` is read there (`source`, `manifest`, `keep`), so a
 `.mod` handed out with its file beside it opens with its NWSync
@@ -964,9 +964,11 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
 | `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
-| `[nwsync] source` | the NWSync server players download the module's haks and talk table from, as nwserver's `-nwsyncurl` gives it (`"https://nwsync.example.org"`): Moonglow reads that content from it, [without the hak files](09-build-and-test.md#nwsync-content-instead-of-haks), from the game's own NWSync storage and Moonglow's cache, over the haks on disk. In `.moonglow/user.toml` too, where it wins over the team's, and beside a `.mod` (`krezk.moonglow.toml`) | the haks are read from disk alone |
+| `[nwsync] source` | the NWSync server players download the module's haks and talk table from, as nwserver's `-nwsyncurl` gives it (`"https://nwsync.example.org"`), or a [repository folder](09-build-and-test.md#nwsync-content-instead-of-haks) (`"file:///srv/nwsync"`, a whole path, or `"../nwsync"`: a path starting `./` or `../` is from the project's folder, a `.mod`'s from its folder): Moonglow reads that content from it, [without the hak files](09-build-and-test.md#nwsync-content-instead-of-haks), from the game's own NWSync storage and Moonglow's cache, over the haks on disk. In `.moonglow/user.toml` too, where it wins over the team's, and beside a `.mod` (`krezk.moonglow.toml`) | the haks are read from disk alone |
 | `[nwsync] manifest` | which of the server's manifests: `"latest"` (the newest the server names, or the newest here when it can't be asked), or one manifest's SHA-1, to stay on it. In `.moonglow/user.toml` too, where it wins | `"latest"` |
 | `[nwsync] cache` | the folder Moonglow downloads NWSync data into (a whole path; a first download of a persistent world's content can be gigabytes). From `.moonglow/user.toml` alone: the team's file can't choose where Moonglow writes, nor a `.mod`'s file beside it (a `.mod` has no `.moonglow/user.toml`: Moonglow's own cache is used) | `nwsync` in Moonglow's cache folder (`~/.cache/moonglow`, `%LOCALAPPDATA%\Moonglow\cache`, `~/Library/Caches/Moonglow`) |
+| `[nwsync] token`, or `user` and `password` | the sign-in to a [private NWSync server](09-build-and-test.md#a-private-server): a token (`Authorization: Bearer`), or a user and password (`Basic`). From `.moonglow/user.toml` alone: in the team's file (or beside a `.mod`) it is refused, with the file and line, and never sent. Never shown | none |
+| `[nwsync] host` | the server the sign-in is sent to (`"nwsync.example.org"`), alone: no other host, port or scheme, and no plain `http://` but to this computer. From `.moonglow/user.toml` alone | the host of `source` in `.moonglow/user.toml`; without either, no sign-in is sent (said) |
 | `[nwsync] keep` | how many manifests last used a clean-up of Moonglow's NWSync cache keeps besides the module's own ([Cleaning up the cache](09-build-and-test.md#cleaning-up-the-cache)). In `.moonglow/user.toml` too, where it wins, and beside a `.mod` | 3 |
 | `[nwnx] use` | the servers Moonglow runs for the module (`mg serve`, `mg test`, `mg watch --serve`, [Test Module](09-build-and-test.md#test-module-with-nwnx)) load [NWNX](11-command-line.md#nwnx) (`true`), for every builder who has a `home` set; a builder's own `use = false` (in `.moonglow/user.toml`, which wins) turns it off for them. Linux only: on Windows and macOS the server runs without it, and the Log says so once | NWNX is not used |
 | `[nwnx] home` | NWNX's folder on this machine, the one with `Binaries/` (`NWNX_Core.so` and the plugins) and `NWScript/`: a whole path, `~/` from your home, or from the project's root. The team's is a default; yours, in `.moonglow/user.toml`, wins | none: NWNX is off |

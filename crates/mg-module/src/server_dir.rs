@@ -203,6 +203,16 @@ pub enum Development {
     Players,
     /// The folder `mg watch --serve` writes into: the server's own.
     Watched,
+    /// None of the player's (`--no-development`): a link an earlier run
+    /// left is taken away.
+    Off,
+}
+
+impl Development {
+    /// The player's, linked, unless `off` (`--no-development`).
+    pub fn players_unless(off: bool) -> Development {
+        if off { Development::Off } else { Development::Players }
+    }
 }
 
 /// Gives the server's folder `dir` the player's `development` folder
@@ -210,9 +220,13 @@ pub enum Development {
 /// gives its game: a link to it (a junction on Windows without the right
 /// to make a symbolic link), made again at every start so that it
 /// follows `--user-dir`. Nothing is written into the player's folder.
-/// Nothing is done where the player has none, where `dir` is the
+/// With none to give (`--no-development`, no user folder), a link an
+/// earlier run made is taken away. Nothing is done where the player has
+/// none, where `dir` is the
 /// player's own (`--real-user-dir`), or for `mg watch`'s folder. A
 /// folder (or file) of `dir`'s own there is kept, and said in the note
+/// (an empty folder, as the server makes at a start without the link,
+/// gives way)
 /// returned; in Moonglow's own `scratch` folder a folder there was left
 /// by `mg watch --serve`, and gives way.
 pub fn link_development(
@@ -221,7 +235,10 @@ pub fn link_development(
     development: Development,
     scratch: bool,
 ) -> Result<Option<String>> {
+    // (None given, `--no-development` or no user folder: a link an earlier
+    // run made, into a player's folder, is taken away too.)
     let Some(user) = user.filter(|_| development == Development::Players) else {
+        unlink_development(dir)?;
         return Ok(None);
     };
     if players_dir(Some(user), dir).is_some() {
@@ -236,7 +253,12 @@ pub fn link_development(
         // folder is now.)
         crate::links::unlink(&to).with_context(context)?;
     } else if let Ok(meta) = std::fs::symlink_metadata(&to) {
-        if scratch && meta.is_dir() {
+        let empty = meta.is_dir() && std::fs::read_dir(&to).is_ok_and(|mut d| d.next().is_none());
+        if empty {
+            // (The server's own, made at a start without the link: nothing
+            // of anybody's in it.)
+            std::fs::remove_dir(&to).with_context(context)?;
+        } else if scratch && meta.is_dir() {
             std::fs::remove_dir_all(&to).with_context(context)?;
         } else {
             return Ok(from.is_dir().then(|| {

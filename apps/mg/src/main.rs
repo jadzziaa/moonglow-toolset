@@ -378,6 +378,10 @@ enum Cmd {
         /// project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// Give the server no link to your development folder (the found
+        /// user folder's, or --user-dir's).
+        #[arg(long)]
+        no_development: bool,
         /// The port (default: a free one).
         #[arg(long)]
         port: Option<u16>,
@@ -460,6 +464,10 @@ enum Cmd {
         /// project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// Give the server no link to your development folder (the found
+        /// user folder's, or --user-dir's).
+        #[arg(long)]
+        no_development: bool,
         /// A file of NAME=value lines for the server's environment.
         #[arg(long)]
         env: Vec<PathBuf>,
@@ -734,6 +742,10 @@ enum Cmd {
         /// though the project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// With --serve or --test: give the server no link to your
+        /// development folder.
+        #[arg(long)]
+        no_development: bool,
         /// With --serve: the server's user directory (default: a scratch
         /// one).
         #[arg(long)]
@@ -1310,6 +1322,13 @@ enum Cmd {
         /// 22 (smallest); 3, the default, is `nwn_nwsync_write`'s.
         #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(i32).range(1..=22))]
         level: i32,
+        /// Write the manifest's origins file too (manifests/<sha1>.origin,
+        /// as nwn_nwsync_write --write-origins): each hak and file a
+        /// resource came from, by its file's name, with the resources it
+        /// gave, so that a reader knows which of a module's haks the
+        /// manifest holds.
+        #[arg(long)]
+        write_origins: bool,
         /// Then send the repository to the web server: run this command
         /// (default: the project's [nwsync] upload) in the repository's
         /// folder once for each part, the data, then the manifests, then
@@ -2418,13 +2437,17 @@ pub(crate) fn install(cli: &Cli) -> Result<GameInstall> {
     Ok(gi)
 }
 
+/// The user directory `mg` was given (`--user-dir`) or finds, without
+/// the game too; none with `--no-user-dir`.
+fn user_folder(cli: &Cli) -> Option<PathBuf> {
+    (cli.user_dir.clone()).or_else(GameInstall::detect_user_dir).filter(|_| !cli.no_user_dir)
+}
+
 /// The codepage the game client reads text in, as the user directory's
 /// `settings.tml` sets it ([`client_codepage`]); the user directory as
 /// `mg` finds it, without the game too.
 fn user_codepage(cli: &Cli) -> Option<Codepage> {
-    (cli.user_dir.clone())
-        .or_else(GameInstall::detect_user_dir)
-        .filter(|_| !cli.no_user_dir)
+    user_folder(cli)
         .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
         .and_then(|t| client_codepage(&t))
 }
@@ -2608,6 +2631,9 @@ fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered)
 
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
+    if matches!(cli.cmd, Cmd::Plugin { .. }) {
+        let _ = plugins::USER_DIR.set(user_folder(cli));
+    }
     let out = match &cli.cmd {
         Cmd::Ls { archive, sha256 } => {
             // (Mapped, not read: a hak is gigabytes, and its names are in
@@ -3151,6 +3177,7 @@ fn run(cli: &Cli) -> Result<Output> {
             dir,
             real_user_dir,
             no_nwsync,
+            no_development,
             port,
             public,
             name,
@@ -3182,7 +3209,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 project: None,
                 progress: !cli.json,
                 no_nwsync: *no_nwsync,
-                development: serve::Development::Players,
+                development: serve::Development::players_unless(*no_development),
                 nwnx: nwnx.choice(),
                 live: false,
             };
@@ -3237,6 +3264,7 @@ fn run(cli: &Cli) -> Result<Output> {
             include,
             dir,
             no_nwsync,
+            no_development,
             env,
             preload,
             nwnx,
@@ -3263,6 +3291,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     args: server_args.clone(),
                     progress: !cli.json,
                     no_nwsync: *no_nwsync,
+                    development: serve::Development::players_unless(*no_development),
                     nwnx: nwnx.choice(),
                     ..Default::default()
                 },
@@ -4346,6 +4375,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         ndb,
         serve,
         no_nwsync,
+        no_development,
         dir,
         port,
         passwords,
@@ -4436,6 +4466,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
             serve: serve::Config {
                 name: "Moonglow test run".into(),
                 no_nwsync: *no_nwsync,
+                development: serve::Development::players_unless(*no_development),
                 ..Default::default()
             },
         };
@@ -4509,7 +4540,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         live: true,
         development: match watched {
             true => serve::Development::Watched,
-            false => serve::Development::Players,
+            false => serve::Development::players_unless(*no_development),
         },
         ..Default::default()
     };
@@ -5298,6 +5329,7 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         force,
         dry_run,
         level,
+        write_origins,
         upload,
     } = &cli.cmd
     else {
@@ -5361,6 +5393,7 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         force: *force,
         dry_run: *dry_run,
         level: *level,
+        origins: *write_origins,
     };
     let w = mg_module::nwsync::write(repository, &contents, &o, &mut |_, _| {})
         .map_err(anyhow::Error::msg)?;
@@ -5380,6 +5413,8 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         "bytes": w.bytes,
         "on_disk_bytes": w.on_disk,
         "new_files": w.new_files,
+        "origins": w.origins.map(|_| format!("manifests/{}.origin", w.sha1)),
+        "origin_containers": w.origins,
         "dry_run": *dry_run,
         "uploaded": uploaded,
     });
@@ -5393,6 +5428,14 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         w.new_files,
         if *dry_run { "; nothing written" } else { "" }
     ));
+    if let Some(n) = w.origins {
+        out.note(format!(
+            "origins: {n} {} named in manifests/{}.origin{}",
+            if n == 1 { "container" } else { "containers" },
+            w.sha1,
+            if *dry_run { " (not written: a dry run)" } else { "" }
+        ));
+    }
     if uploaded.is_empty() {
         out.note(format!(
             "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",

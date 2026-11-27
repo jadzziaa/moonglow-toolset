@@ -204,6 +204,9 @@ pub(crate) struct Shared {
     /// The values of the panel's fields the command was run from
     /// (`ctx.values`; API 0.9).
     values: std::collections::BTreeMap<String, serde_json::Value>,
+    /// What the host knows of the module's NWSync content
+    /// (`mg.nwsync.status()`; API 0.11).
+    nwsync: Option<mg_module::nwsync_content::State>,
     /// The plugin's settings, their values as the job goes (what it set
     /// read back), and what it set.
     decls: RefCell<Vec<crate::SettingDecl>>,
@@ -1524,6 +1527,7 @@ fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     mg.set("twoda", crate::tables::twoda_api(lua, &sh.budget_held, sh.game.clone())?)?;
     mg.set("tlk", crate::tables::tlk_api(lua, &sh.budget_held)?)?;
     mg.set("vars", vars_api(lua, sh)?)?;
+    mg.set("nwsync", nwsync_api(lua, sh)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
         "path",
@@ -1621,6 +1625,70 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
                 .iter()
                 .map(|d| table(lua, &ws.module, &lookup, d))
                 .collect::<mlua::Result<Vec<_>>>()
+        })?,
+    )?;
+    Ok(api)
+}
+
+/// `mg.nwsync`: the module's NWSync content (API 0.11). `status()` is a
+/// table of what is known of it as the job began (the module's project,
+/// as the job's copy has it, and what the host knows: the manifest in the
+/// game data, how much of its data is here, a Sync or a clean-up under
+/// way), made at once, with nothing read from disk or asked of the
+/// server; nil where the project names no NWSync source. Never the
+/// sign-in: whether there is one for the source, at most.
+fn nwsync_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
+    use mg_module::nwsync_content::State;
+    let api = lua.create_table()?;
+    let s = sh.clone();
+    api.set(
+        "status",
+        lua.create_function(move |lua, ()| {
+            let ws = s.ws.borrow();
+            let project = &ws.module.project_file;
+            // (Turned off by the builder's own file: the team's source,
+            // said to be off, and nothing else of it.)
+            let (state, signed_in, off) = match (&project.nwsync_off, project.nwsync_settings()) {
+                (_, Some(settings)) => {
+                    let known = s.nwsync.as_ref().filter(|n| n.source == settings.url).cloned();
+                    let signed_in =
+                        settings.auth.as_ref().is_some_and(|a| a.sent_to(&settings.url));
+                    (
+                        known.unwrap_or_else(|| State::of(&settings.url, None, None)),
+                        signed_in,
+                        false,
+                    )
+                }
+                (Some(off), None) => (State::of(off, None, None), false, true),
+                (None, None) => return Ok(None),
+            };
+            let list = |l: &[String]| lua.create_sequence_from(l.iter().map(String::as_str));
+            let t = lua.create_table()?;
+            t.set("off", off)?;
+            t.set("source", state.source.as_str())?;
+            t.set("signed_in", signed_in)?;
+            t.set("manifest", state.manifest.as_deref())?;
+            t.set("from", state.from)?;
+            let arrived = state.arrived.and_then(|a| a.duration_since(std::time::UNIX_EPOCH).ok());
+            t.set("arrived", arrived.map(|d| d.as_secs() as f64))?;
+            t.set("resources", state.resources)?;
+            t.set("haks", list(&state.haks)?)?;
+            t.set("by_origins", state.by_origins)?;
+            t.set("haks_missing", list(&state.haks_missing)?)?;
+            t.set("newer_on_disk", list(&state.newer_on_disk)?)?;
+            if let Some(c) = state.survey {
+                let survey = lua.create_table()?;
+                survey.set("resources", c.resources)?;
+                survey.set("data_files", c.data_files)?;
+                survey.set("in_game_storage", c.in_game_storage)?;
+                survey.set("in_cache", c.in_cache)?;
+                survey.set("missing", c.missing)?;
+                survey.set("missing_bytes", c.missing_bytes as f64)?;
+                t.set("survey", survey)?;
+            }
+            t.set("syncing", state.syncing)?;
+            t.set("cleaning", state.cleaning)?;
+            Ok(Some(t))
         })?,
     )?;
     Ok(api)
@@ -1826,6 +1894,7 @@ fn shared_holding(
         rng: RefCell::new(fastrand::Rng::new()),
         selection: input.selection,
         values: input.values,
+        nwsync: input.nwsync,
         decls: RefCell::default(),
         settings: RefCell::new(input.settings.unwrap_or_default()),
         settings_set: RefCell::default(),

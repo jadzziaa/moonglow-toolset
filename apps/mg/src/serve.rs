@@ -1285,6 +1285,33 @@ mod tests {
         assert_eq!(entries(&user), before);
     }
 
+    /// `--no-development`: no link, and one an earlier run made is taken
+    /// away; nothing in the player's folder is touched.
+    #[test]
+    fn no_development_takes_the_link_away() {
+        let dir = mg_testkit::scratch_dir("mg-serve-development-off");
+        let user = players_folder(&dir, "user", "// mine\n");
+        let server = dir.join("server");
+        std::fs::create_dir_all(&server).unwrap();
+        let before = entries(&user);
+        link_development(Some(&user), &server, Development::Players, false).unwrap();
+        assert!(mg_module::links::is_link(&server.join("development")));
+        let note = link_development(Some(&user), &server, Development::Off, false).unwrap();
+        assert_eq!(note, None);
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+        assert_eq!(entries(&user), before);
+        // No user folder (`--no-user-dir`): the same.
+        link_development(Some(&user), &server, Development::Players, false).unwrap();
+        assert_eq!(link_development(None, &server, Development::Players, false).unwrap(), None);
+        assert!(std::fs::symlink_metadata(server.join("development")).is_err());
+        // A folder of the server's own there is kept.
+        std::fs::create_dir_all(server.join("development")).unwrap();
+        link_development(Some(&user), &server, Development::Off, false).unwrap();
+        assert!(server.join("development").is_dir());
+        assert_eq!(Development::players_unless(true), Development::Off);
+        assert_eq!(Development::players_unless(false), Development::Players);
+    }
+
     /// No `development` folder of the player's: no link, no note, and
     /// none made in the player's folder; none for `mg watch`'s own folder
     /// either, nor with no user folder at all.
@@ -1332,6 +1359,14 @@ mod tests {
         assert!(mg_module::links::is_link(&server.join("development")));
         assert!(user.join("development/mg_dev.nss").is_file());
         assert!(!user.join("development/builder.nss").exists());
+
+        // An empty one, as the server makes at a start without the link,
+        // gives way outside the scratch folder too, without a note.
+        let other = dir.join("other");
+        std::fs::create_dir_all(other.join("development")).unwrap();
+        let note = link_development(Some(&user), &other, Development::Players, false).unwrap();
+        assert_eq!(note, None);
+        assert!(mg_module::links::is_link(&other.join("development")));
     }
 
     /// The link leads into the `development` folder of the user folder

@@ -159,6 +159,7 @@ fn run_at_once(
     let input = Input {
         settings: Some(settings),
         budget: Some(app.plugin_event_budget()),
+        nwsync: app.plugin_nwsync(),
         ..Input::new(module, app.game.clone())
     };
     let made = run_event(plugin, id, event, input, host.clone());

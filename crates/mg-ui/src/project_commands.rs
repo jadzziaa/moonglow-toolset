@@ -413,7 +413,7 @@ impl Incoming {
 /// (TERM: a `git` takes its lock files off) and, still there after two
 /// seconds, made to (KILL); on Windows the shell's tree of processes
 /// (`taskkill /T /F`). Then the shell is waited for.
-fn stop(child: &mut Child) {
+pub(crate) fn stop(child: &mut Child) {
     #[cfg(unix)]
     {
         use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};

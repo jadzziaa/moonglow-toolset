@@ -128,6 +128,17 @@ named!(MissingFeats: Ask, Add, Refuse);
 named!(ShadowQuality: Fast, High);
 named!(GraphicsBackend: Automatic, Vulkan, Direct3d12, Metal);
 named!(OpenEditors: Tabs, Floating);
+named!(TestStarts: Game, Command);
+
+/// Options › Test Module › Test Module starts: the game on the module, as
+/// Aurora's F9 does, or a command of the builder's own (a server of
+/// theirs with NWNX, in WSL: GitHub issue 52).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum TestStarts {
+    #[default]
+    Game,
+    Command,
+}
 
 /// Options › General › Editors › Open editors: where an editor opens
 /// when nothing of its kind has a place kept for it
@@ -1139,6 +1150,21 @@ pub struct Settings {
     pub drag_windows_anywhere: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
+    /// Options › Test Module: what Test Module starts.
+    pub test_starts: TestStarts,
+    /// Options › Test Module: the command run in place of the game
+    /// ([`TestStarts::Command`]), `{module_path}` and `{module_name}`
+    /// filled in (`test_module::fill_in`), by the system's shell.
+    pub test_command: String,
+    /// Options › Test Module: Then start the game: once a server answers
+    /// at [`Settings::test_address`], the game joins it.
+    pub test_joins: bool,
+    /// The server's address the game joins; empty:
+    /// `test_module::DEFAULT_ADDRESS`.
+    pub test_address: String,
+    /// The server's player password, if it has one (kept as typed, in
+    /// these settings: a test server's).
+    pub test_password: String,
     // (`test_without_steam`, Options > General's Start a Steam copy of the
     // game through Steam for a test, unticked, was retired in 5.1.0: a
     // test follows Read Steam Workshop content,
@@ -2894,10 +2920,11 @@ mod tests {
             let retired = ["toolbar_icons_only", "test_without_steam"];
             let kept: Vec<_> =
                 old.into_iter().filter(|(n, _)| !retired.contains(&n.as_str())).collect();
-            // (Seven fields came after the file, Anti-aliasing, two from
+            // (Twelve fields came after the file, Anti-aliasing, two from
             // develop's Builders' asks, M5's W1's, 5.2.0's W6's Smooth
-            // scrolling, W7's Colored icons and W5's Show declarations in
-            // tips: written at their defaults, the rest as it was.)
+            // scrolling, W7's Colored icons, 5.5.0's five of Options › Test
+            // Module and W5's Show declarations in tips: written at their
+            // defaults, the rest as it was.)
             let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
                 .expect("fields")
                 .into_iter()
@@ -2909,6 +2936,11 @@ mod tests {
                 ("appearance_portrait", "false"),
                 ("no_smooth_scrolling", "false"),
                 ("colored_icons", "false"),
+                ("test_starts", "Game"),
+                ("test_command", "\"\""),
+                ("test_joins", "false"),
+                ("test_address", "\"\""),
+                ("test_password", "\"\""),
                 ("no_symbol_tips", "false"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()));

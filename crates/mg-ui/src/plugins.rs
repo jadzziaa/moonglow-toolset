@@ -750,6 +750,7 @@ pub(crate) fn check_findings(
             });
             let input = Input {
                 settings: Some(settings.clone()),
+                nwsync: job.nwsync.clone(),
                 ..Input::new(job.module.clone(), job.game.clone())
             };
             match mg_plugin::run_check(plugin, &check.id, input, host) {
@@ -1917,7 +1918,10 @@ impl Moonglow {
                     answers: RefCell::new(answers),
                     granted,
                 });
-                let input = Input::new(job.module.clone(), job.game.clone());
+                let input = Input {
+                    nwsync: job.nwsync.clone(),
+                    ..Input::new(job.module.clone(), job.game.clone())
+                };
                 run(input, host)
             },
             move |app, result| {

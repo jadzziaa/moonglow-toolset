@@ -122,6 +122,7 @@ pub mod tag_clash;
 pub mod talk_typed;
 pub mod talk_view;
 pub mod terrain_mode;
+mod test_command;
 pub mod test_module;
 mod text;
 pub mod tile_select;
@@ -1622,6 +1623,8 @@ pub struct Moonglow {
     /// The project's commands (File › Project): the one asked about, its
     /// output.
     pub(crate) project_commands: project_commands::CommandsState,
+    /// Options › Test Module's command, running ([`test_command`]).
+    pub(crate) test_command: Option<test_command::Running>,
     /// The window's close button was pressed with nothing unsaved: asked
     /// whether to close.
     pub closing: bool,
@@ -2125,6 +2128,7 @@ impl Moonglow {
             module_folder: None,
             claims: Default::default(),
             project_commands: Default::default(),
+            test_command: None,
             closing: false,
             render_info: None,
             graphics_choice: None,
@@ -2814,6 +2818,7 @@ impl Moonglow {
         claims::windows(self, ui.ctx());
         plugin_events::window(self, ui.ctx());
         project_commands::window(self, ui.ctx());
+        test_command::tick(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
@@ -7342,6 +7347,19 @@ impl Moonglow {
                 ));
             }
         }
+        // (Options › Test Module: a command of the builder's own, on the
+        // module where it is saved, a nasher project's packed.)
+        if self.settings.test_starts == settings::TestStarts::Command {
+            let path = match self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
+                true => self.pack_target(),
+                false => self.module_path(),
+            };
+            match path {
+                Some(path) => self.test_by_command(&path),
+                None => self.log.error("Test Module: save the module first"),
+            }
+            return;
+        }
         let Some(install) = self.install.clone() else {
             self.log.error("Test Module needs the game");
             return;
@@ -7434,7 +7452,11 @@ impl Moonglow {
                     at[1],
                     dest.display()
                 ));
-                self.test_with_content(&client, &user, test_module::FROM_HERE, choose);
+                if self.settings.test_starts == settings::TestStarts::Command {
+                    self.test_by_command(&dest);
+                } else {
+                    self.test_with_content(&client, &user, test_module::FROM_HERE, choose);
+                }
             }
             Err(e) => self.log.error(format!("Test From Here: {e}")),
         }
@@ -7810,6 +7832,47 @@ impl Moonglow {
         self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
+    }
+
+    /// Options › Test Module's command run on the module at `path` (its
+    /// file or folder, named by its stem), and the game joining its server
+    /// where Then start the game is on ([`test_command`]).
+    fn test_by_command(&mut self, path: &std::path::Path) {
+        let line = self.settings.test_command.trim().to_string();
+        if line.is_empty() {
+            self.log.error("Test Module: Options › Test Module has no command to run");
+            return;
+        }
+        let name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        let join = if self.settings.test_joins {
+            let install = self.install.as_ref();
+            let client = install.and_then(|i| test_module::client_binary(i.root.as_path()));
+            let user = install.and_then(|i| i.user_dir.clone());
+            let (Some(client), Some(user)) = (client, user) else {
+                self.log.error(
+                    "Test Module: no game client, or no user folder (Options › Folders), to \
+                     join the server with",
+                );
+                return;
+            };
+            if !self.other_game_allows(&name) {
+                return;
+            }
+            let address = match self.settings.test_address.trim() {
+                "" => test_module::DEFAULT_ADDRESS.to_string(),
+                typed => typed.to_string(),
+            };
+            Some(test_command::Join {
+                client,
+                user,
+                address,
+                password: self.settings.test_password.clone(),
+                steam: self.settings.test_through_steam(),
+            })
+        } else {
+            None
+        };
+        test_command::start(self, &line, path, &name, join);
     }
 
     /// Starts the game for a test ([`Moonglow::launch_test`]). For a

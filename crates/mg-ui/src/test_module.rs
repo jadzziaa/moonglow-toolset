@@ -64,42 +64,20 @@ pub fn steam_copy(client: &Path) -> bool {
 /// content too (Options › Folders' Read Steam Workshop content,
 /// [`crate::Settings::test_through_steam`]).
 pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool, steam: bool) -> Command {
-    let mut c = Command::new(client);
-    if let Some(dir) = client.parent() {
-        c.current_dir(dir);
-    }
+    let mut c = client_command(client, user_dir, steam);
     let how = if choose { "+LoadNewModule" } else { "+TestNewModule" };
-    c.arg("-userdirectory").arg(user_dir).arg(how).arg(module);
-    steam_env(&mut c, client, steam);
+    c.arg(how).arg(module);
     c
 }
 
-/// The command that has the game join a server (Test Module's local
-/// server, [`LocalRun`]): the client, from its own folder, on `user_dir`,
-/// `+connect ADDRESS +password PASSWORD` (the game's documented
-/// arguments), Steam as [`command`] has it.
-///
-/// A minimal one: Interface's branch `test-module-ui` has its own of the
-/// same signature, which replaces or merges with this one.
-pub fn join_command(
-    client: &Path,
-    user_dir: &Path,
-    address: &str,
-    password: &str,
-    steam: bool,
-) -> Command {
+/// The client from its own folder, given its user directory, and told
+/// whether it is Steam's ([`command`]).
+fn client_command(client: &Path, user_dir: &Path, steam: bool) -> Command {
     let mut c = Command::new(client);
     if let Some(dir) = client.parent() {
         c.current_dir(dir);
     }
     c.arg("-userdirectory").arg(user_dir);
-    c.args(["+connect", address, "+password", password]);
-    steam_env(&mut c, client, steam);
-    c
-}
-
-/// What a Steam copy of the game is told of Steam ([`command`]).
-fn steam_env(c: &mut Command, client: &Path, steam: bool) {
     // A Steam copy told which game it is reaches Steam when Steam is
     // running and is expected to load what Steam brings it (the Workshop
     // items subscribed to: overrides of the game's textures, materials),
@@ -126,6 +104,68 @@ fn steam_env(c: &mut Command, client: &Path, steam: bool) {
             }
         }
     }
+    c
+}
+
+/// The game joining a server for a test (Options › Test Module's Then
+/// start the game): the client, from its own folder, with `+connect` (and
+/// `+password` where the server has one). The game shows the server's
+/// character list. `steam` as for [`command`].
+pub fn join_command(
+    client: &Path,
+    user_dir: &Path,
+    address: &str,
+    password: &str,
+    steam: bool,
+) -> Command {
+    let mut c = client_command(client, user_dir, steam);
+    c.arg("+connect").arg(address);
+    if !password.is_empty() {
+        c.arg("+password").arg(password);
+    }
+    c
+}
+
+/// The player's own characters, for the quick start's character: each
+/// `.bic` of the user folder's `localvault` (read, never written) with the
+/// name it carries (first and last, in English), else its file's name;
+/// in the order of their names.
+pub fn local_characters(user_dir: &Path) -> Vec<(String, PathBuf)> {
+    use mg_core::lang::{Gender, Language};
+    let Ok(entries) = std::fs::read_dir(user_dir.join("localvault")) else { return Vec::new() };
+    let mut found: Vec<(String, PathBuf)> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("bic")))
+        .map(|path| {
+            let gff = std::fs::read(&path).ok().and_then(|b| mg_gff::Gff::read(&b).ok());
+            let part = |label: &str| {
+                let text =
+                    gff.as_ref()?.root.locstring(label)?.text(Language::ENGLISH, Gender::Male)?;
+                Some(text.trim().to_string()).filter(|t| !t.is_empty())
+            };
+            let name =
+                [part("FirstName"), part("LastName")].into_iter().flatten().collect::<Vec<_>>();
+            let name = match name.is_empty() {
+                true => path.file_stem().unwrap_or_default().to_string_lossy().into_owned(),
+                false => name.join(" "),
+            };
+            (name, path)
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()).then(a.1.cmp(&b.1)));
+    found
+}
+
+/// Options › Test Module's address of the server the game joins, when none
+/// is typed: the game's own port on this machine.
+pub const DEFAULT_ADDRESS: &str = "127.0.0.1:5121";
+
+/// Options › Test Module's command with `{module_path}` and
+/// `{module_name}` filled in, as they are: a builder whose module's path
+/// may have spaces puts quotes around it, as the shell wants.
+pub fn fill_in(line: &str, module_path: &Path, module_name: &str) -> String {
+    line.replace("{module_path}", &module_path.display().to_string())
+        .replace("{module_name}", module_name)
 }
 
 /// The log's line for a test of a Steam copy of the game, which says
@@ -496,6 +536,84 @@ pub fn content_user_dir(real: &Path, dir: &Path, content: &Content) -> Result<()
 mod tests {
     use super::*;
 
+    /// GitHub issue 52: the command's module filled in as it is, each time
+    /// it is named.
+    #[test]
+    fn a_test_command_has_its_module_filled_in() {
+        let path = Path::new("/home/b/My Modules/Ravenloft.mod");
+        let line = "wsl.exe -- bash -lc \"~/start.sh '{module_path}' {module_name} {module_name}\"";
+        assert_eq!(
+            fill_in(line, path, "Ravenloft"),
+            "wsl.exe -- bash -lc \"~/start.sh '/home/b/My Modules/Ravenloft.mod' Ravenloft \
+             Ravenloft\""
+        );
+        assert_eq!(fill_in("run {other}", path, "R"), "run {other}", "only the two");
+    }
+
+    /// The quick start's characters: the localvault's `.bic`s by the names
+    /// they carry, a file without one (or not a character at all) by its
+    /// file's name, other files left out; none without a localvault.
+    #[test]
+    fn local_characters_are_listed_by_name() {
+        use mg_core::lang::{Gender, Language};
+        use mg_core::locstring::LocString;
+        let dir = mg_testkit::scratch_dir("ui-local-characters");
+        assert!(local_characters(&dir).is_empty());
+        let vault = dir.join("localvault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let bic = |first: &str, last: &str| {
+            let mut g = mg_gff::Gff::new(*b"BIC ");
+            let name = |t: &str| {
+                mg_gff::Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, t))
+            };
+            g.root.set("FirstName", name(first));
+            g.root.set("LastName", name(last));
+            g.to_bytes().unwrap()
+        };
+        std::fs::write(vault.join("zed.bic"), bic("Anya", "Vorn")).unwrap();
+        std::fs::write(vault.join("bard.BIC"), bic("Mirela", "")).unwrap();
+        std::fs::write(vault.join("broken.bic"), b"not a gff").unwrap();
+        std::fs::write(vault.join("notes.txt"), b"x").unwrap();
+        let names: Vec<_> = local_characters(&dir)
+            .into_iter()
+            .map(|(n, p)| (n, p.file_name().unwrap().to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Anya Vorn".into(), "zed.bic".into()),
+                ("broken".into(), "broken.bic".into()),
+                ("Mirela".into(), "bard.BIC".into()),
+            ] as [(String, String); 3]
+        );
+    }
+
+    /// The game joining a test's server: its user directory, `+connect`,
+    /// and `+password` only where there is one; no module; Steam told as
+    /// for a test of its own.
+    #[test]
+    fn the_game_joins_a_server_with_connect() {
+        let args = |c: &Command| {
+            c.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>()
+        };
+        let client = Path::new("/nwn/bin/linux-x86/nwmain-linux");
+        let c = join_command(client, Path::new("/u"), "127.0.0.1:5121", "", false);
+        assert_eq!(args(&c), ["-userdirectory", "/u", "+connect", "127.0.0.1:5121"]);
+        assert_eq!(c.get_current_dir(), Some(Path::new("/nwn/bin/linux-x86")));
+        let c = join_command(client, Path::new("/u"), "10.0.0.2:5122", "pw", false);
+        assert_eq!(
+            args(&c),
+            ["-userdirectory", "/u", "+connect", "10.0.0.2:5122", "+password", "pw"]
+        );
+        // A Steam copy is told of Steam as for a test of its own.
+        let steam =
+            Path::new("/lib/steamapps/common/Neverwinter Nights/bin/linux-x86/nwmain-linux");
+        let c = join_command(steam, Path::new("/u"), "127.0.0.1:5121", "pw", false);
+        let removed = c.get_envs().filter(|(_, v)| v.is_none()).count();
+        assert_eq!(removed, 2, "not started through Steam");
+        assert_eq!(join_command(steam, Path::new("/u"), "a", "b", true).get_envs().count(), 2);
+    }
+
     /// The content user directory: the player's folder linked thing by
     /// thing but for `hak` and `tlk`, which hold the content (and none of
     /// what was linked there before), `nwn.ini` without its hak and talk
@@ -701,25 +819,6 @@ mod tests {
         let other = Path::new("/game/bin/linux-x86/nwmain-linux");
         assert_eq!(command(other, &dir, "My Module", false, false).get_envs().count(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// The game joins a server with its documented arguments, Steam told
-    /// as for a test of its own.
-    #[test]
-    fn the_game_joins_a_server_by_address_and_password() {
-        let steam =
-            Path::new("/lib/steamapps/common/Neverwinter Nights/bin/linux-x86/nwmain-linux");
-        let user = Path::new("/home/me/nwn");
-        let c = join_command(steam, user, "127.0.0.1:5121", "pw", false);
-        let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(
-            args,
-            ["-userdirectory", "/home/me/nwn", "+connect", "127.0.0.1:5121", "+password", "pw"]
-        );
-        assert_eq!(c.get_current_dir(), steam.parent());
-        let removed = c.get_envs().filter(|(_, v)| v.is_none()).count();
-        assert_eq!(removed, 2, "not started through Steam");
-        assert_eq!(join_command(steam, user, "a", "b", true).get_envs().count(), 2);
     }
 
     /// What a test of a Steam copy is told: through Steam (Read Steam

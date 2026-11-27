@@ -190,6 +190,12 @@ pub struct Layer {
     /// The custom talk table on disk is newer than the manifest: the
     /// manifest's (and its feminine table) left out of the layer.
     pub newer_tlk: Option<String>,
+    /// When the manifest came here ([`mg_nwsync::Found::at`]), which the
+    /// files on disk were weighed against.
+    pub at: Option<SystemTime>,
+    /// The haks of the module neither on disk nor in it (by its origins
+    /// file; without one, every hak not on disk is taken to be in it).
+    pub haks_missing: Vec<String>,
 }
 
 impl Layer {
@@ -240,6 +246,93 @@ impl Mounted {
             l.resources,
             l.from.said(),
         ))
+    }
+}
+
+/// How much of a manifest's data is here, in counts (a [`mg_nwsync::Survey`]
+/// without its list of data files), named as `mg nwsync-status --json`'s
+/// `survey` names them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SurveyCounts {
+    pub resources: usize,
+    pub data_files: usize,
+    pub in_game_storage: usize,
+    pub in_cache: usize,
+    /// The data files not here (neither in the game's storage nor in the
+    /// cache): to be downloaded.
+    pub missing: usize,
+    pub missing_bytes: u64,
+}
+
+impl From<&mg_nwsync::Survey> for SurveyCounts {
+    fn from(s: &mg_nwsync::Survey) -> SurveyCounts {
+        SurveyCounts {
+            resources: s.resources,
+            data_files: s.data_files,
+            in_game_storage: s.in_game,
+            in_cache: s.in_cache,
+            missing: s.missing.len(),
+            missing_bytes: s.missing_bytes,
+        }
+    }
+}
+
+/// The module's NWSync content as the window (or a command) knows it, in
+/// plain data, for the plugin API's `mg.nwsync.status()` (API 0.11):
+/// what was put into the game data, how much of its data was here when
+/// last looked, and whether a Sync or a clean-up of the cache is under
+/// way. Copied from what is known: nothing is read from disk or asked of
+/// the server to make it. Never the sign-in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State {
+    /// The source it is of (`Settings::url`).
+    pub source: String,
+    /// The manifest in the game data: its SHA-1 (hex), where it was found
+    /// ([`ManifestFrom::word`]), when it came here, and its resources
+    /// (the layer's: those of the module's own left out where it was built
+    /// with them). None where no manifest is in the game data.
+    pub manifest: Option<String>,
+    pub from: Option<&'static str>,
+    pub arrived: Option<SystemTime>,
+    pub resources: Option<usize>,
+    /// The module's haks not on disk that the manifest holds, and whether
+    /// its origins file said so (else every hak not on disk is taken to be
+    /// in it).
+    pub haks: Vec<String>,
+    pub by_origins: bool,
+    /// The module's haks neither on disk nor in the manifest.
+    pub haks_missing: Vec<String>,
+    /// The files on disk newer than the manifest, used over it, by their
+    /// file names (`castle.hak`, `world.tlk`).
+    pub newer_on_disk: Vec<String>,
+    /// How much of the manifest's data is here, as last looked (none
+    /// where nothing has looked yet).
+    pub survey: Option<SurveyCounts>,
+    /// A Sync under way, and a clean-up of the cache (its dry run too).
+    pub syncing: bool,
+    pub cleaning: bool,
+}
+
+impl State {
+    /// The state of the content of `source`: `mounted` (where it is of
+    /// that source) and `survey`, as known; nothing under way.
+    pub fn of(source: &str, mounted: Option<&Mounted>, survey: Option<SurveyCounts>) -> State {
+        let mut s = State { source: source.to_string(), survey, ..Default::default() };
+        let layer =
+            mounted.filter(|m| m.settings.url == source).and_then(|m| m.layer.as_ref().ok());
+        if let Some(l) = layer {
+            s.manifest = Some(mg_nwsync::sha1_hex(&l.sha1));
+            s.from = Some(l.from.word());
+            s.arrived = l.at;
+            s.resources = Some(l.resources);
+            s.haks = l.haks.clone();
+            s.by_origins = l.by_origins;
+            s.haks_missing = l.haks_missing.clone();
+            s.newer_on_disk = (l.newer_haks.iter().map(|h| format!("{h}.hak")))
+                .chain(l.newer_tlk.iter().map(|t| format!("{t}.tlk")))
+                .collect();
+        }
+        s
     }
 }
 
@@ -301,6 +394,7 @@ pub fn mount(
             Some(o) => missing.drain(..).partition(|h| o.hak(h).is_some()),
             None => (std::mem::take(missing), Vec::new()),
         };
+        let haks_missing = kept.clone();
         *missing = kept;
         Ok(Layer {
             sha1: found.sha1,
@@ -314,6 +408,8 @@ pub fn mount(
             haks,
             newer_haks,
             newer_tlk,
+            at: found.at,
+            haks_missing,
         })
     })();
     Mounted { settings: settings.clone(), layer, warnings }
@@ -718,6 +814,7 @@ mod tests {
             url: URL.into(),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         (GameStorage::open(&storage).unwrap().unwrap(), settings, sha1(&manifest))
     }
@@ -860,6 +957,153 @@ mod tests {
         assert_eq!(resources_of(&f, "two"), ["b.2da"]);
         assert!(f.summary().starts_with("1 hak from NWSync manifest"), "{}", f.summary());
         assert_eq!(f.notes(), ["hak one on disk is newer than the NWSync manifest: used over it"]);
+    }
+
+    /// What the plugin API is told of the content (`State`): the manifest
+    /// put in, where from and when it came, the haks it holds, the files on
+    /// disk newer than it by their file names; of another source (a
+    /// project changed since), only that source; no layer (no manifest
+    /// here), no manifest.
+    #[test]
+    fn the_state_is_what_was_put_in() {
+        let dir = mg_testkit::scratch_dir("nwsync-content-state");
+        let mut resources: Vec<(&str, ResType, &[u8])> = vec![("a", ResType::TWODA, b"a")];
+        resources.extend(TABLES);
+        let (game, settings, sha) = content(&dir, &resources, CAME, None);
+        drop(game);
+        let gi = GameInstall::new(dir.join("game"), Some(dir.join("user")), "en");
+        let on_disk = OnDisk {
+            haks: vec![("wip".into(), file_at(&dir.join("user/hak/wip.hak"), CAME + 60))],
+            tlk_name: Some("mine".into()),
+            tlk: vec![file_at(&dir.join("user/tlk/mine.tlk"), CAME + 60)],
+            module: None,
+        };
+        let mut missing = names(&["gone1", "gone2"]);
+        let m = mount(&mut ResMan::new(), &gi, &settings, &on_disk, &mut missing);
+        let counts =
+            SurveyCounts { resources: 3, data_files: 3, in_game_storage: 3, ..Default::default() };
+        let s = State::of(URL, Some(&m), Some(counts));
+        assert_eq!(s.source, URL);
+        assert_eq!(s.manifest, Some(mg_nwsync::sha1_hex(&sha)));
+        assert_eq!(s.from, Some("game_storage"));
+        assert_eq!(s.arrived, Some(UNIX_EPOCH + Duration::from_secs(CAME)));
+        // (The newer talk table and its feminine table left out of it.)
+        assert_eq!(s.resources, Some(1));
+        assert_eq!((s.haks.clone(), s.by_origins), (names(&["gone1", "gone2"]), false));
+        assert!(s.haks_missing.is_empty());
+        assert_eq!(s.newer_on_disk, ["wip.hak", "mine.tlk"]);
+        assert_eq!(s.survey, Some(counts));
+        assert!(!s.syncing && !s.cleaning);
+
+        // Of another source: that source alone.
+        let other = State::of("https://other.example.org", Some(&m), None);
+        let alone = State { source: "https://other.example.org".into(), ..Default::default() };
+        assert_eq!(other, alone);
+        // No manifest here: none.
+        let none = Settings { cache: Some(dir.join("empty")), ..settings.clone() };
+        let gi = GameInstall::new(dir.join("game"), None, "en");
+        let m = mount(&mut ResMan::new(), &gi, &none, &OnDisk::default(), &mut Vec::new());
+        assert!(m.layer.is_err());
+        assert_eq!(State::of(URL, Some(&m), None).manifest, None);
+    }
+
+    /// A hak at `path` holding `resources` (name, type, bytes), its time
+    /// `secs`.
+    fn hak_at(path: &Path, resources: &[(&str, ResType, &[u8])], secs: u64) -> PathBuf {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        for (name, t, bytes) in resources {
+            w.add(mg_core::ResRef::from_str(name).unwrap(), *t, bytes.to_vec()).unwrap();
+        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, w.to_bytes().unwrap()).unwrap();
+        let f = std::fs::File::options().write(true).open(path).unwrap();
+        f.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+        path.to_path_buf()
+    }
+
+    /// End to end: a module published with its origins file (`mg nwsync
+    /// --write-origins`) into a folder while it listed one hak, read
+    /// through a file source (`source = "file://…"`) once it lists a
+    /// second that is on disk and not in the manifest. The reader takes
+    /// Moonglow's origins: the first hak comes from the manifest (written
+    /// from it, held by the layer), the second from disk (not planned,
+    /// not missing, and not by the newer-on-disk rule: it is older). A
+    /// hak neither on disk nor in the manifest stays missing; without the
+    /// origins file every hak not on disk would be taken to be in it.
+    #[test]
+    fn a_publish_with_origins_read_back_takes_the_hak_outside_it_from_disk() {
+        let dir = mg_testkit::scratch_dir("nwsync-content-published-origins");
+        let gi = GameInstall::new(dir.join("game"), Some(dir.join("user")), "en");
+        let one = [("pw_head", ResType::MDL, &b"a head"[..]), ("pw_parts", ResType::TWODA, b"2DA")];
+        hak_at(&dir.join("user/hak/pw_one.hak"), &one, CAME);
+        let mut m = crate::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_HakList", crate::attach::hak_list(&info.root, &names(&["pw_one"])));
+        m.set_info(&info).unwrap();
+        let rm = ResMan::new();
+        let (contents, missing) =
+            crate::nwsync::module_contents(&m, &gi, &rm, false, None).unwrap();
+        assert!(missing.is_empty(), "{missing:?}");
+        let repo = dir.join("repo");
+        let o = crate::nwsync::Options { origins: true, latest: true, ..Default::default() };
+        let written = crate::nwsync::write(&repo, &contents, &o, &mut |_, _| {}).unwrap();
+        assert_eq!(written.origins, Some(1));
+
+        // The builder's machine: pw_one only on the server now, pw_two on
+        // disk (older than the manifest came), pw_gone nowhere.
+        std::fs::remove_file(dir.join("user/hak/pw_one.hak")).unwrap();
+        let two = hak_at(&dir.join("user/hak/pw_two.hak"), &[("pw_tex", ResType::TGA, b"x")], CAME);
+        // (Read through a file source: the folder Moonglow published into.)
+        let settings = Settings {
+            url: mg_nwsync::folder_url(&repo),
+            manifest: mg_nwsync::Wanted::Latest,
+            cache: Some(dir.join("cache")),
+            auth: None,
+        };
+        let fetch = mg_nwsync::fetch::Folder::of(&settings.url).unwrap();
+        let cache = cache_of(&settings).unwrap();
+        let pulled = mg_nwsync::fetch::pull(
+            &fetch,
+            &settings,
+            &cache,
+            None,
+            Default::default(),
+            &|_| {},
+            &|| false,
+        )
+        .unwrap();
+        assert!(pulled.resolved.found.origins.is_some());
+        assert_eq!(pulled.resolved.found.from, ManifestFrom::Folder);
+
+        let listed = names(&["pw_one", "pw_two", "pw_gone"]);
+        let on_disk = OnDisk { haks: vec![("pw_two".into(), two)], ..Default::default() };
+        let f =
+            write_haks(&settings, None, &listed, None, &on_disk, &WriteOptions::default()).unwrap();
+        assert_eq!(f.plan, PlanFrom::Origins);
+        assert_eq!(f.haks.len(), 1);
+        assert_eq!(resources_of(&f, "pw_one"), ["pw_head.mdl", "pw_parts.2da"]);
+        assert!(f.hak("pw_two").is_none() && f.hak("pw_gone").is_none());
+        assert!(f.newer_haks.is_empty() && f.kept_on_disk.is_empty(), "{:?}", f.newer_haks);
+
+        let mut rm = ResMan::new();
+        let mut missing = names(&["pw_one", "pw_gone"]);
+        let mounted = mount(&mut rm, &gi, &settings, &on_disk, &mut missing);
+        let layer = mounted.layer.unwrap();
+        assert!(layer.by_origins && layer.newer_haks.is_empty());
+        assert_eq!(layer.haks, ["pw_one"]);
+        assert_eq!(missing, ["pw_gone"]);
+        assert_eq!(layer.haks_missing, ["pw_gone"]);
+        assert!(rm.contains(&ResKey::parse("pw_head", ResType::MDL).unwrap()));
+
+        // Without the origins file, every hak not on disk counts as held.
+        let sha = mg_nwsync::parse_sha1(&written.sha1).unwrap();
+        std::fs::remove_file(cache.root().join(format!("manifests/{}.origin", written.sha1)))
+            .unwrap();
+        assert!(cache.manifest(&sha, "origin").is_none());
+        let mut missing = names(&["pw_one", "pw_gone"]);
+        let layer = mount(&mut ResMan::new(), &gi, &settings, &on_disk, &mut missing).layer;
+        assert!(!layer.unwrap().by_origins);
+        assert!(missing.is_empty());
     }
 
     /// A project's own talk table, kept as JSON and newer than the

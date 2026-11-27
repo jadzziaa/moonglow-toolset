@@ -2910,6 +2910,7 @@ dependencies = [
 name = "mg-nwsync"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "flate2",
  "mg-core",
  "mg-erf",

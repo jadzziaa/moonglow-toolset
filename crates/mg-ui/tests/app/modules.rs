@@ -1569,10 +1569,12 @@ fn module_name_in_every_language_and_variables() {
 /// Build › NWSync Content…: a module folder whose project names an NWSync
 /// server, the game's storage holding its manifest and one of its two
 /// data files. Opened, the layer is in the game data (the log says so);
-/// the window says what is here; Sync, through a server of the test's
+/// the window says what is here, and that a token from the builder's own
+/// file signs in (never the token); Sync, through a server of the test's
 /// own, downloads the other into the cache, and it reads.
 #[test]
 fn nwsync_content_from_the_build_menu() {
+    const TOKEN: &str = "ui-s3cret-token";
     use mg_core::sha1::sha1;
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-nwsync-content");
@@ -1608,7 +1610,10 @@ fn nwsync_content_from_the_build_menu() {
         .unwrap();
     std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
     let cache = dir.join("cache");
-    let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+    let own = format!(
+        "[nwsync]\ncache = '{}'\ntoken = '{TOKEN}'\nhost = 'nwsync.example.org'\n",
+        cache.display()
+    );
     std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
     let mut app = game_app(&root, Some(user));
     app.background_jobs = true;
@@ -1660,6 +1665,9 @@ fn nwsync_content_from_the_build_menu() {
     let s = h.state().nwsync_content.survey.clone().expect("looked");
     assert_eq!((s.in_game, s.in_cache, s.missing.len()), (1, 0, 1));
     h.get_by_label_contains("1 data file (");
+    h.get_by_label("Signed in with a token from .moonglow/user.toml");
+    assert!(h.query_by_label_contains(TOKEN).is_none());
+    assert!(!log(&h).contains(TOKEN));
     h.get_by_label("Sync").click();
     h.run_steps(1);
     // Under way it is no job (the window takes input meanwhile), and the
@@ -1704,7 +1712,7 @@ fn the_tests_keep_moonglow_s_cache_in_their_own_folder() {
 /// A module folder whose project names an NWSync server, the game's
 /// storage holding manifest `m1` (whose resources are `m1`'s), and the
 /// cache in `dir`. The module's folder, the user folder and the cache.
-fn nwsync_module(
+pub(crate) fn nwsync_module(
     dir: &std::path::Path,
     m1: &[(ResKey, Vec<u8>)],
     in_game: usize,
@@ -1739,11 +1747,11 @@ fn nwsync_module(
     (folder, user, cache)
 }
 
-const NWSYNC_URL: &str = "https://nwsync.example.org";
+pub(crate) const NWSYNC_URL: &str = "https://nwsync.example.org";
 
 /// A server of the test's: `latest` names `manifest`, served with
 /// `data`; a data file's answer waits for `held` (the test lets it go).
-fn held_server(
+pub(crate) fn held_server(
     manifest: Vec<u8>,
     data: Vec<Vec<u8>>,
     held: std::sync::mpsc::Receiver<()>,
@@ -1779,7 +1787,7 @@ fn held_server_saying(
 }
 
 /// Waits (a deadline that fails) until `done` says so, a frame at a time.
-fn frames_until(
+pub(crate) fn frames_until(
     h: &mut Harness<'_, Moonglow>,
     what: &str,
     done: impl Fn(&Harness<'_, Moonglow>) -> bool,
@@ -1794,7 +1802,7 @@ fn frames_until(
 }
 
 /// Opens Build › NWSync Content… and waits for its look.
-fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
+pub(crate) fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
     h.get_by_label("Build").click();
     h.run();
     h.get_by_label("NWSync Content…").click();
@@ -2013,6 +2021,7 @@ fn nwsync_mount_is_timed() {
             url: NWSYNC_URL.into(),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
         let mut game = shared_game_data(&root, Some(user));
@@ -3484,6 +3493,89 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
         "{said:?}"
     );
     assert!(said.iter().any(|m| *m == format!("Testing {name}")), "{said:?}");
+}
+
+/// Options › Test Module's command (GitHub issue 52): Test Module runs it
+/// in place of the game, the module filled in, its output in the log as
+/// it comes and how it ended said; with Then start the game, the game
+/// joins the server once one answers at the address (a stand-in answering
+/// the game's query; `true` as the client), and the next test stops the
+/// command still running first.
+#[cfg(target_os = "linux")]
+#[test]
+fn test_module_runs_a_command_of_the_builders_own() {
+    use mg_ui::settings::TestStarts;
+    use std::time::{Duration, Instant};
+    let dir = mg_testkit::scratch_dir("ui-test-command");
+    let (root, user) = (dir.join("root"), dir.join("user"));
+    let client = root.join("bin/linux-x86/nwmain-linux");
+    for d in [client.parent().unwrap(), &user.join("modules")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let Some(truth) = true_program() else { return };
+    std::fs::copy(&truth, &client).unwrap();
+    let file = user.join("modules/My Module.mod");
+    std::fs::copy(sample_module(&dir), &file).unwrap();
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.settings.test_starts = TestStarts::Command;
+    app.settings.test_command =
+        "echo \"said {module_name} in $(basename \"$PWD\")\"; echo oops >&2; exit 3".into();
+    app.open_module(&file);
+    let mut h = window_harness(app);
+    h.run_steps(2);
+    let until = |h: &mut Harness<'_, Moonglow>, from: usize, what: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            h.run_steps(1);
+            let log = &h.state().log.entries[from..];
+            if log.iter().any(|(_, m)| m.contains(what)) {
+                return log.to_vec();
+            }
+            assert!(Instant::now() < deadline, "no {what:?} in {log:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let from = h.state().log.entries.len();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "the command ended with exit code 3");
+    let (info, warn) = (mg_ui::Level::Info, mg_ui::Level::Warning);
+    assert!(log.contains(&(info, "  said My Module in modules".into())), "{log:?}");
+    assert!(log.contains(&(warn, "  oops".into())), "{log:?}");
+    assert!(!log.iter().any(|(_, m)| m.starts_with("Testing ")), "no game: {log:?}");
+
+    // Then start the game: once the address answers.
+    let server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = server.local_addr().unwrap().to_string();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        while let Ok((_, from)) = server.recv_from(&mut buf) {
+            let _ = server.send_to(b"BNER\x00\x00\x00\x00\x04Test", from);
+        }
+    });
+    let settings = &mut h.state_mut().settings;
+    (settings.test_command, settings.test_joins) = ("sleep 30".into(), true);
+    (settings.test_address, settings.test_password) = (address.clone(), "pw".into());
+    let from = h.state().log.entries.len();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "Test Module: the game joins ");
+    assert!(
+        log.iter().any(|(_, m)| *m == format!("Test Module: waiting for the server at {address}"))
+    );
+    // The next test stops it first.
+    let from = h.state().log.entries.len();
+    h.state_mut().settings.test_joins = false;
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "Test Module: sleep 30");
+    assert!(
+        log.iter().any(|(_, m)| m == "Test Module: the last test's command stopped"),
+        "{log:?}"
+    );
+    // No command: said, nothing run.
+    let from = h.state().log.entries.len();
+    h.state_mut().settings.test_command.clear();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    until(&mut h, from, "Options › Test Module has no command to run");
 }
 
 /// A program on `PATH`.

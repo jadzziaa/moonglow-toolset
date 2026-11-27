@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:52:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:21:06Z }
 ---
 
 # Command-line tools
@@ -125,10 +125,10 @@ kind and the path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
 | `mg haks MODULE --usage` | which of each hak's resources the module reaches (areas' tilesets, tiles, edge tiles and replacement textures, objects' and blueprints' looks and sounds, scripts and what their strings name, every model's textures and materials, the icons and visuals of the feats, spells, skills and classes of a used table) and which nothing does: a line a hak (used of all, bytes used of all; unused, shadowed, not judged); with `--json` each resource used with what reached it first ([Modules](03-modules.md#what-the-module-uses-of-its-haks)) |
 | `mg minimap MODULE AREA OUT.png [--size PX] [--map-notes]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile, 1 to 1024; the picture at most 256 MiB, 8192 by 8192 pixels, which the game's largest area, 32 by 32 tiles, reaches at 256); `--map-notes` marks its enabled map notes as the game's map does (with `--json`, `map_notes` lists each one's tag, text and where it is in the picture) |
 | `mg minimap MODULE AREA… --to FOLDER [--all] [--force]` | several areas' minimaps (`--all`: every area), each `AREA.png` in `FOLDER`; files there of those names are written over only with `--force` |
-| `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`, `--level N` (the data files' zstd level, 1 to 22, by default 3, `nwn_nwsync_write`'s); prints the manifest's hash. `--upload` then sends the folder to the web server by the project's `[nwsync] upload`, or `--upload "COMMAND"` by that one: run in the folder once for each part, the data, then the manifests, then `latest` (left out with `--no-latest`), each after the one before succeeded, its output on standard error (give `--upload` after the folder, or as `--upload=COMMAND`: a word after it is taken for its command) ([Uploading to the web server](09-build-and-test.md#uploading-to-the-web-server)) |
+| `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`, `--level N` (the data files' zstd level, 1 to 22, by default 3, `nwn_nwsync_write`'s), `--write-origins` (the manifest's origins file too, `manifests/HASH.origin`, as `nwn_nwsync_write --write-origins`: each hak and file by its file's name with the resources it gave, which tells Moonglow's reader which of the module's haks the manifest holds; `origins` and `origin_containers` in the JSON); prints the manifest's hash. `--upload` then sends the folder to the web server by the project's `[nwsync] upload`, or `--upload "COMMAND"` by that one: run in the folder once for each part, the data, then the manifests, then `latest` (left out with `--no-latest`), each after the one before succeeded, its output on standard error (give `--upload` after the folder, or as `--upload=COMMAND`: a word after it is taken for its command) ([Uploading to the web server](09-build-and-test.md#uploading-to-the-web-server)) |
 | `mg nwsync-prune REPOSITORY` | tidy an NWSync repository as `nwn_nwsync_prune` does: remove the data files no manifest names that were written more than `--min-age` seconds ago (two weeks by default), the folders they leave and the `.json` of manifests taken away, and say what it can't mend (`latest` naming no manifest, a manifest without its `.json`, a data file a manifest needs that is missing); `--dry-run` says what would go. Delete the manifests no server names any more first ([Publish to NWSync](09-build-and-test.md#publish-to-nwsync)). `--upload "COMMAND"` then sends the folder as `mg nwsync --upload` does, the manifests before the data (`rsync -a --delete {part} …` takes away on the server what the prune took away, a manifest before its data) |
-| `mg nwsync-status [MODULE]` | what of a module's [NWSync content](09-build-and-test.md#nwsync-content-instead-of-haks) is here: the manifest of the server its project names (`[nwsync] source`; `--source URL` for another, where the project's pinned manifest, its own server's, is not taken and that is said; `--manifest latest\|SHA1`), where it was found, its resources and data files, how many of those the game's NWSync storage has (read only; `--user-dir` and `--no-user-dir` as for the other commands), how many Moonglow's cache has (`--cache DIR`), how many neither has, and whether the server publishes its origins file. Asks no server unless `--online`, which asks it for its latest manifest first (and downloads the manifest alone) |
-| `mg nwsync-pull [MODULE]` | download a module's NWSync content: the server's latest manifest (or the one pinned) and the data files neither the game's NWSync storage nor the cache has, into the cache, never the game's storage, `--jobs N` at once (8), each checked against its SHA-1; `--sample N` downloads N alone. What was downloaded stays: run it again to go on. With the server out of reach, the newest manifest here is used, with a warning. Fails where a data file could not be downloaded, after saying which |
+| `mg nwsync-status [MODULE]` | what of a module's [NWSync content](09-build-and-test.md#nwsync-content-instead-of-haks) is here: the manifest of the server its project names (`[nwsync] source`; `--source URL` for another, or a repository folder (a path from where `mg` runs, or `file://…`), where the project's pinned manifest, its own server's, is not taken and that is said; `--manifest latest\|SHA1`), where it was found, its resources and data files, how many of those the game's NWSync storage has (read only; `--user-dir` and `--no-user-dir` as for the other commands), how many Moonglow's cache has (`--cache DIR`), how many neither has, and whether the server publishes its origins file. Asks no server unless `--online`, which asks it for its latest manifest first (and downloads the manifest alone), signed in where `.moonglow/user.toml` has a [sign-in](09-build-and-test.md#a-private-server) for the server (said, never shown; JSON `signed_in`) |
+| `mg nwsync-pull [MODULE]` | download a module's NWSync content: the server's latest manifest (or the one pinned) and the data files neither the game's NWSync storage nor the cache has, into the cache, never the game's storage, `--jobs N` at once (8), each checked against its SHA-1; `--sample N` downloads N alone. What was downloaded stays: run it again to go on. With the server out of reach, the newest manifest here is used, with a warning. Signed in as `nwsync-status --online` is. Fails where a data file could not be downloaded, after saying which |
 | `mg nwsync-haks [MODULE]` | write a module's haks and talk table from its [NWSync content](09-build-and-test.md#testing-with-nwsync-content), as `mg serve` does for its server: each hak the origins file names with what it lists, or the manifest's resources spread over the module's haks not on disk (each under 2 GiB) where the server publishes none; a hak or talk table on disk newer than the manifest is not written (said: used over it), and the feminine talk table comes with the table; read from the game's NWSync storage and the cache (`mg nwsync-pull` first for what neither has), into the cache, where a hak written before (for this manifest or another) is not written again. Says each hak, whether it was written now, and how long it took. `--out DIR` puts them in `DIR/hak` and `DIR/tlk` (hard links, else copies; `--copy` for copies; each made beside the file it replaces and moved into place), not in your own NWN folder (refused, the game installed or not); `--all` writes every hak the origins file names; `--jobs N` (4); `--source`, `--manifest`, `--cache` as for `nwsync-status`. Without a module, `--source` and an origins file: every hak it names |
 | `mg nwsync-cache-prune [MODULE]` | take out of Moonglow's NWSync cache what no kept manifest needs: data files, written haks and talk tables, manifests and their files ([Cleaning up the cache](09-build-and-test.md#cleaning-up-the-cache)). Kept: the module's manifest and the one it pins, the newest each server named, and the `--keep N` last used (the project's `[nwsync] keep`, else 3); what changed within `--min-age HOURS` (1) stays. `--dry-run` says what would go; `--cache DIR`. A server's latest or a manifest used lately that can't be read here is passed over, and said (`passed_over` in the JSON). The game's NWSync storage is never touched (not `mg nwsync-prune`, which tidies a server's repository) |
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere, or from the `.zip`, `.7z` or `.rar` archive they came in) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
@@ -379,7 +379,15 @@ place of the one in your tlk folder.
   names another; your own NWN folder is refused without
   `--real-user-dir`, and with it a file of yours there (not a link
   Moonglow made) is never replaced: one the module's NWSync content
-  would replace stops the run, saying so.
+  would replace stops the run, saying so. The server's `development`
+  folder is a link to yours (the user folder `--user-dir` names, or the
+  one `mg` finds), as Test Module's game has it; nothing is written into
+  yours. A `--dir` whose `development` folder has files of its own
+  keeps it, and the run says so (an empty one, as the server makes when
+  it starts without the link, gives way). `--no-development` gives the server none (a link an earlier run
+  made is taken away), and so does `--no-user-dir`: for a script that
+  runs `mg serve` without naming a user folder, where the one found is
+  your own.
 - **A module whose project names an NWSync server** (`[nwsync] source`,
   [NWSync content instead of haks](09-build-and-test.md#nwsync-content-instead-of-haks)):
   the haks that server hands out are written from its manifest into
@@ -526,8 +534,9 @@ void main()
   run names those whose compiled script in your module is not what their
   source compiles to now: changed since, or made by another compiler
   (`mg compile` compiles them there). The scratch folder links your
-  `development` folder as `mg serve`'s does, so what is there is also
-  what the tests' server finds first. One that does not
+  `development` folder as `mg serve`'s does (none with
+  `--no-development`), so what is there is also what the tests' server
+  finds first. One that does not
   compile now runs with the compiled script it has, and the run says so;
   one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
@@ -615,7 +624,8 @@ it reads only at its start.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
   into (a folder of its own, not a link to yours: with `--dev-dir`
-  elsewhere the server has the link to yours, as `mg serve` gives it): `--dir`, `--port`, `--player-password`, `--dm-password`,
+  elsewhere the server has the link to yours, as `mg serve` gives it,
+  and none with `--no-development`): `--dir`, `--port`, `--player-password`, `--dm-password`,
   `--admin-password`, `--env`, `--preload` and the arguments after `--`
   are `mg serve`'s, and so is what you type (your own NWN folder as
   `--dir` is refused, before anything is written there). The passwords not given are

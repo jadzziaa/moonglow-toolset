@@ -228,6 +228,46 @@ fn arguments(o: &Options, port: u16, passwords: [&str; 3]) -> Vec<OsString> {
     out
 }
 
+/// Whether a game server answers at `address` within `within`: asked for
+/// its session name (the game's `BNES` query, which a server answers
+/// with `BNER` as soon as it has a module running), as the game's own
+/// server list asks: a server started outside Moonglow (Options › Test
+/// Module's command) as well as [`Server`].
+pub fn answers(address: &str, within: Duration) -> bool {
+    use std::net::{ToSocketAddrs, UdpSocket};
+    let Some(to) = address.to_socket_addrs().ok().and_then(|mut a| a.next()) else {
+        return false;
+    };
+    let any = if to.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+    let Ok(socket) = UdpSocket::bind(any) else { return false };
+    let Ok(port) = socket.local_addr().map(|a| a.port()) else { return false };
+    let mut ask = b"BNES".to_vec();
+    ask.extend_from_slice(&port.to_le_bytes());
+    ask.push(0);
+    let until = std::time::Instant::now() + within;
+    let mut buf = [0u8; 512];
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        let wait = left.min(Duration::from_millis(500));
+        let _ = socket.set_read_timeout(Some(wait));
+        if socket.send_to(&ask, to).is_err() {
+            // (Nothing listening may refuse at once: asked again after
+            // the wait.)
+            std::thread::sleep(wait);
+            continue;
+        }
+        if let Ok((n, from)) = socket.recv_from(&mut buf)
+            && from == to
+            && buf[..n].starts_with(b"BNER")
+        {
+            return true;
+        }
+    }
+}
+
 /// A running server; stopped when dropped.
 #[derive(Debug)]
 pub struct Server {
@@ -534,6 +574,36 @@ pub use mg_core::env_file::parse as env_file;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wait for a test's server: a server that answers the game's
+    /// query (`BNES`, answered `BNER`) is found; none, or one that answers
+    /// something else, is waited for until the time is up.
+    #[test]
+    fn a_server_is_found_by_the_games_query() {
+        use std::net::UdpSocket;
+        use std::time::Instant;
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let address = server.local_addr().unwrap().to_string();
+        let answering = std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let (n, from) = server.recv_from(&mut buf).unwrap();
+            let asked = buf[..n].to_vec();
+            server.send_to(b"BNER\x00\x00\x00\x00\x04Test", from).unwrap();
+            asked
+        });
+        assert!(answers(&address, Duration::from_secs(10)));
+        let asked = answering.join().unwrap();
+        assert_eq!(&asked[..4], b"BNES");
+        assert_eq!(asked.len(), 7, "BNES, the asking port, a zero");
+
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let address = silent.local_addr().unwrap().to_string();
+        let began = Instant::now();
+        assert!(!answers(&address, Duration::from_millis(700)));
+        assert!(began.elapsed() >= Duration::from_millis(700));
+        assert!(began.elapsed() < Duration::from_secs(5));
+        assert!(!answers("no such host:5121", Duration::from_millis(100)));
+    }
 
     #[test]
     fn a_tail_gives_whole_lines_as_they_come() {
