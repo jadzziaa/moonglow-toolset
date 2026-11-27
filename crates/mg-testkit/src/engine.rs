@@ -162,16 +162,6 @@ pub fn save_game(
         console: true,
         ..Default::default()
     })?;
-    // What it prints, line by line (and read, or the server blocks once
-    // its pipe is full).
-    let (said, lines) = std::sync::mpsc::channel();
-    if let Some(out) = server.console() {
-        std::thread::spawn(move || {
-            for line in io::BufRead::lines(io::BufReader::new(out)).map_while(Result::ok) {
-                let _ = said.send(line);
-            }
-        });
-    }
     let mut printed = Vec::new();
     let failed = |printed: &[String], log: String, what: &str| {
         let printed = printed.join("\n");
@@ -179,7 +169,7 @@ pub fn save_game(
     };
     let start = Instant::now();
     while !server.log().contains(ready_marker) {
-        printed.extend(lines.try_iter());
+        printed.extend(server.lines().into_iter().map(|l| l.text));
         if start.elapsed() > timeout {
             return Err(failed(&printed, server.log(), "the module did not get ready"));
         }
@@ -209,10 +199,15 @@ pub fn save_game(
                 _ => held = Some((meta.len(), Instant::now())),
             }
         }
-        let Ok(line) = lines.recv_timeout(Duration::from_millis(200)) else { continue };
-        saving |= line.contains("Saving");
-        complete |= line.contains("Save complete");
-        printed.push(line);
+        let said = server.lines();
+        if said.is_empty() {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        for line in said.into_iter().map(|l| l.text) {
+            saving |= line.contains("Saving");
+            complete |= line.contains("Save complete");
+            printed.push(line);
+        }
     }
     let log = server.log();
     server.stop(Duration::from_secs(10));

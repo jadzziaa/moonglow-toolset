@@ -396,6 +396,8 @@ enum Cmd {
         /// A library loaded into the server (LD_PRELOAD; Linux).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// Mark the log lines containing this text (an event of their own
         /// with --json); may be given more than once.
         #[arg(long)]
@@ -464,6 +466,8 @@ enum Cmd {
         /// A library loaded into the server (LD_PRELOAD; Linux).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// More arguments for nwserver, after `--`.
         #[arg(last = true)]
         server_args: Vec<String>,
@@ -693,7 +697,7 @@ enum Cmd {
     #[command(group(
         clap::ArgGroup::new("serving")
             .args(["dir", "port", "player_password", "dm_password", "admin_password", "env",
-                "preload", "server_args"])
+                "preload", "nwnx", "no_nwnx", "server_args"])
             .multiple(true)
             .requires("serve")
     ))]
@@ -748,6 +752,8 @@ enum Cmd {
         /// With --serve: a library loaded into the server (LD_PRELOAD).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// With --serve: more arguments for nwserver, after `--`.
         #[arg(last = true)]
         server_args: Vec<String>,
@@ -3139,6 +3145,7 @@ fn run(cli: &Cli) -> Result<Output> {
             passwords,
             env,
             preload,
+            nwnx,
             marker,
             until,
             timeout,
@@ -3164,6 +3171,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 progress: !cli.json,
                 no_nwsync: *no_nwsync,
                 development: serve::Development::Players,
+                nwnx: nwnx.choice(),
+                live: false,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -3194,7 +3203,7 @@ fn run(cli: &Cli) -> Result<Output> {
             })?;
             let failed = match end {
                 serve::End::Stopped => late && until.is_some() && !reached,
-                serve::End::NotLoaded => true,
+                serve::End::NotLoaded | serve::End::Nwnx => true,
                 serve::End::Exited(code) => code != Some(0) || until.is_some(),
             };
             let said = match end {
@@ -3218,6 +3227,7 @@ fn run(cli: &Cli) -> Result<Output> {
             no_nwsync,
             env,
             preload,
+            nwnx,
             server_args,
         } => {
             if *include {
@@ -3241,6 +3251,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     args: server_args.clone(),
                     progress: !cli.json,
                     no_nwsync: *no_nwsync,
+                    nwnx: nwnx.choice(),
                     ..Default::default()
                 },
             };
@@ -4328,6 +4339,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         passwords,
         env,
         preload,
+        nwnx,
         server_args,
     } = &cli.cmd
     else {
@@ -4481,6 +4493,8 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         project: Some(project.clone()),
         progress: !cli.json,
         no_nwsync: *no_nwsync,
+        nwnx: nwnx.choice(),
+        live: true,
         development: match watched {
             true => serve::Development::Watched,
             false => serve::Development::Players,

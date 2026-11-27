@@ -273,7 +273,8 @@ fn the_scripts_are_held_to_the_settings() {
 /// The server's lines: the two builds compared once both are told (an
 /// error where the game build differs, a warning where its revision
 /// does), NWNX's own mismatch and the loader's failed preload errors, a
-/// plugin that failed to load a warning. (The fixtures are NWNX's own
+/// plugin that failed to load a warning, one skipped by the settings
+/// nothing (the scripts' check tells it before the start). (The fixtures are NWNX's own
 /// format strings, `Core/NWNXCore.cpp`, filled in: a real mismatch can't
 /// be made on one machine.)
 #[test]
@@ -311,7 +312,7 @@ fn the_server_s_lines_tell_the_builds_and_failures() {
     assert_eq!(line(failed), Some(Level::Warning));
     assert!(console_note(failed, true).unwrap().text.contains("Unable to load plugin"));
     let skip = "I [08:44:36] [NWNX_Core] [NWNXCore.cpp:356] Skipping plugin NWNX_Store due to configuration.";
-    assert_eq!(line(skip), Some(Level::Info));
+    assert_eq!(line(skip), None, "as the settings say: told before the start");
     assert_eq!(line("Server: Module loaded"), None);
     assert_eq!(console_note("NWNX: Expected build 1.2, got build 3.4.", false), None);
 }

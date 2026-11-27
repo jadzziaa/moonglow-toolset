@@ -206,7 +206,7 @@ impl Joined {
     /// Ends the sandbox (the server and the client with it), and removes
     /// the CD key's copy from the scratch directory (as dropping this
     /// does).
-    pub fn stop(self) {
+    pub fn stop(mut self) {
         self.server.stop(Duration::from_secs(1));
         drop(self.key);
     }

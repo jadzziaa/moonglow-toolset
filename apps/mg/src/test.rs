@@ -277,6 +277,7 @@ pub(crate) fn run_on(
         serve::Flow::Continue
     })?;
     let ended = match end {
+        serve::End::Nwnx => Some(serve::how(end)),
         _ if report.done => None,
         serve::End::Stopped if late => {
             Some(format!("the tests were not done after {} seconds", c.timeout))

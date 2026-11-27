@@ -58,6 +58,7 @@ pub mod row_uses;
 pub mod script_set;
 pub mod script_wizard;
 pub mod search;
+pub mod server_dir;
 pub mod sounds;
 pub mod stamp;
 pub mod store_setup;

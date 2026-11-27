@@ -566,9 +566,8 @@ pub fn console_note(line: &str, nwnx: bool) -> Option<Note> {
     if l.starts_with("E ") && l.contains("[NWNX_") {
         return Some(Note::warning(format!("NWNX: {message}")));
     }
-    if message.starts_with("Skipping plugin ") && l.contains("[NWNX_") {
-        return Some(Note::info(format!("NWNX: {message}")));
-    }
+    // (A plugin skipped by the settings is as they say: the scripts that
+    // include one are told before the start, by `script_notes`.)
     None
 }
 
