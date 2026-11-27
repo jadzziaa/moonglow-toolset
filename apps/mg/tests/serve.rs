@@ -83,7 +83,7 @@ fn the_found_user_folder_s_development_is_linked_unless_told_not_to() {
         return;
     }
     let _alone = mg_testkit::engine::timed_turn();
-    let dir = mg_testkit::scratch_dir("mg-serve-no-development");
+    let dir = mg_testkit::scratch_dir("mg-serve-found-development");
     let user = dir.join("found");
     std::fs::create_dir_all(user.join("development")).unwrap();
     std::fs::write(user.join("development/mg_dev.nss"), "// mine\n").unwrap();
