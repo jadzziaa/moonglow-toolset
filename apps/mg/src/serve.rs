@@ -10,9 +10,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use mg_core::ResType;
-use mg_module::ModuleLocation;
-use mg_resman::{GameInstall, ResKey};
+use mg_resman::GameInstall;
 
 /// What to serve, and how.
 #[derive(Debug, Clone, Default)]
@@ -50,6 +48,11 @@ pub(crate) struct Config {
     /// What the server's `development` folder is: the player's, linked,
     /// or `mg watch`'s own.
     pub development: Development,
+    /// Whose NWNX the server runs with: the project's `[nwnx]`, a
+    /// home's (`--nwnx`) or none (`--no-nwnx`).
+    pub nwnx: mg_module::nwnx::Choice,
+    /// Scripts are replaced while the server runs (`mg watch --serve`).
+    pub live: bool,
 }
 
 /// The server's passwords, as `mg serve` and `mg watch --serve` take
@@ -66,6 +69,30 @@ pub(crate) struct Passwords {
     /// The admin password (default: a random one).
     #[arg(long)]
     pub admin_password: Option<String>,
+}
+
+/// `--nwnx DIR` and `--no-nwnx`, as `mg serve`, `mg test` and `mg watch
+/// --serve` take them: whose NWNX the server runs with.
+#[derive(Debug, Clone, Default, PartialEq, Eq, clap::Args)]
+pub(crate) struct NwnxArgs {
+    /// Run the server with the NWNX in this folder (its Binaries/), whatever
+    /// the project's [nwnx] says; Linux.
+    #[arg(long, value_name = "DIR", conflicts_with = "no_nwnx")]
+    pub nwnx: Option<PathBuf>,
+    /// Run the server without NWNX, though the project's [nwnx] uses it.
+    #[arg(long)]
+    pub no_nwnx: bool,
+}
+
+impl NwnxArgs {
+    pub(crate) fn choice(&self) -> mg_module::nwnx::Choice {
+        use mg_module::nwnx::Choice;
+        match (&self.nwnx, self.no_nwnx) {
+            (_, true) => Choice::Off,
+            (Some(dir), false) => Choice::Home(dir.clone()),
+            (None, false) => Choice::Project,
+        }
+    }
 }
 
 /// What happens while a module is served.
@@ -110,6 +137,9 @@ pub(crate) enum End {
     NotLoaded,
     /// The server ended on its own.
     Exited(Option<i32>),
+    /// NWNX was asked for and failed (not preloaded, another game build):
+    /// the server was stopped, as it ran without it.
+    Nwnx,
 }
 
 /// A scratch folder of a run's ([`run_dir`]), held while the run
@@ -202,302 +232,13 @@ impl Drop for Serving {
     }
 }
 
-fn same(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
+pub(crate) use mg_module::server_dir::{
+    Development, link_development, module_name, players_dir, save_copy, unlink_development,
+};
 
-/// The server's name for a module: what `-module` takes, and the file in
-/// `modules`. (Lower case, the letters a resource name may have.)
-pub(crate) fn module_name(module: &Path) -> String {
-    let is_nasher = module.file_name().is_some_and(|n| n == "nasher.cfg");
-    let dir_or_file = if is_nasher {
-        module.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
-    } else {
-        module
-    };
-    let resolved = if dir_or_file.file_name().is_none() {
-        dir_or_file.canonicalize().ok().or_else(|| {
-            let cur = std::env::current_dir().ok()?;
-            if dir_or_file.as_os_str().is_empty() || dir_or_file == Path::new(".") {
-                Some(cur)
-            } else {
-                cur.join(dir_or_file).canonicalize().ok()
-            }
-        })
-    } else {
-        None
-    };
-    let path = resolved.as_deref().unwrap_or(dir_or_file);
-    let stem = if path.is_dir() || is_nasher { path.file_name() } else { path.file_stem() };
-    let name: String = stem
-        .map(|n| n.to_string_lossy().to_lowercase())
-        .unwrap_or_default()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect();
-    if name.is_empty() { "module".into() } else { name }
-}
-
-/// Whether two paths are one file: the same file reached by two paths,
-/// or two hard links of it (which canonical paths can't tell).
-fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt as _;
-        if let (Ok(a), Ok(b)) = (std::fs::metadata(a), std::fs::metadata(b)) {
-            return a.dev() == b.dev() && a.ino() == b.ino();
-        }
-        false
-    }
-    #[cfg(not(unix))]
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
-}
-
-/// Where a file is placed for the server: whether the folder is the
-/// player's own NWN folder (`--real-user-dir`), and whether the file is
-/// one of Moonglow's NWSync cache.
-#[derive(Debug, Clone, Copy, Default)]
-struct Placing {
-    players: bool,
-    from_cache: bool,
-}
-
-/// What stops a file of the player's own folder being replaced.
-fn players_file(to: &Path) -> anyhow::Error {
-    anyhow::anyhow!(
-        "{} is a file of your own NWN folder, which Moonglow doesn't replace: move it away, or          serve from a folder of Moonglow's (leave out --dir and --real-user-dir)",
-        to.display()
-    )
-}
-
-/// Whether there is a file (not a link) at `to`.
-fn is_regular_file(to: &Path) -> bool {
-    std::fs::symlink_metadata(to).is_ok_and(|m| m.file_type().is_file())
-}
-
-/// A file beside `to` that a link or a copy is made as before it is moved
-/// into place: `to` is replaced whole, never written through (a link
-/// there of an earlier run's, to the player's file or the cache's).
-fn part_of(to: &Path) -> PathBuf {
-    let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    to.with_file_name(format!(".{name}.{}.mg-part", std::process::id()))
-}
-
-/// A way of putting a file at a path (a link, a copy).
-type Way<'a> = &'a dyn Fn(&Path, &Path) -> std::io::Result<()>;
-
-/// Puts a file where the server reads it without writing the original.
-/// A file of the cache is hard linked (it stays while the server runs,
-/// whatever a prune of the cache does), a file elsewhere linked, else
-/// either is copied; in the player's own folder, a link only where the
-/// system allows one (a hard link would be a file of theirs to the next
-/// run), and an existing file there (not a link) is never replaced.
-fn place(from: &Path, to: &Path, how: Placing) -> Result<()> {
-    if same_file(from, to) {
-        return Ok(());
-    }
-    if how.players && is_regular_file(to) {
-        return Err(players_file(to));
-    }
-    let part = part_of(to);
-    let _ = std::fs::remove_file(&part);
-    let symlink = |from: &Path, to: &Path| -> std::io::Result<()> {
-        #[cfg(unix)]
-        return std::os::unix::fs::symlink(from, to);
-        #[cfg(not(unix))]
-        {
-            let _ = (from, to);
-            Err(std::io::Error::other("no links"))
-        }
-    };
-    let hard = |from: &Path, to: &Path| std::fs::hard_link(from, to);
-    let copy = |from: &Path, to: &Path| std::fs::copy(from, to).map(|_| ());
-    let ways: [Way; 3] = match how {
-        Placing { players: true, .. } => [&symlink, &copy, &copy],
-        Placing { from_cache: true, .. } => [&hard, &symlink, &copy],
-        _ => [&symlink, &hard, &copy],
-    };
-    let mut last = None;
-    for way in ways {
-        match way(from, &part) {
-            Ok(()) => {
-                last = None;
-                break;
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(&part);
-                last = Some(e);
-            }
-        }
-    }
-    if let Some(e) = last {
-        return Err(anyhow::Error::new(e).context(to.display().to_string()));
-    }
-    std::fs::rename(&part, to).map_err(|e| {
-        let _ = std::fs::remove_file(&part);
-        anyhow::Error::new(e).context(to.display().to_string())
-    })
-}
-
-/// Writes `bytes` as the file `to` for the server, through a file beside
-/// it moved into place (never through a link at `to`); in the player's
-/// own folder (`players`), an existing file there is never replaced.
-fn place_bytes(bytes: &[u8], to: &Path, players: bool) -> Result<()> {
-    if std::fs::read(to).is_ok_and(|had| had == bytes) {
-        return Ok(());
-    }
-    if players && is_regular_file(to) {
-        return Err(players_file(to));
-    }
-    let part = part_of(to);
-    std::fs::write(&part, bytes).and_then(|()| std::fs::rename(&part, to)).map_err(|e| {
-        let _ = std::fs::remove_file(&part);
-        anyhow::Error::new(e).context(to.display().to_string())
-    })
-}
-
-/// Whether `dir` is the player's own NWN folder (`gi`'s user folder, or
-/// where the game keeps it).
-pub(crate) fn is_players(gi: &GameInstall, dir: &Path) -> bool {
-    players_dir(gi.user_dir.as_deref(), dir).is_some()
-}
-
-/// The player's own NWN folder `dir` is, where it is one: `user` (the
-/// user folder `mg` was given or found) or where the game keeps it.
-pub(crate) fn players_dir(user: Option<&Path>, dir: &Path) -> Option<PathBuf> {
-    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    (user.map(Path::to_path_buf).into_iter())
-        .chain(mg_resman::default_user_dir())
-        .find(|p| same(p, &dir))
-}
-
-/// What the server's `development` folder is.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum Development {
-    /// A link to the player's own, as Test Module's game has it.
-    #[default]
-    Players,
-    /// The folder `mg watch --serve` writes into: the server's own.
-    Watched,
-    /// None of the player's (`--no-development`): a link an earlier run
-    /// left is taken away.
-    Off,
-}
-
-impl Development {
-    /// The player's, linked, unless `off` (`--no-development`).
-    pub(crate) fn players_unless(off: bool) -> Development {
-        if off { Development::Off } else { Development::Players }
-    }
-}
-
-/// Gives the server's folder `dir` the player's `development` folder
-/// (in `user`, the user folder `mg` was given or found), as Test Module
-/// gives its game: a link to it (a junction on Windows without the right
-/// to make a symbolic link), made again at every start so that it
-/// follows `--user-dir`. Nothing is written into the player's folder.
-/// With none to give (`--no-development`, no user folder), a link an
-/// earlier run made is taken away. Nothing is done where the player has
-/// none, where `dir` is the
-/// player's own (`--real-user-dir`), or for `mg watch`'s folder. A
-/// folder (or file) of `dir`'s own there is kept, and said in the note
-/// (an empty folder, as the server makes at a start without the link,
-/// gives way)
-/// returned; in Moonglow's own `scratch` folder a folder there was left
-/// by `mg watch --serve`, and gives way.
-pub(crate) fn link_development(
-    user: Option<&Path>,
-    dir: &Path,
-    development: Development,
-    scratch: bool,
-) -> Result<Option<String>> {
-    // (None given, `--no-development` or no user folder: a link an earlier
-    // run made, into a player's folder, is taken away too.)
-    let Some(user) = user.filter(|_| development == Development::Players) else {
-        unlink_development(dir)?;
-        return Ok(None);
-    };
-    if players_dir(Some(user), dir).is_some() {
-        return Ok(None);
-    }
-    let to = dir.join("development");
-    let from = user.join("development");
-    let from = std::path::absolute(&from).unwrap_or(from);
-    let context = || to.display().to_string();
-    if mg_module::links::is_link(&to) {
-        // (The link an earlier run made: made again, to where the player's
-        // folder is now.)
-        mg_module::links::unlink(&to).with_context(context)?;
-    } else if let Ok(meta) = std::fs::symlink_metadata(&to) {
-        let empty = meta.is_dir() && std::fs::read_dir(&to).is_ok_and(|mut d| d.next().is_none());
-        if empty {
-            // (The server's own, made at a start without the link: nothing
-            // of anybody's in it.)
-            std::fs::remove_dir(&to).with_context(context)?;
-        } else if scratch && meta.is_dir() {
-            std::fs::remove_dir_all(&to).with_context(context)?;
-        } else {
-            return Ok(from.is_dir().then(|| {
-                format!(
-                    "the server's folder has a development folder of its own ({}): kept, so \
-                     yours ({}) is not given to the server",
-                    to.display(),
-                    from.display()
-                )
-            }));
-        }
-    }
-    if from.is_dir() {
-        mg_module::links::link_dir(&from, &to).with_context(context)?;
-    }
-    Ok(None)
-}
-
-/// Takes away a link to the player's `development` folder that `mg
-/// serve` left in the server's folder `dir`, before `mg watch --serve`
-/// makes the folder it writes into there: never written through.
-pub(crate) fn unlink_development(dir: &Path) -> Result<()> {
-    let to = dir.join("development");
-    if mg_module::links::is_link(&to) {
-        mg_module::links::unlink(&to).with_context(|| to.display().to_string())?;
-    }
-    Ok(())
-}
-
-/// Saves a module's copy for a server as an archive at `to`, keeping no
-/// backup of the copy it takes the place of. (A `.bak` there that this
-/// save did not make is somebody's, and stays.)
-pub(crate) fn save_copy(m: &mut mg_module::Module, to: &Path) -> Result<()> {
-    let replaced = to.is_file();
-    m.save_as(&ModuleLocation::Archive(to.to_path_buf()))
-        .with_context(|| to.display().to_string())?;
-    if replaced {
-        let _ = std::fs::remove_file(to.with_extension("mod.bak"));
-    }
-    Ok(())
-}
-
-/// The user directory made ready: the module as an archive in `modules`,
-/// its haks in `hak` and its talk table in `tlk` (from the player's
-/// folders and the game's, which are only read). Returns the module's
-/// name there and what to say.
-///
-/// A module whose project names an NWSync server (`[nwsync] source`;
-/// not with `no_nwsync`) has the haks that server hands out written from
-/// its content into Moonglow's cache
-/// ([`mg_module::nwsync_content::write_haks`]: once, and again only for a
-/// hak a newer manifest changed) and placed here, over any of the same
-/// name on disk, as the game takes them; and its talk table (and its
-/// feminine table), where the manifest has it. By Moonglow's rule a hak
-/// or talk table on disk newer than the manifest is taken from disk
-/// instead, and said ([`mg_module::nwsync_content`]). `progress`: say how
-/// far a write is on standard error.
+/// The user directory made ready ([`mg_module::server_dir::prepare`]),
+/// with how far a write of haks from NWSync is said on standard error
+/// where `progress` asks (every few seconds).
 pub(crate) fn prepare(
     gi: &GameInstall,
     module: &Path,
@@ -506,212 +247,6 @@ pub(crate) fn prepare(
     progress: bool,
     no_nwsync: bool,
 ) -> Result<(String, Vec<String>)> {
-    let mut notes = Vec::new();
-    let name = module_name(module);
-    // (`--real-user-dir`: none of the player's own files is replaced.)
-    let players = is_players(gi, dir);
-    for sub in ["modules", "hak", "tlk"] {
-        std::fs::create_dir_all(dir.join(sub))
-            .with_context(|| dir.join(sub).display().to_string())?;
-    }
-    let target = dir.join("modules").join(format!("{name}.mod"));
-    let mut m = crate::open_module(module).with_context(|| module.display().to_string())?;
-    if no_nwsync {
-        m.project_file.nwsync_source = None;
-    }
-    let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
-    // (Read before the copy is saved: the copy is a module of its own.)
-    let nwsync = m.project_file.nwsync_settings();
-    // A talk table the project keeps as JSON, made into the table as
-    // nasher packs it (the game's language's, where it keeps one a
-    // language): the server finds no other.
-    let language = mg_core::Language::from_short_code(&gi.language);
-    // (Or the project's an archive was built from, `mg watch`'s.)
-    let project_tlk = |table_name: &str| -> Result<_> {
-        Ok(match (m.project.as_deref(), project) {
-            (Some(p), _) => mg_module::nasher::in_language(p.talk_tables(table_name)?, language),
-            (None, Some(root)) if mg_module::nasher::Package::is_package(root) => {
-                let package = mg_module::nasher::Package::read(root)?;
-                let settings = mg_module::nasher::Settings::read(root);
-                let tables = mg_module::nasher::talk_tables(&package, &settings, table_name)?;
-                mg_module::nasher::in_language(tables, language)
-            }
-            _ => None,
-        })
-    };
-    let own_tlk = tlk.as_deref().map(&project_tlk).transpose()?.flatten();
-    let own_fem_tlk = match tlk.as_deref().filter(|t| mg_resman::named_file(t, "tlk").is_some()) {
-        Some(t) => project_tlk(&mg_module::talk::feminine(t))?,
-        None => None,
-    };
-    if matches!(m.location, Some(ModuleLocation::Archive(_))) {
-        if !same(module, &target) {
-            std::fs::copy(module, &target).with_context(|| target.display().to_string())?;
-        }
-    } else {
-        // A project or a folder: its scripts that have no compiled script,
-        // or are not as they were when last compiled (by `mg compile` or
-        // the window: what they remember), are compiled, as `mg build`
-        // would (the server runs compiled scripts only, and a module
-        // packed without them loads and does nothing). The folder or
-        // project itself is not written.
-        let mut rm = mg_resman::ResMan::for_game(gi)?;
-        let (_, wrong) = m.stack_onto(&mut rm, gi);
-        if let Some(e) = wrong {
-            return Err(e.into());
-        }
-        let made_with = mg_module::build::made_with(Some(module), None, Some(&gi.root), &rm);
-        let changed = mg_module::build::changed(&m, &crate::remembered(module, made_with), false);
-        if !changed.is_empty() {
-            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &changed, None);
-            let compiled = (results.iter())
-                .filter(|r| r.result.is_ok())
-                .filter(|r| m.contains(&ResKey::new(r.script.resref, ResType::NCS)));
-            notes.push(format!(
-                "compiled {} of the module's scripts that had no compiled script or changed \
-                 since they were compiled",
-                compiled.count()
-            ));
-            for r in &results {
-                if let Err(e) = &r.result {
-                    notes.push(format!("warning: {} did not compile: {}", r.script, e.message));
-                }
-            }
-        }
-        // (The server loads an archive only.)
-        save_copy(&mut m, &target)?;
-    }
-    // What is on disk, which the rule weighs against the manifest: the
-    // haks as the game finds them, the project's own talk tables (else
-    // the `tlk` folders').
-    let own_paths = (own_tlk.iter().chain(&own_fem_tlk)).map(|t| t.path.clone()).collect();
-    // (After the compile: its scripts compiled now are the module's own.)
-    let module_keys: std::collections::HashSet<ResKey> = m.keys().copied().collect();
-    let on_disk = mg_module::nwsync_content::OnDisk::of(
-        gi,
-        &haks,
-        tlk.as_deref(),
-        own_paths,
-        Some(module_keys),
-    );
-    let synced = match no_nwsync {
-        true => None,
-        false => nwsync_haks(gi, nwsync, project, &haks, tlk.as_deref(), &on_disk, progress)?,
-    };
-    if let Some(s) = &synced {
-        notes.push(s.summary());
-        notes.extend(s.notes());
-        if !s.not_listed.is_empty() {
-            notes.push(format!(
-                "the origins file names haks the module doesn't list, not written: {}",
-                s.not_listed.join(", ")
-            ));
-        }
-    }
-    let cached = Placing { players, from_cache: true };
-    let elsewhere = Placing { players, from_cache: false };
-    for hak in &haks {
-        // (A name with a folder in it is placed nowhere: `../x` would be
-        // a file outside the server's hak folder.)
-        let Some(file) = mg_resman::named_file(hak, "hak") else {
-            notes.push(format!("warning: {}", gi.hak_not_found(hak)));
-            continue;
-        };
-        let to = dir.join("hak").join(file);
-        if let Some(written) = synced.as_ref().and_then(|s| s.hak(hak)) {
-            place(&written.path, &to, cached)?;
-            continue;
-        }
-        match gi.find_hak(hak) {
-            Some(from) => place(&from, &to, elsewhere)?,
-            None if to.is_file() => {}
-            None => notes.push(format!("warning: {}", gi.hak_not_found(hak))),
-        }
-    }
-    if let Some(tlk) = tlk {
-        let mut place_tlk = |table_name: &str,
-                             synced: Option<&Path>,
-                             own: Option<mg_module::nasher::TalkTable>,
-                             required: bool|
-         -> Result<()> {
-            let Some(file) = mg_resman::named_file(table_name, "tlk") else {
-                if required {
-                    notes.push(format!(
-                        "warning: talk table {table_name} not found: {}",
-                        mg_resman::NO_FILE_NAME
-                    ));
-                }
-                return Ok(());
-            };
-            let to = dir.join("tlk").join(&file);
-            // (The manifest's, as the game data has it, where the one on
-            // disk is not newer.)
-            if let Some(path) = synced {
-                return place(path, &to, cached);
-            }
-            if let Some(own) = own {
-                let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
-                place_bytes(&bytes, &to, players)?;
-                notes.push(format!("talk table {table_name} made from {}", own.path.display()));
-                return Ok(());
-            }
-            match gi.tlk_dirs().iter().map(|d| d.join(&file)).find(|p| p.is_file()) {
-                Some(from) => place(&from, &to, elsewhere)?,
-                None if to.is_file() => {}
-                None if required => {
-                    notes.push(format!("warning: talk table {table_name} not found"));
-                }
-                None => {}
-            }
-            Ok(())
-        };
-        // (The feminine table from where the table comes from: the
-        // manifest's where it has one, else none.)
-        let from_manifest = synced.as_ref().and_then(|s| s.tlk.as_ref()).is_some();
-        let synced_tlk = synced.as_ref().and_then(|s| s.tlk.as_ref()).map(|(_, p)| p.as_path());
-        let synced_fem = synced.as_ref().and_then(|s| s.tlk_f.as_ref()).map(|(_, p)| p.as_path());
-        place_tlk(&tlk, synced_tlk, own_tlk, true)?;
-        if mg_resman::named_file(&tlk, "tlk").is_some() {
-            let fem = mg_module::talk::feminine(&tlk);
-            match (from_manifest, synced_fem) {
-                (true, Some(path)) => place_tlk(&fem, Some(path), None, false)?,
-                // (None from where the table comes: one an earlier run put
-                // there goes, never a file of the player's.)
-                (true, None) => {
-                    if let Some(file) = mg_resman::named_file(&fem, "tlk") {
-                        let to = dir.join("tlk").join(file);
-                        if !(players && is_regular_file(&to)) {
-                            let _ = std::fs::remove_file(&to);
-                        }
-                    }
-                }
-                (false, _) => place_tlk(&fem, None, own_fem_tlk, false)?,
-            }
-        }
-    }
-    Ok((name, notes))
-}
-
-/// The module's haks from its NWSync content, written into Moonglow's
-/// cache by the rule with what is `on_disk`, where its project's
-/// `settings` (or those of the project it was built from) name a server:
-/// `None` where none does.
-fn nwsync_haks(
-    gi: &GameInstall,
-    settings: Option<mg_nwsync::Settings>,
-    project: Option<&Path>,
-    haks: &[String],
-    tlk: Option<&str>,
-    on_disk: &mg_module::nwsync_content::OnDisk,
-    progress: bool,
-) -> Result<Option<mg_module::nwsync_content::HakFiles>> {
-    let settings = settings.or_else(|| {
-        // (A project's folder, or its nasher.cfg.)
-        let root = project.map(|p| if p.is_file() { p.parent().unwrap_or(p) } else { p })?;
-        mg_module::project_file::ProjectFile::read(root).nwsync_settings()
-    });
-    let Some(settings) = settings else { return Ok(None) };
-    let game = mg_module::nwsync_content::game_storage(gi).map_err(anyhow::Error::msg)?;
     let last = std::sync::Mutex::new(Instant::now() - Duration::from_secs(60));
     let said = |p: mg_nwsync::haks::Progress| {
         if !progress || p.of_bytes == 0 {
@@ -723,11 +258,14 @@ fn nwsync_haks(
             eprintln!("{}", crate::nwsync_read::hak_progress(&p));
         }
     };
-    let o = mg_module::nwsync_content::WriteOptions { progress: &said, ..Default::default() };
-    let files =
-        mg_module::nwsync_content::write_haks(&settings, game.as_ref(), haks, tlk, on_disk, &o)
-            .map_err(|e| anyhow::anyhow!("the module's NWSync content ({}): {e}", settings.url))?;
-    Ok(Some(files))
+    let (name, notes) = mg_module::server_dir::prepare(gi, module, dir, project, &said, no_nwsync)?;
+    // (The note of a module folder beside the .mod is the module's, as
+    // `open_module` says it: once with the output, not at every restart
+    // of `--restart-on-change` or `mg watch --serve`.)
+    let (beside, notes): (Vec<String>, Vec<String>) =
+        notes.into_iter().partition(|n| n.contains("has its module folder beside it"));
+    beside.into_iter().for_each(crate::said_of_opened);
+    Ok((name, notes))
 }
 
 /// What a module's file or folder looks like, to see it change.
@@ -817,31 +355,168 @@ pub(crate) fn refuse_players_dir(
     Ok(())
 }
 
-/// What a line the server's console printed says: that the module loaded
-/// (`Ready`, `seconds` since `started`), that it could not (`failed`), and
-/// the line itself.
-fn console_events(line: String, started: Instant, failed: &mut bool) -> Vec<Event> {
-    let mut events = Vec::new();
-    if line.starts_with("Server: Module loaded") {
-        events.push(Event::Ready { seconds: started.elapsed().as_secs_f32() });
+/// What the server's lines have told so far.
+#[derive(Debug)]
+struct Heard {
+    started: Instant,
+    /// It could not load the module.
+    failed: bool,
+    /// It was started with NWNX.
+    nwnx: bool,
+    builds: mg_module::nwnx::Builds,
+    ready: bool,
+    /// What it said of NWNX was an error: the run stops.
+    nwnx_failed: bool,
+}
+
+impl Heard {
+    fn new(nwnx: bool) -> Heard {
+        let builds = Default::default();
+        Heard {
+            started: Instant::now(),
+            failed: false,
+            nwnx,
+            builds,
+            ready: false,
+            nwnx_failed: false,
+        }
     }
-    *failed |= line.contains("Unable to load module");
-    events.push(Event::Console(line));
+}
+
+/// What a line the server printed (on its console, or the loader's on
+/// its standard error) says: that the module loaded (`Ready`, `seconds`
+/// since it started: [`mg_serve::loaded`]), that it could not (`failed`),
+/// the line itself, and what it says of NWNX ([`mg_module::nwnx`]: the
+/// builds, a plugin or the preload that failed, and, once loaded, NWNX
+/// asked for but never heard of).
+fn console_events(line: mg_serve::Line, h: &mut Heard) -> Vec<Event> {
+    let mut events = Vec::new();
+    let mut notes = Vec::new();
+    if mg_serve::loaded(&line.text) {
+        events.push(Event::Ready { seconds: h.started.elapsed().as_secs_f32() });
+        if h.nwnx && !std::mem::replace(&mut h.ready, true) {
+            notes.extend(h.builds.none_seen());
+        }
+    }
+    h.failed |= mg_serve::not_loaded(&line.text);
+    notes.extend(h.builds.line(&line.text));
+    notes.extend(mg_module::nwnx::console_note(&line.text, h.nwnx));
+    events.push(Event::Console(line.text));
+    h.nwnx_failed |= notes.iter().any(|n| n.level == mg_module::nwnx::Level::Error);
+    events.extend(notes.into_iter().map(|n| Event::Note(n.line())));
     events
 }
 
-/// The last of the console's lines, after the loop: reported as the loop
+/// The last of the server's lines, after the loop: reported as the loop
 /// does, so a load that came late is still a `Ready`.
 fn drain_console(
-    lines: impl Iterator<Item = String>,
-    started: Instant,
-    failed: &mut bool,
+    lines: impl Iterator<Item = mg_serve::Line>,
+    h: &mut Heard,
     each: &mut dyn FnMut(&Event) -> Flow,
 ) {
     for line in lines {
-        for e in console_events(line, started, failed) {
+        for e in console_events(line, h) {
             each(&e);
         }
+    }
+}
+
+/// The `--env` files' lines, in their order.
+fn env_lines(files: &[PathBuf]) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(file).with_context(|| file.display().to_string())?;
+        let read =
+            mg_serve::env_file(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+        out.extend(read);
+    }
+    Ok(out)
+}
+
+/// The server's environment as a run starts it ([`server_env`]).
+#[derive(Debug, Default, PartialEq)]
+struct ServerEnv {
+    vars: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+    /// NWNX's core is preloaded (the project's, or one of `--preload` or
+    /// an `--env` line's `LD_PRELOAD`): what the server says of NWNX is
+    /// checked ([`Heard`]).
+    nwnx: bool,
+}
+
+/// The server's environment: NWNX's (`nwnx`: its core preloaded, its
+/// plugins' folder, the project's environment file and `more`, the
+/// `--env` files' lines, which [`mg_module::nwnx::resolve_with`] checked
+/// with it), or `more` alone without NWNX; then `--preload`'s library:
+/// preloaded beside NWNX's core, unless it is that core; another NWNX's
+/// core is refused. One `LD_PRELOAD`, the last given.
+fn server_env(
+    nwnx: Option<&mg_module::nwnx::Nwnx>,
+    more: &[(String, String)],
+    preload: Option<&Path>,
+    linux: bool,
+) -> Result<ServerEnv> {
+    use mg_module::nwnx::CORE_FILE;
+    let mut env = match nwnx {
+        Some(n) => n.server_env(),
+        None => more.iter().map(|(k, v)| (k.into(), v.into())).collect(),
+    };
+    if let Some(preload) = preload {
+        if !linux {
+            bail!("--preload is the Linux loader's LD_PRELOAD");
+        }
+        let preload =
+            std::fs::canonicalize(preload).with_context(|| preload.display().to_string())?;
+        let core = nwnx.map(|n| std::fs::canonicalize(&n.core).unwrap_or(n.core.clone()));
+        match core {
+            Some(core) if core == preload => {}
+            Some(core) if preload.file_name().is_some_and(|n| n == CORE_FILE) => bail!(
+                "--preload {} is another NWNX than the project's ({}): pass --no-nwnx to \
+                 preload it alone, or --nwnx with its folder",
+                preload.display(),
+                core.display()
+            ),
+            Some(core) => {
+                // (The loader takes a list, separated by colons.)
+                let mut both = core.into_os_string();
+                both.push(":");
+                both.push(&preload);
+                env.retain(|(k, _)| k != "LD_PRELOAD");
+                env.insert(0, ("LD_PRELOAD".into(), both));
+            }
+            None => env.push(("LD_PRELOAD".into(), preload.into())),
+        }
+    }
+    // (The last LD_PRELOAD is the one the server gets: kept alone, in the
+    // first one's place.)
+    if let Some(last) = env.iter().rposition(|(k, _)| k == "LD_PRELOAD") {
+        let value = env[last].1.clone();
+        env.retain(|(k, _)| k != "LD_PRELOAD");
+        env.insert(0, ("LD_PRELOAD".into(), value));
+    }
+    let core_in = env.iter().filter(|(k, _)| k == "LD_PRELOAD").any(|(_, v)| {
+        let v = v.to_string_lossy();
+        v.split([':', ' ']).any(|l| Path::new(l).file_name().is_some_and(|n| n == CORE_FILE))
+    });
+    // (The project's NWNX is held to its checks whatever an --env line
+    // put in its core's place: the server is to run with it.)
+    Ok(ServerEnv { vars: env, nwnx: nwnx.is_some() || core_in })
+}
+
+/// The project file of the module a run serves (`original`: the
+/// `.mod`, folder or nasher project the builder named).
+fn project_file_of(original: &Path) -> mg_module::project_file::ProjectFile {
+    use mg_module::project_file::{Place, ProjectFile};
+    let root = match original.file_name() {
+        Some(n) if n == "nasher.cfg" => original.parent().map(Path::to_path_buf),
+        _ if original.is_dir() => Some(original.to_path_buf()),
+        _ => None,
+    };
+    match root {
+        Some(root) => ProjectFile::read(&root),
+        None => Place::beside(original)
+            .filter(|p| p.team().is_file())
+            .map(|p| ProjectFile::read_at(&p))
+            .unwrap_or_default(),
     }
 }
 
@@ -864,21 +539,10 @@ pub(crate) fn serve(
     let dir = std::path::absolute(&dir).unwrap_or(dir);
     let caught = catch_interrupt();
     refuse_dir(gi, &dir, Some(c.real_user_dir))?;
-    let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = Vec::new();
-    for file in &c.env {
-        let text = std::fs::read_to_string(file).with_context(|| file.display().to_string())?;
-        let read =
-            mg_serve::env_file(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-        env.extend(read.into_iter().map(|(k, v)| (k.into(), v.into())));
-    }
-    if let Some(preload) = &c.preload {
-        if !cfg!(target_os = "linux") {
-            bail!("--preload is the Linux loader's LD_PRELOAD");
-        }
-        let preload =
-            std::fs::canonicalize(preload).with_context(|| preload.display().to_string())?;
-        env.push(("LD_PRELOAD".into(), preload.into()));
-    }
+    // (The project's `[nwnx]`: the module's the builder named, not the
+    // copy a run serves.)
+    let project_file = project_file_of(c.project.as_deref().unwrap_or(&c.module));
+    let mut said_nwnx: Vec<String> = Vec::new();
     let typed = c.stdin.then(|| lines(std::io::stdin()));
     let mut typing = typed.is_some();
     let mut flow = Flow::Continue;
@@ -893,6 +557,34 @@ pub(crate) fn serve(
         for note in notes.into_iter().chain(development) {
             each(&Event::Note(note));
         }
+        // NWNX, by the project and the options, checked against the copy's
+        // scripts; its notes said again only where they changed.
+        let served = mg_module::Module::open(&dir.join("modules").join(format!("{name}.mod")));
+        // (The --env files' lines checked with the project's.)
+        let more = env_lines(&c.env)?;
+        let resolved = mg_module::nwnx::resolve_with(
+            &project_file,
+            &mg_module::nwnx::Options {
+                choice: c.nwnx.clone(),
+                module: served.as_ref().ok(),
+                live: c.live,
+                ..Default::default()
+            },
+            &more,
+        );
+        let lines: Vec<String> = resolved.notes.iter().map(|n| n.line()).collect();
+        if lines != said_nwnx {
+            for n in resolved.notes.iter().filter(|n| n.level != mg_module::nwnx::Level::Error) {
+                each(&Event::Note(n.line()));
+            }
+            said_nwnx = lines;
+        }
+        if resolved.failed() {
+            bail!("NWNX: {}", resolved.errors().join("\n"));
+        }
+        let nwnx = resolved.nwnx;
+        let env =
+            server_env(nwnx.as_ref(), &more, c.preload.as_deref(), cfg!(target_os = "linux"))?;
         let seen = signature(&c.module);
         let serving = Serving::start();
         let mut server = mg_serve::Server::start(&mg_serve::Options {
@@ -906,9 +598,15 @@ pub(crate) fn serve(
             dm_password: passwords.dm_password.clone(),
             admin_password: passwords.admin_password.clone(),
             console: true,
-            env: env.clone(),
+            env: env.vars,
+            // (Nothing of the builder's own environment, NWNX or not: a
+            // shell's LD_PRELOAD of NWNX would load it unchecked, and a
+            // webhook's address of theirs would post from a test. What
+            // the server is to have is given: the project's, --env's.)
+            clean_env: true,
             args: c.args.iter().map(Into::into).collect(),
             own_group: caught,
+            die_with_parent: false,
         })?;
         port = Some(server.port);
         passwords = Passwords {
@@ -916,8 +614,7 @@ pub(crate) fn serve(
             dm_password: Some(server.dm_password.clone()),
             admin_password: Some(server.admin_password.clone()),
         };
-        let started = Instant::now();
-        let console = lines(server.console().expect("started with a console"));
+        let mut heard = Heard::new(env.nwnx);
         let mut log = mg_serve::Tail::new(server.log_path());
         let mut engine = mg_serve::Tail::new(server.engine_log_path());
         // (Not the two the engine says at every start.)
@@ -938,14 +635,14 @@ pub(crate) fn serve(
             dm: server.dm_password.clone(),
             admin: server.admin_password.clone(),
         });
-        let (mut looked, mut failed, mut quit) = (Instant::now(), false, false);
+        let (mut looked, mut quit) = (Instant::now(), false);
         // The server prints a command's answer when it next reads its
         // console: an empty line a moment after a command brings it out.
         let mut nudge: Option<Instant> = None;
         let end = loop {
             let mut events = Vec::new();
-            for line in console.try_iter() {
-                events.extend(console_events(line, started, &mut failed));
+            for line in server.lines() {
+                events.extend(console_events(line, &mut heard));
             }
             events.extend(engine.more().into_iter().filter(grave).map(Event::Engine));
             events.extend(log.more().into_iter().map(Event::Log));
@@ -981,6 +678,10 @@ pub(crate) fn serve(
                     flow = Flow::Restart;
                 }
             }
+            if heard.nwnx_failed && flow == Flow::Continue {
+                events.push(Event::Note("stopping the server: it runs without NWNX".into()));
+                flow = Flow::Stop;
+            }
             if INTERRUPTED.swap(false, Ordering::SeqCst) {
                 events.push(Event::Note("Ctrl+C: stopping the server".into()));
                 flow = Flow::Stop;
@@ -1001,14 +702,14 @@ pub(crate) fn serve(
             if let Some(status) = server.exited() {
                 // (What it said last.)
                 std::thread::sleep(Duration::from_millis(100));
-                drain_console(console.try_iter(), started, &mut failed, each);
+                drain_console(server.lines().into_iter(), &mut heard, each);
                 for line in engine.more().into_iter().filter(grave) {
                     each(&Event::Engine(line));
                 }
                 for line in log.more() {
                     each(&Event::Log(line));
                 }
-                break Some(match (failed, quit) {
+                break Some(match (heard.failed, quit) {
                     (true, _) => End::NotLoaded,
                     (_, true) => End::Stopped,
                     _ => End::Exited(status.code()),
@@ -1022,7 +723,7 @@ pub(crate) fn serve(
         server.stop(Duration::from_secs(5));
         // (What it said last, once its console has closed.)
         std::thread::sleep(Duration::from_millis(100));
-        drain_console(console.try_iter(), started, &mut failed, each);
+        drain_console(server.lines().into_iter(), &mut heard, each);
         for line in engine.more().into_iter().filter(grave) {
             each(&Event::Engine(line));
         }
@@ -1030,6 +731,9 @@ pub(crate) fn serve(
             each(&Event::Log(line));
         }
         drop(serving);
+        if heard.nwnx_failed {
+            return Ok(End::Nwnx);
+        }
         match std::mem::replace(&mut flow, Flow::Continue) {
             Flow::Restart => continue,
             _ => return Ok(End::Stopped),
@@ -1077,6 +781,7 @@ pub(crate) fn how(end: End) -> String {
         End::Stopped => "stopped".into(),
         End::NotLoaded => "the server could not load the module".into(),
         End::Exited(code) => format!("the server ended ({code:?})"),
+        End::Nwnx => "NWNX did not run in the server (see above)".into(),
     }
 }
 
@@ -1111,6 +816,16 @@ pub(crate) fn text(e: &Event) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mg_core::ResType;
+    use mg_module::ModuleLocation;
+    use mg_resman::ResKey;
+
+    fn same(a: &Path, b: &Path) -> bool {
+        std::fs::canonicalize(a)
+            .ok()
+            .zip(std::fs::canonicalize(b).ok())
+            .is_some_and(|(a, b)| a == b)
+    }
 
     /// The server's last lines, read after the loop has ended (at the
     /// timeout, or at its exit), still tell that the module loaded.
@@ -1118,15 +833,16 @@ mod tests {
     fn a_load_said_after_the_loop_is_still_ready() {
         let lines = ["Server: Loading module", "Server: Module loaded", "Server: Exiting..."];
         let mut seen = Vec::new();
-        let mut failed = false;
-        drain_console(lines.iter().map(|l| l.to_string()), Instant::now(), &mut failed, &mut |e| {
+        let mut heard = Heard::new(false);
+        let line = |l: &str| mg_serve::Line { text: l.to_string(), stderr: false };
+        drain_console(lines.iter().map(|l| line(l)), &mut heard, &mut |e| {
             seen.push(json(e).unwrap()["event"].as_str().unwrap().to_string());
             Flow::Continue
         });
         assert_eq!(seen, ["console", "ready", "console", "console"]);
-        assert!(!failed);
-        let mut e = console_events("Unable to load module x".into(), Instant::now(), &mut failed);
-        assert!(failed && matches!(e.pop(), Some(Event::Console(_))) && e.is_empty());
+        assert!(!heard.failed);
+        let mut e = console_events(line("Unable to load module x"), &mut heard);
+        assert!(heard.failed && matches!(e.pop(), Some(Event::Console(_))) && e.is_empty());
     }
 
     #[test]
@@ -1465,7 +1181,7 @@ mod tests {
             std::fs::create_dir_all(user.join(sub)).unwrap();
         }
         let gi = GameInstall::new(&root, Some(user.clone()), "en");
-        assert!(is_players(&gi, &user));
+        assert!(mg_module::server_dir::is_players(&gi, &user));
         let folder = served_from_nwsync(&dir, &user, b"2DA V2.0\n\n A\n0 one\n", CAME, "");
         // Nothing of theirs there: links to the cache, and again for
         // another manifest.
@@ -1844,5 +1560,251 @@ mod tests {
         bm.set_info(&binfo).unwrap();
         bm.save_as(&ModuleLocation::Folder(bad_dir.clone())).unwrap();
         assert!(prepare(&gi, &bad_dir, &dir.join("server_bad"), None, false, false).is_err());
+    }
+
+    /// A library the loader can preload into a shell: a copy of the C
+    /// library's `libdl` (a stub in glibc 2.34 and later), named `name`.
+    #[cfg(target_os = "linux")]
+    fn a_real_library(dir: &Path, name: &str) -> Option<PathBuf> {
+        let found =
+            ["/usr/lib/libdl.so.2", "/lib/x86_64-linux-gnu/libdl.so.2", "/usr/lib64/libdl.so.2"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|p| p.is_file())?;
+        std::fs::create_dir_all(dir).unwrap();
+        let to = dir.join(name);
+        std::fs::copy(found, &to).unwrap();
+        Some(to)
+    }
+
+    /// A fake NWNX home: `Binaries/` with `NWNX_Core.so` and `plugins`
+    /// (empty files), and a project folder using it with `env` as its
+    /// environment file; resolved with `more` (`--env`'s lines).
+    fn fake_nwnx(
+        dir: &Path,
+        plugins: &[&str],
+        env: &str,
+        more: &[(String, String)],
+    ) -> mg_module::nwnx::Resolved {
+        let bin = dir.join("nwnx/Binaries");
+        std::fs::create_dir_all(&bin).unwrap();
+        for p in std::iter::once("Core").chain(plugins.iter().copied()) {
+            std::fs::write(bin.join(format!("NWNX_{p}.so")), b"").unwrap();
+        }
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let home = dir.join("nwnx").display().to_string().replace('\\', "/");
+        let team = format!("[nwnx]\nuse = true\nhome = \"{home}\"\nenv = \"nwnx.env\"\n");
+        std::fs::write(root.join("moonglow.toml"), team).unwrap();
+        std::fs::write(root.join("nwnx.env"), env).unwrap();
+        let project = mg_module::project_file::ProjectFile::read(&root);
+        let o = mg_module::nwnx::Options { linux: true, ..Default::default() };
+        mg_module::nwnx::resolve_with(&project, &o, more)
+    }
+
+    fn lines(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    fn texts(env: &ServerEnv) -> Vec<(String, String)> {
+        (env.vars.iter())
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+            .collect()
+    }
+
+    /// The server's environment with NWNX: its core and plugins' folder,
+    /// the project's file's lines, then --env's (which win: last); and
+    /// --env's alone without NWNX.
+    #[test]
+    fn nwnx_s_environment_then_the_env_files() {
+        let dir = mg_testkit::scratch_dir("mg-serve-env-order");
+        let more = lines(&[("NWNX_CORE_LOG_LEVEL", "7"), ("MY_SETTING", "x")]);
+        let r = fake_nwnx(&dir, &["Util"], "NWNX_CORE_LOG_LEVEL=6\nNWNX_UTIL_SKIP=n\n", &more);
+        let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+        let env = server_env(Some(&n), &more, None, true).unwrap();
+        let bin = dir.join("nwnx/Binaries");
+        let want = lines(&[
+            ("LD_PRELOAD", &bin.join("NWNX_Core.so").display().to_string()),
+            ("NWNX_CORE_LOAD_PATH", &bin.display().to_string()),
+            ("NWNX_CORE_LOG_LEVEL", "6"),
+            ("NWNX_UTIL_SKIP", "n"),
+            ("NWNX_CORE_LOG_LEVEL", "7"),
+            ("MY_SETTING", "x"),
+        ]);
+        assert_eq!(texts(&env), want);
+        assert!(env.nwnx);
+        let env = server_env(None, &more, None, true).unwrap();
+        assert_eq!(texts(&env), more);
+        assert!(!env.nwnx);
+    }
+
+    /// --preload: another library alone without NWNX (and no NWNX check);
+    /// an NWNX_Core.so of --preload's, or of an --env LD_PRELOAD, is NWNX;
+    /// with the project's NWNX, its own core once, another library beside
+    /// it, another NWNX's core refused; not off Linux.
+    #[test]
+    fn preloads_and_what_is_nwnx() {
+        let dir = mg_testkit::scratch_dir("mg-serve-preload");
+        let r = fake_nwnx(&dir, &[], "", &[]);
+        let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+        let lib = dir.join("lib/libjemalloc.so");
+        let other = dir.join("other/Binaries/NWNX_Core.so");
+        for f in [&lib, &other] {
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, b"").unwrap();
+        }
+        let (lib, other) = (lib.canonicalize().unwrap(), other.canonicalize().unwrap());
+        let core = n.core.canonicalize().unwrap();
+        let preloaded = |e: &ServerEnv| -> Vec<String> {
+            texts(e).into_iter().filter(|(k, _)| k == "LD_PRELOAD").map(|(_, v)| v).collect()
+        };
+        // Without NWNX (--no-nwnx, or none): the library alone, no NWNX.
+        let e = server_env(None, &[], Some(&lib), true).unwrap();
+        assert_eq!(preloaded(&e), [lib.display().to_string()]);
+        assert!(!e.nwnx, "another library is not NWNX");
+        // An NWNX core given so: NWNX, checked.
+        assert!(server_env(None, &[], Some(&other), true).unwrap().nwnx);
+        let given = lines(&[("LD_PRELOAD", &other.display().to_string())]);
+        assert!(server_env(None, &given, None, true).unwrap().nwnx);
+        // With the project's: its core once; another library beside it.
+        let e = server_env(Some(&n), &[], Some(&n.core), true).unwrap();
+        assert_eq!(preloaded(&e), [n.core.display().to_string()]);
+        assert!(e.nwnx);
+        let e = server_env(Some(&n), &[], Some(&lib), true).unwrap();
+        assert_eq!(preloaded(&e), [format!("{}:{}", core.display(), lib.display())]);
+        assert!(e.nwnx);
+        // An --env LD_PRELOAD in the core's place: NWNX still checked (the
+        // server then says it ran without it, and is stopped).
+        let displaced = lines(&[("LD_PRELOAD", &lib.display().to_string())]);
+        // (As resolve_with has --env's lines: in NWNX's own.)
+        let mut d = n.clone();
+        d.env.extend(displaced.iter().cloned());
+        let e = server_env(Some(&d), &displaced, None, true).unwrap();
+        assert_eq!(preloaded(&e), [lib.display().to_string()]);
+        assert!(e.nwnx, "the project's NWNX is checked");
+        let e = server_env(Some(&n), &[], Some(&other), true).unwrap_err().to_string();
+        assert!(e.contains("is another NWNX than the project's"), "{e}");
+        assert!(server_env(None, &[], Some(&lib), false).is_err(), "LD_PRELOAD is Linux's");
+    }
+
+    /// What the server says of NWNX is held to it only with NWNX: a module
+    /// loaded without "Starting NWNX" stops a run with NWNX, not one
+    /// without; another library the loader refused is a warning.
+    #[test]
+    fn nwnx_s_checks_only_with_nwnx() {
+        let line = |l: &str| mg_serve::Line { text: l.to_string(), stderr: false };
+        let refused = "ERROR: ld.so: object '/usr/lib/libjemalloc.so' from LD_PRELOAD cannot be \
+                       preloaded (wrong ELF class): ignored.";
+        let mut without = Heard::new(false);
+        let mut said = Vec::new();
+        for l in [refused, "Server: Module loaded"] {
+            said.extend(console_events(line(l), &mut without));
+        }
+        assert!(!without.nwnx_failed, "{said:?}");
+        let warned = said.iter().any(|e| matches!(e, Event::Note(n) if n.starts_with("warning: ")));
+        assert!(warned, "{said:?}");
+        let mut with = Heard::new(true);
+        console_events(line("Server: Module loaded"), &mut with);
+        assert!(with.nwnx_failed, "NWNX asked for and never heard of");
+    }
+
+    /// A served module, end to end with a stand-in server (a shell script
+    /// that writes down its environment): nothing of the caller's own
+    /// environment reaches it but the kept variables, NWNX or not; --env's
+    /// lines do; `--no-nwnx --preload` of another library loads it and the
+    /// run goes on (no "ran without NWNX").
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_served_module_gets_what_it_is_given_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = mg_testkit::scratch_dir("mg-serve-env-given-alone");
+        let Some(lib) = a_real_library(&dir.join("lib"), "libextra.so") else { return };
+        let root = dir.join("root");
+        let server = root.join("bin/linux-x86/nwserver-linux");
+        std::fs::create_dir_all(server.parent().unwrap()).unwrap();
+        let env_out = dir.join("env.txt");
+        let script = format!(
+            "#!/bin/sh\nenv > '{}'\necho 'Server: Module loaded'\n\
+             while read line; do [ \"$line\" = exit ] && exit 0; done\n",
+            env_out.display()
+        );
+        std::fs::write(&server, script).unwrap();
+        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let user = dir.join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        let gi = GameInstall::new(&root, Some(user), "en");
+        let module = dir.join("m.mod");
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+        let env_file = dir.join("given.env");
+        std::fs::write(&env_file, "MG_GIVEN=yes\n").unwrap();
+        // (A variable of this process's that is not kept, if it has one:
+        // cargo gives a test its CARGO_* ones.)
+        let own = std::env::vars().map(|(k, _)| k).find(|k| {
+            let kept = mg_serve::KEPT_VARIABLES.iter().any(|v| v.eq_ignore_ascii_case(k));
+            !kept
+                && !k.starts_with("LC_")
+                && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+        let run = |preload: Option<PathBuf>| {
+            let c = Config {
+                module: module.clone(),
+                dir: Some(dir.join("server")),
+                env: vec![env_file.clone()],
+                preload,
+                nwnx: mg_module::nwnx::Choice::Off,
+                ..Default::default()
+            };
+            let mut said = Vec::new();
+            let end = serve(&gi, &c, &mut |e| {
+                said.push(e.clone());
+                match e {
+                    Event::Ready { .. } => Flow::Stop,
+                    _ => Flow::Continue,
+                }
+            })
+            .unwrap();
+            (end, said, std::fs::read_to_string(&env_out).unwrap())
+        };
+        // Without NWNX or a preload: clean all the same.
+        let (end, said, got) = run(None);
+        assert_eq!(end, End::Stopped, "{said:?}");
+        assert!(got.lines().any(|l| l == "MG_GIVEN=yes"), "{got}");
+        if let Some(own) = &own {
+            assert!(!got.lines().any(|l| l.starts_with(&format!("{own}="))), "{own} passed: {got}");
+        }
+        // --no-nwnx --preload of another library: loaded, no NWNX check.
+        let (end, said, got) = run(Some(lib.clone()));
+        assert_eq!(end, End::Stopped, "{said:?}");
+        let preload = format!("LD_PRELOAD={}", lib.canonicalize().unwrap().display());
+        assert!(got.lines().any(|l| l == preload), "{got}");
+        assert!(
+            !said.iter().any(|e| matches!(e, Event::Note(n) if n.contains("NWNX"))),
+            "{said:?}"
+        );
+    }
+
+    /// The note of a module folder beside the .mod: once in a process,
+    /// with the output (as `open_module` says it), not at each start.
+    #[test]
+    fn the_folder_beside_the_mod_is_said_once() {
+        let dir = mg_testkit::scratch_dir("mg-serve-beside-once");
+        // (No game install needed: the module names no hak or talk table.)
+        let gi = GameInstall::new(dir.join("root"), Some(dir.join("user")), "en");
+        let module = dir.join("beside.mod");
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+        m.save_as(&ModuleLocation::Folder(dir.join("beside"))).unwrap();
+        let server = dir.join("server");
+        for _ in 0..2 {
+            let (_, notes) = prepare(&gi, &module, &server, None, false, false).unwrap();
+            assert!(!notes.iter().any(|n| n.contains("beside it")), "{notes:?}");
+        }
+        let once = crate::opened_notes()
+            .into_iter()
+            .filter(|n| n.contains(&*module.display().to_string()));
+        assert_eq!(once.count(), 1);
     }
 }

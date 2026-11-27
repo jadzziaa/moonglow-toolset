@@ -8,6 +8,9 @@ use mg_module::links::{link_dir, link_file};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod local;
+pub use local::{Character, Join, LocalPlan, LocalRun, Progress};
+
 /// The game client of the install at `root`, for this platform.
 pub fn client_binary(root: &Path) -> Option<PathBuf> {
     let rel = if cfg!(target_os = "linux") {
@@ -586,7 +589,8 @@ mod tests {
     }
 
     /// The game joining a test's server: its user directory, `+connect`,
-    /// and `+password` only where there is one; no module.
+    /// and `+password` only where there is one; no module; Steam told as
+    /// for a test of its own.
     #[test]
     fn the_game_joins_a_server_with_connect() {
         let args = |c: &Command| {
@@ -601,6 +605,13 @@ mod tests {
             args(&c),
             ["-userdirectory", "/u", "+connect", "10.0.0.2:5122", "+password", "pw"]
         );
+        // A Steam copy is told of Steam as for a test of its own.
+        let steam =
+            Path::new("/lib/steamapps/common/Neverwinter Nights/bin/linux-x86/nwmain-linux");
+        let c = join_command(steam, Path::new("/u"), "127.0.0.1:5121", "pw", false);
+        let removed = c.get_envs().filter(|(_, v)| v.is_none()).count();
+        assert_eq!(removed, 2, "not started through Steam");
+        assert_eq!(join_command(steam, Path::new("/u"), "a", "b", true).get_envs().count(), 2);
     }
 
     /// The content user directory: the player's folder linked thing by

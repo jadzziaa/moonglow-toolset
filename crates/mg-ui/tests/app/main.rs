@@ -87,6 +87,7 @@ mod status_hints;
 mod table_panels;
 mod tables;
 mod talk_panels;
+mod test_module_local;
 mod tile_edges;
 mod tile_properties;
 mod tiles;

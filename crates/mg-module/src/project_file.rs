@@ -49,6 +49,9 @@
 //! ```toml
 //! [builder]
 //! code = "ab"                         # new ResRefs begin ab_ (by the pattern)
+//!
+//! [nwnx]                              # either file (crate::nwnx)
+//! home = "~/.local/opt/nwnx/current"  # NWNX's folder on this machine
 //! ```
 //!
 //! A key the file doesn't know, or a value of the wrong kind, is a
@@ -717,6 +720,10 @@ pub struct ProjectFile {
     /// keeps besides the module's own (`mg nwsync-cache-prune`), the
     /// builder's own file's over the team's.
     pub nwsync_keep: Option<usize>,
+    /// `[nwnx]`: NWNX for the servers Moonglow runs ([`crate::nwnx`]):
+    /// `use` and `env` the builder's own file's over the team's, `home`
+    /// from either (the builder's wins).
+    pub nwnx: crate::nwnx::NwnxRules,
     /// The team's described variables (`variables.toml` beside the
     /// team's file): none without it.
     pub variables: crate::var_desc::Variables,
@@ -1703,6 +1710,7 @@ impl ProjectFile {
                         self.nwsync_auth = sign_in.auth(&mut r, key.span().start);
                     }
                 }
+                ("nwnx", _) => crate::nwnx::read_rules(self, &mut r, entry, own),
                 // (A trust decision is never read from the checkout: one a
                 // repository carries would run its commands unasked.)
                 ("allowed_commands", _) => r.warn(

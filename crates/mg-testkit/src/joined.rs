@@ -104,6 +104,22 @@ pub fn start(
     web: Option<&Path>,
     server_args: &[&str],
 ) -> io::Result<Joined> {
+    start_with_server_env(scratch, module, join, web, server_args, &[])
+}
+
+/// [`start`], the server alone given `server_env` (NWNX's `LD_PRELOAD` and
+/// settings: `mg_module::nwnx::Nwnx::server_env`), through a file in the
+/// scratch directory the sandbox sources for it (`MG_SERVER_ENV`): not
+/// the sandbox's shell or the client. What the server prints is then in
+/// `<scratch>/server.out` ([`Joined::server_out`]).
+pub fn start_with_server_env(
+    scratch: &Path,
+    module: &str,
+    join: Join,
+    web: Option<&Path>,
+    server_args: &[&str],
+    server_env: &[(OsString, OsString)],
+) -> io::Result<Joined> {
     let key = cd_key().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
@@ -138,13 +154,28 @@ pub fn start(
         "[masterserver]\n\t[masterserver.key-authentication]\n\t\tmode = \"if-reachable\"\n\
          [server]\n\treload-when-empty = false\n",
     )?;
-    let mut env: Vec<(OsString, OsString)> = vec![
+    let mut env: Vec<(OsString, OsString)> = Vec::new();
+    if !server_env.is_empty() {
+        // (Sourced by the sandbox's shell: each value in single quotes.)
+        let mut text = String::new();
+        for (k, v) in server_env {
+            let (k, v) = (k.to_string_lossy(), v.to_string_lossy());
+            if !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(io::Error::other(format!("not a variable's name: {k}")));
+            }
+            text.push_str(&format!("{k}='{}'\n", v.replace('\'', "'\\''")));
+        }
+        let file = scratch.join("server.env");
+        std::fs::write(&file, text)?;
+        env.push(("MG_SERVER_ENV".into(), file.into()));
+    }
+    env.extend::<[(OsString, OsString); 5]>([
         ("MG_SCRATCH".into(), scratch.into()),
         ("MG_CLIENT".into(), if join == Join::Dm { "dm" } else { "player" }.into()),
         ("NWN_ROOT".into(), root.into()),
         ("DISPLAY".into(), display.into()),
         ("MOONGLOW_LOCKS_HELD".into(), "display".into()),
-    ];
+    ]);
     // (`<scratch>/client-settings.tml`, if there is one: the client's
     // settings put back before each start.)
     let settings = scratch.join("client-settings.tml");
@@ -172,6 +203,14 @@ pub fn start(
 }
 
 impl Joined {
+    /// What the server printed, where it was started with an environment
+    /// of its own ([`start_with_server_env`]): NWNX's lines.
+    pub fn server_out(&self) -> String {
+        std::fs::read(self.scratch.join("server.out"))
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default()
+    }
+
     /// The client's log (the game's engine log of the client).
     pub fn client_log(&self) -> String {
         std::fs::read_to_string(client_dir(&self.scratch).join("logs/nwengineLog.txt"))
@@ -206,7 +245,7 @@ impl Joined {
     /// Ends the sandbox (the server and the client with it), and removes
     /// the CD key's copy from the scratch directory (as dropping this
     /// does).
-    pub fn stop(self) {
+    pub fn stop(mut self) {
         self.server.stop(Duration::from_secs(1));
         drop(self.key);
     }

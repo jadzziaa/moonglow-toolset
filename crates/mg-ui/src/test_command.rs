@@ -83,6 +83,17 @@ fn read_lines(
     });
 }
 
+/// The next test, of any kind (this command again, the game, Test
+/// Module's local server): a command still running from the last test
+/// stopped first, and what it started, so that its server lets go of the
+/// port and of the module.
+pub(crate) fn stop_last(app: &mut Moonglow) {
+    if let Some(old) = app.test_command.take() {
+        app.log.info("Test Module: the last test's command stopped");
+        drop(old);
+    }
+}
+
 /// Runs the test command `line` for the module at `module_path` (named
 /// `module_name`), stopping one still running from the last test first;
 /// `join`, the game started once a server answers.
@@ -93,10 +104,7 @@ pub(crate) fn start(
     module_name: &str,
     join: Option<Join>,
 ) {
-    if let Some(old) = app.test_command.take() {
-        app.log.info("Test Module: the last test's command stopped");
-        drop(old);
-    }
+    stop_last(app);
     let text = crate::test_module::fill_in(line, module_path, module_name);
     let folder = module_path.parent().filter(|p| p.is_dir()).unwrap_or(Path::new("."));
     let mut command = crate::project_commands::shell(&text, folder, false);

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T21:01:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:21:06Z }
 ---
 
 # Modules
@@ -970,6 +970,9 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[nwsync] token`, or `user` and `password` | the sign-in to a [private NWSync server](09-build-and-test.md#a-private-server): a token (`Authorization: Bearer`), or a user and password (`Basic`). From `.moonglow/user.toml` alone: in the team's file (or beside a `.mod`) it is refused, with the file and line, and never sent. Never shown | none |
 | `[nwsync] host` | the server the sign-in is sent to (`"nwsync.example.org"`), alone: no other host, port or scheme, and no plain `http://` but to this computer. From `.moonglow/user.toml` alone | the host of `source` in `.moonglow/user.toml`; without either, no sign-in is sent (said) |
 | `[nwsync] keep` | how many manifests last used a clean-up of Moonglow's NWSync cache keeps besides the module's own ([Cleaning up the cache](09-build-and-test.md#cleaning-up-the-cache)). In `.moonglow/user.toml` too, where it wins, and beside a `.mod` | 3 |
+| `[nwnx] use` | the servers Moonglow runs for the module (`mg serve`, `mg test`, `mg watch --serve`, [Test Module](09-build-and-test.md#test-module-with-nwnx)) load [NWNX](11-command-line.md#nwnx) (`true`), for every builder who has a `home` set; a builder's own `use = false` (in `.moonglow/user.toml`, which wins) turns it off for them. Linux only: on Windows and macOS the server runs without it, and the Log says so once | NWNX is not used |
+| `[nwnx] home` | NWNX's folder on this machine, the one with `Binaries/` (`NWNX_Core.so` and the plugins) and `NWScript/`: a whole path, `~/` from your home, or from the project's root. The team's is a default; yours, in `.moonglow/user.toml`, wins | none: NWNX is off |
+| `[nwnx] env` | a file of `NAME=value` lines for the server (NWNX's settings: `NWNX_CORE_SKIP_ALL=y`, `NWNX_UTIL_SKIP=n`…), from the project's root; Moonglow adds `LD_PRELOAD` and `NWNX_CORE_LOAD_PATH` itself. In `.moonglow/user.toml` too, where it wins | NWNX's own defaults (every plugin loads) |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
 | `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins tab's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 | `[palette.<id>]` | a [palette grouping](#palette-groupings): another way the palettes show their blueprints (Group by), any number of them | the palettes by category alone |

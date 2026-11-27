@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T21:01:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:25:19Z }
 ---
 
 # Build, verify and test
@@ -832,6 +832,40 @@ lagging combat, AI that overflows its time, and modules damaged when the
 game crashes. The module is always saved before
 the game starts, and Test From Here plays a copy.
 
+### Test Module with NWNX
+
+A module whose project uses [NWNX](11-command-line.md#nwnx)
+(`[nwnx] use = true` and your `home`, on Linux) can't be tested by the
+game alone: `+TestNewModule` starts the game's own server, which NWNX
+never loads into, so most of such a module's scripts would do nothing.
+Test Module serves it instead on a private `nwserver` with NWNX, in a
+folder of Moonglow's cache (`test-server`, never your NWN folder), with
+the module, its haks and talk table, and your `development` folder
+linked, as `mg serve` has it without `--no-development`.
+This is what **The game, on the module** in Options › Test Module does
+for such a project; with **A command of my own** your command runs
+instead ([below](#a-command-of-your-own)), and Moonglow starts no server
+of its own. Once the server says the module is
+loaded, the game starts on your user folder and joins it
+(`+connect 127.0.0.1:PORT +password …`), to the game's character list
+with your own characters on it. The Log follows the server (its
+preparing, starting, the module loaded, the game joining, what NWNX
+says and the module's log lines), and the status bar says how far it
+is. The checks before the start are `mg serve`'s: an error is said in
+the Log and nothing is started.
+
+When the game ends, the server is told to `exit`. Only the server and
+the game this test started are ever stopped. While they run, the status
+bar shows the test as a job, and another test is refused: close the
+game, or choose **Build › Stop Test Server** (offered while the local
+server runs), which stops the server and the game, then test again.
+(A server your own command started is not Moonglow's to stop there: the
+next test or closing Moonglow stops it.)
+Closing Moonglow stops them too, and on Linux they end with Moonglow
+however it ends. On Windows and macOS such a module is tested by the game
+alone, as any other, and the Log says once that NWNX runs only on Linux
+servers.
+
 A test looks for a game already running first (Test Module before it
 saves), for it would write the module under one that has it open (the
 game then says the module is damaged). While the game Moonglow started for the last test runs, a
@@ -866,19 +900,24 @@ bash -lc "~/nwn/server start '{module_name}'"
 The window goes on while the command runs: what it prints comes into the
 log as it comes (what it writes to its error output as warnings), and
 the log says how it ended. It runs until it ends, until the next test
-(which stops it first, and what it started, so that its server lets go
-of the port), or until Moonglow closes, which stops it too.
+of either kind, your command again or the game's (which stops it first,
+and what it started, so that its server lets go of the port), or until
+Moonglow closes, which stops it too.
 
 With **Then start the game, joining the server**, Moonglow then waits
 for a server to answer at **Server address** (`127.0.0.1:5121`, the
 game's own port on this machine, unless you type another), asking it as
 the game's server list does, for up to two minutes, and starts the game
 connected to it (`+connect`, and `+password` with the **Player
-password** you give). The game shows the server's character list. If no
+password** you give), as it joins Test Module's own
+[local server](#test-module-with-nwnx). The game shows the server's character list. If no
 server answers in time, the log says so and no game is started. A server
 in WSL answers at `127.0.0.1` only where WSL passes UDP through to
 Windows (its mirrored networking mode); otherwise give the address WSL's
-own network has.
+own network has. (Moonglow can't read that server's log, so it asks the
+server, as the game does; a server Moonglow starts itself, the local
+server or `mg serve`, is ready only once its log says the module is
+loaded, as a game joining before then can quit.)
 
 `mg serve` runs a module in the game's headless server from a terminal,
 and `mg test` runs a module's test scripts there and reports what they

@@ -30,6 +30,7 @@ mg-nwsync = { workspace = true, features = ["http"] }
 mg-module.workspace = true
 mg-nui.workspace = true
 mg-plugin.workspace = true
+mg-serve.workspace = true
 mg-preview = { workspace = true, features = ["render", "usage"] }
 mg-render.workspace = true
 mg-resman.workspace = true
@@ -37,7 +38,6 @@ mg-rules.workspace = true
 mg-ssf.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
-mg-serve.workspace = true
 mg-set.workspace = true
 mg-tiles.workspace = true
 mg-tlk.workspace = true

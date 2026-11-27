@@ -27,6 +27,10 @@
 #   over it as it ends, without the debug logging asked for).
 # - MG_CLIENT_RUNS (optional, default 1): how many times the client is
 #   started, each after the last ended (after an NWSync download).
+# - MG_SERVER_ENV (optional, under MG_SCRATCH): a file of NAME='value'
+#   lines for the server alone (NWNX's LD_PRELOAD and settings: not the
+#   shell's, bwrap's or the client's), sourced into its environment; its
+#   output then goes to MG_SCRATCH/server.out (NWNX's lines).
 #
 # As run-client.sh: the system read-only, Steam hidden, no D-Bus or audio,
 # the client drawn on $DISPLAY (the off-screen display; none set, nothing
@@ -97,7 +101,11 @@ if [ -n "$WEB" ]; then
   python3 -I -m http.server "$WEB_PORT" --bind 127.0.0.1 --directory "$WEB" \
     > "$SCRATCH/web.log" 2>&1 &
 fi
-./nwserver-linux "$@" $NWSYNC &
+if [ -n "$MG_SERVER_ENV" ]; then
+  (set -a; . "$MG_SERVER_ENV"; exec ./nwserver-linux "$@" $NWSYNC > "$SCRATCH/server.out" 2>&1) &
+else
+  ./nwserver-linux "$@" $NWSYNC &
+fi
 SERVER=$!
 if [ -n "$CLIENT" ]; then
   # (The module loaded: the line MG_READY_LINE in the log of the
@@ -156,4 +164,5 @@ exec bwrap \
   --setenv CLIENT "$CLIENT" --setenv MG_CLIENT_ARGS "${MG_CLIENT_ARGS:-}" \
   --setenv MG_CLIENT_RUNS "${MG_CLIENT_RUNS:-1}" \
   --setenv MG_CLIENT_SETTINGS "${MG_CLIENT_SETTINGS:-}" \
+  --setenv MG_SERVER_ENV "${MG_SERVER_ENV:-}" \
   /bin/sh -c "$INNER" sh "$@"

@@ -2856,6 +2856,7 @@ dependencies = [
 name = "mg-module"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "fastrand",
  "indexmap",
  "mg-2da",
@@ -3044,7 +3045,9 @@ dependencies = [
 name = "mg-serve"
 version = "0.0.0"
 dependencies = [
+ "mg-core",
  "mg-testkit",
+ "rustix 1.1.5",
 ]
 
 [[package]]

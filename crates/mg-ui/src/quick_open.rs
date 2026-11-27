@@ -1196,6 +1196,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::RoundTrip
         | Id::TestModule
         | Id::TestChoose
+        | Id::StopTestServer
         | Id::PackTarget
         | Id::AreaStatistics
         | Id::ModuleProperties

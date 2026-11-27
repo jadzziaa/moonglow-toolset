@@ -8,6 +8,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mg-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# (A server started for a run dies with its caller: the parent-death
+# signal.)
+rustix.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true

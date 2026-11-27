@@ -400,6 +400,8 @@ enum Cmd {
         /// A library loaded into the server (LD_PRELOAD; Linux).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// Mark the log lines containing this text (an event of their own
         /// with --json); may be given more than once.
         #[arg(long)]
@@ -472,6 +474,8 @@ enum Cmd {
         /// A library loaded into the server (LD_PRELOAD; Linux).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// More arguments for nwserver, after `--`.
         #[arg(last = true)]
         server_args: Vec<String>,
@@ -700,10 +704,21 @@ enum Cmd {
     /// 2DA, an area, module.ifo).
     #[command(group(
         clap::ArgGroup::new("serving")
-            .args(["dir", "port", "player_password", "dm_password", "admin_password", "env",
-                "preload", "server_args"])
+            .args(["dir", "port", "player_password", "dm_password", "admin_password",
+                "server_args"])
             .multiple(true)
             .requires("serve")
+    ))]
+    // (The server's environment and NWNX: the served module's, or the
+    // tests' server's.)
+    #[command(group(
+        clap::ArgGroup::new("a_server").args(["serve", "test"]).multiple(true)
+    ))]
+    #[command(group(
+        clap::ArgGroup::new("environment")
+            .args(["env", "preload", "nwnx", "no_nwnx"])
+            .multiple(true)
+            .requires("a_server")
     ))]
     Watch {
         project: PathBuf,
@@ -753,13 +768,16 @@ enum Cmd {
         // kept when the server is started again.)
         #[command(flatten)]
         passwords: serve::Passwords,
-        /// With --serve: a file of NAME=value lines for the server's
-        /// environment.
+        /// With --serve or --test: a file of NAME=value lines for the
+        /// server's environment.
         #[arg(long)]
         env: Vec<PathBuf>,
-        /// With --serve: a library loaded into the server (LD_PRELOAD).
+        /// With --serve or --test: a library loaded into the server
+        /// (LD_PRELOAD).
         #[arg(long)]
         preload: Option<PathBuf>,
+        #[command(flatten)]
+        nwnx: serve::NwnxArgs,
         /// With --serve: more arguments for nwserver, after `--`.
         #[arg(last = true)]
         server_args: Vec<String>,
@@ -2158,12 +2176,24 @@ pub(crate) fn open_module(path: &Path) -> std::result::Result<Module, mg_module:
             path.display(),
             folder.display()
         );
-        let mut said = OPENED.lock().unwrap_or_else(|e| e.into_inner());
-        if !said.contains(&note) {
-            said.push(note);
-        }
+        said_of_opened(note);
     }
     Ok(m)
+}
+
+/// A note of a module opened, said once with the output however often
+/// it is opened ([`OPENED`]).
+pub(crate) fn said_of_opened(note: String) {
+    let mut said = OPENED.lock().unwrap_or_else(|e| e.into_inner());
+    if !said.contains(&note) {
+        said.push(note);
+    }
+}
+
+/// Whether [`said_of_opened`] has this note (the tests').
+#[cfg(test)]
+pub(crate) fn opened_notes() -> Vec<String> {
+    OPENED.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// A file's extension, lower case.
@@ -3166,6 +3196,7 @@ fn run(cli: &Cli) -> Result<Output> {
             passwords,
             env,
             preload,
+            nwnx,
             marker,
             until,
             timeout,
@@ -3191,6 +3222,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 progress: !cli.json,
                 no_nwsync: *no_nwsync,
                 development: serve::Development::players_unless(*no_development),
+                nwnx: nwnx.choice(),
+                live: false,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -3221,7 +3254,7 @@ fn run(cli: &Cli) -> Result<Output> {
             })?;
             let failed = match end {
                 serve::End::Stopped => late && until.is_some() && !reached,
-                serve::End::NotLoaded => true,
+                serve::End::NotLoaded | serve::End::Nwnx => true,
                 serve::End::Exited(code) => code != Some(0) || until.is_some(),
             };
             let said = match end {
@@ -3246,6 +3279,7 @@ fn run(cli: &Cli) -> Result<Output> {
             no_development,
             env,
             preload,
+            nwnx,
             server_args,
         } => {
             if *include {
@@ -3270,6 +3304,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     progress: !cli.json,
                     no_nwsync: *no_nwsync,
                     development: serve::Development::players_unless(*no_development),
+                    nwnx: nwnx.choice(),
                     ..Default::default()
                 },
             };
@@ -4358,6 +4393,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         passwords,
         env,
         preload,
+        nwnx,
         server_args,
     } = &cli.cmd
     else {
@@ -4439,10 +4475,15 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
             own_driver: false,
             settle: 0.0,
             timeout: 120.0,
+            // (The tests' server as `mg test`'s: the project's NWNX, the
+            // --env files and the preload too.)
             serve: serve::Config {
                 name: "Moonglow test run".into(),
+                env: env.clone(),
+                preload: preload.clone(),
                 no_nwsync: *no_nwsync,
                 development: serve::Development::players_unless(*no_development),
+                nwnx: nwnx.choice(),
                 ..Default::default()
             },
         };
@@ -4512,6 +4553,8 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         project: Some(project.clone()),
         progress: !cli.json,
         no_nwsync: *no_nwsync,
+        nwnx: nwnx.choice(),
+        live: true,
         development: match watched {
             true => serve::Development::Watched,
             false => serve::Development::players_unless(*no_development),

@@ -312,3 +312,106 @@ void main()
     eprintln!("the client's nwsync folder: {}", synced.display());
     j.stop();
 }
+
+/// Test Module's quick start with NWNX, end to end with the real game: a
+/// server with the local NWNX build (`MG_NWNX_HOME`, by default
+/// `~/.local/opt/nwnx/current`; its core alone, `NWNX_CORE_SKIP_ALL`,
+/// through Moonglow's own `resolve_with` and `server_env`), a pregenerated
+/// character put alone in the server's vault for the client's CD key
+/// (`mg_serve::place_in_vault`, the key's public part read by
+/// `mg_serve::cdkey` from the same `cdkey.ini` the client is given) with
+/// `-servervault 1`, and the client joining as `join_command` has it
+/// (`+connect 127.0.0.1:PORT +password …`). Read: NWNX started in the
+/// server and its build is the server's; the client connected; and the
+/// character list it is shown (`joined_nwnx_list.png`, looked at).
+/// `MG_NWNX_CLICK`: Play clicked on the list's first character (the
+/// vault's one), and a picture of what follows (`joined_nwnx_in_game.png`).
+/// Seen 2026-11-27 (89.8193.37-17, NWNX 8193.37-17 [2d8465a]): NWNX
+/// started, its build the server's; "MgTester (<key>) Joined as Player 1"
+/// with the vault folder's key, 6 s after the module loaded; and the
+/// client's list held the one character, "Gar Mamm (Barbarian) (Server
+/// Vault)", selected, with Play.
+#[test]
+#[ignore]
+fn joined_nwnx_quick_start() {
+    let Some(key_file) = joined::cd_key() else {
+        eprintln!("skipped: the sandboxed client has no CD key (MG_CLIENT_CDKEY)");
+        return;
+    };
+    let home = std::env::var_os("MG_NWNX_HOME").map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from(std::env::var_os("HOME").unwrap()).join(".local/opt/nwnx/current")
+    });
+    if !home.join("Binaries/NWNX_Core.so").is_file() {
+        eprintln!("skipped: no NWNX in {}", home.display());
+        return;
+    }
+    // (TDoD's builds write its plugin into this NWNX's Binaries holding
+    // the lock exclusive: held shared meanwhile, as its servers do.)
+    let lock = std::fs::File::open(home.join("tdod-plugin.lock")).ok();
+    if let Some(l) = &lock {
+        l.lock_shared().unwrap();
+    }
+    let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    let dir = scratch_with("nwnx", &mut m);
+    let server = joined::server_dir(&dir);
+    std::fs::write(joined::client_dir(&dir).join("settings.tml"), joined_settings()).unwrap();
+    // NWNX as Test Module resolves it for a home given.
+    let o = mg_module::nwnx::Options {
+        choice: mg_module::nwnx::Choice::Home(home.clone()),
+        linux: true,
+        ..Default::default()
+    };
+    let more = [("NWNX_CORE_SKIP_ALL".to_string(), "y".to_string())];
+    let r = mg_module::nwnx::resolve_with(&Default::default(), &o, &more);
+    let nwnx = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+    // The quick start's vault: the character alone in the client's key's
+    // folder. (The key never in a message.)
+    let public = mg_serve::cdkey::public_key_of_ini(&key_file).expect("the CD key's public part");
+    let bic = root.join("data/lcv/barbarian.bic");
+    let placed = mg_serve::place_in_vault(&server, &public, &bic).unwrap();
+    assert!(placed.is_file());
+    let j = joined::start_with_server_env(
+        &dir,
+        "MgJoined",
+        Join::Player,
+        None,
+        &["-servervault", "1"],
+        &nwnx.server_env(),
+    )
+    .unwrap();
+    // (The server logs a player as it connects, by the public part of its
+    // key: "Name (PUBLIC) Joined as Player 1", at the character list.)
+    let connected = j.wait_for("Joined as Player", Duration::from_secs(150));
+    std::thread::sleep(Duration::from_secs(hold(20)));
+    let list = j.winshot("joined_nwnx_list");
+    let out = j.server_out();
+    let mut builds = mg_module::nwnx::Builds::default();
+    let said: Vec<_> = out.lines().filter_map(|l| builds.line(l)).collect();
+    let refused: Vec<_> =
+        out.lines().filter_map(|l| mg_module::nwnx::console_note(l, true)).collect();
+    if std::env::var_os("MG_NWNX_CLICK").is_some() {
+        super::nui::click_in_window(615, 615);
+        std::thread::sleep(Duration::from_secs(15));
+        let _ = j.winshot("joined_nwnx_in_game");
+    }
+    let log = j.server.log();
+    let client_out = std::fs::read_to_string(dir.join("client.out")).unwrap_or_default();
+    j.stop();
+    drop(lock);
+    // (The key's public part kept out of what is printed too.)
+    let joined_with_key = log.contains(&format!("({public}) Joined as Player"));
+    let log = log.replace(&public, "<public key>");
+    eprintln!("server log:\n{log}");
+    eprintln!("NWNX: {said:?}; its errors: {refused:?}");
+    eprintln!("client: {}", client_out.lines().rev().take(5).collect::<Vec<_>>().join(" | "));
+    eprintln!("picture: {list:?}");
+    assert!(out.contains("Starting NWNX"), "NWNX did not start in the server:\n{out}");
+    assert!(
+        said.iter().any(|n| n.level == mg_module::nwnx::Level::Info),
+        "NWNX's build is the server's: {said:?}"
+    );
+    assert!(refused.iter().all(|n| n.level != mg_module::nwnx::Level::Error), "{refused:?}");
+    assert!(connected, "the client never connected:\n{log}");
+    assert!(joined_with_key, "joined with another key than the vault's folder's:\n{log}");
+}

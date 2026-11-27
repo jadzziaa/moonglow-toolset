@@ -6,6 +6,7 @@
 //! from the clock ([`time`]).
 
 pub mod bin;
+pub mod env_file;
 pub mod lang;
 pub mod locstring;
 pub mod nim;

@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:32:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T23:09:02Z }
 ---
 
 # Command-line tools
@@ -419,17 +419,89 @@ place of the one in your tlk folder.
   that text and `--timeout SECONDS` after that long: a failure if
   `--until` was not seen. `--restart-on-change` starts the server again
   when the module's file (or folder) changes.
-- **NWNX and the like.** `--env FILE` adds a file of `NAME=value` lines
-  to the server's environment and `--preload LIBRARY` loads a library
-  into it (`LD_PRELOAD`, on Linux); Moonglow knows nothing more of NWNX.
-  Arguments after `--` go to `nwserver` as they are (`-- -maxclients 4
-  -servervault 1`).
+- **NWNX.** A module whose project file uses NWNX (`[nwnx] use = true`
+  and a `home`: [the project file](03-modules.md#the-project-file-moonglowtoml))
+  is served with it: see [NWNX](#nwnx) below. `--nwnx DIR` runs the
+  server with the NWNX in that folder whatever the project says, and
+  `--no-nwnx` without it. `--env FILE` adds a file of `NAME=value` lines
+  to the server's environment (after the project's, so its lines win)
+  and `--preload LIBRARY` loads a library into it (`LD_PRELOAD`, on
+  Linux), beside the project's NWNX. Arguments after `--` go to
+  `nwserver` as they are (`-- -maxclients 4 -servervault 1`).
 - **`--json`** prints each of these as a line of JSON (`event`:
   `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
   `note`, `changed`, `ended`, the last with `how` it ended and whether
   it `failed`, as `mg watch --serve` ends too). `ready` is reported
   whenever the server says its module loaded, also when that line
   comes only as the server is stopping or exiting.
+
+### NWNX
+
+[NWNX](https://github.com/nwnxee/unified) loads into `nwserver` alone,
+on Linux, through the loader's `LD_PRELOAD`. A project that uses it
+says so in its project file, and every server Moonglow runs for the
+module (`mg serve`, `mg test`, `mg watch --serve`, and Test Module's
+[local server](09-build-and-test.md#test-module-with-nwnx)) loads it:
+
+```toml
+# moonglow.toml, the team's
+[nwnx]
+use = true
+env = "dev/nwnx.env"        # NAME=value lines, from the project's root
+
+# .moonglow/user.toml, yours
+[nwnx]
+home = "~/.local/opt/nwnx/current"   # Binaries/ and NWScript/
+```
+
+- **Who runs it.** `use = true` turns it on for every builder who has
+  a `home`: the team's is a default, yours wins, and `use = false` in
+  your own file turns it off for you. `--nwnx DIR` takes that folder
+  whatever the files say (with the project's `env`), and `--no-nwnx`
+  runs without it.
+- **What the server gets.** `LD_PRELOAD=<home>/Binaries/NWNX_Core.so`,
+  `NWNX_CORE_LOAD_PATH=<home>/Binaries` (or the env file's own, made
+  whole from the project's root), then the env file's lines, then
+  those of `--env` (a relative `NWNX_CORE_LOAD_PATH` of theirs is from
+  the current folder). Nothing of your own environment reaches a server
+  Moonglow starts, with NWNX or without, but `PATH`, `HOME`, the user,
+  language, time zone and temporary folder: a setting of your shell's
+  (an `LD_PRELOAD` of NWNX, an NWNX setting, a webhook's address) does
+  not load or post from a test; give what the server needs with
+  `--env`. That is by design, and stays so: a server's environment is
+  that short list, the project's NWNX, `--env` and `--preload`, and
+  nothing else. Nothing is written into the project. `--preload` of NWNX's
+  own core is the same core; another library is preloaded beside it;
+  another NWNX's core is refused (pass `--no-nwnx` to preload it
+  alone). With `--no-nwnx` (or no NWNX), a preloaded library is only
+  that: NWNX's checks are made where an `NWNX_Core.so` is preloaded,
+  the project's or one you give.
+- **Checked before the start** (an error stops it, a warning doesn't):
+  the home, `NWNX_Core.so`, and the env file must be there, and every
+  plugin the env file or `--env` switches on (`NWNX_<PLUGIN>_SKIP=n`) must have its
+  `NWNX_<Plugin>.so` in `Binaries`: errors. A plugin the module's
+  scripts include (`#include "nwnx_store"`, its plugin read from the
+  include's own `NWNX_Store` constant) that the settings skip
+  (`NWNX_CORE_SKIP_ALL=y` without its `_SKIP=n`, or its own `_SKIP=y`)
+  is a warning naming it and how many scripts include it.
+  `NWNX_OPTIMIZATIONS_CACHE_SCRIPTS` while scripts are replaced as the
+  server runs (`mg watch --serve`, Test Module) is a warning: scripts
+  keep their first version, so `development/` and `NWNX_Util_AddScript`
+  won't replace them. With NWNX off (or not on Linux), scripts that
+  include an NWNX include or call `NWNXCall` are a warning: those calls
+  return nothing.
+- **Checked as it runs.** NWNX's game build is compiled into it as
+  numbers, so it can't be read from its files: the server's first lines
+  tell it (`Starting NWNX 8193.37-17`, `Build: 8193.37-17`), and NWNX
+  made for another game build is an error then (NWNX stops the server
+  itself); another revision of the same build is a warning. The
+  loader's own message where it could not preload the core (another
+  library it could not preload is a warning), and a
+  server that loaded its module without ever saying `Starting NWNX`,
+  are errors: the server is stopped, as it ran without NWNX, and the
+  run fails. A plugin that NWNX failed to load is a warning.
+- **Linux only.** On Windows and macOS a project with `use = true` runs
+  its server without NWNX, and says so.
 
 ## Testing scripts in the server
 
@@ -490,9 +562,11 @@ void main()
   server's log meanwhile.
 - `--driver none` puts nothing into the copy: the module runs its tests
   itself (from NWNX's start script, say) and calls `TestsDone()`.
-- `--dir`, `--env`, `--preload` and the arguments after `--` are `mg
-  serve`'s. Your own NWN folder as `--dir` is refused, before anything
-  is written there.
+- `--dir`, `--env`, `--preload`, `--nwnx`, `--no-nwnx` and the
+  arguments after `--` are `mg serve`'s: the tests run with the
+  project's [NWNX](#nwnx), read from the module you name (not the copy).
+  Your own NWN folder as `--dir` is refused, before anything is written
+  there.
 
 What the include writes to the log is its format 2 (`MG_TEST_FORMAT`):
 `MG_TEST PASS name` and `MG_TEST FAIL name :: detail`. An assertion made
