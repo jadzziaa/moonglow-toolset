@@ -4,7 +4,7 @@ title: 'Animated objects in the area scene: a proposal'
 description: How mg-area's AreaScene could play each object's own animation for a game client (Moonglow Client's request) - the cut between crates (a GPU-free player and the visual effects' rows in mg-preview, a per-object pose with transitions on Composed, the run-time state held by the caller beside the scene and keyed by a key of the caller's), one section for each of the eight capabilities asked with its API sketch and cost, how the run-time state relates to the saved AnimationState, the viewer's part, the migration of today's idle animation, the tests and client comparisons, risks, open questions and milestones after 5.5.0.
 tags: [proposal, animation, mg-area, mg-preview, mg-render, moonglow-client, moonglow-viewer, visual-effects]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:17:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:05:39Z }
 sources:
   - id: request
     resource: '~/Projects/moonglow-client, branch main at b6d7bbb: docs/research/stage-for-a-client.md, the section "Draft request for Moonglow Toolset" (a draft Finding, read at the client''s pin v5.4.0)'
@@ -181,6 +181,22 @@ moves every playback by `dt` times its speed. Nothing reads a clock. The
 same steps give the same poses, and so the same picture. Particles
 already step by the caller's `dt`. `View::time` stays the clock of tiles,
 water, grass sway and the objects with no playback.
+
+**Each object's own clock (the client's reading of question 3,
+2026-11-27).** In the retail client each creature's idle runs on its own
+clock from when it is first listed: two identical creatures listed 0.6 s
+apart stay 0.6 s apart (cross-correlation 0.99). So `Live` keeps a time
+per keyed object, started at 0 when the object is added, and `step`
+advances it. An object in `Live` with nothing playing stands in its idle
+at its own time, not at `View::time`. Unkeyed objects (the editor's) keep
+`View::time`.
+
+```rust
+impl Live {
+    /// Starts the object's own clock at 0; called when the caller adds it.
+    pub fn add(&mut self, key: ObjectKey);
+}
+```
 
 ```rust
 impl AreaScene {
@@ -407,8 +423,9 @@ and 3 are built.
 
 Sharing one pose among creatures with the same look, animation and time
 (as tiles share theirs) works only while they play in step. A client
-whose creatures each have their own phase (open question 3) gets little
-from it.
+whose creatures each have their own phase gets little from it, and the
+client's reading says the game's do (question 3): sharing helps only
+still objects and those listed at once.
 
 ## 8. Resources through GameData
 
@@ -600,12 +617,16 @@ Nothing is removed, and nothing depends on the `edit` feature.
 - **Effects in the light budget.** Effects' lights join the area's
   lights and its existing cap. A spell storm could push the area's own
   lamps out *(inferred; the cap's rule was not re-read for this)*.
-- **Picking** stays on the box at rest (`Shown::stance`). A creature
-  mid-animation is picked by its standing box. That is fine for an
-  editor, and the client takes it for now (question 6). A lying or
-  knocked-down creature may be the exception: the client is adding
-  "click a lying creature" to its retail measurement, so the rule may
-  become "the rest box, except a held pose".
+- **Picking** a keyed object goes by its pose (question 6, settled by
+  the client's reading of 2026-11-27). The retail client picks a lying
+  creature, alive or dead, against its lying pose, from 1.2 m on the
+  head's side to 0.3 m on the feet's, where `ray_hit` against the rest
+  stance misses its head and shoulders. So a keyed object is picked by
+  its posed meshes, or at least by the bounds of the pose it is drawn in
+  (`Live` keeps the last posed bounds per object, from `step`), and
+  unkeyed objects keep the box at rest (`Shown::stance`), as the editor
+  picks them. Cost: the posed bounds are a by-product of posing; a
+  test against posed meshes costs a stance per pick.
 
 ## Open questions needing a ruling
 
@@ -614,18 +635,17 @@ Nothing is removed, and nothing depends on the `edit` feature.
    [The viewer's part](#the-viewers-part).)
 2. **Where `play` and `vfx` live:** settled by the owner, in mg-preview
    as proposed, not a new `mg-stage` crate.
-3. **Each creature's idle phase:** do idles start at each object's own
-   time, as a client with `Live` can give them, or does the client keep
-   all creatures in step as the editor does? Moonglow Client will read
-   it in its retail measurement.
+3. **Each creature's idle phase:** settled by the client's reading:
+   each creature's idle runs on its own clock from when it is listed, so
+   `Live` keeps a time per object (see [point 2](#2-time-stepped-by-the-caller)).
 4. **`set_state` and a replaced idle:** when an object's
    `AnimationReplace` replaced its idle, does a state change keep the
    replacement? It needs an engine or client reading.
 5. **The particle key:** settled, an opaque `SimKey` (the client's
    answer: the break costs it one line).
-6. **Picking a playing creature:** settled for now, the box at rest. It
-   may become "except a held pose" once the client has measured clicking
-   a lying creature.
+6. **Picking a playing creature:** settled by the client's reading: by
+   its pose (its posed meshes, or at least its posed bounds), since the
+   retail client picks a lying creature against its lying pose.
 7. **Do effect models cast the sun's shadows** in the client? This is a
    reading, not a ruling, but it is needed before M4.
 8. **An effect's target size:** settled, read from the look's
@@ -640,7 +660,7 @@ moving and removing objects held with 184 objects live.
 
 | Milestone | What | Size |
 | --- | --- | --- |
-| **M0 Measure** | Time posing 50, 150 and 300 stock creatures through today's `Composed::instances` in a `world_perf`-style test. Read in the client: idle phases (Q3), door states and a replaced idle (Q4), effects' shadows (Q7). | S |
+| **M0 Measure** | Time posing 50, 150 and 300 stock creatures through today's `Composed::instances` in a `world_perf`-style test. Read in the client: door states and a replaced idle (Q4), effects' shadows (Q7). (Q3 and Q6 are read: Moonglow Client, 2026-11-27.) | S |
 | **M1 Player and Pose** | `mg_preview::play` (`Player`, `Heard`). `Composed::sample`, `blend` and `instances_posed`, with `instances` rewritten over them (pictures unchanged). The mesh state follows what plays. The viewer can start on `play`. | M |
 | **M2 Live in the area** | `ObjectKey`, `SimKey`, `Live`, `step`, `scene_live`, `particles` by key, notices (ends and events), `set_state` and `state_idle`. Migration test with an empty `Live`. Doors and placeables. | M–L |
 | **M3 Cost** | Still playbacks posed once, `View::sight` culling, `Usage::posed`, the 300-creature timing test, and parallel posing only if M0 and this test ask for it. | M |
