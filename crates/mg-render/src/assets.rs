@@ -123,6 +123,15 @@ pub trait Assets {
         let _ = name;
         None
     }
+
+    /// Which source this is: a renderer keeps what it reads of each apart
+    /// (a texture, an MTR of one name from two load orders is two), and
+    /// lets go of a source's once its identity is let go of. A wrapper
+    /// over a source gives the source's. `None` (the default): the one
+    /// source of all that give none.
+    fn source(&self) -> Option<&mg_resman::Identity> {
+        None
+    }
 }
 
 // (PLT colours in a texture name: mg-image's, as blueprint previews read
@@ -170,6 +179,10 @@ fn image_of(rm: &ResMan, name: &str) -> Option<(Option<Mtr>, ResRef)> {
 }
 
 impl Assets for ResMan {
+    fn source(&self) -> Option<&mg_resman::Identity> {
+        Some(self.identity())
+    }
+
     fn texture(&self, name: &str) -> Option<LoadedTexture> {
         self.texture_kept(name, &Palettes::default())
     }

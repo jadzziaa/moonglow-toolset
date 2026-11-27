@@ -93,6 +93,12 @@ impl mg_render::Assets for GameAssets {
     fn shader_origin(&self, name: &str) -> Option<String> {
         mg_render::Assets::shader_origin(&self.0.resman, name)
     }
+
+    // (The game data's own: the area view draws with `game.resman`, and
+    // what is read apart from here is kept with what it reads.)
+    fn source(&self) -> Option<&mg_resman::Identity> {
+        mg_render::Assets::source(&self.0.resman)
+    }
 }
 
 impl std::fmt::Debug for Viewport3d {

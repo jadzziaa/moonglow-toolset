@@ -807,19 +807,22 @@ Nothing open.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **The renderer's textures by name, across sources:** the window's one
-  renderer keeps its textures by name; they are forgotten when the game
-  data changes, a module closes, or a texture, MTR or TXI of the
-  module's own files changes outside (the review's B15), but not when
-  the model viewer draws a hak's model from the hak's own load order
-  through the same renderer. Since the review's last pass (its item 6)
-  an Import forgets them where a DDS, TGA, PLT, MTR or TXI of the
-  module changed, was added or was removed (`refresh_module_layer`).
-  Clearing them at every change of source would read every texture
-  again, and a hak's model drawn beside an area view would clear them
-  twice a frame: a real unintended consequence. Caches per source in the
-  renderer would do. (M) (the review of November 2026, B15, and what its
-  fixers saw on the way)
+- **The game's compiled programs by name, across sources:** the
+  renderer keeps each source's textures, MTRs and what is worked out of
+  them apart since 26 November 2026 (`Assets::source`: a hak's model in
+  the model viewer is drawn in the hak's own `zz_tex`, not the area's),
+  but the pipelines of the game's programs are still kept by the
+  programs' names alone: a hak being edited that has its own copy of a
+  shader or include (`fslit`, `inc_lighting`) draws with whichever
+  source's copy was compiled first, the area's or the hak's (read from
+  the code, `GameShaders::pipeline` keyed by `PipelineKey`; not
+  reproduced in a picture). Left for
+  going beyond what was asked (the textures' entry): keeping them per
+  source would compile every program again for each source (13 to 27 ms
+  each, the same text in the usual case); keying them by the assembled
+  text instead is a change to how the game's programs are kept and
+  asked for of their thread, of its own. (M) (found closing the
+  textures' entry of the review of November 2026, B15)
 
 ## Models and textures
 

@@ -676,24 +676,22 @@ pub struct Renderer {
     batcher: Batcher,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
-    textures: HashMap<String, Option<Arc<TextureEntry>>>,
-    /// Total GPU bytes held across loaded entries in [`Renderer::textures`].
-    textures_bytes: u64,
-    /// The PLTs' palettes, kept while the textures are.
-    palettes: Arc<crate::Palettes>,
+    /// What is kept of the source the frame draws from (its textures and
+    /// what is worked out of them), and of the others ([`Cache`]).
+    cache: Cache,
+    /// The source [`Renderer::cache`] is of ([`Assets::source`]: 0, the
+    /// source of all that give none).
+    source: u64,
+    /// The other sources' caches, by their sources.
+    caches: HashMap<u64, Cache>,
     /// When the materials and textures were last drawn, and how much of
     /// what isn't drawn lately is kept ([`kept`]).
     kept: kept::Kept,
-    slots: HashMap<SlotKey, Arc<Slots>>,
-    /// The materials' bind groups, and each material's place among them.
-    materials: HashMap<MaterialKey, u32>,
+    /// The materials' bind groups (each source's, at places of their own:
+    /// [`Cache::materials`]).
     groups: Vec<Option<wgpu::BindGroup>>,
     /// Evicted slots in `groups` and `material_keys` ready for reuse.
     free_materials: Vec<u32>,
-    /// Each model's meshes' surfaces, as its instances dress it (two-generation
-    /// cache: misses promote out of `surfaces_prev` before clearing).
-    surfaces: HashMap<SurfaceKey, Arc<[Surface]>>,
-    surfaces_prev: HashMap<SurfaceKey, Arc<[Surface]>>,
     /// Environment maps' names, numbered from 1 (0: none).
     names: HashMap<String, u32>,
     /// Instances' texture renames, numbered from 1 (0: none), by a sum of
@@ -703,11 +701,6 @@ pub struct Renderer {
     renames_made: u32,
     /// Instances' material values, numbered from 1 (0: none).
     value_sets: values::ValueSets,
-    /// Slots with an instance's material values in their MTR's parameters,
-    /// by the slots' place and the values' number: kept, as the game's
-    /// programs keep a material's values by where its parameters are
-    /// ([`crate::game::GameShaders`]'s templates).
-    valued: HashMap<(usize, u32), Arc<Slots>>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
     /// A frame's uniforms, bones, replaced vertices, particles, lights,
@@ -730,9 +723,6 @@ pub struct Renderer {
     box_copies: Vec<BoxRaw>,
     particle_draws: Vec<(ParticleBlend, u32, std::ops::Range<u32>, Option<usize>)>,
     particle_softness: Vec<f32>,
-    /// The particles' materials, by their texture's name: a batch's is
-    /// found by that alone (kept while the materials are).
-    particle_materials: HashMap<Option<String>, u32>,
     /// How many draws the last frame made: Moonglow's, the game's solid
     /// ones and its others.
     made: (usize, usize, usize),
@@ -746,6 +736,62 @@ pub struct Renderer {
     pub textures_apart: bool,
     /// What the last frame drew.
     pub drawn: Drawn,
+}
+
+/// What the renderer keeps of one source of textures ([`Assets::source`]:
+/// the area's load order, a hak's whose model the model viewer draws):
+/// its textures and what is worked out of them by name, which another
+/// source may give otherwise under the same names. The frame's source's
+/// is [`Renderer::cache`], swapped in as a frame draws from another (a
+/// hak's model beside an area view: twice a frame, nothing read again);
+/// a source's is let go of with the source ([`Cache::watch`]), and its
+/// textures not drawn lately as the others' are ([`kept`]).
+#[derive(Default)]
+struct Cache {
+    textures: HashMap<String, Option<Arc<TextureEntry>>>,
+    /// Total GPU bytes held across loaded entries in [`Cache::textures`].
+    textures_bytes: u64,
+    /// The PLTs' palettes, kept while the textures are.
+    palettes: Arc<crate::Palettes>,
+    slots: HashMap<SlotKey, Arc<Slots>>,
+    /// The materials, by their places among the renderer's groups
+    /// ([`Renderer::groups`]).
+    materials: HashMap<MaterialKey, u32>,
+    /// Each model's meshes' surfaces, as its instances dress it (two-generation
+    /// cache: misses promote out of `surfaces_prev` before clearing).
+    surfaces: HashMap<SurfaceKey, Arc<[Surface]>>,
+    surfaces_prev: HashMap<SurfaceKey, Arc<[Surface]>>,
+    /// Slots with an instance's material values in their MTR's parameters,
+    /// by the slots' place and the values' number: kept, as the game's
+    /// programs keep a material's values by where its parameters are
+    /// ([`crate::game::GameShaders`]'s templates).
+    valued: HashMap<(usize, u32), Arc<Slots>>,
+    /// The particles' materials, by their texture's name: a batch's is
+    /// found by that alone (kept while the materials are).
+    particle_materials: HashMap<Option<String>, u32>,
+    /// Whether the source is still held (`None`: the source of all that
+    /// give none, never let go of).
+    watch: Option<std::sync::Weak<u64>>,
+}
+
+impl std::fmt::Debug for Cache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (f.debug_struct("Cache"))
+            .field("textures", &self.textures.len())
+            .field("textures_bytes", &self.textures_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Cache {
+    /// Inserts or replaces a texture, keeping `textures_bytes` exact.
+    fn insert_texture(&mut self, name: String, entry: Option<Arc<TextureEntry>>) {
+        let added = entry.as_ref().map_or(0, |e| e.bytes);
+        if let Some(Some(prev)) = self.textures.insert(name, entry) {
+            self.textures_bytes = self.textures_bytes.saturating_sub(prev.bytes);
+        }
+        self.textures_bytes += added;
+    }
 }
 
 /// What a view keeps from one of its frames to the next
@@ -1251,6 +1297,8 @@ struct Waiting;
 /// they read, uploaded.
 struct TextureReader {
     assets: Arc<dyn Assets + Send + Sync>,
+    /// Its source ([`Assets::source`]), whose textures alone it reads.
+    source: u64,
     ask: std::sync::mpsc::Sender<(String, Role)>,
     read: std::sync::mpsc::Receiver<(String, u64, Option<Arc<TextureEntry>>)>,
     /// The names asked for and not yet read.
@@ -1332,8 +1380,10 @@ impl TextureReader {
             started += 1;
         }
         // (No thread to read on: textures are read as they are met.)
+        let source = assets.source().map_or(0, mg_resman::Identity::id);
         (started > 0).then(|| TextureReader {
             assets,
+            source,
             ask,
             read,
             asked: Default::default(),
@@ -1913,21 +1963,16 @@ impl Renderer {
                     mg_image::Rgba { width: 1, height: 1, data: vec![255; 4] }.into_texture(false);
                 std::array::from_fn(|_| face.clone())
             })),
-            textures: HashMap::new(),
-            textures_bytes: 0,
-            palettes: Arc::default(),
+            cache: Cache::default(),
+            source: 0,
+            caches: HashMap::new(),
             kept: Default::default(),
-            slots: HashMap::new(),
-            materials: HashMap::new(),
             groups: Vec::new(),
             free_materials: Vec::new(),
-            surfaces: HashMap::new(),
-            surfaces_prev: HashMap::new(),
             names: HashMap::new(),
             renames: HashMap::new(),
             renames_made: 0,
             value_sets: Default::default(),
-            valued: HashMap::new(),
             samplers: HashMap::new(),
             env_sampler,
             uniforms: Vec::new(),
@@ -1947,7 +1992,6 @@ impl Renderer {
             box_copies: Vec::new(),
             particle_draws: Vec::new(),
             particle_softness: Vec::new(),
-            particle_materials: HashMap::new(),
             made: (0, 0, 0),
             reader: None,
             textures_apart: false,
@@ -1955,43 +1999,90 @@ impl Renderer {
         }
     }
 
-    /// Forgets loaded textures (after the resources change).
+    /// Forgets loaded textures (after the resources change): every
+    /// source's.
     pub fn clear_textures(&mut self) {
         if let Some(r) = &mut self.reader {
             r.forget();
         }
-        self.textures.clear();
-        self.textures_bytes = 0;
-        self.palettes = Arc::default();
-        self.slots.clear();
+        // (The source drawn from stays the one drawn from.)
+        self.cache = Cache { watch: self.cache.watch.take(), ..Cache::default() };
+        self.caches.clear();
         // (What the surfaces are kept by, numbered anew with them: the
         // instances' value sets, texture renames and environment maps'
         // names were numbered for good, across modules.)
-        self.valued.clear();
         self.value_sets.clear();
         self.renames.clear();
         self.renames_made = 0;
         self.names.clear();
-        self.materials.clear();
-        self.particle_materials.clear();
         self.kept.materials.clear();
         self.groups.clear();
         self.material_keys.clear();
         self.free_materials.clear();
-        self.surfaces.clear();
-        self.surfaces_prev.clear();
         self.game.clear();
         self.game_pipelines.clear();
         self.game_keys_pending.clear();
     }
 
-    /// Inserts or replaces a texture cache entry, keeping `textures_bytes` exact.
-    fn insert_texture(&mut self, name: String, entry: Option<Arc<TextureEntry>>) {
-        let added = entry.as_ref().map_or(0, |e| e.bytes);
-        if let Some(Some(prev)) = self.textures.insert(name, entry) {
-            self.textures_bytes = self.textures_bytes.saturating_sub(prev.bytes);
+    /// Draws from `source` from now on ([`Assets::source`]): its cache
+    /// taken out of the others (made, the first time), the one drawn from
+    /// before put among them. The same source as before: nothing done.
+    fn use_source(&mut self, source: Option<&mg_resman::Identity>) {
+        let id = source.map_or(0, mg_resman::Identity::id);
+        if id == self.source {
+            return;
         }
-        self.textures_bytes += added;
+        let cache = (self.caches.remove(&id))
+            .unwrap_or_else(|| Cache { watch: source.map(|s| s.watch()), ..Cache::default() });
+        let before = std::mem::replace(&mut self.cache, cache);
+        self.caches.insert(self.source, before);
+        self.source = id;
+    }
+
+    /// Lets go of the caches of the sources let go of ([`Cache::watch`]),
+    /// with the materials, bind groups and pipelines' places that were
+    /// theirs: says how many.
+    fn let_go_of_gone_sources(&mut self) -> usize {
+        let gone: Vec<u64> = (self.caches.iter())
+            .filter(|(_, c)| c.watch.as_ref().is_some_and(|w| w.strong_count() == 0))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &gone {
+            if let Some(c) = self.caches.remove(id) {
+                self.forget_cache(c);
+            }
+        }
+        gone.len()
+    }
+
+    /// Lets go of what `cache` held beyond itself: its materials' places
+    /// among the groups, and the game's pipelines kept by its slots (by
+    /// where they were: another's made there later must not find them).
+    fn forget_cache(&mut self, cache: Cache) {
+        let mats: std::collections::HashSet<u32> = cache.materials.values().copied().collect();
+        self.free_groups(&mats);
+        let places: std::collections::HashSet<usize> = (cache.slots.values())
+            .chain(cache.valued.values())
+            .map(|s| Arc::as_ptr(s) as usize)
+            .collect();
+        self.game_pipelines.retain(|at, _| !places.contains(&at.0));
+        self.game_keys_pending.retain(|at, _| !places.contains(&at.0));
+    }
+
+    /// Frees the materials at `gone` among the groups (for others to be
+    /// made there), and what the game's programs kept of them. What names
+    /// them in a cache is the caller's to forget.
+    fn free_groups(&mut self, gone: &std::collections::HashSet<u32>) {
+        for &slot in gone {
+            let idx = slot as usize;
+            self.material_keys[idx] = None;
+            self.groups[idx] = None;
+            self.free_materials.push(slot);
+            if let Some(at) = self.kept.materials.get_mut(idx) {
+                *at = 0;
+            }
+        }
+        self.game.forget_materials_in(gone);
     }
 
     /// Whether a mesh is one the game's shaders draw (with them on): one
@@ -2161,7 +2252,7 @@ impl Renderer {
     fn slots(&mut self, assets: &dyn Assets, mat: &crate::model::Material) -> Arc<Slots> {
         let key: SlotKey =
             (mat.texture.clone(), mat.maps.clone(), mat.mtr.clone(), mat.normal_mapped);
-        if let Some(s) = self.slots.get(&key) {
+        if let Some(s) = self.cache.slots.get(&key) {
             return s.clone();
         }
         let (mtr_name, mtr) = [mat.mtr.as_deref(), mat.texture.as_deref()]
@@ -2251,14 +2342,14 @@ impl Renderer {
             }
         }
         let out = Arc::new(out);
-        self.slots.insert(key, out.clone());
+        self.cache.slots.insert(key, out.clone());
         out
     }
 
     /// The bind group for a material key (its place in
     /// [`Renderer::groups`]), made on first use.
     fn material_group(&mut self, gpu: &Gpu, assets: &dyn Assets, key: &MaterialKey) -> u32 {
-        if let Some(group) = self.materials.get(key) {
+        if let Some(group) = self.cache.materials.get(key) {
             return *group;
         }
         let textures: Vec<Option<Arc<TextureEntry>>> = key
@@ -2314,7 +2405,7 @@ impl Renderer {
             self.material_keys.push(Some(key.clone()));
             at
         };
-        self.materials.insert(key.clone(), at);
+        self.cache.materials.insert(key.clone(), at);
         at
     }
 
@@ -2365,7 +2456,7 @@ impl Renderer {
         let Some(values) = self.value_sets.get(id).cloned() else { return slots };
         let Some(mtr) = slots.mtr.as_deref() else { return slots };
         let key = (Arc::as_ptr(&slots) as usize, id);
-        if let Some(s) = self.valued.get(&key) {
+        if let Some(s) = self.cache.valued.get(&key) {
             return s.clone();
         }
         let declares = |n: &str| slots.params.iter().any(|(p, _)| p.eq_ignore_ascii_case(n));
@@ -2389,7 +2480,7 @@ impl Renderer {
             }
             Arc::new(s)
         };
-        self.valued.insert(key, out.clone());
+        self.cache.valued.insert(key, out.clone());
         out
     }
 
@@ -2413,14 +2504,14 @@ impl Renderer {
             plt: inst.plt_colors,
             values: inst.material_values.as_ref().map_or(0, |v| self.values_id(v)),
         };
-        if let Some(surfaces) = self.surfaces.get(&key) {
+        if let Some(surfaces) = self.cache.surfaces.get(&key) {
             return Some(surfaces.clone());
         }
-        if let Some(surfaces) = self.surfaces_prev.remove(&key) {
-            if self.surfaces.len() >= SURFACES_KEPT {
-                self.surfaces_prev = std::mem::take(&mut self.surfaces);
+        if let Some(surfaces) = self.cache.surfaces_prev.remove(&key) {
+            if self.cache.surfaces.len() >= SURFACES_KEPT {
+                self.cache.surfaces_prev = std::mem::take(&mut self.cache.surfaces);
             }
-            self.surfaces.insert(key, surfaces.clone());
+            self.cache.surfaces.insert(key, surfaces.clone());
             return Some(surfaces);
         }
         // (A texture still being read: none of the model's, for now. Every
@@ -2437,10 +2528,10 @@ impl Renderer {
             })
             .collect();
         let surfaces: Arc<[Surface]> = made.into_iter().collect::<Option<_>>()?;
-        if self.surfaces.len() >= SURFACES_KEPT {
-            self.surfaces_prev = std::mem::take(&mut self.surfaces);
+        if self.cache.surfaces.len() >= SURFACES_KEPT {
+            self.cache.surfaces_prev = std::mem::take(&mut self.cache.surfaces);
         }
-        self.surfaces.insert(key, surfaces.clone());
+        self.cache.surfaces.insert(key, surfaces.clone());
         Some(surfaces)
     }
 
@@ -2610,7 +2701,7 @@ impl Renderer {
             }
             t.clone()
         };
-        if let Some(t) = self.textures.get(name) {
+        if let Some(t) = self.cache.textures.get(name) {
             return stamped(t);
         }
         if let Some(base) = name.strip_suffix(LOST_SUFFIX) {
@@ -2618,12 +2709,12 @@ impl Renderer {
         }
         // (A texture that breaks what reads it is none, as on the threads
         // that read them apart.)
-        let palettes = self.palettes.clone();
+        let palettes = self.cache.palettes.clone();
         let entry = crate::guard::guarded(name, || {
             load_texture(gpu, assets, name, &palettes, role).map(Arc::new)
         });
         let entry = stamped(&entry.flatten());
-        self.insert_texture(name.to_string(), entry.clone());
+        self.cache.insert_texture(name.to_string(), entry.clone());
         entry
     }
 
@@ -2638,14 +2729,15 @@ impl Renderer {
         role: Role,
     ) -> Result<Option<Arc<TextureEntry>>, Waiting> {
         let now = self.kept.now;
-        if let Some(t) = self.textures.get(name) {
+        if let Some(t) = self.cache.textures.get(name) {
             if let Some(e) = t {
                 e.used.store(now, std::sync::atomic::Ordering::Relaxed);
             }
             return Ok(t.clone());
         }
         match &mut self.reader {
-            Some(r) if self.textures_apart => {
+            // (Only the reader's own source's: another's are read here.)
+            Some(r) if self.textures_apart && r.source == self.source => {
                 if r.asked.insert(name.to_string()) {
                     let _ = r.ask.send((name.to_string(), role));
                 }
@@ -2738,8 +2830,18 @@ impl Renderer {
             }
             taken.push((name, entry));
         }
-        for (name, entry) in taken {
-            self.insert_texture(name, entry);
+        // (Into its source's cache, drawn from now or not; none where
+        // that was let go of.)
+        let source = r.source;
+        let cache = if source == self.source {
+            Some(&mut self.cache)
+        } else {
+            self.caches.get_mut(&source)
+        };
+        if let Some(cache) = cache {
+            for (name, entry) in taken {
+                cache.insert_texture(name, entry);
+            }
         }
     }
 
@@ -2862,6 +2964,7 @@ impl Renderer {
         }
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
+        self.use_source(assets.source());
         self.let_go_of_stale_textures();
         if let Some(v) = &mut self.volumes {
             v.meshes.begin(self.kept.now);
@@ -3904,7 +4007,7 @@ impl Renderer {
         let mut particle_softness = std::mem::take(&mut self.particle_softness);
         particle_softness.clear();
         for b in &batches {
-            let group = match self.particle_materials.get(&b.texture) {
+            let group = match self.cache.particle_materials.get(&b.texture) {
                 Some(group) => *group,
                 None => {
                     // (Its picture read as a particle's first, so that
@@ -3916,7 +4019,7 @@ impl Renderer {
                     names[0] = b.texture.clone();
                     let key: MaterialKey = (names, "chrome1".into(), (false, false));
                     let group = self.material_group(gpu, assets, &key);
-                    self.particle_materials.insert(b.texture.clone(), group);
+                    self.cache.particle_materials.insert(b.texture.clone(), group);
                     group
                 }
             };

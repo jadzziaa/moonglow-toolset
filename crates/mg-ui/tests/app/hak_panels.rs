@@ -896,6 +896,76 @@ fn the_model_s_view_rests_until_played() {
     settle(&mut h);
 }
 
+/// Two haks, each with the model of ours and a texture of its name
+/// (`zz_tex`), red in one and blue in the other: each hak's model is drawn
+/// in its own hak's, through the window's one renderer, whichever was
+/// drawn first (the renderer keeps textures by their source as well as
+/// their name: the deferred list's "textures by name, across sources").
+#[test]
+fn each_hak_s_model_is_drawn_in_its_own_texture() {
+    use mg_module::hak_edit::{Hak, Source};
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-u21-two-sources");
+    let hak = |name: &str, rgba: [u8; 4]| {
+        let path = dir.join(format!("{name}.hak"));
+        let img = mg_image::Rgba { width: 4, height: 4, data: rgba.repeat(16) };
+        let tex = mg_image::write_tga(&img);
+        let mut hak = Hak::new();
+        let items = vec![
+            (key("zz_tex.tga"), Source::Bytes(tex.into())),
+            (key("zz_box.mdl"), Source::Bytes(BOX_MDL.as_bytes().to_vec().into())),
+        ];
+        hak.add_sources(items).unwrap();
+        hak.save(Some(&path)).unwrap();
+        path
+    };
+    let (red, blue) = (hak("zz_red", [230, 20, 20, 255]), hak("zz_blue", [20, 20, 230, 255]));
+    let mut app = game_app(&root, None);
+    app.settings = Mode::Tabs.settings();
+    app.set_render_state(rs.clone());
+    let mut h = gpu_harness(app, rs, 1600.0, 1200.0);
+    settle(&mut h);
+    // (How many of the model's view's pixels are reddish and how many
+    // bluish; the view's picture written beside the haks, to look at.)
+    let colors = |h: &mut Harness<'_, Moonglow>, id: u32, name: &str| {
+        let revision = doc(h, id).hak.changes();
+        let source = mg_ui::model_view::Source::Hak { hak: id, revision, key: key("zz_box.mdl") };
+        let rect = (h.state().model_views.get(&source))
+            .and_then(|v| v.shown_at())
+            .expect("the model's picture drawn");
+        let img = h.render().expect("render");
+        let ppp = h.ctx.pixels_per_point();
+        let (x0, y0) = ((rect.min.x * ppp) as u32, (rect.min.y * ppp) as u32);
+        let (x1, y1) = ((rect.max.x * ppp) as u32, (rect.max.y * ppp) as u32);
+        let (x1, y1) = (x1.min(img.width()), y1.min(img.height()));
+        let view = image::imageops::crop_imm(&img, x0, y0, x1 - x0, y1 - y0).to_image();
+        view.save(dir.join(format!("{name}.png"))).unwrap();
+        let (mut reddish, mut bluish) = (0, 0);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let [r, _, b, _] = img.get_pixel(x, y).0;
+                reddish += usize::from(i32::from(r) > i32::from(b) + 80);
+                bluish += usize::from(i32::from(b) > i32::from(r) + 80);
+            }
+        }
+        (reddish, bluish)
+    };
+    for (path, reddish) in [(&red, true), (&blue, false)] {
+        let id = hv::open_at(h.state_mut(), path).unwrap();
+        settle(&mut h);
+        doc_mut(&mut h, id).choose(key("zz_box.mdl"));
+        settle(&mut h);
+        let what = path.file_stem().unwrap().to_string_lossy().into_owned();
+        let (r, b) = colors(&mut h, id, &what);
+        if reddish {
+            assert!(r > 50 && b == 0, "{what}: drawn red, {r} reddish, {b} bluish");
+        } else {
+            assert!(b > 50 && r == 0, "{what}: drawn blue, {r} reddish, {b} bluish");
+        }
+    }
+}
+
 /// A floating hak opens at its first size within the main window (1280 by
 /// 720 and 1600 by 900; the coordinator's ruling at U17's review), its
 /// Preview and Details in its window's right pane, its types at its left

@@ -492,6 +492,10 @@ struct TestAssets {
     materials: std::collections::HashMap<String, mg_image::mtr::Mtr>,
     txis: std::collections::HashMap<String, mg_image::txi::Txi>,
     shaders: std::collections::HashMap<String, String>,
+    /// Which source they are (`None`: the one of all that give none).
+    identity: Option<mg_resman::Identity>,
+    /// How many textures have been read.
+    reads: std::sync::atomic::AtomicUsize,
 }
 
 impl TestAssets {
@@ -505,6 +509,7 @@ impl TestAssets {
 
 impl mg_render::Assets for TestAssets {
     fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Some(mg_render::LoadedTexture {
             texture: self.textures.get(name)?.clone(),
             txi: self.txis.get(name).cloned().unwrap_or_default(),
@@ -522,6 +527,132 @@ impl mg_render::Assets for TestAssets {
     fn shader(&self, name: &str) -> Option<String> {
         self.shaders.get(name).cloned()
     }
+
+    fn source(&self) -> Option<&mg_resman::Identity> {
+        self.identity.as_ref()
+    }
+}
+
+/// Two sources of textures (two load orders: the area's, and a hak's
+/// whose model the model viewer draws through the window's one renderer)
+/// with a texture of one name, and an MTR of one name naming a texture of
+/// its own, drawn by one renderer in turn: each draw shows its own
+/// source's, as a renderer of its own draws it, the same models drawn
+/// from both. Read apart from one source, the other's are read in the
+/// frame, and each source's go to its own. A source let go of is let go
+/// of with its textures.
+#[test]
+fn each_source_draws_its_own_textures() {
+    let Some(gpu) = gpu() else { return };
+    let source = |stone: [u8; 4], paint: &str, painted: [u8; 4]| {
+        let mut a = TestAssets { identity: Some(mg_resman::Identity::new()), ..Default::default() };
+        a.solid("stone", stone);
+        a.solid(paint, painted);
+        let mtr = format!("texture0 {paint}\n");
+        a.materials.insert("wall".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+        Arc::new(a)
+    };
+    let a = source([220, 30, 30, 255], "paint_a", [30, 200, 30, 255]);
+    let b = source([30, 30, 220, 255], "paint_b", [220, 220, 30, 255]);
+    let quad_with = |bitmap: &str, mtr: Option<&str>| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        mesh.material = mtr.map(Into::into);
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    // (The wall's texture is its MTR's: `materialname wall`.)
+    let (stone, wall) = (quad_with("stone", None), quad_with("plain", Some("wall")));
+    let scene = Scene {
+        instances: vec![
+            Instance::new(stone, Mat4::from_translation(Vec3::new(-1.1, 0.0, 0.0))),
+            Instance::new(wall, Mat4::from_translation(Vec3::new(1.1, 0.0, 0.0))),
+        ],
+        area: AreaLight { ambient: Vec3::splat(1.0), diffuse: Vec3::ZERO, ..Default::default() },
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let renderer = || Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let alone = |s: &TestAssets| renderer().render_image(&gpu, s, &scene, &camera, 64, 64);
+    let (only_a, only_b) = (alone(&a), alone(&b));
+    // (The two differ on both quads.)
+    for x in [16, 48] {
+        assert_ne!(only_a.pixel(x, 32), only_b.pixel(x, 32), "at {x}");
+    }
+    let mut r = renderer();
+    for (s, only, what) in [(&a, &only_a, "a"), (&b, &only_b, "b"), (&a, &only_a, "a again")] {
+        let img = r.render_image(&gpu, s.as_ref(), &scene, &camera, 64, 64);
+        for x in [16, 48] {
+            assert_eq!(img.pixel(x, 32), only.pixel(x, 32), "{what}, at {x}");
+        }
+    }
+    // (Both sources' textures held, and counted; a read once, not again
+    // after b's frame.)
+    let held = r.texture_memory();
+    assert_eq!(held.textures, 4, "{held:?}");
+    let reads = |s: &TestAssets| s.reads.load(std::sync::atomic::Ordering::Relaxed);
+    let (read_a, read_b) = (reads(&a), reads(&b));
+    r.render_image(&gpu, b.as_ref(), &scene, &camera, 64, 64);
+    r.render_image(&gpu, a.as_ref(), &scene, &camera, 64, 64);
+    assert_eq!((reads(&a), reads(&b)), (read_a, read_b), "nothing read again");
+    // The resources changed: every source's forgotten, and read again.
+    r.clear_textures();
+    let held = r.texture_memory();
+    assert_eq!((held.textures, held.bytes), (0, 0), "{held:?}");
+    for (s, only, what) in [(&b, &only_b, "b, cleared"), (&a, &only_a, "a, cleared")] {
+        let img = r.render_image(&gpu, s.as_ref(), &scene, &camera, 64, 64);
+        assert_eq!(img.data, only.data, "{what}");
+    }
+    assert!(reads(&a) > read_a, "a's read again");
+    // Stale, and none kept: a's let go of while b is drawn, with their
+    // materials, whose places b's take; a then drawn as before.
+    r.set_stale_textures_kept(0);
+    r.age_textures(std::time::Duration::from_secs(31));
+    let mut b2 = TestAssets { identity: Some(mg_resman::Identity::new()), ..Default::default() };
+    b2.solid("stone", [30, 220, 220, 255]);
+    b2.solid("paint_c", [220, 30, 220, 255]);
+    let mtr = mg_image::mtr::Mtr::parse(b"texture0 paint_c\n");
+    b2.materials.insert("wall".into(), mtr);
+    let only_b2 = alone(&b2);
+    let img = r.render_image(&gpu, &b2, &scene, &camera, 64, 64);
+    assert_eq!(img.data, only_b2.data, "a third source, after a's and b's went stale");
+    assert!(r.texture_memory().let_go >= 4, "{:?}", r.texture_memory());
+    let img = r.render_image(&gpu, a.as_ref(), &scene, &camera, 64, 64);
+    assert_eq!(img.data, only_a.data, "a, read again after being let go of");
+    r.set_stale_textures_kept(mg_render::STALE_TEXTURES_KEPT);
+    // Read apart from a: b's read in the frame, a's apart, each its own.
+    let mut r = renderer();
+    let apart: Arc<dyn mg_render::Assets + Send + Sync> = a.clone();
+    r.read_textures_apart(&gpu, Some(apart));
+    r.textures_apart = true;
+    let img = r.render_image(&gpu, b.as_ref(), &scene, &camera, 64, 64);
+    assert_eq!(r.drawn.textures_pending, 0, "b's not asked of a's reader");
+    assert_eq!(img.data, only_b.data, "b's, read in the frame");
+    let started = std::time::Instant::now();
+    let mut img = r.render_image(&gpu, a.as_ref(), &scene, &camera, 64, 64);
+    while r.drawn.textures_pending > 0 {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        img = r.render_image(&gpu, a.as_ref(), &scene, &camera, 64, 64);
+    }
+    assert_eq!(img.data, only_a.data, "a's, read apart");
+    let img = r.render_image(&gpu, b.as_ref(), &scene, &camera, 64, 64);
+    assert_eq!(img.data, only_b.data, "b's again, as read in the frame");
+    // b let go of: its textures with it, once the renderer looks again (a
+    // second on).
+    r.textures_apart = false;
+    drop(b);
+    r.age_textures(std::time::Duration::from_secs(2));
+    r.render_image(&gpu, a.as_ref(), &scene, &camera, 64, 64);
+    let held = r.texture_memory();
+    assert_eq!(held.textures, 2, "a's alone: {held:?}");
 }
 
 /// Textures read apart (on threads of their own, as the area view reads a
