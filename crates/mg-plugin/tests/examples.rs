@@ -722,7 +722,9 @@ fn creature_report_names_the_classes() {
 #[test]
 fn the_nwsync_example_runs() {
     use mg_module::nwsync_content::{State, SurveyCounts};
-    let reference = std::fs::read_to_string(docs().join("manual/17-plugin-api.md")).unwrap();
+    let reference = std::fs::read_to_string(docs().join("manual/17-plugin-api.md"))
+        .unwrap()
+        .replace("\r\n", "\n");
     let section = reference.split("### `mg.nwsync`").nth(1).unwrap();
     let code = section.split("```lua\n").nth(1).unwrap().split("```").next().unwrap();
     let url = "https://nwsync.example.org";
