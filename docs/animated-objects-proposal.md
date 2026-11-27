@@ -4,7 +4,7 @@ title: 'Animated objects in the area scene: a proposal'
 description: How mg-area's AreaScene could play each object's own animation for a game client (Moonglow Client's request) - the cut between crates (a GPU-free player and the visual effects' rows in mg-preview, a per-object pose with transitions on Composed, the run-time state held by the caller beside the scene and keyed by a key of the caller's), one section for each of the eight capabilities asked with its API sketch and cost, how the run-time state relates to the saved AnimationState, the viewer's part, the migration of today's idle animation, the tests and client comparisons, risks, open questions and milestones after 5.5.0.
 tags: [proposal, animation, mg-area, mg-preview, mg-render, moonglow-client, moonglow-viewer, visual-effects]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:42:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:45:36Z }
 sources:
   - id: request
     resource: '~/Projects/moonglow-client, branch main at b6d7bbb: docs/research/stage-for-a-client.md, the section "Draft request for Moonglow Toolset" (a draft Finding, read at the client''s pin v5.4.0)'
@@ -320,15 +320,18 @@ pub struct EffectKey(pub u64);
 impl AreaScene {
     pub fn apply_effect(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel,
                         live: &mut Live, object: ObjectKey, effect: EffectKey,
-                        row: u32, size: u32) -> Result<(), Vec<String> /* models missing */>;
+                        row: u32) -> Result<(), Vec<String> /* models missing */>;
 }
 impl Live { pub fn remove_effect(&mut self, object: ObjectKey, effect: EffectKey); }
 ```
 
-`size` is the target's `appearance.2da` `SIZECATEGORY`, as the viewer
-takes it (3 for doors and placeables). The caller gives it, because a
-client's creature look (`DressedLook`) may not carry its appearance row
-(*not checked*). Taking it from the look instead is open question 8.
+The target's size picks the root hook. It is read from the object's look,
+not given by the caller (the client's answer to question 8): the look
+carries its `appearance.2da` row, so the toolset reads `SIZECATEGORY`
+itself, and takes 3 for doors and placeables, as the viewer does.
+
+**Fit with the client (its answers, 2026-11-27).** The client's effect
+key, (object id, row), becomes `ObjectKey` plus `EffectKey`.
 
 Effects' particles are keyed by object, effect and source. They must
 **not run ahead** when new: `PARTICLES_AHEAD` would spend an impact's
@@ -570,9 +573,11 @@ These are breaking for code written against `v5.4.0`:
   `None`. `View` already gained `player` after `v5.4.0`, so a literal
   without `..` breaks at 5.5.0 anyway.
 - **The particle sims' key type** changes from `(usize, usize)` to
-  `SimKey`, in `particles` and `particles_and_chunks`. The alternative
-  keeps the tuple and gives keyed objects compact slots as a tenth
-  "kind". That is uglier, but not a break.
+  `SimKey`, in `particles` and `particles_and_chunks` (settled by the
+  client's answer to question 5). The client calls `particles` in one
+  place, through one type alias, so the break costs it one line. An
+  opaque key that follows `ObjectKey` keeps particles across shifts and
+  re-dresses.
 - **New public field** on `Usage` (`posed`).
 
 Nothing is removed, and nothing depends on the `edit` feature.
@@ -590,7 +595,10 @@ Nothing is removed, and nothing depends on the `edit` feature.
   lamps out *(inferred; the cap's rule was not re-read for this)*.
 - **Picking** stays on the box at rest (`Shown::stance`). A creature
   mid-animation is picked by its standing box. That is fine for an
-  editor. For a client it is open question 6.
+  editor, and the client takes it for now (question 6). A lying or
+  knocked-down creature may be the exception: the client is adding
+  "click a lying creature" to its retail measurement, so the rule may
+  become "the rest box, except a held pose".
 
 ## Open questions needing a ruling
 
@@ -601,19 +609,25 @@ Nothing is removed, and nothing depends on the `edit` feature.
    new `mg-stage` crate (a wider `Composed` API)?
 3. **Each creature's idle phase:** do idles start at each object's own
    time, as a client with `Live` can give them, or does the client keep
-   all creatures in step as the editor does? A client reading settles
-   what the game does.
+   all creatures in step as the editor does? Moonglow Client will read
+   it in its retail measurement.
 4. **`set_state` and a replaced idle:** when an object's
    `AnimationReplace` replaced its idle, does a state change keep the
    replacement? It needs an engine or client reading.
-5. **The particle key:** an opaque `SimKey` (a break) or compact slots
-   (no break)?
-6. **Picking a playing creature:** by its pose (cost: a stance per pick)
-   or by its box at rest?
+5. **The particle key:** settled, an opaque `SimKey` (the client's
+   answer: the break costs it one line).
+6. **Picking a playing creature:** settled for now, the box at rest. It
+   may become "except a held pose" once the client has measured clicking
+   a lying creature.
 7. **Do effect models cast the sun's shadows** in the client? This is a
    reading, not a ruling, but it is needed before M4.
-8. **An effect's target size:** given by the caller with each effect (as
-   proposed), or kept on the object's look?
+8. **An effect's target size:** settled, read from the look's
+   `appearance.2da` row (`SIZECATEGORY`; 3 for doors and placeables).
+
+**The client's fit notes (2026-11-27).** Its stand-in already uses this
+proposal's `Mode` and `Then` names. `ObjectKey(u64)` fits the game's
+32-bit object ids. `set_state` fits doors' resting states. Adding,
+moving and removing objects held with 184 objects live.
 
 ## Build order (after 5.5.0)
 
