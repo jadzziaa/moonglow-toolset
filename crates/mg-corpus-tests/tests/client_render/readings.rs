@@ -227,8 +227,10 @@ pub(super) fn moonglow_beside_as(
 }
 
 /// The light the readings' player carries in a dim area, which the client
-/// draws and Moonglow's area view, placing no player, has nothing of: for
-/// Moonglow's side of a reading whose player is seen. The player of
+/// draws and Moonglow's area view, placing no player, draws only with its
+/// Player's Light on (at the start location): for Moonglow's side of a
+/// reading whose player is seen ([`mg_area::player_light`], which holds
+/// what was read, with the gray rule asserted here). The player of
 /// `+TestNewModule` (the first pregenerated character, an elf) carries
 /// `fx_light_clr`'s `Low_Light_Vision` (progfx.2da row 330): ambient only
 /// (no N·L), color 0.3 0.3 0.4, radius 11 (`lightColor` read in the client
@@ -247,22 +249,12 @@ pub(super) fn player_light(
     facing: f32,
     light: &Lighting,
 ) -> Option<mg_render::PointLight> {
-    let level = |c: u32| {
+    for c in [light.ambient, light.diffuse] {
         let [_, r, g, b] = c.to_be_bytes();
         assert!(r == g && g == b, "player_light: the rule is read for gray light only ({c:06X})");
-        u32::from(r)
-    };
-    if level(light.ambient) + level(light.diffuse) >= 0x80 {
-        return None;
     }
-    let ahead = Vec3::new(facing.to_radians().cos(), facing.to_radians().sin(), 0.0);
-    Some(mg_render::PointLight::new(
-        pc + ahead * 0.64 + Vec3::Z * 2.65,
-        Vec3::new(0.3, 0.3, 0.4),
-        11.0,
-        true,
-        3,
-    ))
+    mg_area::player_light::dim(light.ambient, light.diffuse)
+        .then(|| mg_area::player_light::light(pc, facing.to_radians()))
 }
 
 /// The entry script of [`Reading::shoot_beside`]: the player's place

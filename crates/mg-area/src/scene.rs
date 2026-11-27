@@ -117,6 +117,12 @@ pub struct View {
     /// `night_fog.rs`, 11 m for 12 in `armourer.rs`): the client's fog
     /// was read back against the script's distance.
     pub camera: f32,
+    /// The game's player stands here (on the ground) facing this way
+    /// (radians, counter-clockwise from east), carrying its vision light
+    /// where the area is dim as shown ([`crate::player_light`]): the area
+    /// view's Player's Light, at the start location. `None`: no player's
+    /// light, as the editor has no player.
+    pub player: Option<(Vec3, f32)>,
 }
 
 impl View {
@@ -137,6 +143,7 @@ impl View {
             light_shadows: true,
             border: false,
             camera: GAME_CAMERA,
+            player: None,
         }
     }
 
@@ -1676,6 +1683,11 @@ impl AreaScene {
         }
         let l = &area.lighting;
         let sky = l.sky(view.night);
+        // The player's light, where the area is dim (by its sun's or
+        // moon's light, as shown).
+        if let (true, Some((at, facing))) = (view.lit, view.player) {
+            lights.extend(crate::player_light::of(at, facing, &sky));
+        }
         let light = area_light(sky, l.direction(view.night), view.lit);
         // The tile border: in the area's light, in half its sun's diffuse
         // color, as the client draws it; casting no shadow, nor receiving
@@ -2193,6 +2205,7 @@ mod tests {
             light_shadows: false,
             border: false,
             camera: GAME_CAMERA,
+            player: None,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
@@ -2323,6 +2336,7 @@ mod tests {
             light_shadows: false,
             border: false,
             camera: GAME_CAMERA,
+            player: None,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -2392,6 +2406,7 @@ mod tests {
             light_shadows: true,
             border: false,
             camera: GAME_CAMERA,
+            player: None,
         };
         assert!(both.light_shadows_of(&l).is_some());
         let lights_alone = View { creature_shadows: false, ..both };

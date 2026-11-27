@@ -39,6 +39,7 @@ pub mod grass;
 mod grass_view;
 pub mod marker;
 pub mod pick;
+pub mod player_light;
 #[cfg(feature = "edit")]
 pub mod reshape;
 #[cfg(feature = "edit")]

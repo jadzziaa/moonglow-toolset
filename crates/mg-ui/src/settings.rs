@@ -789,6 +789,12 @@ pub struct Settings {
     /// them (in every area view). Off by default, as Aurora draws nothing
     /// there and the area's edge shows plainest so.
     pub tile_border: bool,
+    /// The area view's Player's Light switch is on: in a dim area, the
+    /// game's player's vision light at the start location
+    /// ([`mg_area::player_light`]), in every area view. Off by default (the
+    /// owner's ruling). Written only when true: an older Moonglow ignores it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub player_light: bool,
     /// The 3D views' Shaders switch (the area header's Lighting popover, the
     /// model view's): the game's own shaders draw what they can, a material's
     /// custom ones among them (`docs/shaders-proposal.md`). `None`: as
@@ -1912,6 +1918,21 @@ mod tests {
         let on = Settings { tile_border: true, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
         assert!(back.tile_border);
+    }
+
+    /// The area view's Player's Light: off by default and for settings
+    /// saved before it was (and not written while off); on, kept.
+    #[test]
+    fn the_player_s_light_is_off_by_default_and_kept() {
+        assert!(!Settings::default().player_light);
+        let old: Settings = serde_json::from_str(r#"{"no_grass":true}"#).unwrap();
+        assert!(!old.player_light);
+        assert!(!serde_json::to_string(&Settings::default()).unwrap().contains("player_light"));
+        let on = Settings { player_light: true, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(back.player_light);
+        let back = Settings::read_fields(&on.saved_text()).expect("it reads").0;
+        assert!(back.player_light);
     }
 
     /// Smooth scrolling: on by default and for settings saved before it

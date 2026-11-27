@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T05:24:14Z }
 ---
 
 # Areas
@@ -49,7 +49,7 @@ control stays on the row, as an icon (its name in its tip) or in More:
   into the row where it has room, from the left, those that fit (the
   area some 1700 points wide holds all three):
   **Day** and **Night** side by side, **Lighting**, **Shadows**, **Fog**,
-  **Grid**, **Minimap**, **Walkmesh** and **Sound ranges** with their
+  **Player's light**, **Grid**, **Minimap**, **Walkmesh** and **Sound ranges** with their
   words, **Fade Geometry** a list, and Animations, Grass, Tile border,
   Shaders and the three Audio switches icon toggles.
 
@@ -204,6 +204,27 @@ then the shadows, the fog and how the scene is drawn.
   the fog starts nearer, as the game's does for a camera zoomed in.
   The tile grid fades into the fog with the ground, but never wholly:
   its far lines stay faintly there to count tiles by.
+- **Player's light**: in a dim area, the light the game's player carries,
+  given to the module's start location, so that the area looks about
+  the start as it does to a player who arrives there. In the game every
+  player carries a vision light, and in a dim area it is much of the
+  light there is (in a dark area nearly all of it). Moonglow gives the
+  one read from the game's test character, an elf with low-light vision:
+  a pale blue light (0.3, 0.3, 0.4) that lights every surface whatever
+  way it faces, out to 22 m, from 0.64 m ahead of the player and 2.65 m
+  up, turning with it. Another race's light (a dwarf's darkvision, a
+  human's) has not been read and may differ. It is on only while the
+  area's ambient and diffuse colors (Area Properties, the sun's by day
+  and the moon's at night, as the view shows them) add up to less than
+  128 of 255, as in the game, so a night view can have it where the day
+  doesn't; for colored light, which hasn't been read in the game,
+  Moonglow takes the mean of the three channels. It is drawn only in the
+  area that holds the start location, whether or not **Start** shows its
+  marker, and follows the start location as you move or turn it (and as
+  Adjust Location tries it out). It casts no shadows (in the game the
+  player's light casts the shadows of the creatures about the player).
+  With **Lighting** off there is none.
+  Off by default; in every area view, and it stays as you leave it.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls, trees'
   crowns; the black caps and strips under and beside them stay, as in

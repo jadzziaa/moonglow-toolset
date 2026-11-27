@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:11:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -744,7 +744,11 @@ Nothing open.
   findings](findings.md), "Every creature in a lamp's reach casts; one
   lamp casts"). A player's own light casting the shadows of the
   creatures about the player (`batch6_player_light_at_night`) is
-  settled by design: the toolset places no player. Settled by the
+  settled by design: the toolset places no player (the area view's
+  Player's light, since 2026-11-26, gives the start location the
+  player's light, casting no shadow: whether it should cast the
+  creatures' about the start, as the client's does, waits on the
+  owner's answer). Settled by the
   owner's rulings of 2026-11-26, nothing left open (the entry kept as
   the record):
   - each creature casts from its own nearest lamp, by design: the

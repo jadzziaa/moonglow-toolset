@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T05:24:14Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1588,10 +1588,27 @@ the last few levels (a top 45.8 to 50.1 against the client's 50.2).
   `the_player_s_light_lights_a_dark_scene` (client, ignored) and
   `an_ambient_only_light_lights_a_reflecting_mesh_from_either_side`
   (render).
-- **Moonglow:** the area view places no player and draws no player's
-  light (the editor has no player); the readings give Moonglow's side
-  the light where the client's player is seen
-  (`client_render/readings.rs`, `player_light`).
+- **Moonglow:** the area view places no player; since 2026-11-26 its
+  Lighting popover's **Player's light** (off by default, the owner's
+  ruling) gives this light to the module's start location, in the area
+  that holds it, following it as it is moved or turned
+  (`mg_area::player_light`, carried by `View::player`); it casts no
+  creature shadows, though the client's does ("A light's shadow takes
+  the light's share"). The readings
+  give Moonglow's side the same light where the client's player is seen
+  (`client_render/readings.rs`, `player_light`, which calls it).
+- **Unread: colored area light.** The rule was read with gray ambient
+  and diffuse only. For colored light Moonglow takes the mean of the
+  three channels' sums (the light on while ambient plus diffuse,
+  averaged over red, green and blue, is under 128): it is the read rule
+  for gray light in whichever byte order, and it calls a deep blue night
+  (moon ambient 0x000060, diffuse 0x000040: blue alone 0xA0, the mean
+  53) dim, as it looks. The other choice, the brightest channel's sum,
+  would put the light out there. Neither is checked against the client;
+  a reading with colored ambients (`MG_CHROME_AMBIENT` given a color, the
+  `light0` count) would settle it. Nor is another race's vision light
+  read (a dwarf's darkvision, a human's default): the player of
+  `+TestNewModule` is an elf.
 - **Wiki:** [Area Lighting](https://nwn.wiki/spaces/NWN1/pages/38174907/Area+Lighting)
   says the player always carries a light (darkvision, low-light or a
   default) and [progfx.2da](https://nwn.wiki/spaces/NWN1/pages/38175071/progfx.2da)

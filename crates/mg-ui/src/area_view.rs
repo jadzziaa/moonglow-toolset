@@ -1677,6 +1677,14 @@ impl AreaView {
         scene.scene(model, &view).lights
     }
 
+    /// Where the picture last drawn put the player whose light Player's
+    /// Light gives (`View::player`: the start location as shown, and its
+    /// facing), if it did: for the tests.
+    #[doc(hidden)]
+    pub fn player_drawn(&self) -> Option<(Vec3, f32)> {
+        self.drawn.as_ref().and_then(|(d, _)| d.settings.player)
+    }
+
     /// The placed object `index` of `kind` as a light with nothing to see
     /// ([`AreaScene::bare_light`]), if it is one.
     pub fn bare_light(&self, kind: ObjectKind, index: usize) -> Option<mg_area::BareLight> {
@@ -3326,6 +3334,19 @@ pub(crate) fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, 
     Some((p, r.read(&ifo::MOD_ENTRY_DIR_Y).atan2(r.read(&ifo::MOD_ENTRY_DIR_X))))
 }
 
+/// The start location `start` (on the ground, in the view's area) as the
+/// view shows it: where it is being dragged to, or as Adjust Location
+/// has it, changed.
+fn start_shown(app: &Moonglow, view: &AreaView, start: Option<(Vec3, f32)>) -> Option<(Vec3, f32)> {
+    match view.drag {
+        Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
+        _ => match app.adjust.as_ref().filter(|a| a.start && a.area == view.area) {
+            Some(a) => start.map(|s| crate::area_tools::previewed_start(a, s)),
+            None => start,
+        },
+    }
+}
+
 /// Brings the view to the start location, if it is in its area.
 fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
     let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit) else {
@@ -3882,7 +3903,11 @@ fn viewport(
             view.drawn = None;
         }
     }
+    // The player's light at the start location as it is shown (dragged,
+    // or as Adjust Location tries it out), with Player's Light on.
+    let player = app.settings.player_light.then(|| start_shown(app, view, start)).flatten();
     let settings = View {
+        player,
         time: view.time,
         night: view.night,
         fog: view.fog,
@@ -4274,11 +4299,7 @@ fn viewport(
         _ if app.palette.placing_start && clicks_place(app) => {
             view.pointer_over(ui).and_then(|p| view.area_point(p)).map(|at| (at, view_facing(view)))
         }
-        // As Adjust Location has it, changed.
-        _ => match app.adjust.as_ref().filter(|a| a.start && a.area == view.area) {
-            Some(a) => start.map(|s| crate::area_tools::previewed_start(a, s)),
-            None => start,
-        },
+        _ => start_shown(app, view, start),
     };
     overlays(ui, view, shown, start, app.object_clip.as_ref(), door_brush, marks);
     sound_range_overlay(ui, view, shown, &sound_ranges);
