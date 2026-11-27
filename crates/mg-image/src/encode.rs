@@ -15,7 +15,8 @@
 //!
 //! Mip levels halve each side (down to 1×1, odd sides rounded down, as
 //! [`crate::dds`] reads them) by averaging 2×2 texels, color weighted by
-//! alpha so hidden texels don't tint the visible ones.
+//! alpha so hidden texels don't tint the visible ones; or plainly
+//! ([`compress_plain_levels`]), as the game client makes a TGA's levels.
 
 use std::sync::OnceLock;
 
@@ -63,13 +64,44 @@ pub fn compress_with(
     punch_through: bool,
     effort: Effort,
 ) -> Texture {
+    let weighted = format == Format::Bc3 || punch_through;
+    encode_chain(image, format, mipmaps, punch_through, effort, weighted)
+}
+
+/// [`compress_with`], its smaller levels the plain means of the texels
+/// above them, a transparent texel's color counted as an opaque one's: as
+/// the game client makes the levels of a texture it reads uncompressed
+/// (a TGA), whose transparent texels' color then shows at a soft edge
+/// seen from afar. For the 3D views; a texture written to a file keeps
+/// [`compress`]'s levels, weighted by alpha.
+///
+/// # Panics
+/// For a format other than BC1 or BC3.
+pub fn compress_plain_levels(
+    image: &Rgba,
+    format: Format,
+    mipmaps: bool,
+    punch_through: bool,
+    effort: Effort,
+) -> Texture {
+    encode_chain(image, format, mipmaps, punch_through, effort, false)
+}
+
+/// The encoded levels, each halved by [`halve`] with `weighted`.
+fn encode_chain(
+    image: &Rgba,
+    format: Format,
+    mipmaps: bool,
+    punch_through: bool,
+    effort: Effort,
+    weighted: bool,
+) -> Texture {
     assert!(matches!(format, Format::Bc1 | Format::Bc3), "only BC1 and BC3 are encoded");
-    let alpha = format == Format::Bc3 || punch_through;
     let mut levels = vec![encode_level(image, format, punch_through, effort)];
     if mipmaps {
         let mut level = image.clone();
         while level.width > 1 || level.height > 1 {
-            level = halve(&level, alpha);
+            level = halve(&level, weighted);
             levels.push(encode_level(&level, format, punch_through, effort));
         }
     }
@@ -642,6 +674,28 @@ mod tests {
         assert_eq!(p[3], 128);
         let plain = halve(&img, false);
         assert_eq!(plain.pixel(0, 0), [100, 50, 128, 128]);
+    }
+
+    #[test]
+    fn plain_levels_count_transparent_texels_colors() {
+        // A field of opaque white and transparent green texels in turn.
+        let img = picture(8, 8, |x, y| match (x + y) % 2 {
+            0 => [255, 255, 255, 255],
+            _ => [0, 255, 0, 0],
+        });
+        let plain = compress_plain_levels(&img, Format::Bc3, true, false, Effort::Best);
+        let weighted = compress(&img, Format::Bc3, true, false);
+        assert_eq!((plain.mips.len(), plain.has_alpha), (4, true));
+        for level in 1..4 {
+            let side = 8 >> level;
+            let p = decode(Format::Bc3, side, side, &plain.mips[level]);
+            let w = decode(Format::Bc3, side, side, &weighted.mips[level]);
+            // (Light green, against the weighted levels' white; alpha a half.)
+            assert!(p[0].abs_diff(128) <= 4 && p[1] >= 250 && p[2].abs_diff(128) <= 4, "{p:?}");
+            assert!(w[0] >= 250 && w[2] >= 250, "{w:?}");
+            assert!(p[3].abs_diff(128) <= 2 && w[3].abs_diff(128) <= 2);
+        }
+        assert_eq!(plain.mips[0], weighted.mips[0], "the largest level as it is");
     }
 
     /// The squared error of a texture's largest level against a picture,

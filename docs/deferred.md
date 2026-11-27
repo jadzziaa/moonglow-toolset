@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T21:53:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -699,21 +699,36 @@ Nothing open.
   a card listed after another and behind it is hidden where they
   overlap; a ribbon behind one is hidden too); its texture's soft edges
   blended as they are, writing their depth as the client's do. Two
-  models' such meshes are put in order by their instances' places
-  (where each stands from the eye), the meshes of one in its order, as
-  the client orders two dynamic placeables' and two static ones' of
-  textures of their own (`batch8d_see_through_order`, 2026-11-25). Not
-  explained: two static placeables whose textures dynamic placeables
-  share as well are not drawn farthest first in the client (the nearer
-  drawn first, the farther hidden), by no listing order, model, texture
-  or row name tried; nor is it read whether the order is the
-  instance's origin's or its mesh's. Each see-through mesh
-  of alpha 1 costs two draws. On macOS the solid part's discarded
-  fragments wrote their depth (the plant's edge hid the ground again)
-  until the shader stopped at each discard: seen and mended on the CI's
-  Mac, a virtual one; no real Mac was looked at. Left: the smaller
-  levels made of an uncompressed texture leave transparent pixels'
-  colors out; a compressed DDS's own levels are used as stored. (S)
+  models' such meshes are put in order by their instances' origins (where
+  each stands from the eye, not its meshes), the meshes of one in its
+  order, as the client orders two dynamic placeables'
+  (`batch8d_see_through_two_models`, 2026-11-25; the origins against the
+  meshes in `batch9_see_through_statics`, 2026-11-26). An uncompressed
+  texture's smaller levels are plain means since 2026-11-26, its
+  transparent texels' colors counted, as the client makes them
+  (`batch9_soft_edge_levels`; [the findings](findings.md), "The client
+  makes an uncompressed texture's levels by plain means"); a compressed
+  DDS's own levels are used as stored. Static placeables' such meshes
+  are drawn as the client's since 2026-11-26: by their textures' alpha
+  means, the highest first, before the dynamic ones', whichever is
+  nearer (read from the client's code with the owner's leave, after
+  three batches had found no rule, and confirmed by running it:
+  `batch9_static_alpha_mean`, 34 pairs predicted before the run, all
+  held; [the findings](findings.md), "Static placeables' see-through
+  meshes go by their textures' alpha means"). Not matchable: textures
+  of one alpha mean (every opaque texture's is 1) are left in the
+  client to `std::sort` over its whole static texture list, an order
+  of no rule Moonglow can know; Moonglow keeps their origins' order,
+  so such pairs still differ from the client in about half
+  (`batch9_static_order`, `batch9_static_tiles`). Only these meshes
+  are put in that order among themselves: against other see-through
+  meshes (a soft texture's parts, water) a static one is drawn by depth,
+  the client's order there not read. Tiles' meshes share the static
+  buckets in the client; untried there, they keep the depth's order. Each see-through mesh of alpha 1
+  costs two draws. On macOS the solid part's discarded fragments wrote
+  their depth (the plant's edge hid the ground again) until the shader
+  stopped at each discard: seen and mended on the CI's Mac, a virtual
+  one; no real Mac was looked at. (S)
 - **Custom creatures from the Vault and CEP** (a builder's report,
   [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
   fixed against the content itself but none of it compared with the
