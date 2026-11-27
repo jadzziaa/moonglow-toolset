@@ -27,6 +27,7 @@ pub enum OptionsPage {
     ConversationEditor,
     Sounds,
     Verify,
+    TestModule,
     Language,
     Keyboard,
     Updates,
@@ -46,7 +47,7 @@ const ALIASED: [&str; 7] =
     ["hak", "tlk", "override", "development", "modules", "portraits", "patch"];
 
 /// Options' pages and their names.
-pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
+pub(crate) const PAGES: [(OptionsPage, &str); 11] = [
     (OptionsPage::Folders, "Folders"),
     (OptionsPage::Area, "Area"),
     (OptionsPage::General, "General"),
@@ -54,6 +55,7 @@ pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::ConversationEditor, "Conversation Editor"),
     (OptionsPage::Sounds, "Sounds"),
     (OptionsPage::Verify, "Verify"),
+    (OptionsPage::TestModule, "Test Module"),
     (OptionsPage::Language, "Language"),
     (OptionsPage::Keyboard, "Keyboard"),
     (OptionsPage::Updates, "Updates"),
@@ -107,6 +109,11 @@ pub struct OptionsDraft {
     pub smooth_scrolling: bool,
     pub colored_icons: bool,
     pub minimize_on_test: bool,
+    pub test_starts: crate::settings::TestStarts,
+    pub test_command: String,
+    pub test_joins: bool,
+    pub test_address: String,
+    pub test_password: String,
     pub auto_reload: bool,
     pub backups: bool,
     pub autosave: bool,
@@ -211,6 +218,55 @@ pub struct OptionsDraft {
 /// `override` and haks are: kept in the field, where it is shown and can
 /// be taken out (it had no box, and vanished from the page while it still
 /// applied).
+/// Options › Test Module: what Test Module and Test From Here start (the
+/// game on the module, or a command of the builder's own and then the game
+/// joining the server it starts: GitHub issue 52).
+fn test_module_page(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
+    use crate::settings::TestStarts;
+    crate::widgets::section_heading(ui, "Test Module Starts");
+    ui.radio_choice(&mut draft.test_starts, TestStarts::Game, "The game, on the module")
+        .on_hover_text("Start the game on the module with its first character, as Aurora does");
+    ui.radio_choice(&mut draft.test_starts, TestStarts::Command, "A command of my own")
+        .on_hover_text("Run your own command in place of the game, such as a server script");
+    if draft.test_starts != TestStarts::Command {
+        return;
+    }
+    ui.add_space(6.0);
+    crate::widgets::field_label(ui, "Command");
+    ui.add(
+        mg_uikit::text_field(&mut draft.test_command)
+            .desired_width(ui.available_width())
+            .font(egui::TextStyle::Monospace)
+            .hint_text("bash -lc \"~/nwn/server start '{module_name}'\""),
+    );
+    ui.weak(
+        "Run by the system's shell in the module's folder, after Test Module has saved the \
+         module. {module_path} is the module's file or folder and {module_name} its name, \
+         filled in as they are: put quotes around them where they may have spaces. What it \
+         prints goes to the log. It runs until it ends, the next test, or Moonglow closes.",
+    );
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Joining the Server");
+    ui.check_box(&mut draft.test_joins, "Then start the game, joining the server")
+        .on_hover_text("Once a server answers at the address, start the game connected to it");
+    ui.add_enabled_ui(draft.test_joins, |ui| {
+        crate::widgets::field_label(ui, "Server address");
+        ui.add(
+            mg_uikit::text_field(&mut draft.test_address)
+                .desired_width(220.0)
+                .font(egui::TextStyle::Monospace)
+                .hint_text(crate::test_module::DEFAULT_ADDRESS),
+        );
+        crate::widgets::field_label(ui, "Player password");
+        ui.add(mg_uikit::text_field(&mut draft.test_password).desired_width(220.0).password(true))
+            .on_hover_text("The server's player password, if it has one");
+        ui.weak(
+            "Moonglow waits up to two minutes for the server to answer, then starts the game \
+             with +connect. The game shows the server's character list.",
+        );
+    });
+}
+
 fn verify_box(word: &str) -> bool {
     use mg_module::doctor::{Check, Group};
     use mg_module::verify::Category;
@@ -283,6 +339,11 @@ impl OptionsDraft {
             smooth_scrolling: !s.no_smooth_scrolling,
             colored_icons: s.colored_icons,
             minimize_on_test: s.minimize_on_test,
+            test_starts: s.test_starts,
+            test_command: s.test_command.clone(),
+            test_joins: s.test_joins,
+            test_address: s.test_address.clone(),
+            test_password: s.test_password.clone(),
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
             autosave: !s.no_autosave,
@@ -412,6 +473,11 @@ impl OptionsDraft {
             no_smooth_scrolling,
             colored_icons,
             minimize_on_test,
+            test_starts,
+            test_command,
+            test_joins,
+            test_address,
+            test_password,
             no_auto_reload,
             no_backups,
             no_autosave,
@@ -533,6 +599,11 @@ impl OptionsDraft {
             no_smooth_scrolling: !self.smooth_scrolling,
             colored_icons: self.colored_icons,
             minimize_on_test: self.minimize_on_test,
+            test_starts: self.test_starts,
+            test_command: self.test_command.trim().to_string(),
+            test_joins: self.test_joins,
+            test_address: self.test_address.trim().to_string(),
+            test_password: self.test_password.clone(),
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
             no_autosave: !self.autosave,
@@ -669,6 +740,7 @@ pub(crate) fn page_icon(page: OptionsPage) -> mg_uikit::Icon {
         OptionsPage::ConversationEditor => Icon::Conversation,
         OptionsPage::Sounds => Icon::Sound,
         OptionsPage::Verify => Icon::Verify,
+        OptionsPage::TestModule => Icon::Test,
         OptionsPage::Language => Icon::TalkTable,
         OptionsPage::Keyboard => Icon::Command,
         OptionsPage::Updates => Icon::ArrowDown,
@@ -1059,6 +1131,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 crate::area_view::toolbar_menu(ui, &mut draft.hidden_area_tools, true);
             }
             OptionsPage::Verify => verify(ui, draft),
+            OptionsPage::TestModule => test_module_page(ui, draft),
             OptionsPage::Updates => crate::updates::options_page(
                 ui,
                 crate::updates::UpdateOptions {

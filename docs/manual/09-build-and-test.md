@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:44:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:08:18Z }
 ---
 
 # Build, verify and test
@@ -752,6 +752,43 @@ starts it); another game running is named in the log as a warning, and
 the test goes on: close it first if it has the module open. On Windows
 Moonglow can't see what a game was started on, so every game running
 is a warning. A game is never closed for you.
+
+### A command of your own
+
+A persistent world is often tested on its own server: one with NWNX, a
+database, settings in its environment, or one that runs in WSL on
+Windows. **Options › Test Module** can have Test Module (and Test From
+Here) run your own command in place of the game: choose **A command of
+my own** and type it, as you would in a terminal. Moonglow saves the
+module as Test Module always does, then runs the command with the
+system's shell (`sh -c` on Linux and macOS, `cmd` on Windows) in the
+module's folder. `{module_path}` in it is the module's file (or folder;
+a nasher project's packed module, Test From Here's
+`moonglow-test.mod`) and `{module_name}` its name, filled in as they
+are: put quotes around them where they may have spaces. The module's
+path is also in the `MOONGLOW_MODULE` environment variable.
+
+```text
+wsl.exe -d Ubuntu -- bash -lc "~/start-nwnx-server.sh '{module_path}'"
+bash -lc "~/nwn/server start '{module_name}'"
+```
+
+The window goes on while the command runs: what it prints comes into the
+log as it comes (what it writes to its error output as warnings), and
+the log says how it ended. It runs until it ends, until the next test
+(which stops it first, and what it started, so that its server lets go
+of the port), or until Moonglow closes, which stops it too.
+
+With **Then start the game, joining the server**, Moonglow then waits
+for a server to answer at **Server address** (`127.0.0.1:5121`, the
+game's own port on this machine, unless you type another), asking it as
+the game's server list does, for up to two minutes, and starts the game
+connected to it (`+connect`, and `+password` with the **Player
+password** you give). The game shows the server's character list. If no
+server answers in time, the log says so and no game is started. A server
+in WSL answers at `127.0.0.1` only where WSL passes UDP through to
+Windows (its mirrored networking mode); otherwise give the address WSL's
+own network has.
 
 `mg serve` runs a module in the game's headless server from a terminal,
 and `mg test` runs a module's test scripts there and reports what they

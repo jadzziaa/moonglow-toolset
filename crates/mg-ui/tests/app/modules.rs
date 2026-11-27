@@ -3469,6 +3469,89 @@ fn a_game_moonglow_did_not_start_is_known_before_a_test() {
     assert!(said.iter().any(|m| *m == format!("Testing {name}")), "{said:?}");
 }
 
+/// Options › Test Module's command (GitHub issue 52): Test Module runs it
+/// in place of the game, the module filled in, its output in the log as
+/// it comes and how it ended said; with Then start the game, the game
+/// joins the server once one answers at the address (a stand-in answering
+/// the game's query; `true` as the client), and the next test stops the
+/// command still running first.
+#[cfg(target_os = "linux")]
+#[test]
+fn test_module_runs_a_command_of_the_builders_own() {
+    use mg_ui::settings::TestStarts;
+    use std::time::{Duration, Instant};
+    let dir = mg_testkit::scratch_dir("ui-test-command");
+    let (root, user) = (dir.join("root"), dir.join("user"));
+    let client = root.join("bin/linux-x86/nwmain-linux");
+    for d in [client.parent().unwrap(), &user.join("modules")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let Some(truth) = true_program() else { return };
+    std::fs::copy(&truth, &client).unwrap();
+    let file = user.join("modules/My Module.mod");
+    std::fs::copy(sample_module(&dir), &file).unwrap();
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.settings.test_starts = TestStarts::Command;
+    app.settings.test_command =
+        "echo \"said {module_name} in $(basename \"$PWD\")\"; echo oops >&2; exit 3".into();
+    app.open_module(&file);
+    let mut h = window_harness(app);
+    h.run_steps(2);
+    let until = |h: &mut Harness<'_, Moonglow>, from: usize, what: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            h.run_steps(1);
+            let log = &h.state().log.entries[from..];
+            if log.iter().any(|(_, m)| m.contains(what)) {
+                return log.to_vec();
+            }
+            assert!(Instant::now() < deadline, "no {what:?} in {log:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let from = h.state().log.entries.len();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "the command ended with exit code 3");
+    let (info, warn) = (mg_ui::Level::Info, mg_ui::Level::Warning);
+    assert!(log.contains(&(info, "  said My Module in modules".into())), "{log:?}");
+    assert!(log.contains(&(warn, "  oops".into())), "{log:?}");
+    assert!(!log.iter().any(|(_, m)| m.starts_with("Testing ")), "no game: {log:?}");
+
+    // Then start the game: once the address answers.
+    let server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = server.local_addr().unwrap().to_string();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        while let Ok((_, from)) = server.recv_from(&mut buf) {
+            let _ = server.send_to(b"BNER\x00\x00\x00\x00\x04Test", from);
+        }
+    });
+    let settings = &mut h.state_mut().settings;
+    (settings.test_command, settings.test_joins) = ("sleep 30".into(), true);
+    (settings.test_address, settings.test_password) = (address.clone(), "pw".into());
+    let from = h.state().log.entries.len();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "Test Module: the game joins ");
+    assert!(
+        log.iter().any(|(_, m)| *m == format!("Test Module: waiting for the server at {address}"))
+    );
+    // The next test stops it first.
+    let from = h.state().log.entries.len();
+    h.state_mut().settings.test_joins = false;
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    let log = until(&mut h, from, "Test Module: sleep 30");
+    assert!(
+        log.iter().any(|(_, m)| m == "Test Module: the last test's command stopped"),
+        "{log:?}"
+    );
+    // No command: said, nothing run.
+    let from = h.state().log.entries.len();
+    h.state_mut().settings.test_command.clear();
+    h.state_mut().actions.push(mg_ui::Action::TestModule);
+    until(&mut h, from, "Options › Test Module has no command to run");
+}
+
 /// A program on `PATH`.
 #[cfg(target_os = "linux")]
 fn which(name: &str) -> Option<std::path::PathBuf> {
