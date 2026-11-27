@@ -1171,3 +1171,88 @@ fn a_manifest_says_whether_it_holds_the_module() {
     let g = GameStorage::open(&empty).unwrap().unwrap();
     assert_eq!(g.includes_module_contents(&sha), None);
 }
+
+/// A source is a server's address or a repository folder: an HTTP(S)
+/// address as it is (without its last `/`), a `file://` URL, a folder's
+/// whole path or one from `./` or `../`, resolved against the project's
+/// folder; a server's name alone (a forgotten `https://`) is neither.
+#[test]
+fn a_source_is_a_server_or_a_folder() {
+    use mg_nwsync::{folder_url, local_folder, source_url};
+    let base = if cfg!(windows) { Path::new("C:\\work\\krezk") } else { Path::new("/work/krezk") };
+    let url = |p: &str| folder_url(Path::new(p));
+    assert_eq!(
+        source_url("https://nwsync.example.org/", Some(base)).unwrap(),
+        "https://nwsync.example.org"
+    );
+    assert_eq!(source_url(" HTTP://a.example ", None).unwrap(), "HTTP://a.example");
+    assert_eq!(source_url("https://", None), None);
+    assert_eq!(source_url("nwsync.example.org", Some(base)), None);
+    assert_eq!(source_url("nwsync-repo", Some(base)), None);
+    assert_eq!(source_url("ftp://a.example", Some(base)), None);
+    // (A relative folder with no project folder to place it: none.)
+    assert_eq!(source_url("../repo", None), None);
+    if cfg!(windows) {
+        assert_eq!(source_url("../repo", Some(base)).unwrap(), "file:///C:/work/repo");
+        assert_eq!(source_url(".\\repo\\", Some(base)).unwrap(), "file:///C:/work/krezk/repo");
+        assert_eq!(source_url("D:\\nwsync", Some(base)).unwrap(), "file:///D:/nwsync");
+        assert_eq!(source_url("file:///D:/nw%20sync", None).unwrap(), "file:///D:/nw sync");
+    } else {
+        assert_eq!(source_url("../repo", Some(base)).unwrap(), "file:///work/repo");
+        assert_eq!(source_url("./repo/", Some(base)).unwrap(), "file:///work/krezk/repo");
+        assert_eq!(source_url("/srv/nwsync", Some(base)).unwrap(), url("/srv/nwsync"));
+        assert_eq!(source_url("file:///srv/a/../nw%20sync", None).unwrap(), "file:///srv/nw sync");
+        assert_eq!(source_url("file://localhost/srv/x", None).unwrap(), "file:///srv/x");
+        assert_eq!(local_folder("file:///srv/100%25"), Some("/srv/100%".into()));
+        assert_eq!(local_folder(&url("/srv/100%")), Some("/srv/100%".into()));
+        assert_eq!(local_folder("file://relative/x"), None);
+    }
+    assert_eq!(source_url("file://", None), None);
+    assert_eq!(local_folder("file:///srv/%zz"), None);
+    assert_eq!(local_folder("file:///srv/%e"), None);
+    assert_eq!(local_folder("https://a.example"), None);
+}
+
+/// A repository folder read in place, as a server is: its files, none
+/// for one it hasn't, an error for one over the limit, for an address
+/// outside it, and for a folder that isn't there (which the pull then
+/// says, using the manifest here). Pulled through it, the data lands in
+/// the cache, `latest/` kept for it, the manifest said to come from the
+/// folder; the folder itself is left as it was.
+#[test]
+fn a_repository_folder_is_read_in_place() {
+    let dir = mg_testkit::scratch_dir("nwsync-folder-source");
+    let content = Content::new();
+    let repo = dir.join("repo");
+    for (path, bytes) in &Server::of(&content).files {
+        let at = repo.join(path);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(at, bytes).unwrap();
+    }
+    let before = tree(&repo);
+    let url = mg_nwsync::folder_url(&repo);
+    let folder = fetch::Folder::of(&url).unwrap();
+    assert!(fetch::Folder::of(URL).is_none());
+    let latest = folder.get(&fetch::at(&url, "latest"), 100).unwrap().unwrap();
+    assert_eq!(String::from_utf8(latest).unwrap().trim(), sha1_hex(&content.manifest().0));
+    assert_eq!(folder.get(&fetch::at(&url, "manifests/none"), 100).unwrap(), None);
+    assert_eq!(folder.get(&fetch::at(&url, "data"), 100).unwrap(), None);
+    assert!(folder.get(&fetch::at(&url, "latest"), 5).unwrap_err().contains("larger"));
+    assert!(folder.get(&fetch::at(&url, "../repo/latest"), 100).is_err());
+    assert!(folder.get(&fetch::at(URL, "latest"), 100).is_err());
+
+    let cache = Cache::new(dir.join("cache"));
+    let s = Settings { url: url.clone(), manifest: Wanted::Latest, cache: None };
+    let o = Options::default();
+    let pulled = fetch::pull(&folder, &s, &cache, None, o, &|_| {}, &|| false).unwrap();
+    assert_eq!(pulled.resolved.found.from, ManifestFrom::Folder);
+    assert_eq!(pulled.downloaded.files, 5);
+    assert!(content.resources.iter().all(|(_, d)| cache.contains(&sha1(d))));
+    assert_eq!(cache.latest(&url).map(|l| l.0), Some(content.manifest().0));
+    assert_eq!(tree(&repo), before);
+    // The folder gone: the manifest here, with a warning that says why.
+    std::fs::rename(&repo, dir.join("moved")).unwrap();
+    let r = fetch::resolve(&folder, &s, &cache, None).unwrap();
+    assert_eq!(r.found.from, ManifestFrom::Cache);
+    assert!(r.warnings[0].contains("is not there"), "{:?}", r.warnings);
+}

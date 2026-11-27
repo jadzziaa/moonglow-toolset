@@ -308,3 +308,54 @@ fn serve_test_and_watch_take_no_nwsync() {
         assert!(help.contains("--no-nwsync"), "mg {cmd} --help: {help}");
     }
 }
+
+/// A repository folder as the source (`source = "../repo"` in the
+/// project's moonglow.toml, resolved from the project's folder): a
+/// repository Moonglow published, pulled from the folder in place into
+/// the cache (no server), then read from the cache; `--source` takes a
+/// folder too, and a name alone that is no folder is refused.
+#[test]
+fn a_repository_folder_is_the_source() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-folder");
+    let resources: Vec<(ResKey, &[u8])> = vec![
+        (key("pw_appear", ResType::TWODA), b"2DA V2.0\n\n A\n0 x\n"),
+        (key("pw_head", ResType::MDL), b"a model of a head, a model of a head"),
+    ];
+    let contents: Vec<(ResKey, Source)> =
+        resources.iter().map(|(k, b)| (*k, Source::Bytes((*b).into()))).collect();
+    let o = Options { latest: true, origins: true, ..Default::default() };
+    let written = write(&dir.join("repo"), &contents, &o, &mut |_, _| {}).unwrap();
+    let folder = module_naming(&dir, "unused");
+    std::fs::write(folder.join("moonglow.toml"), "[nwsync]\nsource = \"../repo\"\n").unwrap();
+    let cache = dir.join("cache");
+    let (c, f) = (cache.to_str().unwrap(), folder.to_str().unwrap());
+
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(ok, "{j}");
+    assert_eq!(j["manifest"], written.sha1.as_str());
+    assert_eq!(j["from"], "folder");
+    assert_eq!(j["downloaded"], 2);
+    let url = j["server"].as_str().unwrap().to_string();
+    let at = mg_nwsync::local_folder(&url).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(at).unwrap(),
+        std::fs::canonicalize(dir.join("repo")).unwrap()
+    );
+    assert_eq!(j["origins"].as_array().map(Vec::len), Some(0), "{j}");
+    let kept = mg_nwsync::Cache::new(&cache);
+    assert!(resources.iter().all(|(_, b)| kept.contains(&mg_core::sha1::sha1(b))));
+    assert!(kept.latest(&url).is_some());
+
+    let out = crate::mg_output(&["--no-user-dir", "nwsync-status", f, "--cache", c]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success() && text.contains("repository folder: "), "{text}");
+    assert!(text.contains("Moonglow's cache"), "{text}");
+
+    let repo = dir.join("repo");
+    let args = ["--no-user-dir", "nwsync-status", "--source", repo.to_str().unwrap(), "--cache", c];
+    let (ok, j) = crate::mg_json(&args);
+    assert!(ok && j["server"] == url.as_str(), "{j}");
+    let args = ["--no-user-dir", "nwsync-status", "--source", "nwsync.example.org", "--cache", c];
+    let (ok, j) = crate::mg_json(&args);
+    assert!(!ok && j["error"].to_string().contains("repository folder"), "{j}");
+}

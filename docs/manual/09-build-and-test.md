@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:56:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:09:29Z }
 ---
 
 # Build, verify and test
@@ -315,6 +315,22 @@ beside `krezk.mod`):
 source = "https://nwsync.example.org"   # as nwserver's -nwsyncurl
 manifest = "latest"                     # or a manifest's SHA-1, to stay on it
 ```
+
+**A repository folder** on this computer or a shared drive (the folder
+Publish to NWSync or `mg nwsync` writes: `latest`, `manifests/`,
+`data/sha1/…`) can be the source too, with no web server: `source =
+"file:///srv/nwsync"`, a whole path (`"/srv/nwsync"`, `"D:\\nwsync"`), or a
+path from the project's folder starting `./` or `../` (`"../nwsync"`;
+for a module kept in one file, from the `.mod`'s folder). A name alone
+(`"nwsync"`) is taken for a server's name that lacks its `https://`, and
+said. Sync reads the folder in place, without a server, and copies the
+manifest and the data not here into Moonglow's cache, each checked
+against its SHA-1, just as it downloads them from a server: the module
+then opens from the cache whatever becomes of the folder (a drive taken
+away, the repository pruned or published again), and a clean-up of
+either never takes what the other holds. The cost is the space of the
+copy. Where the folder isn't there, the manifest here is used and the
+log says so.
 
 When the module opens, the server's manifest is put into the game data
 as one layer, where the game puts it: above the haks, below the

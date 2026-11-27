@@ -46,6 +46,8 @@ pub const CLEAN_TITLE: &str = "Clean Up NWSync Cache";
 #[derive(Default)]
 struct Run {
     syncing: bool,
+    /// A Sync from a repository folder (a `file://` source), not a server.
+    folder: bool,
     /// A clean-up of the cache: whether it is a dry run.
     cleaning: Option<bool>,
     cancel: AtomicBool,
@@ -82,7 +84,8 @@ pub struct NwSyncContent {
     /// look's or a clean-up's file of the cache). What it makes is thrown
     /// away, and nothing else starts until it has ended (`running`).
     left: Option<Arc<Run>>,
-    /// The requests (the tests' own; none: HTTP, `fetch::Client`).
+    /// The requests (the tests' own; none: `fetch::for_settings`'s, HTTP or
+    /// a repository folder).
     pub fetch: Option<Arc<dyn Fetch>>,
 }
 
@@ -130,6 +133,9 @@ impl NwSyncContent {
         }
         let step = *run.step.lock().unwrap_or_else(|e| e.into_inner());
         let (steps, doing) = match step {
+            None | Some(Step::Asking) if run.folder => {
+                (None, "Reading the repository folder's manifest".to_string())
+            }
             None | Some(Step::Asking) => (None, "Asking the server for its manifest".to_string()),
             Some(Step::Looking) => {
                 (None, "Looking for its data in the game's storage and the cache".to_string())
@@ -220,14 +226,26 @@ fn sync(app: &mut Moonglow, ctx: &egui::Context) {
             Some("There is no cache folder to download into: set [nwsync] cache.".into());
         return;
     };
-    let fetch: Arc<dyn Fetch> =
-        app.nwsync_content.fetch.clone().unwrap_or_else(|| Arc::new(fetch::Client::new()));
+    let fetch: Arc<dyn Fetch> = match app.nwsync_content.fetch.clone() {
+        Some(f) => f,
+        None => match fetch::for_settings(&settings) {
+            Ok(f) => f,
+            Err(e) => {
+                app.nwsync_content.error = Some(e);
+                return;
+            }
+        },
+    };
     app.nwsync_content.error = None;
     app.nwsync_content.synced = None;
     let ctx_thread = ctx.clone();
     start(
         app,
-        Run { syncing: true, ..Default::default() },
+        Run {
+            syncing: true,
+            folder: mg_nwsync::local_folder(&settings.url).is_some(),
+            ..Default::default()
+        },
         move |run| {
             let pulled = (|| {
                 let game = mg_module::nwsync_content::game_storage(&install)?;
@@ -499,9 +517,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 );
                 return ((), crate::widgets::Foot::new().leave("Close"));
             };
+            let folder = mg_nwsync::local_folder(&settings.url);
             egui::Grid::new("nwsync-content").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Server");
-                ui.monospace(&settings.url);
+                match &folder {
+                    Some(dir) => {
+                        crate::widgets::field_label(ui, "Repository folder");
+                        ui.monospace(dir.display().to_string());
+                    }
+                    None => {
+                        crate::widgets::field_label(ui, "Server");
+                        ui.monospace(&settings.url);
+                    }
+                }
                 ui.end_row();
                 crate::widgets::field_label(ui, "Manifest");
                 match c.mounted.as_ref().map(|m| &m.layer) {
@@ -565,6 +592,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             match step {
+                Some(Step::Asking) if folder.is_some() => {
+                    ui.weak("Reading the repository folder's manifest…");
+                }
                 Some(Step::Asking) => {
                     ui.weak("Asking the server for its manifest…");
                 }
@@ -620,9 +650,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 "Downloads and haks written for testing go to Moonglow's own cache. The game's \
                  NWSync storage is read, never changed.",
             );
-            let mut foot = crate::widgets::Foot::new()
-                .main("Sync", !c.running())
-                .tip("Download the server's latest manifest and the data not here");
+            let tip = match folder {
+                Some(_) => "Copy the folder's latest manifest and the data not here into the cache",
+                None => "Download the server's latest manifest and the data not here",
+            };
+            let mut foot = crate::widgets::Foot::new().main("Sync", !c.running()).tip(tip);
             if c.run.is_some() {
                 foot = foot.button("Cancel", true);
             }
@@ -696,6 +728,11 @@ mod tests {
         // (Nothing missing yet counted: under way, not 0 of 0.)
         let none = fetch::Progress::default();
         assert_eq!(at(true, Some(Step::Downloading(none))).unwrap().1, None);
+        // A Sync from a repository folder says it reads the folder.
+        let run = Run { syncing: true, folder: true, ..Default::default() };
+        let c = NwSyncContent { run: Some(Arc::new(run)), ..Default::default() };
+        let note = c.shown().unwrap().note;
+        assert!(note.starts_with("Reading the repository folder's manifest"), "{note}");
     }
 
     /// A cache of a manifest no clean-up keeps, its data file and the

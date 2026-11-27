@@ -42,7 +42,8 @@ pub use container::{LABEL_PREFIX, NwSyncContainer, label};
 pub use game::{GameManifest, GameStorage};
 pub use origins::{Origin, Origins};
 pub use source::{
-    Found, ManifestFrom, Settings, Survey, Wanted, find, includes_module, survey, survey_until,
+    Found, ManifestFrom, Settings, Survey, Wanted, find, folder_url, includes_module, local_folder,
+    source_url, survey, survey_until,
 };
 
 use mg_erf::compressedbuf::{MAGIC_NSYC, decompress};

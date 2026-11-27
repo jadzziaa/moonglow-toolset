@@ -877,7 +877,8 @@ mod tests {
     }
 
     /// End to end: a module published with its origins file (`mg nwsync
-    /// --write-origins`) while it listed one hak, read once it lists a
+    /// --write-origins`) into a folder while it listed one hak, read
+    /// through a file source (`source = "file://…"`) once it lists a
     /// second that is on disk and not in the manifest. The reader takes
     /// Moonglow's origins: the first hak comes from the manifest (written
     /// from it, held by the layer), the second from disk (not planned,
@@ -907,19 +908,16 @@ mod tests {
         // disk (older than the manifest came), pw_gone nowhere.
         std::fs::remove_file(dir.join("user/hak/pw_one.hak")).unwrap();
         let two = hak_at(&dir.join("user/hak/pw_two.hak"), &[("pw_tex", ResType::TGA, b"x")], CAME);
+        // (Read through a file source: the folder Moonglow published into.)
         let settings = Settings {
-            url: URL.into(),
+            url: mg_nwsync::folder_url(&repo),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
         };
-        let root = repo.clone();
-        let fetch = mg_nwsync::fetch::from_fn(move |url| {
-            let path = url.strip_prefix(&format!("{URL}/")).ok_or("another server")?;
-            Ok(std::fs::read(root.join(path)).ok())
-        });
+        let fetch = mg_nwsync::fetch::Folder::of(&settings.url).unwrap();
         let cache = cache_of(&settings).unwrap();
         let pulled = mg_nwsync::fetch::pull(
-            &*fetch,
+            &fetch,
             &settings,
             &cache,
             None,
@@ -929,6 +927,7 @@ mod tests {
         )
         .unwrap();
         assert!(pulled.resolved.found.origins.is_some());
+        assert_eq!(pulled.resolved.found.from, ManifestFrom::Folder);
 
         let listed = names(&["pw_one", "pw_two", "pw_gone"]);
         let on_disk = OnDisk { haks: vec![("pw_two".into(), two)], ..Default::default() };

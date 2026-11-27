@@ -956,20 +956,28 @@ impl<'a> Reader<'a> {
     }
 
     /// `[nwsync] source`: an HTTP or HTTPS address, without the
-    /// trailing `/`. In the builder's own file (`own`), `""` is
-    /// `Some(None)`: the team's server turned off for this builder.
-    fn nwsync_source(&mut self, entry: Entry, own: bool) -> Option<Option<String>> {
-        let url = self.text(entry)?.trim().trim_end_matches('/').to_string();
-        if own && url.is_empty() {
+    /// trailing `/`, or a repository folder ([`mg_nwsync::source_url`]: a
+    /// `file://` URL, a whole path, or one from `./` or `../` resolved
+    /// against `base`, the project's folder). In the builder's own file
+    /// (`own`), `""` is `Some(None)`: the team's server turned off for
+    /// this builder.
+    fn nwsync_source(
+        &mut self,
+        entry: Entry,
+        own: bool,
+        base: Option<&Path>,
+    ) -> Option<Option<String>> {
+        let text = self.text(entry)?.trim().to_string();
+        if own && text.is_empty() {
             return Some(None);
         }
-        let scheme = url.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
-        match scheme.as_deref() {
-            Some("http" | "https") if url.len() > "https://".len() => Some(Some(url)),
-            _ => {
+        match mg_nwsync::source_url(&text, base) {
+            Some(url) => Some(Some(url)),
+            None => {
                 let message = format!(
-                    "source \"{url}\" is to be the NWSync server's address, as nwserver's \
-                     -nwsyncurl: \"https://nwsync.example.org\""
+                    "source \"{text}\" is to be the NWSync server's address, as nwserver's \
+                     -nwsyncurl: \"https://nwsync.example.org\", or a repository folder: \
+                     \"file:///srv/nwsync\", or \"../nwsync\" from the project's folder"
                 );
                 self.warn(entry.1.span().start, message);
                 None
@@ -1487,7 +1495,8 @@ impl ProjectFile {
                                 }
                             }
                             "source" => {
-                                if let Some(url) = r.nwsync_source(e, own) {
+                                let base = self.place.as_ref().map(|p| p.root.clone());
+                                if let Some(url) = r.nwsync_source(e, own, base.as_deref()) {
                                     self.nwsync_source = url;
                                 }
                             }
@@ -3098,6 +3107,44 @@ keeper_variable = "tdod_store"
         p.apply("user.toml", "[nwsync]\nkeep = -1\n", true);
         p.apply("user.toml", "[nwsync]\nkeep = \"two\"\n", true);
         assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 2));
+    }
+
+    /// `[nwsync] source` naming a repository folder: a relative path
+    /// resolved against the project's folder (a `.mod`'s: its own
+    /// folder), a whole path or a `file://` URL taken as it is; a server's
+    /// name alone, and a relative path without a project, said.
+    #[test]
+    fn an_nwsync_source_may_be_a_folder() {
+        let dir = mg_testkit::scratch_dir("project-file-nwsync-folder");
+        std::fs::create_dir_all(dir.join("krezk")).unwrap();
+        std::fs::create_dir_all(dir.join("repo")).unwrap();
+        let repo = std::fs::canonicalize(dir.join("repo")).unwrap();
+        let folder_of = |url: &str| {
+            let at = mg_nwsync::local_folder(url).unwrap();
+            assert!(at.is_absolute() && !at.components().any(|c| c.as_os_str() == ".."), "{url}");
+            std::fs::canonicalize(at).unwrap()
+        };
+        std::fs::write(dir.join("krezk/moonglow.toml"), "[nwsync]\nsource = \"../repo\"\n")
+            .unwrap();
+        let p = ProjectFile::read(&dir.join("krezk"));
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(folder_of(&p.nwsync_settings().unwrap().url), repo);
+        // Beside a .mod: from the .mod's folder.
+        std::fs::write(dir.join("krezk.moonglow.toml"), "[nwsync]\nsource = \"./repo\"\n").unwrap();
+        let place = Place::beside(&dir.join("krezk.mod")).unwrap();
+        let url = ProjectFile::read_at(&place).nwsync_settings().unwrap().url;
+        assert_eq!(folder_of(&url), repo);
+        let whole = if cfg!(windows) { "D:\\\\nwsync" } else { "/srv/nwsync" };
+        let p = read(&format!("[nwsync]\nsource = \"{whole}\"\n"));
+        assert_eq!(
+            p.nwsync_settings().unwrap().url,
+            mg_nwsync::folder_url(Path::new(&whole.replace("\\\\", "\\")))
+        );
+        let p = read("[nwsync]\nsource = \"file:///srv/nwsync\"\n");
+        assert!(p.warnings.is_empty() && p.nwsync_settings().is_some(), "{:?}", p.warnings);
+        let p = read("[nwsync]\nsource = \"../repo\"\n");
+        assert!(p.nwsync_settings().is_none());
+        assert!(p.warnings[0].contains("repository folder"), "{:?}", p.warnings);
     }
 
     /// `[nwsync] upload`: text, or a table for each system and `input`;

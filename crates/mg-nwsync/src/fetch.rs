@@ -5,7 +5,18 @@
 //! or canceled goes on from there the next time.
 //!
 //! [`Fetch`] is the seam: `mg` and the window give [`Client`] (feature
-//! `http`), the tests answers of their own ([`from_fn`]).
+//! `http`) or, for a repository folder on this computer (a `file://`
+//! source), [`Folder`] ([`for_settings`] picks), the tests answers of
+//! their own ([`from_fn`]).
+//!
+//! A folder's files are read in place, without a server, and go through
+//! the same steps as a server's: checked against their SHA-1 and copied
+//! into the cache, its `latest/` and `used/` marks kept as for a server.
+//! The cache so stays whole on its own: a module opens offline whatever
+//! becomes of the folder (a removable or network drive gone, the
+//! repository pruned or published again), and a clean-up of either never
+//! takes what the other holds. The cost is the disk space of the data
+//! copied.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -56,6 +67,57 @@ pub fn from_fn(
         }
     }
     Arc::new(Answers(answer))
+}
+
+/// A repository folder on this computer, read in place: `base` is the
+/// source's `file://` URL as [`at`] builds the files' addresses from it.
+#[derive(Debug, Clone)]
+pub struct Folder {
+    base: String,
+    root: std::path::PathBuf,
+}
+
+impl Folder {
+    /// The folder a `file://` source names; `None` for a server.
+    pub fn of(url: &str) -> Option<Folder> {
+        let root = crate::local_folder(url)?;
+        Some(Folder { base: at(url, ""), root })
+    }
+}
+
+impl Fetch for Folder {
+    fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, String> {
+        let rel =
+            url.strip_prefix(&self.base).ok_or_else(|| format!("{url} is not in the folder"))?;
+        // (A path of the repository's own, nothing above or beside it.)
+        let rel = std::path::Path::new(rel);
+        if rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Err(format!("{url} is not in the folder"));
+        }
+        if !self.root.is_dir() {
+            return Err(format!("the repository folder {} is not there", self.root.display()));
+        }
+        let path = self.root.join(rel);
+        let said = |e: std::io::Error| format!("{}: {e}", path.display());
+        let meta = match std::fs::metadata(&path) {
+            Ok(m) if m.is_file() => m,
+            Ok(_) => return Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(said(e)),
+        };
+        if meta.len() > limit {
+            return Err(format!("{} is larger than it should be", path.display()));
+        }
+        use std::io::Read as _;
+        let mut bytes = Vec::with_capacity(meta.len() as usize);
+        let file = std::fs::File::open(&path).map_err(said)?;
+        // (Read to the limit: a file grown since it was looked at.)
+        file.take(limit + 1).read_to_end(&mut bytes).map_err(said)?;
+        if bytes.len() as u64 > limit {
+            return Err(format!("{} is larger than it should be", path.display()));
+        }
+        Ok(Some(bytes))
+    }
 }
 
 /// A file of the repository at `url`.
@@ -185,7 +247,10 @@ pub fn resolve(
                 .manifest(&wanted, "origin")
                 .map(|b| Origins::parse(&String::from_utf8_lossy(&b)));
             let includes_module = crate::source::includes_module(&wanted, Some(cache), game);
-            let from = ManifestFrom::Server;
+            let from = match crate::local_folder(url) {
+                Some(_) => ManifestFrom::Folder,
+                None => ManifestFrom::Server,
+            };
             let at = crate::source::time_of(&wanted, from, Some(cache), game);
             let found = Found { sha1: wanted, entries, from, origins, includes_module, at };
             Ok(Resolved { found, server_latest, warnings: Vec::new() })
@@ -377,6 +442,16 @@ pub fn pull(
 
 #[cfg(feature = "http")]
 pub use client::Client;
+
+/// What makes the requests for `settings`: a repository folder's
+/// [`Folder`], else the [`Client`].
+#[cfg(feature = "http")]
+pub fn for_settings(settings: &Settings) -> Result<Arc<dyn Fetch>, String> {
+    match Folder::of(&settings.url) {
+        Some(f) => Ok(Arc::new(f)),
+        None => Ok(Arc::new(Client::new())),
+    }
+}
 
 #[cfg(feature = "http")]
 mod client {
