@@ -239,6 +239,11 @@ struct Slots {
     names: [Option<String>; SLOTS],
     /// The MTR they resolve to (lower case), if any.
     mtr: Option<String>,
+    /// Whether that MTR's own TXI (of its name, `name.txi` beside
+    /// `name.mtr`) says `blending punchthrough`: a mesh whose bitmap
+    /// names the MTR is a cut-out by it ([`Renderer::surface`]). Read
+    /// with the slots, once a material, not once a surface.
+    mtr_cut: bool,
     /// MTR parameters (0: none).
     specularity: f32,
     /// How far a custom pair may offset the mesh, meters: the largest of
@@ -2261,7 +2266,9 @@ impl Renderer {
             .flatten()
             .find_map(|n| assets.material(n).map(|m| (n.to_ascii_lowercase(), m)))
             .unzip();
-        let mut out = Slots { mtr: mtr_name, ..Slots::default() };
+        let mtr_cut = mtr_name.as_deref().and_then(|m| assets.txi(m));
+        let mtr_cut = mtr_cut.is_some_and(|t| t.blending() == Blending::Punchthrough);
+        let mut out = Slots { mtr: mtr_name, mtr_cut, ..Slots::default() };
         out.names[0] = mat.texture.clone();
         for (i, m) in mat.maps.iter().enumerate() {
             out.names[i + 1] = m.clone();
@@ -2600,6 +2607,28 @@ impl Renderer {
         let (blending, env, decal, clamp, has_alpha, cut) = match &tex {
             Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
             None => (Blending::Default, None, false, (false, false), false, false),
+        };
+        // A cut-out by the TXI of the name the mesh binds: where its bitmap
+        // names an MTR, the MTR's TXI (`name.txi` beside `name.mtr`), not
+        // its texture's, whose `blending punchthrough` the client leaves
+        // blended by its alpha (`soft::reading_punch_cut` in
+        // `client_render`, 2026-11-27). (An MTR by `materialname` keeps
+        // its texture's TXI: read only with the bitmap that texture. A
+        // bitmap renamed by its instance to an MTR's name, unread, too.)
+        let bitmap_mtr = slots.mtr.as_deref().filter(|m| {
+            mat.mtr.as_deref().is_none_or(|n| !n.eq_ignore_ascii_case(m))
+                && slots.names[0].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(m))
+                && names[0].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(m))
+        });
+        let blending = match bitmap_mtr {
+            Some(_) if tex.is_some() && blending != Blending::Additive => {
+                if slots.mtr_cut {
+                    Blending::Punchthrough
+                } else {
+                    Blending::Default
+                }
+            }
+            _ => blending,
         };
         // The environment map a mesh reflects: its texture's (TXI
         // `envmaptexture`), else its object's (placeables.2da
@@ -3254,11 +3283,11 @@ impl Renderer {
                     let flag = |b: bool| if b { 1.0 } else { 0.0 };
                     // See-through of its own, whatever the instance's opacity.
                     // (A cut-out is solid where it is not cut: its rim is not
-                    // blended, as the client draws it.)
-                    let see_through = (surface.has_alpha
-                        && !surface.reflects
-                        && surface.blending != Blending::Punchthrough)
-                        || mat.transparency_hint > 0
+                    // blended, as the client draws it, `transparencyhint 1`
+                    // or not: `soft::reading_punch_cut` in `client_render`.)
+                    let cut_out = surface.blending == Blending::Punchthrough;
+                    let see_through = (surface.has_alpha && !surface.reflects && !cut_out)
+                        || (mat.transparency_hint > 0 && !cut_out)
                         || slots.effect.is_some_and(|e| e.blend);
                     let pass = if fade_color.is_some() {
                         Pass::SkyFade

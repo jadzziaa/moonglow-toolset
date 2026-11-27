@@ -254,3 +254,147 @@ fn reading_soft_depth() {
     let (dir, _) = r.shoot_beside(INVISIBLE, &settings, &|_| {});
     eprintln!("{}", dir.display());
 }
+
+/// The alphas of [`reading_punch_cut`]'s bands, west to east: around the
+/// client's cut (0.2: 51) closely, then in tenths.
+const PUNCH_LEVELS: [u8; 16] =
+    [0, 13, 26, 38, 46, 50, 52, 56, 64, 77, 102, 128, 153, 179, 230, 255];
+
+/// Where the client cuts a texture of TXI `blending punchthrough` on a
+/// mesh made see-through, and which TXI makes a mesh a cut-out: ttr01
+/// (a skybox), a placeable north of the player, ten standing cards side
+/// by side, 1.7 m wide, textured with 16 bands of alpha [`PUNCH_LEVELS`],
+/// magenta and orange in turn (a DXT5), a white bar 0.8 m behind each,
+/// lower, seen through its middle ([`PUNCH_CARDS`] has what each is).
+/// Moonglow's area view is drawn beside it, and each card read as solid
+/// or blended in the three pictures (a window across its middle, above
+/// the bar). Pictures in `target/test-output/client_reading_punch_cut/`.
+///
+/// Read 2026-11-27 (game 89.8193.37): every card is cut where its
+/// alpha is 50/255 or less and kept from 52/255 (the 0.2 of
+/// `fAlphaDiscardValue`: ten bands left on each, counted in the
+/// client's picture); a cut-out's kept bands are drawn opaque,
+/// hiding the bar, darker as their alpha rises (the light through it
+/// weighed by its alpha), and a blended card's are blended. The client
+/// takes a mesh to be a cut-out by the TXI of the name it binds (its
+/// bitmap): the texture's own TXI with a bitmap naming the texture
+/// (with `materialname` too, its MTR naming the same texture), the MTR's (`name.txi` beside `name.mtr`)
+/// with a bitmap naming an MTR, whose texture's TXI it does not read for
+/// it; `transparencyhint 1` and the MTR's `transparency 1` change nothing.
+/// Before, Moonglow blended the hint's card and the MTR-named TXI's, and
+/// drew solid those whose MTR's texture had the TXI.
+#[test]
+#[ignore]
+fn reading_punch_cut() {
+    let base = base_game();
+    let mut overrides: Vec<(String, Vec<u8>)> = vec![("mgwhite.tga".into(), super::white_tga())];
+    let mut data = Vec::new();
+    for _ in 0..8 {
+        for (i, a) in PUNCH_LEVELS.into_iter().enumerate() {
+            let [r, g, b] = if i % 2 == 0 { [255, 0, 255] } else { [255, 160, 0] };
+            data.extend([r, g, b, a].repeat(8));
+        }
+    }
+    let picture = mg_image::Rgba { width: 8 * PUNCH_LEVELS.len() as u32, height: 8, data };
+    let t = mg_image::encode::compress(&picture, mg_image::Format::Bc3, true, false);
+    let dds = mg_image::dds::write_standard(&t).unwrap();
+    const PUNCH: &str = "blending punchthrough\n";
+    const HINT: &str = "  transparencyhint 1\n";
+    // (name, the TXI's under the texture's name and under the MTR's, an
+    // MTR's lines after its texture, the mesh's lines)
+    let kinds = [
+        ("mgpc_a", (true, false), None, ""),
+        ("mgpc_b", (true, false), None, HINT),
+        ("mgpc_c", (true, false), Some("transparency 1\n"), ""),
+        ("mgpc_d", (false, false), None, HINT),
+        ("mgpc_e", (true, false), Some(""), ""),
+        ("mgpc_f", (true, false), Some("transparency 1\n"), HINT),
+        ("mgpc_g", (false, true), Some(""), ""),
+        ("mgpc_h", (true, true), Some(""), ""),
+        ("mgpc_i", (false, true), Some("transparency 1\n"), ""),
+        ("mgpc_j", (true, false), Some(""), "  materialname mgpc_jm\n"),
+    ];
+    let parent = "mg_punch";
+    let mut nodes = Vec::new();
+    for (i, (name, (txi, mtr_txi), mtr, extra)) in kinds.into_iter().enumerate() {
+        overrides.push((format!("{name}.dds"), dds.clone()));
+        if txi {
+            overrides.push((format!("{name}.txi"), PUNCH.as_bytes().to_vec()));
+        }
+        if mtr_txi {
+            overrides.push((format!("{name}m.txi"), PUNCH.as_bytes().to_vec()));
+        }
+        // (The MTR named by the bitmap, or by `materialname` beside the
+        // texture's.)
+        if let Some(lines) = mtr {
+            let m = format!("{name}m");
+            overrides.push((format!("{m}.mtr"), format!("texture0 {name}\n{lines}").into_bytes()));
+        }
+        let bitmap = match mtr {
+            Some(_) if !extra.contains("materialname") => format!("{name}m"),
+            _ => name.to_string(),
+        };
+        let x = -9.5 + i as f32 * 1.9;
+        let card = [([x, 0.0, 0.4], [x + 1.7, 0.0, 2.0], 0.0, 1.0)];
+        nodes.push(quads(&format!("card{i}"), parent, &bitmap, extra, &card));
+        let bar = [([x - 0.1, 0.8, 0.3], [x + 1.8, 0.8, 0.9], 0.0, 1.0)];
+        nodes.push(quads(&format!("bar{i}"), parent, "mgwhite", "", &bar));
+    }
+    let model = super::batch4::probe_model(parent, &nodes);
+    let (table, first) = placeables_with(&base, &[(parent, 0)]);
+    overrides.push((format!("{parent}.mdl"), model.into_bytes()));
+    overrides.push(("placeables.2da".into(), table.into_bytes()));
+    let overrides: Vec<(&str, Vec<u8>)> =
+        overrides.iter().map(|(f, d)| (f.as_str(), d.clone())).collect();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("punch_cut", "ttr01", light, &overrides);
+    r.are.root.set("SkyBox", Value::Byte(1));
+    r.place(first, [20.0, 22.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+    let (dir, client) = r.shoot_beside(INVISIBLE, &with_skybox(SETTINGS), &|_| {});
+    // (Each card's middle, above the bar, in a 1024 by 768 window: its
+    // saturated texels, drawn opaque, against its blended ones.)
+    let solid = |p: &Rgba| -> Vec<bool> {
+        (0..kinds.len())
+            .map(|i| {
+                let centre = 150.0 + 82.8 * i as f32;
+                let (mut opaque, mut blended) = (0, 0);
+                for x in (centre as u32 - 12)..(centre as u32 + 12) {
+                    let at = 4 * (310 * p.width + x) as usize;
+                    let [r, g, b] = [p.data[at], p.data[at + 1], p.data[at + 2]];
+                    if (r > 100 && b > 100 && g < 80) || (r > 100 && g > 50 && b < 60) {
+                        opaque += 1;
+                    } else if r > b && b > g {
+                        blended += 1;
+                    }
+                }
+                opaque > 2 * blended
+            })
+            .collect()
+    };
+    let read = solid(&client);
+    eprintln!("{}\nthe client's cards solid: {read:?}", dir.display());
+    let want: Vec<bool> = PUNCH_CARDS.iter().map(|c| c.1).collect();
+    assert_eq!(read, want, "the client's cut-outs");
+    for name in ["moonglow.png", "moonglow_on.png"] {
+        let path = dir.join(name);
+        if path.exists() {
+            let ours = solid(&crate::common::read_png(&path));
+            assert_eq!(ours, read, "{name}'s cut-outs against the client's");
+        }
+    }
+}
+
+/// [`reading_punch_cut`]'s cards, west to east: what each is, and
+/// whether the client draws it solid (a cut-out).
+const PUNCH_CARDS: [(&str, bool); 10] = [
+    ("a texture of TXI `blending punchthrough`", true),
+    ("the same, `transparencyhint 1`", true),
+    ("an MTR of `transparency 1` naming it", false),
+    ("`transparencyhint 1`, no TXI", false),
+    ("an MTR naming it", false),
+    ("an MTR of `transparency 1` naming it, `transparencyhint 1`", false),
+    ("an MTR of the TXI naming a texture of none", true),
+    ("an MTR of the TXI naming a texture of it", true),
+    ("an MTR of the TXI and `transparency 1`, a texture of none", true),
+    ("the texture of the TXI, an MTR by `materialname`", true),
+];

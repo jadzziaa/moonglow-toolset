@@ -449,7 +449,7 @@ Nothing open.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **Soft see-through texels: three ways the client's differ, left**
+- **Soft see-through texels: two ways the client's differ, left**
   (`soft::reading_soft_depth`, 2026-11-26; since that day a
   see-through mesh's soft part writes its depth as the client's, and
   shiny water drawn by `fswater` is hidden behind it: [the
@@ -464,12 +464,6 @@ Nothing open.
     parts takes it out of the solid draws the sun's shadows are laid
     between, and the fallback's water would want its own shadow path.
     (M)
-  - **A texture with TXI `blending punchthrough` and
-    `transparencyhint 1`:** the client draws its alpha-0.5 texels as
-    a cut-out (`MG_SOFT_KIND=punch`), Moonglow blends them (the hint
-    makes the mesh see-through). Deferred as beyond what was asked:
-    where the client cuts such a texture (its threshold) wants a
-    reading of its own. (S)
   - **Two soft meshes of one model, one behind the other:** the
     client's order between them was not one rule. With
     `transparencyhint 1`, the pair whose nearer mesh is listed first
