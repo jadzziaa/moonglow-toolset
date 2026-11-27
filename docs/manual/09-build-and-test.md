@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:25:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T14:24:32Z }
 ---
 
 # Build, verify and test
@@ -743,6 +743,30 @@ as nwn.wiki recommends, to avoid the problems it lists for Aurora's F9:
 lagging combat, AI that overflows its time, and modules damaged when the
 game crashes. The module is always saved before
 the game starts, and Test From Here plays a copy.
+
+### Test Module with NWNX
+
+A module whose project uses [NWNX](11-command-line.md#nwnx)
+(`[nwnx] use = true` and your `home`, on Linux) can't be tested by the
+game alone: `+TestNewModule` starts the game's own server, which NWNX
+never loads into, so most of such a module's scripts would do nothing.
+Test Module serves it instead on a private `nwserver` with NWNX, in a
+folder of Moonglow's cache (`test-server`, never your NWN folder), with
+the module, its haks and talk table, and your `development` folder
+linked, as `mg serve` has it. Once the server says the module is
+loaded, the game starts on your user folder and joins it
+(`+connect 127.0.0.1:PORT +password …`), to the game's character list
+with your own characters on it. The Log follows the server (its
+preparing, starting, the module loaded, the game joining, what NWNX
+says and the module's log lines), and the status bar says how far it
+is. The checks before the start are `mg serve`'s: an error is said in
+the Log and nothing is started.
+
+When the game ends, the server is told to `exit`. Only the server and
+the game this test started are ever stopped. Another test waits until
+they are done. On Windows and macOS such a module is tested by the game
+alone, as any other, and the Log says once that NWNX runs only on Linux
+servers.
 
 A test looks for a game already running first (Test Module before it
 saves), for it would write the module under one that has it open (the
