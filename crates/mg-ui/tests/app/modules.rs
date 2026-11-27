@@ -3402,6 +3402,7 @@ fn closing_the_window_asks_first() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_game_moonglow_did_not_start_is_known_before_a_test() {
+    let _games = TEST_GAMES.lock().unwrap_or_else(|e| e.into_inner());
     let dir = mg_testkit::scratch_dir("ui-other-game");
     let (root, user, elsewhere) = (dir.join("root"), dir.join("user"), dir.join("elsewhere"));
     let client = root.join("bin/linux-x86/nwmain-linux");

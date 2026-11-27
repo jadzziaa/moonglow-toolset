@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T14:24:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:52:43Z }
 ---
 
 # Build, verify and test
@@ -763,8 +763,12 @@ is. The checks before the start are `mg serve`'s: an error is said in
 the Log and nothing is started.
 
 When the game ends, the server is told to `exit`. Only the server and
-the game this test started are ever stopped. Another test waits until
-they are done. On Windows and macOS such a module is tested by the game
+the game this test started are ever stopped. While they run, the status
+bar shows the test as a job, and another test is refused: close the
+game, or choose **Build › Stop Test Server** (offered while the local
+server runs), which stops the server and the game, then test again.
+Closing Moonglow stops them too, and on Linux they end with Moonglow
+however it ends. On Windows and macOS such a module is tested by the game
 alone, as any other, and the Log says once that NWNX runs only on Linux
 servers.
 

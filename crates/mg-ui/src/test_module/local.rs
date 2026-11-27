@@ -7,7 +7,10 @@
 //! character list or with a test character put in the server's vault
 //! ([`Join::QuickStart`]).
 //!
-//! Only the server and the game this run started are ever stopped.
+//! Only the server and the game this run started are ever stopped. On
+//! Linux both die with the run's thread, however Moonglow ends (a crash,
+//! a kill): they are started from it with the parent-death signal
+//! ([`mg_serve::die_with_parent`]), and it lives as long as they run.
 
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -151,6 +154,13 @@ pub fn prepare_module(
     })
 }
 
+/// How long a stopped server has to end after `exit` before it is killed.
+pub const STOP_PATIENCE: Duration = Duration::from_secs(5);
+
+/// How long a stop waits for the run's thread at most ([`LocalRun::stop_and_wait`]
+/// when dropped): the server's patience, and a moment for the game.
+pub const STOP_WAIT: Duration = Duration::from_secs(7);
+
 /// A local run under way: its server (and the game, once it joins) on a
 /// thread of its own.
 #[derive(Debug)]
@@ -158,6 +168,7 @@ pub struct LocalRun {
     said: Receiver<Progress>,
     stop: Arc<AtomicBool>,
     done: bool,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl LocalRun {
@@ -168,11 +179,13 @@ impl LocalRun {
         let (send, said) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let halt = stop.clone();
-        std::thread::spawn(move || {
+        // (The server and the game are started from this thread, and die
+        // with it: it lives until both are stopped.)
+        let thread = std::thread::spawn(move || {
             let (how, failed) = run(plan, client, &send, &halt);
             let _ = send.send(Progress::Ended { how, failed });
         });
-        LocalRun { said, stop, done: false }
+        LocalRun { said, stop, done: false, thread: Some(thread) }
     }
 
     /// What happened since the last look.
@@ -193,11 +206,31 @@ impl LocalRun {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
     }
+
+    /// Stops the run ([`LocalRun::stop`]) and waits for it to be over, for
+    /// at most `within`: whether it is (its server and game stopped).
+    /// What it said meanwhile stays to be read with [`LocalRun::poll`].
+    pub fn stop_and_wait(&mut self, within: Duration) -> bool {
+        self.stop();
+        let waited = Instant::now();
+        while self.thread.as_ref().is_some_and(|t| !t.is_finished()) && waited.elapsed() < within {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        match self.thread.take_if(|t| t.is_finished()) {
+            Some(t) => {
+                let _ = t.join();
+                true
+            }
+            None => self.thread.is_none(),
+        }
+    }
 }
 
+/// Dropped (Moonglow closing), the run is stopped and waited for, as long
+/// as [`STOP_WAIT`] at most.
 impl Drop for LocalRun {
     fn drop(&mut self) {
-        self.stop();
+        self.stop_and_wait(STOP_WAIT);
     }
 }
 
@@ -207,6 +240,7 @@ struct Game(Child);
 
 impl Game {
     fn start(mut client: Command) -> std::io::Result<Game> {
+        mg_serve::die_with_parent(&mut client);
         let child = client.spawn()?;
         super::GAMES.lock().unwrap_or_else(|e| e.into_inner()).push(child.id());
         Ok(Game(child))
@@ -293,8 +327,11 @@ fn run(
         player_password: Some(plan.password.clone()),
         console: true,
         env: plan.nwnx.as_ref().map(mg_module::nwnx::Nwnx::server_env).unwrap_or_default(),
-        clean_env: nwnx,
+        // (Nothing of Moonglow's own environment: what NWNX is to have is
+        // in its settings, and a shell's LD_PRELOAD would load it unchecked.)
+        clean_env: true,
         args,
+        die_with_parent: true,
         ..Default::default()
     }) {
         Ok(s) => s,
@@ -304,7 +341,7 @@ fn run(
     let mut builds = mg_module::nwnx::Builds::default();
     let mut log = mg_serve::Tail::new(server.log_path());
     let started = Instant::now();
-    let patience = Duration::from_secs(5);
+    let patience = STOP_PATIENCE;
     // Waits for the module, a moment at a time, saying what is heard.
     loop {
         let slice = Duration::from_millis(250);

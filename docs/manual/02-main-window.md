@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:52:43Z }
 ---
 
 # The main window
@@ -67,7 +67,7 @@ Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has o
 | View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each checked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Interface Size (Zoom In, Zoom Out, Reset Zoom, and the sizes from 90% to 300%, the one in use checked: Options › General › Interface size), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint), and the enabled plugins' wizards |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
-| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, NWSync Content…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
+| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, NWSync Content…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Stop Test Server (while Test Module's local server runs), Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, **Panels** (their panels, where they have any), Manage Plugins (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
 | Help | User Manual, Command Palette… ([Quick Open](#quick-open)), Check for Updates… ([Updates](#updates)), About Moonglow Toolset |
 

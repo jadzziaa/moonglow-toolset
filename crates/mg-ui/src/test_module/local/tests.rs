@@ -215,3 +215,32 @@ fn a_core_the_loader_refuses_fails_the_run() {
     assert!(logged, "{all:?}");
     assert!(!all.contains(&Progress::Joining));
 }
+
+/// Dropped (Moonglow closing) while it serves, the run is stopped and
+/// waited for: by the time the drop returns, the server was told to exit
+/// and the game this run started is gone.
+#[test]
+fn a_dropped_run_is_stopped_before_the_drop_returns() {
+    let dir = mg_testkit::scratch_dir("ui-local-run-drop");
+    let plan = LocalPlan::new(
+        fake_server(&dir, LOADS, false),
+        dir.join("server"),
+        prepared(),
+        Join::CharacterList,
+    );
+    let mut run = LocalRun::start(plan, fake_game(&dir, 60));
+    let start = Instant::now();
+    let mut all = Vec::new();
+    let pid_file = dir.join("game.pid");
+    while !(all.contains(&Progress::Joining) && pid_file.is_file())
+        && start.elapsed() < Duration::from_secs(30)
+    {
+        all.extend(run.poll());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(pid_file.is_file(), "{all:?}");
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    drop(run);
+    assert!(dir.join("exit.txt").is_file(), "the server was told to exit");
+    assert!(!PathBuf::from(format!("/proc/{}", pid.trim())).exists(), "the game was stopped");
+}

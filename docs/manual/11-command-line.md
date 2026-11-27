@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T14:24:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:52:43Z }
 ---
 
 # Command-line tools
@@ -454,16 +454,21 @@ home = "~/.local/opt/nwnx/current"   # Binaries/ and NWScript/
 - **What the server gets.** `LD_PRELOAD=<home>/Binaries/NWNX_Core.so`,
   `NWNX_CORE_LOAD_PATH=<home>/Binaries` (or the env file's own, made
   whole from the project's root), then the env file's lines, then
-  those of `--env`. Nothing of your own environment reaches a server
-  with NWNX but `PATH`, `HOME`, the user, language, time zone and
-  temporary folder: a setting of your shell's (an NWNX setting, a
-  webhook's address) does not post from a test. Nothing is written into
-  the project. `--preload` of NWNX's own core is the same core; another
-  library is preloaded beside it; another NWNX's core is refused (pass
-  `--no-nwnx` to preload it alone).
+  those of `--env` (a relative `NWNX_CORE_LOAD_PATH` of theirs is from
+  the current folder). Nothing of your own environment reaches a server
+  Moonglow starts, with NWNX or without, but `PATH`, `HOME`, the user,
+  language, time zone and temporary folder: a setting of your shell's
+  (an `LD_PRELOAD` of NWNX, an NWNX setting, a webhook's address) does
+  not load or post from a test; give what the server needs with
+  `--env`. Nothing is written into the project. `--preload` of NWNX's
+  own core is the same core; another library is preloaded beside it;
+  another NWNX's core is refused (pass `--no-nwnx` to preload it
+  alone). With `--no-nwnx` (or no NWNX), a preloaded library is only
+  that: NWNX's checks are made where an `NWNX_Core.so` is preloaded,
+  the project's or one you give.
 - **Checked before the start** (an error stops it, a warning doesn't):
   the home, `NWNX_Core.so`, and the env file must be there, and every
-  plugin the env file switches on (`NWNX_<PLUGIN>_SKIP=n`) must have its
+  plugin the env file or `--env` switches on (`NWNX_<PLUGIN>_SKIP=n`) must have its
   `NWNX_<Plugin>.so` in `Binaries`: errors. A plugin the module's
   scripts include (`#include "nwnx_store"`, its plugin read from the
   include's own `NWNX_Store` constant) that the settings skip
@@ -480,7 +485,8 @@ home = "~/.local/opt/nwnx/current"   # Binaries/ and NWScript/
   tell it (`Starting NWNX 8193.37-17`, `Build: 8193.37-17`), and NWNX
   made for another game build is an error then (NWNX stops the server
   itself); another revision of the same build is a warning. The
-  loader's own message where it could not preload the core, and a
+  loader's own message where it could not preload the core (another
+  library it could not preload is a warning), and a
   server that loaded its module without ever saying `Starting NWNX`,
   are errors: the server is stopped, as it ran without NWNX, and the
   run fails. A plugin that NWNX failed to load is a warning.

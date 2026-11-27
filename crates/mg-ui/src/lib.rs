@@ -6467,6 +6467,10 @@ impl Moonglow {
                 self.run_now(Action::Quit);
             }
             Action::Quit => {
+                // (Test Module's local server and the game joined to it
+                // stopped, and waited for: nothing of the test's is left
+                // running.)
+                self.stop_local_run_and_wait();
                 // (What a plugin held for the Protected Area window wrote
                 // into haks is taken back, as its Cancel would.)
                 self.cancel_pending_protected();
@@ -7280,10 +7284,10 @@ impl Moonglow {
     /// Whether the game started for the last test is still running, said
     /// in the log if so: no other test starts meanwhile.
     fn game_still_running(&mut self) -> bool {
-        if self.local_run.as_ref().is_some_and(|(run, _)| !run.ended()) {
+        if self.local_run_under_way() {
             self.log.warn(
-                "Test Module: the local server of the last test is still running: close the game, \
-                 then test again",
+                "Test Module: the local server of the last test is still running: close the game \
+                 (or Build › Stop Test Server), then test again",
             );
             return true;
         }
@@ -7970,6 +7974,33 @@ impl Moonglow {
         let run = test_module::LocalRun::start(plan, game);
         self.local_run = Some((run, "Preparing the local server".into()));
         true
+    }
+
+    /// Whether Test Module's local server runs (its run not over).
+    pub fn local_run_under_way(&self) -> bool {
+        self.local_run.as_ref().is_some_and(|(run, _)| !run.ended())
+    }
+
+    /// Build › Stop Test Server: Test Module's local server told to stop
+    /// (and the game joined to it); the run says in the Log when it has.
+    /// (Only this safety stop: Test Module's own controls are elsewhere.)
+    pub fn stop_local_run(&mut self) {
+        let Some((run, status)) = self.local_run.as_mut().filter(|(r, _)| !r.ended()) else {
+            return;
+        };
+        run.stop();
+        *status = "Stopping the local server".into();
+        self.log.info("Test Module: stopping the local server");
+    }
+
+    /// As Moonglow closes: the local run stopped and waited for (at most
+    /// [`test_module::local::STOP_WAIT`]), what it said put in the Log.
+    fn stop_local_run_and_wait(&mut self) {
+        let Some((run, _)) = self.local_run.as_mut() else { return };
+        if !run.stop_and_wait(test_module::local::STOP_WAIT) {
+            self.log.warn("Test Module: the local run had not ended as Moonglow closed");
+        }
+        self.poll_local_run(&egui::Context::default());
     }
 
     /// What Test Module's local server said since the last frame, in the

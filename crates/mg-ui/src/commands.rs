@@ -94,6 +94,9 @@ pub enum Id {
     ReorientCamera,
     TestModule,
     TestChoose,
+    /// Test Module's local server stopped (and the game joined to it):
+    /// offered while one runs.
+    StopTestServer,
     PackTarget,
     /// A nasher project's files its include leaves out, taken in.
     TakeInLeftOut,
@@ -308,6 +311,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::RoundTrip),
             Do(Id::TestModule),
             Do(Id::TestChoose),
+            Do(Id::StopTestServer),
             Do(Id::PackTarget),
             Do(Id::TakeInLeftOut),
             Separator,
@@ -615,6 +619,11 @@ impl Id {
                 "Test Module, Choose Character",
                 "The game asks which character to play",
             ),
+            Id::StopTestServer => (
+                "stop-test-server",
+                "Stop Test Server",
+                "Stop Test Module's local server and the game that joined it",
+            ),
             Id::PackTarget => (
                 "pack-target",
                 "Pack the Project's Module",
@@ -791,6 +800,7 @@ impl Id {
             Id::PackTarget | Id::TakeInLeftOut => {
                 app.ws.as_ref().is_some_and(|ws| ws.module.project.is_some())
             }
+            Id::StopTestServer => app.local_run_under_way(),
             _ => true,
         }
     }
@@ -918,6 +928,7 @@ impl Id {
             | Id::GoToStart
             | Id::TestModule
             | Id::TestChoose => open,
+            Id::StopTestServer => app.local_run_under_way(),
         }
     }
 
@@ -953,6 +964,7 @@ impl Id {
             Id::BuilderCode => "Open a module in a folder or a nasher project first",
             Id::ClaimsTable => "The project keeps no claims table",
             Id::TakeInLeftOut => "nasher.cfg leaves no files out",
+            Id::StopTestServer => "No local test server is running",
             Id::ExportChanged if open && !app.unsaved_module_editors().is_empty() => {
                 "Nothing changed in the module yet: save the editors with unsaved changes first"
             }
@@ -1017,6 +1029,10 @@ impl Id {
             Id::TestModule | Id::TestChoose if !app.test_may_start() => return,
             Id::TestModule => Action::SaveThen(Box::new(Action::TestModule)),
             Id::TestChoose => Action::SaveThen(Box::new(Action::TestModuleChoose)),
+            Id::StopTestServer => {
+                app.stop_local_run();
+                return;
+            }
             Id::PackTarget => Action::PackTarget,
             Id::TakeInLeftOut => Action::TakeInLeftOut,
             Id::Manual => Action::OpenTab(Tab::Manual),
