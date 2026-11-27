@@ -189,15 +189,61 @@ pub enum NotReady {
 /// How many of the server's last lines [`NotReady::Exited`] keeps.
 const LAST_LINES: usize = 20;
 
+/// What Moonglow writes into the server's pipes ([`Server::catch_up`]):
+/// read back, everything the server printed before it has been read.
+const MARK: &[u8] = b"\x1b[mg-serve caught up]\x1b";
+
+/// What a pipe's reader hears: a line, or [`MARK`].
+enum Heard {
+    Line(Line),
+    Mark,
+}
+
+impl Heard {
+    fn line(self) -> Option<Line> {
+        match self {
+            Heard::Line(l) => Some(l),
+            Heard::Mark => None,
+        }
+    }
+}
+
+/// How long the reader of a server's errors waits before each line it
+/// gives: a test's stand-in for a machine under load.
+#[cfg(test)]
+static ERRORS_LAG_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Reads a pipe's lines into `send` on a thread of its own, until it
-/// closes (so the server never blocks on a full pipe).
-fn read_lines(pipe: impl Read + Send + 'static, stderr: bool, send: Sender<Line>) {
+/// closes (so the server never blocks on a full pipe). A [`MARK`] that
+/// came in the middle of a line is taken out and the line kept whole.
+fn read_lines(pipe: impl Read + Send + 'static, stderr: bool, send: Sender<Heard>) {
     std::thread::spawn(move || {
-        for line in io::BufReader::new(pipe).split(b'\n').map_while(Result::ok) {
-            let text = String::from_utf8_lossy(&line).trim_end_matches('\r').to_string();
-            if send.send(Line { text, stderr }).is_err() {
-                break;
+        let mut begun: Vec<u8> = Vec::new();
+        let line = |begun: &mut Vec<u8>, rest: &[u8]| {
+            begun.extend_from_slice(rest);
+            let text = String::from_utf8_lossy(begun).trim_end_matches('\r').to_string();
+            begun.clear();
+            Heard::Line(Line { text, stderr })
+        };
+        for piece in io::BufReader::new(pipe).split(b'\n').map_while(Result::ok) {
+            let heard = match piece.strip_suffix(MARK) {
+                Some(before) => {
+                    begun.extend_from_slice(before);
+                    Heard::Mark
+                }
+                None => line(&mut begun, &piece),
+            };
+            #[cfg(test)]
+            if stderr && matches!(heard, Heard::Line(_)) {
+                let lag = ERRORS_LAG_MS.load(Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(lag));
             }
+            if send.send(heard).is_err() {
+                return;
+            }
+        }
+        if !begun.is_empty() {
+            let _ = send.send(line(&mut begun, &[]));
         }
     });
 }
@@ -275,7 +321,10 @@ pub struct Server {
     stdin: Option<ChildStdin>,
     /// What it prints (its console and its errors), where it has a
     /// console.
-    lines: Option<Receiver<Line>>,
+    lines: Option<Receiver<Heard>>,
+    /// Moonglow's own ends of the pipes it prints into, for
+    /// [`Server::catch_up`]'s marks; let go once it has ended.
+    marks: Vec<io::PipeWriter>,
     /// Lines read while waiting for it, not yet taken by [`Server::lines`].
     kept: VecDeque<Line>,
     started: Instant,
@@ -329,10 +378,22 @@ impl Server {
             command.env_clear().envs(kept);
         }
         command.envs(o.env.iter().map(|(k, v)| (k, v)));
-        let pipe = |on: bool| if on { Stdio::piped() } else { Stdio::null() };
         // (With a console, its errors too: the loader says there why a
-        // preloaded library was not loaded.)
-        command.stdin(pipe(o.console)).stdout(pipe(o.console)).stderr(pipe(o.console));
+        // preloaded library was not loaded. Pipes of Moonglow's own, whose
+        // writing ends it keeps a copy of for its marks.)
+        let mut readers = Vec::new();
+        let mut marks = Vec::new();
+        if o.console {
+            let mut pipe = || -> io::Result<Stdio> {
+                let (read, write) = io::pipe()?;
+                marks.push(write.try_clone()?);
+                readers.push(read);
+                Ok(Stdio::from(write))
+            };
+            command.stdin(Stdio::piped()).stdout(pipe()?).stderr(pipe()?);
+        } else {
+            command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        }
         if o.die_with_parent {
             die_with_parent(&mut command);
         }
@@ -349,19 +410,20 @@ impl Server {
             }
         }
         let mut child = command.spawn()?;
+        // (The child's copies of the writing ends go with the command, so
+        // a pipe closes once the server and Moonglow's copy have.)
+        drop(command);
         let lines = o.console.then(|| {
             let (send, receive) = channel();
-            if let Some(out) = child.stdout.take() {
-                read_lines(out, false, send.clone());
-            }
-            if let Some(err) = child.stderr.take() {
-                read_lines(err, true, send);
+            for (read, stderr) in readers.into_iter().zip([false, true]) {
+                read_lines(read, stderr, send.clone());
             }
             receive
         });
         Ok(Server {
             stdin: child.stdin.take(),
             lines,
+            marks,
             kept: VecDeque::new(),
             started: Instant::now(),
             child,
@@ -397,9 +459,36 @@ impl Server {
     pub fn lines(&mut self) -> Vec<Line> {
         let mut out: Vec<Line> = self.kept.drain(..).collect();
         if let Some(lines) = &self.lines {
-            out.extend(lines.try_iter());
+            out.extend(lines.try_iter().filter_map(Heard::line));
         }
         out
+    }
+
+    /// Reads, into what [`Server::lines`] gives, everything the server has
+    /// printed so far on both its pipes (each read on a thread of its own,
+    /// one may be behind the other): a mark is written into each and read
+    /// back, a pipe keeping its order. Once the server has ended, its pipes
+    /// are let go of, to close. (At most a few seconds, as a safeguard.)
+    pub fn catch_up(&mut self) {
+        let Some(lines) = &self.lines else { return };
+        let mut waiting = 0;
+        for pipe in &mut self.marks {
+            // (A line of its own, unless the server is in the middle of one.)
+            if pipe.write_all(&[MARK, b"\n"].concat()).is_ok() {
+                waiting += 1;
+            }
+        }
+        let until = Instant::now() + Duration::from_secs(5);
+        while waiting > 0 {
+            match lines.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                Ok(Heard::Line(line)) => self.kept.push_back(line),
+                Ok(Heard::Mark) => waiting -= 1,
+                Err(_) => break,
+            }
+        }
+        if self.child.try_wait().ok().flatten().is_some() {
+            self.marks.clear();
+        }
     }
 
     /// Waits until the server says its module is loaded ([`loaded`]),
@@ -416,34 +505,37 @@ impl Server {
         let mut seen = 0;
         loop {
             let ended = self.exited().is_some();
-            if let Some(lines) = &self.lines {
-                self.kept.extend(lines.try_iter());
+            match ended {
+                // (All it printed as it ended.)
+                true => self.catch_up(),
+                false => {
+                    if let Some(lines) = &self.lines {
+                        self.kept.extend(lines.try_iter().filter_map(Heard::line));
+                    }
+                }
             }
+            let mut ready = false;
             for line in self.kept.iter().skip(seen) {
                 if loaded(&line.text) {
-                    return Ok(self.started.elapsed());
+                    ready = true;
+                    break;
                 }
                 last.push_back(line.text.clone());
                 if last.len() > LAST_LINES {
                     last.pop_front();
                 }
             }
+            if ready {
+                let took = self.started.elapsed();
+                // (What it printed before, on its other pipe too: the
+                // loader's errors come before the module loads, but may
+                // be read after.)
+                self.catch_up();
+                return Ok(took);
+            }
             seen = self.kept.len();
             if ended {
-                // (What it printed as it ended, read once its pipes close.)
-                std::thread::sleep(Duration::from_millis(100));
-                if let Some(lines) = &self.lines {
-                    for line in lines.try_iter() {
-                        if loaded(&line.text) {
-                            self.kept.push_back(line);
-                            return Ok(self.started.elapsed());
-                        }
-                        last.push_back(line.text.clone());
-                        self.kept.push_back(line);
-                    }
-                }
-                let skip = last.len().saturating_sub(LAST_LINES);
-                return Err(NotReady::Exited { last_lines: last.into_iter().skip(skip).collect() });
+                return Err(NotReady::Exited { last_lines: last.into() });
             }
             if cancel.load(Ordering::SeqCst) {
                 return Err(NotReady::Cancelled);
@@ -479,8 +571,14 @@ impl Server {
     /// Stops the server: asked to on its console where it has one (so it
     /// closes its database and logs), and killed if it has not ended in
     /// `patience`.
-    /// (What it printed meanwhile stays to be read with [`Server::lines`].)
+    /// (All it printed stays to be read with [`Server::lines`].)
     pub fn stop(&mut self, patience: Duration) -> Option<ExitStatus> {
+        let status = self.ended_within(patience);
+        self.catch_up();
+        status
+    }
+
+    fn ended_within(&mut self, patience: Duration) -> Option<ExitStatus> {
         if self.say("exit").is_ok() {
             let asked = Instant::now();
             while asked.elapsed() < patience {
@@ -605,6 +703,59 @@ mod tests {
         assert!(!answers("no such host:5121", Duration::from_millis(100)));
     }
 
+    /// A mark written while a line is half printed is taken out, the line
+    /// kept whole; one on a line of its own is no line; a last line with
+    /// no end is still given.
+    #[test]
+    fn a_mark_is_no_line_and_breaks_none() {
+        let (read, mut write) = io::pipe().unwrap();
+        let (send, heard) = channel();
+        read_lines(read, true, send);
+        let mark = [MARK, b"\n"].concat();
+        write.write_all(b"half").unwrap();
+        write.write_all(&mark).unwrap();
+        write.write_all(b" a line\n").unwrap();
+        write.write_all(&mark).unwrap();
+        write.write_all(b"no end").unwrap();
+        drop(write);
+        let got: Vec<Option<String>> = heard
+            .iter()
+            .map(|h| {
+                h.line().map(|l| {
+                    assert!(l.stderr);
+                    l.text
+                })
+            })
+            .collect();
+        let want = [None, Some("half a line".into()), None, Some("no end".to_string())];
+        assert_eq!(got, want);
+    }
+
+    /// `stop` and a server that ended leave nothing it printed unread.
+    #[cfg(unix)]
+    #[test]
+    fn what_a_server_printed_last_is_read() {
+        let dir = mg_testkit::scratch_dir("mg-serve-printed-last");
+        let never = AtomicBool::new(false);
+        for run in 0..10 {
+            let o = fake(&dir.join(format!("{run}")), "one\\n", "last\\n", 0);
+            let mut s = Server::start(&o).unwrap();
+            assert!(s.wait_ready(Duration::from_secs(20), &never).is_err());
+            let texts: Vec<String> = s.lines().into_iter().map(|l| l.text).collect();
+            assert_eq!(texts.len(), 2, "{texts:?}");
+            // (Told to exit, it says goodbye on both pipes as it ends.)
+            let o = fake(&dir.join(format!("s{run}")), "", "", 0);
+            let script = "#!/bin/sh\nread said\nprintf 'bye\\n' >&2\nprintf '%s\\n' \"$said\"\n";
+            std::fs::write(&o.server, script).unwrap();
+            let mut s = Server::start(&o).unwrap();
+            assert!(s.stop(Duration::from_secs(20)).is_some_and(|e| e.success()));
+            let mut texts: Vec<String> = s.lines().into_iter().map(|l| l.text).collect();
+            texts.sort();
+            assert_eq!(texts, ["bye", "exit"]);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_tail_gives_whole_lines_as_they_come() {
         let dir = mg_testkit::scratch_dir("mg-serve-tail");
@@ -668,7 +819,7 @@ mod tests {
         std::fs::create_dir_all(dir).unwrap();
         let script = dir.join("nwserver-fake");
         let text = format!(
-            "#!/bin/sh\nenv > \"{}\"\nprintf '{said}'\nprintf '{errors}' >&2\nsleep {stay}\n",
+            "#!/bin/sh\nenv > \"{}\"\nprintf '{errors}' >&2\nprintf '{said}'\nsleep {stay}\n",
             dir.join("env.txt").display()
         );
         std::fs::write(&script, text).unwrap();
@@ -692,16 +843,24 @@ mod tests {
         let never = AtomicBool::new(false);
         let said =
             "Starting NWNX 8193.37-17 [x]\\nServer: Loading module\\nServer: Module loaded\\n";
-        let mut s = Server::start(&fake(&dir.join("a"), said, "ERROR: ld.so: no\\n", 5)).unwrap();
-        let took = s.wait_ready(Duration::from_secs(20), &never).unwrap();
-        assert!(took < Duration::from_secs(20));
-        std::thread::sleep(Duration::from_millis(200));
-        let lines = s.lines();
-        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
-        assert!(texts.contains(&"Starting NWNX 8193.37-17 [x]"), "{texts:?}");
-        assert!(texts.contains(&"Server: Module loaded"), "{texts:?}");
-        assert!(lines.iter().any(|l| l.stderr && l.text == "ERROR: ld.so: no"), "{lines:?}");
-        drop(s);
+        // (The loader's error, printed first on the other pipe, is read by
+        // the time it returns, however far behind that pipe's reader is:
+        // here, half a second, as on a machine under load.)
+        let errors = "ERROR: ld.so: no\\n";
+        ERRORS_LAG_MS.store(500, Ordering::SeqCst);
+        for run in 0..3 {
+            let mut s =
+                Server::start(&fake(&dir.join(format!("a{run}")), said, errors, 5)).unwrap();
+            let took = s.wait_ready(Duration::from_secs(20), &never).unwrap();
+            assert!(took < Duration::from_secs(20));
+            let lines = s.lines();
+            let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+            assert!(texts.contains(&"Starting NWNX 8193.37-17 [x]"), "{texts:?}");
+            assert!(texts.contains(&"Server: Module loaded"), "{texts:?}");
+            assert!(lines.iter().any(|l| l.stderr && l.text == "ERROR: ld.so: no"), "{lines:?}");
+            assert!(!texts.iter().any(|t| t.contains("mg-serve caught up")), "{texts:?}");
+        }
+        ERRORS_LAG_MS.store(0, Ordering::SeqCst);
         // Ended before it loaded.
         let mut s = Server::start(&fake(&dir.join("b"), "one\\ntwo\\n", "", 0)).unwrap();
         match s.wait_ready(Duration::from_secs(20), &never) {

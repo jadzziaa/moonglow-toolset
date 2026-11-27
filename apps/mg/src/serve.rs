@@ -701,7 +701,7 @@ pub(crate) fn serve(
             }
             if let Some(status) = server.exited() {
                 // (What it said last.)
-                std::thread::sleep(Duration::from_millis(100));
+                server.catch_up();
                 drain_console(server.lines().into_iter(), &mut heard, each);
                 for line in engine.more().into_iter().filter(grave) {
                     each(&Event::Engine(line));
@@ -720,9 +720,8 @@ pub(crate) fn serve(
         if let Some(end) = end {
             return Ok(end);
         }
+        // (What it said last: `stop` reads all it printed.)
         server.stop(Duration::from_secs(5));
-        // (What it said last, once its console has closed.)
-        std::thread::sleep(Duration::from_millis(100));
         drain_console(server.lines().into_iter(), &mut heard, each);
         for line in engine.more().into_iter().filter(grave) {
             each(&Event::Engine(line));
