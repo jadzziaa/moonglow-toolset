@@ -216,9 +216,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (26 November, load 2.8 to 4.8, six rounds of the four alternated):
   the idle line 0.84 ms before b4da2984, 1.21 on develop, 1.04 to 1.06
   with the fix (spread 0.02 to 0.03). The fix gives back 0.17 of the
-  0.37 between 3.18.1's base and develop. Left: the small step between
-  992ed8d2 and 27a4050c, and the shell's. The review saw it as waiting
-  rather than work. The rest of the old entry is settled: area092
+  0.37 between 3.18.1's base and develop. The small step between
+  992ed8d2 and 27a4050c is 3a9d6777, the UI redesign's M1 and M2 merge,
+  +0.06 to 0.07 ms on every line (timed on a quiet machine on 27
+  November under the quiet lock, twelve rounds alternated, load 4.5 to
+  7.5: the idle line 1.08 ms before against 1.145 at the merge and at
+  27a4050c alike). Nothing else in the range adds to it, and the GPU's
+  share did not move. It is the redesign's chrome applied each frame
+  (`mg_uikit::apply`, the dock's look and marks, the drawn icons and
+  menu rows), so it is Interface's, as the shell's is. The rest of the
+  old entry is settled: area092
   is quicker than in 3.18.1, the field's GPU step is dd8d0bc1 (grass
   taking the shadows, kept) and the woods' is 6b26e702 (kept), as [the
   frames note](research/notes_frames.md) of 25 November says. The
@@ -228,8 +235,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Bar's Quick Open, the tree's guide lines and eye icons) and two fifths
   their shapes' tessellation, nothing drawn twice or for nothing: left,
   since under the line would mean taking parts of the shell away
-  (Interface's, 26 November). (S, waits on a calm machine: load under 5
-  to time the small step) (the review of
+  (Interface's, 26 November). (S, Interface's: both steps left are the
+  redesign's chrome; whether to profile M1 and M2's as M3's was profiled
+  is Interface's call) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
