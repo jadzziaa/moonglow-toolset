@@ -2768,6 +2768,7 @@ dependencies = [
  "mg-rules",
  "mg-schema",
  "mg-script",
+ "mg-serve",
  "mg-set",
  "mg-shader",
  "mg-ssf",

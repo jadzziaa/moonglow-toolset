@@ -578,10 +578,8 @@ pub fn build_in(line: &str) -> Option<(Source, String)> {
     let l = line.trim();
     let (source, rest) = if let Some(r) = l.strip_prefix("Starting NWNX ") {
         (Source::Nwnx, r)
-    } else if let Some(r) = l.strip_prefix("Build: ") {
-        (Source::Server, r)
     } else {
-        return None;
+        (Source::Server, l.strip_prefix("Build: ")?)
     };
     let build = rest.split_whitespace().next()?;
     build.starts_with(|c: char| c.is_ascii_digit()).then(|| (source, build.to_string()))
