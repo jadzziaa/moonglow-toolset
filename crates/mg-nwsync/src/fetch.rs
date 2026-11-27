@@ -158,9 +158,11 @@ pub fn resolve(
     };
     if let Ok(found) = find(url, Wanted::Pinned(wanted), Some(cache), game) {
         keep_latest()?;
-        // (The game's has no origins: they are asked for, where the server
-        // has them.)
-        if found.from == ManifestFrom::GameStorage && found.origins.is_none() {
+        // (The game's has no origins, and one kept before the server
+        // published them has none either: they are asked for, where the
+        // server has them now. Publishing them again doesn't change the
+        // manifest's SHA-1.)
+        if found.origins.is_none() {
             let hex = sha1_hex(&wanted);
             if let Ok(Some(side)) =
                 fetch.get(&at(url, &format!("manifests/{hex}.origin")), SIDE_LIMIT)

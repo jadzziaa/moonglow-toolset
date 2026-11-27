@@ -1304,6 +1304,13 @@ enum Cmd {
         /// 22 (smallest); 3, the default, is `nwn_nwsync_write`'s.
         #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(i32).range(1..=22))]
         level: i32,
+        /// Write the manifest's origins file too (manifests/<sha1>.origin,
+        /// as nwn_nwsync_write --write-origins): each hak and file a
+        /// resource came from, by its file's name, with the resources it
+        /// gave, so that a reader knows which of a module's haks the
+        /// manifest holds.
+        #[arg(long)]
+        write_origins: bool,
         /// Then send the repository to the web server: run this command
         /// (default: the project's [nwsync] upload) in the repository's
         /// folder once for each part, the data, then the manifests, then
@@ -5259,6 +5266,7 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         force,
         dry_run,
         level,
+        write_origins,
         upload,
     } = &cli.cmd
     else {
@@ -5322,6 +5330,7 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         force: *force,
         dry_run: *dry_run,
         level: *level,
+        origins: *write_origins,
     };
     let w = mg_module::nwsync::write(repository, &contents, &o, &mut |_, _| {})
         .map_err(anyhow::Error::msg)?;
@@ -5341,6 +5350,8 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         "bytes": w.bytes,
         "on_disk_bytes": w.on_disk,
         "new_files": w.new_files,
+        "origins": w.origins.map(|_| format!("manifests/{}.origin", w.sha1)),
+        "origin_containers": w.origins,
         "dry_run": *dry_run,
         "uploaded": uploaded,
     });
@@ -5354,6 +5365,14 @@ fn cmd_nwsync(cli: &Cli) -> Result<Output> {
         w.new_files,
         if *dry_run { "; nothing written" } else { "" }
     ));
+    if let Some(n) = w.origins {
+        out.note(format!(
+            "origins: {n} {} named in manifests/{}.origin{}",
+            if n == 1 { "container" } else { "containers" },
+            w.sha1,
+            if *dry_run { " (not written: a dry run)" } else { "" }
+        ));
+    }
     if uploaded.is_empty() {
         out.note(format!(
             "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",

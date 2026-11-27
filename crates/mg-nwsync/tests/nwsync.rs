@@ -481,6 +481,19 @@ fn origins_come_with_the_manifest() {
     let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, Some(&g)).unwrap();
     assert_eq!(r.found.from, ManifestFrom::GameStorage);
     assert!(r.found.origins.is_some_and(|o| o.hak("pw_parts").is_some()));
+
+    // A manifest kept before the server published its origins (published
+    // again with `--write-origins`, the same manifest): asked for again,
+    // and kept with it.
+    let cache = Cache::new(dir.join("cache3"));
+    let mut server = Server::of(&content);
+    let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert!(r.found.origins.is_none());
+    server.files.insert(format!("manifests/{}.origin", sha1_hex(&sha)), text.as_bytes().to_vec());
+    let r = fetch::resolve(&*server.fetch(), &settings(Wanted::Latest), &cache, None).unwrap();
+    assert_eq!(r.found.from, ManifestFrom::Cache);
+    assert!(r.found.origins.is_some_and(|o| o.hak("pw_parts").is_some()));
+    assert!(find(URL, Wanted::Latest, Some(&cache), None).unwrap().origins.is_some());
 }
 
 /// The layer in a resource manager, at NWSync's priority: above a hak,

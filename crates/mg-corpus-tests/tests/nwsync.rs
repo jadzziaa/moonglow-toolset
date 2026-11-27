@@ -11,6 +11,10 @@
 //! - **With the module:** the same resources, and the same `module.ifo`
 //!   field for field (each writer lays out the GFF its own way): no hak
 //!   list, the UUID given.
+//! - **Origins** (`--write-origins`, both ways): the same containers, by
+//!   their kinds and files' names, each with the same resources (the
+//!   writers list containers in orders of their own, and neverwinter.nim
+//!   writes whole paths where Moonglow writes names alone).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -42,6 +46,21 @@ fn data(root: &Path) -> BTreeMap<String, Vec<u8>> {
         }
     }
     out
+}
+
+/// A repository's origins file of its latest manifest: each container by
+/// its kind and file's name (lower case), with its resources.
+fn origins(root: &Path) -> BTreeMap<(String, String), std::collections::BTreeSet<String>> {
+    let text =
+        std::fs::read_to_string(root.join("manifests").join(format!("{}.origin", latest(root))))
+            .unwrap();
+    let o = mg_nwsync::Origins::parse(&text);
+    (o.containers.iter())
+        .map(|c| {
+            let resources = c.resources.iter().map(|r| r.to_lowercase()).collect();
+            ((c.kind.clone(), c.file_name().to_lowercase()), resources)
+        })
+        .collect()
 }
 
 fn latest(root: &Path) -> String {
@@ -83,7 +102,7 @@ fn published_as_nwn_nwsync_write_publishes() {
         let _ = std::fs::remove_dir_all(&theirs);
         let _ = std::fs::remove_dir_all(&ours);
         std::fs::create_dir_all(&theirs).unwrap();
-        let mut args = vec!["--quiet".to_string()];
+        let mut args = vec!["--quiet".to_string(), "--write-origins".to_string()];
         for p in ["data/hk", "data/tlk"] {
             args.extend(["-p".to_string(), root.join(p).display().to_string()]);
         }
@@ -103,10 +122,18 @@ fn published_as_nwn_nwsync_write_publishes() {
             uuid: with_module.then(|| UUID.into()),
             latest: true,
             limit: Some(mg_module::nwsync::FILE_LIMIT),
+            origins: true,
             ..Default::default()
         };
         let w = write(&ours, &contents, &o, &mut |_, _| {}).unwrap();
         assert_eq!(latest(&ours), w.sha1);
+        let (oa, ob) = (origins(&theirs), origins(&ours));
+        assert_eq!(oa.keys().collect::<Vec<_>>(), ob.keys().collect::<Vec<_>>(), "{label}");
+        for (c, list) in &oa {
+            assert!(ob[c] == *list, "{label}: {c:?} lists other resources");
+        }
+        let expected = if with_module { 4 } else { 3 };
+        assert_eq!((oa.len(), w.origins), (expected, Some(expected)), "{label}: {oa:?}");
 
         let read = |r: &Path| {
             read_manifest(&std::fs::read(r.join("manifests").join(latest(r))).unwrap()).unwrap()

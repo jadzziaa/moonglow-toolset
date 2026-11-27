@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:44:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:56:25Z }
 ---
 
 # Build, verify and test
@@ -152,6 +152,20 @@ that web server serves into a folder, as neverwinter.nim's
 - **Latest:** **Make it the latest (what nwserver serves unless told a
   hash)** points the repository's `latest` at
   it; nwserver serves `latest` unless given `-nwsynchash`.
+- **Origins:** **Write an origins file** (`mg nwsync --write-origins`,
+  as `nwn_nwsync_write --write-origins`) writes `manifests/HASH.origin`
+  beside the manifest: each hak (and the talk table's file, and the
+  module with the module itself) a resource came from, with the
+  resources it gave. The game reads none of it; Moonglow does, where
+  your team reads the module's haks from NWSync
+  ([below](#nwsync-content-instead-of-haks)): it then knows which of the
+  module's haks the manifest holds, and writes each of them with exactly
+  its resources for a test. Each is named by its file's name alone
+  (`Erf:pw_parts.hak`), where `nwn_nwsync_write` writes the whole path it
+  was given: the folders of your computer stay off the web server. Upload
+  sends it with the manifests. A manifest published again with it is the
+  same manifest (the same hash): Moonglow asks for its origins file at
+  the next Sync even where it kept the manifest before.
 - **Compression:** the data files are compressed with zstd at level 3,
   as `nwn_nwsync_write` compresses them (the reference library, built
   into Moonglow: nothing to install). `mg nwsync --level` takes another,
@@ -331,8 +345,9 @@ downloaded yet can't be read (the log says so): Sync first.
 **Haks:** the game loads no hak files for a server that has a manifest
 (the manifest holds the haks' content), so a hak of the module's list
 that isn't on disk isn't reported missing. Where the server publishes
-its origins file (`nwn_nwsync_write --write-origins` writes
-`manifests/<sha1>.origin`, which names each hak and its resources), only
+its origins file (`mg nwsync --write-origins` and `nwn_nwsync_write
+--write-origins` write `manifests/<sha1>.origin`, which names each hak
+and its resources), only
 the haks it names are taken from NWSync, and any other is still
 reported. Haks that are on disk are read too, under the manifest, as the
 game would read them, except one newer than the manifest (below).

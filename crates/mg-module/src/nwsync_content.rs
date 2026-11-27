@@ -862,6 +862,104 @@ mod tests {
         assert_eq!(f.notes(), ["hak one on disk is newer than the NWSync manifest: used over it"]);
     }
 
+    /// A hak at `path` holding `resources` (name, type, bytes), its time
+    /// `secs`.
+    fn hak_at(path: &Path, resources: &[(&str, ResType, &[u8])], secs: u64) -> PathBuf {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        for (name, t, bytes) in resources {
+            w.add(mg_core::ResRef::from_str(name).unwrap(), *t, bytes.to_vec()).unwrap();
+        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, w.to_bytes().unwrap()).unwrap();
+        let f = std::fs::File::options().write(true).open(path).unwrap();
+        f.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+        path.to_path_buf()
+    }
+
+    /// End to end: a module published with its origins file (`mg nwsync
+    /// --write-origins`) while it listed one hak, read once it lists a
+    /// second that is on disk and not in the manifest. The reader takes
+    /// Moonglow's origins: the first hak comes from the manifest (written
+    /// from it, held by the layer), the second from disk (not planned,
+    /// not missing, and not by the newer-on-disk rule: it is older). A
+    /// hak neither on disk nor in the manifest stays missing; without the
+    /// origins file every hak not on disk would be taken to be in it.
+    #[test]
+    fn a_publish_with_origins_read_back_takes_the_hak_outside_it_from_disk() {
+        let dir = mg_testkit::scratch_dir("nwsync-content-published-origins");
+        let gi = GameInstall::new(dir.join("game"), Some(dir.join("user")), "en");
+        let one = [("pw_head", ResType::MDL, &b"a head"[..]), ("pw_parts", ResType::TWODA, b"2DA")];
+        hak_at(&dir.join("user/hak/pw_one.hak"), &one, CAME);
+        let mut m = crate::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_HakList", crate::attach::hak_list(&info.root, &names(&["pw_one"])));
+        m.set_info(&info).unwrap();
+        let rm = ResMan::new();
+        let (contents, missing) =
+            crate::nwsync::module_contents(&m, &gi, &rm, false, None).unwrap();
+        assert!(missing.is_empty(), "{missing:?}");
+        let repo = dir.join("repo");
+        let o = crate::nwsync::Options { origins: true, latest: true, ..Default::default() };
+        let written = crate::nwsync::write(&repo, &contents, &o, &mut |_, _| {}).unwrap();
+        assert_eq!(written.origins, Some(1));
+
+        // The builder's machine: pw_one only on the server now, pw_two on
+        // disk (older than the manifest came), pw_gone nowhere.
+        std::fs::remove_file(dir.join("user/hak/pw_one.hak")).unwrap();
+        let two = hak_at(&dir.join("user/hak/pw_two.hak"), &[("pw_tex", ResType::TGA, b"x")], CAME);
+        let settings = Settings {
+            url: URL.into(),
+            manifest: mg_nwsync::Wanted::Latest,
+            cache: Some(dir.join("cache")),
+        };
+        let root = repo.clone();
+        let fetch = mg_nwsync::fetch::from_fn(move |url| {
+            let path = url.strip_prefix(&format!("{URL}/")).ok_or("another server")?;
+            Ok(std::fs::read(root.join(path)).ok())
+        });
+        let cache = cache_of(&settings).unwrap();
+        let pulled = mg_nwsync::fetch::pull(
+            &*fetch,
+            &settings,
+            &cache,
+            None,
+            Default::default(),
+            &|_| {},
+            &|| false,
+        )
+        .unwrap();
+        assert!(pulled.resolved.found.origins.is_some());
+
+        let listed = names(&["pw_one", "pw_two", "pw_gone"]);
+        let on_disk = OnDisk { haks: vec![("pw_two".into(), two)], ..Default::default() };
+        let f =
+            write_haks(&settings, None, &listed, None, &on_disk, &WriteOptions::default()).unwrap();
+        assert_eq!(f.plan, PlanFrom::Origins);
+        assert_eq!(f.haks.len(), 1);
+        assert_eq!(resources_of(&f, "pw_one"), ["pw_head.mdl", "pw_parts.2da"]);
+        assert!(f.hak("pw_two").is_none() && f.hak("pw_gone").is_none());
+        assert!(f.newer_haks.is_empty() && f.kept_on_disk.is_empty(), "{:?}", f.newer_haks);
+
+        let mut rm = ResMan::new();
+        let mut missing = names(&["pw_one", "pw_gone"]);
+        let mounted = mount(&mut rm, &gi, &settings, &on_disk, &mut missing);
+        let layer = mounted.layer.unwrap();
+        assert!(layer.by_origins && layer.newer_haks.is_empty());
+        assert_eq!(layer.haks, ["pw_one"]);
+        assert_eq!(missing, ["pw_gone"]);
+        assert!(rm.contains(&ResKey::parse("pw_head", ResType::MDL).unwrap()));
+
+        // Without the origins file, every hak not on disk counts as held.
+        let sha = mg_nwsync::parse_sha1(&written.sha1).unwrap();
+        std::fs::remove_file(cache.root().join(format!("manifests/{}.origin", written.sha1)))
+            .unwrap();
+        assert!(cache.manifest(&sha, "origin").is_none());
+        let mut missing = names(&["pw_one", "pw_gone"]);
+        let layer = mount(&mut ResMan::new(), &gi, &settings, &on_disk, &mut missing).layer;
+        assert!(!layer.unwrap().by_origins);
+        assert!(missing.is_empty());
+    }
+
     /// A project's own talk table, kept as JSON and newer than the
     /// manifest: [`crate::Module::write_nwsync_haks`] (Test Module's,
     /// `mg nwsync-haks`'s) makes it into the cache in place of the
