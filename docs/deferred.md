@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:17Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1276,9 +1276,12 @@ File › Project. What is left:
 - **Test Module's user folder on Windows without links:** Test Module
   gives the game a user folder of Moonglow's that links the player's
   (`test_module::content_user_dir`): symbolic links, else junctions for
-  folders and hard links, else copies, for files. Checked on Linux; on
-  Windows and macOS it waits on a run there with a module of NWSync
-  content. (S, needs a Windows machine and a Mac)
+  folders and hard links, else copies, for files, each file's made again
+  at every test. Its tests (`a_content_user_directory`,
+  `a_content_user_directory_follows_the_player_s_files`) run on every
+  system CI runs; a game started on it on Windows and macOS, with a
+  module of NWSync content, waits on a run there. (S, needs a Windows
+  machine and a Mac)
 - **Haks written from NWSync, end to end:** written and read back from
   made-up storage and manifests in the tests; a whole persistent world's
   (one of 16.6 GB) waits on a machine that has downloaded it all
@@ -1294,16 +1297,21 @@ File › Project. What is left:
 - **`mg serve` and `development/`:** the server's own folder gets the
   module's haks and talk table, not the player's `development` folder, so
   work in progress there is in Test Module's game but not in `mg serve`'s
-  server. (S, a decision)
+  server. (S, waits on the owner's decision)
 - **Checked against a real game's NWSync storage:** the reader follows
   the client's schema (`fixtures`), and was checked against a made-up
   storage alone; a run of `mg nwsync-status` on a machine whose game
   has joined the server waits on one. (S, waits on a machine with the
   game's storage)
-- **Opening reads the manifest whole:** a manifest of 220,000 resources
-  is read (9 MB) and its names put in a table each time the game data is
-  put together; the game's storage's hashes are read by the window's
-  look and `mg`, not at opening. (S, if opening is found slow)
+- **A look or a clean-up of the NWSync window can't be stopped:** a
+  module closed while one runs leaves it to end on its thread (what it
+  makes thrown away, nothing else started meanwhile: `NwSyncContent`'s
+  `left`); a clean-up's removal goes on with the closed module's kept
+  manifests while the next module's are put in (the newest each server
+  named and what changed within the hour are kept whatever the module).
+  Stopping them takes a stop in `mg_nwsync::survey` and
+  `mg_nwsync::prune`, beyond what the review's batch for the window
+  was asked (mg-ui). (S, beyond what was asked; the review of PR #53)
 
 ## Questions asked, unanswered
 

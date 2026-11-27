@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T02:26:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:22Z }
 ---
 
 # The main window

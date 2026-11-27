@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:17Z }
 ---
 
 # Build, verify and test
@@ -347,8 +347,9 @@ above the NWSync layer), and every test takes it from disk instead of
 writing it from the manifest. The custom talk table likewise: your
 project's own (`src/tlk/*.tlk.json`) or the one in `tlk`, when newer,
 comes from disk, and its feminine table with it. Each such file is
-said (the log, `mg`'s warnings and its server's notes: "hak x on disk
-is newer than the NWSync manifest: used over it"). A file older than the
+said (the log, **Newer on disk** in the NWSync Content window, `mg`'s
+warnings and its server's notes: "hak x on disk is newer than the
+NWSync manifest: used over it"). A file older than the
 manifest stays under it, as in the game, and nothing is said. To take a
 newer manifest's copy again, sync (the manifest is then newer) or move
 your file away. This is Moonglow's rule, not the game's: a player's
@@ -364,7 +365,11 @@ The cache is `nwsync` in Moonglow's cache folder (`~/.cache/moonglow` on
 Linux, `%LOCALAPPDATA%\Moonglow\cache` on Windows,
 `~/Library/Caches/Moonglow` on macOS); `[nwsync] cache` in your own
 `.moonglow/user.toml` puts it elsewhere. It is laid out as the server's
-repository is.
+repository is (`data/`, `manifests/`, `latest/`), with Moonglow's own
+folders beside: `haks/` for the haks written for testing, `written/`
+saying which hak is which for each manifest, and `used/`, an empty file
+per manifest whose time is when it was last used (what Clean Up Cache
+counts the last used by).
 
 From the command line, `mg nwsync-status MODULE` says the same as the
 window (`--online` asks the server for its latest manifest first), and
@@ -421,14 +426,38 @@ first, and given to the game:
   copies where the system has no hard links). With `mg serve --dir
   YOUR_NWN_FOLDER --real-user-dir` a file of your own there (not a link
   Moonglow made) is never replaced: one the manifest's would replace
-  stops the run, saying so. Test Module starts the game with a user folder of Moonglow's
-  (`test-user` in its cache folder) that is your own linked thing by
-  thing (your characters, settings, modules and logs: what the game
-  writes there is written in your folder), but for its `hak` and `tlk`
-  folders, which hold the haks and talk table of this module. Nothing is
-  ever written into your own `hak` folder, nor into the game's NWSync
-  storage. (On Windows a folder is linked as a junction where Moonglow
-  can't make a symbolic link.)
+  stops the run, saying so. Nothing is ever written into your own `hak`
+  folder, nor into the game's NWSync storage.
+
+**What Test Module does with your user folder.** Test Module (and Test
+From Here) starts the game with a user folder of Moonglow's, `test-user`
+in its cache folder, made again from your own at every test:
+
+- **Everything at the top of your folder but `hak`, `tlk` and
+  `nwn.ini` is linked**: each folder (`localvault`, `saves`, `modules`,
+  `logs`...) and each file (`settings.tml`, `nwnplayer.ini`,
+  `cdkey.ini`...). So the characters, saves, logs and settings the game
+  writes land in your own folder, as in any Test Module (and as in
+  Aurora's). Folders are symbolic links (junctions on Windows where
+  Moonglow can't make a symbolic link); files are symbolic links on
+  Linux and macOS, and hard links on Windows, else copies (another
+  drive). A file's link or copy is made again at every test, so a copy
+  follows your file; but what the game saves into a copy is not kept.
+- **`hak` and `tlk` are folders of `test-user`'s own**, holding links
+  to this module's haks and talk table: those written from the manifest,
+  and those of your own folder the module lists besides. A hak or talk
+  table of yours newer than the manifest (the rule above) is linked from
+  your folder instead of written; a project's own talk table kept as
+  JSON is made into a `.tlk` in the cache first. A hak in the game's own
+  folder or a Workshop item the game finds itself.
+- **`nwn.ini` is a copy** without the `HAK` and `TLK` lines of its
+  `[Alias]` section (the game would look for haks where they lead),
+  made again at every test: options the game saves there are not kept.
+- **Folders and files the game creates that your folder didn't have**
+  stay in `test-user`, and are kept from test to test.
+
+Nothing in your own folder is changed by making `test-user`: only what
+the game itself writes through the links.
 
 `mg nwsync-haks MODULE` writes them without a test and says what it
 wrote and how long it took (`--out DIR` puts them in `DIR/hak` and
@@ -440,7 +469,8 @@ for copies; `--jobs N`, 4 at once).
 **Clean Up Cache…** in the window says what of Moonglow's cache no kept
 manifest needs (data files, written haks, older manifests and their
 files) and removes it when you say **Remove** (the Status Bar shows
-either while it runs). Kept: the module's
+either while it runs); **Keep Everything** leaves the cache as it is.
+Kept: the module's
 manifest (and the one pinned), the newest each server named, and the
 three last used (`[nwsync] keep` in the project file changes the
 number). What changed in the last hour stays whatever it is (a download
