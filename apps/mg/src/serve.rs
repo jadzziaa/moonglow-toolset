@@ -1745,7 +1745,7 @@ mod tests {
     fn the_folder_beside_the_mod_is_said_once() {
         let dir = mg_testkit::scratch_dir("mg-serve-beside-once");
         // (No game install needed: the module names no hak or talk table.)
-        let gi = GameInstall::new(&dir.join("root"), Some(dir.join("user")), "en");
+        let gi = GameInstall::new(dir.join("root"), Some(dir.join("user")), "en");
         let module = dir.join("beside.mod");
         let mut m = mg_module::Module::new();
         m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();

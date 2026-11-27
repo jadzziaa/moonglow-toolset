@@ -741,9 +741,10 @@ mod tests {
         if std::env::var_os("MG_DIE_PLAIN").is_none() {
             die_with_parent(&mut c);
         }
-        let child = c.spawn().unwrap();
+        let mut child = c.spawn().unwrap();
         std::fs::write(&out, child.id().to_string()).unwrap();
-        std::thread::sleep(Duration::from_secs(60));
+        // (Killed before it ends: this process is.)
+        let _ = child.wait();
     }
 
     /// The process that started a program killed outright (`kill -9`, as a
