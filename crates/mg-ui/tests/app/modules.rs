@@ -1748,7 +1748,18 @@ fn held_server(
     data: Vec<Vec<u8>>,
     held: std::sync::mpsc::Receiver<()>,
 ) -> std::sync::Arc<dyn mg_nwsync::fetch::Fetch> {
+    held_server_saying(manifest, data, held, std::sync::mpsc::channel().0)
+}
+
+/// `held_server`, which also says on `reached` when a download is held.
+fn held_server_saying(
+    manifest: Vec<u8>,
+    data: Vec<Vec<u8>>,
+    held: std::sync::mpsc::Receiver<()>,
+    reached: std::sync::mpsc::Sender<()>,
+) -> std::sync::Arc<dyn mg_nwsync::fetch::Fetch> {
     use mg_core::sha1::sha1;
+    let reached = std::sync::Mutex::new(reached);
     let hex = mg_nwsync::sha1_hex(&sha1(&manifest));
     let held = std::sync::Mutex::new(held);
     mg_nwsync::fetch::from_fn(move |u: &str| {
@@ -1761,6 +1772,7 @@ fn held_server(
         let Some(d) = data.iter().find(|d| u.ends_with(&mg_nwsync::sha1_hex(&sha1(d)))) else {
             return Ok(None);
         };
+        let _ = reached.lock().unwrap().send(());
         let _ = held.lock().unwrap().recv_timeout(std::time::Duration::from_secs(30));
         Ok(Some(mg_erf::compressedbuf::compress(d, *b"NSYC").unwrap()))
     })
@@ -1927,13 +1939,17 @@ fn a_sync_left_by_a_module_closed_ends_before_another_starts() {
     let mut app = game_app(&root, Some(user));
     app.background_jobs = true;
     let (go, held) = std::sync::mpsc::channel::<()>();
-    app.nwsync_content.fetch = Some(held_server(manifest, vec![away], held));
+    let (reached, held_now) = std::sync::mpsc::channel::<()>();
+    app.nwsync_content.fetch = Some(held_server_saying(manifest, vec![away], held, reached));
     app.open_module(&folder);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     nwsync_window(&mut h);
     h.get_by_label("Sync").click();
     frames_until(&mut h, "syncing", |h| h.state().nwsync_content.syncing());
+    // Closed while its download is held (closed sooner, the Sync sees its
+    // cancel and ends before the module is open again).
+    held_now.recv_timeout(std::time::Duration::from_secs(30)).expect("the download is held");
 
     h.state_mut().close();
     h.state_mut().open_module(&folder);
