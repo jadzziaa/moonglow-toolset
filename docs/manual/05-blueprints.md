@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:12:48Z }
 ---
 
 # Blueprints
@@ -158,7 +158,9 @@ top. The game's categories are the starting point; with a change the
 module gets a list of its own, kept in the module (`placeablepal.itp` for
 placeables, and so on: the palette skeleton that content packs ship in
 their haks), and the blueprints' Category lists and the custom palette
-follow it.
+follow it. A new category takes the list's next free number (one a
+removed category had is given again only once the later ones are
+taken), up to 255 categories in all.
 - **Drag a row** to move it: onto another's upper half to go before it,
   onto its lower half to go after it, or into it if it is a group; held
   near the list's top or bottom, it scrolls the list, as the wheel does

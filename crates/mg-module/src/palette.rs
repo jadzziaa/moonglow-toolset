@@ -108,13 +108,16 @@ pub fn add_category(
     codepage: Codepage,
 ) -> Result<(NodePath, u8), String> {
     let name = checked_name(name)?;
-    // The id after every one in use, and after the skeleton's own count.
-    let used = Palette::read(skeleton).ids().into_iter().max().map_or(0, |m| u32::from(m) + 1);
-    let next = skeleton.root.integer("NEXT_USEABLE_ID").unwrap_or(0).max(0) as u32;
-    let id = used.max(next);
-    if id >= CATEGORIES_MAX {
+    // The first id free from the skeleton's own count on, so that a removed
+    // category's id (which blueprints may still name) is not given again
+    // while there is room; then the first free below it. The base creature
+    // palette keeps 253 and 254 with its count at 51 (GitHub issue 55).
+    let used = Palette::read(skeleton).ids();
+    let next = skeleton.root.integer("NEXT_USEABLE_ID").unwrap_or(0).clamp(0, 255) as u32;
+    let free = |id: &u32| !used.contains(&(*id as u8));
+    let Some(id) = (next..CATEGORIES_MAX).find(free).or_else(|| (0..next).find(free)) else {
         return Err(format!("a palette has at most {CATEGORIES_MAX} categories"));
-    }
+    };
     let mut node = Struct::new(1);
     set_name(&mut node, name, codepage)?;
     let list = skeleton_list(skeleton, parent).ok_or("there is no such group")?;
@@ -1551,8 +1554,38 @@ mod tests {
         assert!(remove_category(&mut g, &[]).is_err());
         assert!(remove_category(&mut g, &[9]).is_err());
         assert_eq!(g, before);
+        // Past the last id, the first free one from the start.
         g.root.set("NEXT_USEABLE_ID", Value::Byte(255));
-        assert!(add_category(&mut g, &[], "One too many", Codepage::WINDOWS_1252).is_err());
+        assert_eq!(add_category(&mut g, &[], "Wrapped", Codepage::WINDOWS_1252).unwrap().1, 0);
+    }
+
+    /// GitHub issue 55: the base creature palette holds 0 to 50 and 253
+    /// and 254 (Summoned Monsters, Familiars), its count at 51.
+    #[test]
+    fn a_category_takes_a_free_id_below_a_high_one() {
+        let category = |id: u8| {
+            let mut s = Struct::new(1);
+            s.set("STRREF", Value::Dword(6000 + u32::from(id)));
+            s.set("ID", Value::Byte(id));
+            s
+        };
+        let mut g = Gff::new(*b"ITP ");
+        g.root.set("MAIN", Value::List((0..=50).chain([253, 254]).map(category).collect()));
+        g.root.set("NEXT_USEABLE_ID", Value::Byte(51));
+        let add = |g: &mut Gff, name| add_category(g, &[], name, Codepage::WINDOWS_1252);
+        assert_eq!(add(&mut g, "Wolves").unwrap().1, 51);
+        assert_eq!(g.root.integer("NEXT_USEABLE_ID"), Some(52));
+        // A count that runs into the high ones goes on past them, then back
+        // to the first free one.
+        g.root.set("NEXT_USEABLE_ID", Value::Byte(252));
+        assert_eq!(add(&mut g, "Bats").unwrap().1, 252);
+        assert_eq!(add(&mut g, "Rats").unwrap().1, 52);
+        // Refused only when every id from 0 to 254 is taken.
+        while add(&mut g, "More").is_ok() {}
+        assert_eq!(Palette::read(&g).ids().len(), 255);
+        let before = g.clone();
+        assert!(add(&mut g, "One too many").is_err());
+        assert_eq!(g, before);
     }
 
     #[test]
