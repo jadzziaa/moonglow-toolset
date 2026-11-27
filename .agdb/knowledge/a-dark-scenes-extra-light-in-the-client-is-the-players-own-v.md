@@ -24,4 +24,4 @@ author: augustaugur
 - frontLightModelProductSceneColor floor, lightAreaAmbient, dynamic contrast (disabled), gamma post pass (2.2: no-op), fog, emissive, falloff uniforms: all equal or off.
 ## Watch out
 - In codemode, await each edit(): unawaited edits to one file race and the last write wins.
-- Colored area lights: the on/off rule is not read; player_light takes the brightest channel.
+- Colored area lights: the on/off rule is not read; player_light refuses non-gray light (asserts).

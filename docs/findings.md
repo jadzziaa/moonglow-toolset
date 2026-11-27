@@ -1561,7 +1561,8 @@ cutoff multiplier 2 at work). It hangs 0.64 m ahead of the player along
 its facing and 2.65 m up, and turns with it. It is there while the
 area's ambient and diffuse gray levels add up to less than 128, and out
 from 128 (ambient 0x7C alone lit, 0x80 alone not; 0x60 with diffuse
-0x1C lit, with 0x20 not; 0x08 with 0x74 lit, with 0x78 not); an
+0x1C lit, with 0x20 not; 0x08 with 0x74 lit, with 0x78 not; read with
+gray light only); an
 invisible player (`VFX_DUR_CUTSCENE_INVISIBILITY`) carries none. In a
 dark area (ambient 0x080808, no diffuse) it is nearly all the light
 there is: a box that reflects wholly drew its top 23.7 25.9 37.2 in the

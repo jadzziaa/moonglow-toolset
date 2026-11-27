@@ -237,8 +237,8 @@ pub(super) fn moonglow_beside_as(
 /// 2.65 m up. The client puts it out when the area's ambient and diffuse
 /// gray levels (0 to 255) add up to 128 or more (read: ambient 0x7C alone
 /// and 0x60 with diffuse 0x1C lit, 0x80 alone and 0x60 with 0x20 not,
-/// 0x08 with 0x74 lit and with 0x78 not; with colored light the
-/// brightest channel is taken here, not read); an invisible player
+/// 0x08 with 0x74 lit and with 0x78 not; colored light is not read, and
+/// refused here); an invisible player
 /// (`VFX_DUR_CUTSCENE_INVISIBILITY`) carries none. Read with
 /// `chrome_reflection`'s `MG_CHROME_PAINT=lights`, `light0`, `light0a`
 /// and `light0world` (2026-11-26, 89.8193.37).
@@ -247,7 +247,11 @@ pub(super) fn player_light(
     facing: f32,
     light: &Lighting,
 ) -> Option<mg_render::PointLight> {
-    let level = |c: u32| (c >> 16 & 0xFF).max(c >> 8 & 0xFF).max(c & 0xFF);
+    let level = |c: u32| {
+        let [_, r, g, b] = c.to_be_bytes();
+        assert!(r == g && g == b, "player_light: the rule is read for gray light only ({c:06X})");
+        u32::from(r)
+    };
     if level(light.ambient) + level(light.diffuse) >= 0x80 {
         return None;
     }
