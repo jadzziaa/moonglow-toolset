@@ -2253,7 +2253,9 @@ pub(crate) fn typed_name<'h>(
 /// `PATH` (NixOS has no `/bin/true`).
 /// Held by the tests that start Test Module's stand-in games: the games a
 /// test started are known process-wide (`test_module::game_running`), so
-/// one test's game running would refuse another's test.
+/// one test's game running would refuse another's test. (Their tests are
+/// Linux's.)
+#[cfg(target_os = "linux")]
 pub(crate) static TEST_GAMES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub(crate) fn true_program() -> Option<String> {
