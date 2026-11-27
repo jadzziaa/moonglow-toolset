@@ -201,8 +201,18 @@ fn a_plugin_switched_on_and_missing_is_an_error() {
     let r = resolve(&project(&root, &team, None, Some(env)), &linux());
     assert!(r.nwnx.is_none());
     assert_eq!(r.errors().len(), 1, "{:?}", r.notes);
-    assert!(r.errors()[0].contains("NWNX_TDOD_SKIP switches the plugin TDOD on"), "{:?}", r.notes);
-    assert!(r.errors()[0].contains("NWNX_TDOD.so"), "{:?}", r.notes);
+    // (NWNX reads a plugin's switch from its file's name, upper-cased:
+    // the file a key is for can't be told by its case, so none is named.)
+    let e = r.errors()[0];
+    assert!(e.contains("NWNX_TDOD_SKIP=n switches a plugin on"), "{e}");
+    assert!(
+        e.contains(&format!(
+            "no NWNX plugin library for TDOD in {}",
+            home.join("Binaries").display()
+        )),
+        "{e}"
+    );
+    assert!(!e.contains("NWNX_TDOD.so"), "{e}");
 }
 
 /// On Windows and macOS a project that uses NWNX runs without it, and
@@ -215,6 +225,10 @@ fn nwnx_is_linux_only() {
     let p = project(&dir.join("project"), &team, None, None);
     let r = resolve(&p, &Options { linux: false, ..Default::default() });
     assert!(r.nwnx.is_none() && !r.failed());
+    assert_eq!(levels(&r), [(Level::Warning, LINUX_ONLY)]);
+    // No home either: still only that (a home would not help there).
+    let p = project(&dir.join("project"), "[nwnx]\nuse = true\n", None, None);
+    let r = resolve(&p, &Options { linux: false, ..Default::default() });
     assert_eq!(levels(&r), [(Level::Warning, LINUX_ONLY)]);
     // A project that doesn't use it says nothing.
     let p = project(&dir.join("project"), "", None, None);
@@ -315,4 +329,112 @@ fn the_server_s_lines_tell_the_builds_and_failures() {
     assert_eq!(line(skip), None, "as the settings say: told before the start");
     assert_eq!(line("Server: Module loaded"), None);
     assert_eq!(console_note("NWNX: Expected build 1.2, got build 3.4.", false), None);
+}
+
+/// The plugins in a folder as NWNX's loader takes them
+/// (`Core/NWNXCore.cpp`, `InitialSetupPlugins`): every file whose name,
+/// without its last extension only, starts with `NWNX_` (in that case);
+/// Core and Experimental by their exact names.
+#[test]
+fn plugins_are_found_as_nwnx_s_loader_finds_them() {
+    let dir = mg_testkit::scratch_dir("nwnx-loader-names");
+    std::fs::create_dir_all(dir.join("NWNX_Folder.so")).unwrap();
+    for f in [
+        "NWNX_Util.so",
+        "NWNX_Bare",
+        "NWNX_Two.so.1",
+        "NWNX_Win.dll",
+        "nwnx_lower.so",
+        "Other.so",
+        "NWNX_.so",
+    ] {
+        std::fs::write(dir.join(f), b"").unwrap();
+    }
+    let found: Vec<String> = plugins_in(&dir).into_keys().collect();
+    assert_eq!(found, ["Bare", "Two.so", "Util", "Win"]);
+    let env = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    };
+    let all = env(&[("NWNX_CORE_SKIP_ALL", "y")]);
+    // Exact names: `NWNX_core.so` is a plugin of its own, skipped as any.
+    assert!(!skipped("Core", &all) && skipped("core", &all));
+    assert!(skipped("Experimental", &env(&[])));
+    assert!(!skipped("experimental", &env(&[])), "not NWNX_Experimental: loaded as any");
+}
+
+/// Why a plugin is off, as the settings make it so: Experimental by the
+/// switch it needs, not by a SKIP it doesn't read first.
+#[test]
+fn experimental_is_off_for_want_of_its_own_switch() {
+    let none = BTreeMap::new();
+    let why = why_skipped("Experimental", &none);
+    assert!(why.contains("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN"), "{why}");
+    assert!(!why.contains("NWNX_EXPERIMENTAL_SKIP"), "{why}");
+    let mut on: BTreeMap<String, String> = BTreeMap::new();
+    on.insert("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN".into(), "y".into());
+    on.insert("NWNX_EXPERIMENTAL_SKIP".into(), "y".into());
+    assert_eq!(why_skipped("Experimental", &on), "NWNX_EXPERIMENTAL_SKIP=y");
+}
+
+/// `mg serve --env` lines are checked with the project's: they come after
+/// the file's (and win), a plugin they switch on is on (no "off" warning)
+/// and must be there, and their relative `NWNX_CORE_LOAD_PATH` is made
+/// whole from the current folder.
+#[test]
+fn more_lines_are_checked_with_the_project_s() {
+    let dir = mg_testkit::scratch_dir("nwnx-more-env");
+    let home = fake_home(&dir, &["Util", "Store"]);
+    let root = dir.join("project");
+    let team = format!("[nwnx]\nuse = true\nhome = \"{}\"\nenv = \"nwnx.env\"\n", toml_path(&home));
+    let p = project(&root, &team, None, Some("NWNX_CORE_SKIP_ALL=y\nNWNX_UTIL_SKIP=n\n"));
+    let mut m = Module::new();
+    script(&mut m, "a", "#include \"nwnx_store\"\nvoid main(){}\n");
+    let lines = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    };
+    let o = Options { module: Some(&m), ..linux() };
+    // Without them, Store is off; with them, on, and last in the env.
+    let r = resolve(&p, &o);
+    assert!(r.notes.iter().any(|n| n.text.starts_with("the plugin Store is off")), "{:?}", r.notes);
+    let r = resolve_with(&p, &o, &lines(&[("NWNX_STORE_SKIP", "n")]));
+    assert!(r.notes.is_empty(), "{:?}", r.notes);
+    let n = r.nwnx.unwrap();
+    assert!(n.loads("Store"));
+    let last = n.server_env().pop().unwrap();
+    assert_eq!(last, ("NWNX_STORE_SKIP".into(), "n".into()));
+    // A plugin they switch on that isn't there: an error.
+    let r = resolve_with(&p, &o, &lines(&[("NWNX_WEBHOOK_SKIP", "n")]));
+    assert!(r.failed() && r.errors()[0].contains("WEBHOOK"), "{:?}", r.notes);
+    // A relative load path: from the current folder (the crate's, under
+    // cargo test: its `src`, no plugins in it), not the project's.
+    let here = std::env::current_dir().unwrap();
+    let p = project(&root, &team, None, Some("NWNX_CORE_LOG_LEVEL=6\n"));
+    let r = resolve_with(&p, &o, &lines(&[("NWNX_CORE_LOAD_PATH", "src")]));
+    let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+    assert_eq!(n.binaries, here.join("src"));
+    let paths: Vec<_> =
+        n.server_env().into_iter().filter(|(k, _)| k == "NWNX_CORE_LOAD_PATH").collect();
+    assert_eq!(paths, [("NWNX_CORE_LOAD_PATH".into(), here.join("src").into())]);
+}
+
+/// The loader's refusal of a library: NWNX not loaded where it is NWNX's
+/// core (an error), another library left out where it isn't (a warning,
+/// whether NWNX is on or not: the server runs, without that library).
+#[test]
+fn a_library_the_loader_refuses_is_told_by_what_it_is() {
+    let refused = |path: &str| {
+        format!(
+            "ERROR: ld.so: object '{path}' from LD_PRELOAD cannot be preloaded (cannot open \
+             shared object file): ignored."
+        )
+    };
+    for nwnx in [true, false] {
+        let core = console_note(&refused("/x/Binaries/NWNX_Core.so"), nwnx).unwrap();
+        assert_eq!(core.level, Level::Error, "{}", core.text);
+        assert!(core.text.starts_with("NWNX was not loaded"), "{}", core.text);
+        let other = console_note(&refused("/usr/lib/libjemalloc.so"), nwnx).unwrap();
+        assert_eq!(other.level, Level::Warning, "{}", other.text);
+        assert!(other.text.contains("/usr/lib/libjemalloc.so"), "{}", other.text);
+        assert!(!other.text.contains("NWNX was not"), "{}", other.text);
+    }
 }

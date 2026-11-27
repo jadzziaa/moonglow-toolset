@@ -204,6 +204,9 @@ impl Resolved {
     }
 }
 
+/// The file of NWNX's core, in its `Binaries` folder.
+pub const CORE_FILE: &str = "NWNX_Core.so";
+
 /// What a run of a module says once, whatever the system: NWNX runs on
 /// Linux servers only.
 pub const LINUX_ONLY: &str =
@@ -239,15 +242,22 @@ fn path_from(text: &str, root: Option<&Path>) -> PathBuf {
 }
 
 /// The plugins in a `Binaries` folder by their name without `NWNX_` and
-/// `.so` (`Util`), each with its file.
+/// its file's last extension (`Util`), each with its file, as NWNX's
+/// loader finds them (`Core/NWNXCore.cpp`, `InitialSetupPlugins`): every
+/// file (not a folder) whose name without its last extension starts with
+/// `NWNX_`, in that case.
 fn plugins_in(binaries: &Path) -> BTreeMap<String, PathBuf> {
     let mut out = BTreeMap::new();
     for e in std::fs::read_dir(binaries).into_iter().flatten().flatten() {
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
         let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(stem) = name.strip_prefix("NWNX_").and_then(|n| n.strip_suffix(".so"))
-            && !stem.is_empty()
+        let stem = name.rsplit_once('.').map_or(name.as_str(), |(stem, _)| stem);
+        if let Some(plugin) = stem.strip_prefix("NWNX_")
+            && !plugin.is_empty()
         {
-            out.insert(stem.to_string(), e.path());
+            out.insert(plugin.to_string(), e.path());
         }
     }
     out
@@ -256,22 +266,34 @@ fn plugins_in(binaries: &Path) -> BTreeMap<String, PathBuf> {
 /// Whether NWNX skips a plugin by these settings, as its core reads them:
 /// `NWNX_<PLUGIN>_SKIP`, else `NWNX_CORE_SKIP_ALL`; Core is always
 /// loaded; Experimental only with `NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN`.
+/// (Core and Experimental by their files' exact names, as NWNX compares
+/// them: `NWNX_core.so` would be a plugin like any other.)
 fn skipped(plugin: &str, env: &BTreeMap<String, String>) -> bool {
     let get = |k: &str| env.get(k).and_then(|v| truth(v));
-    if plugin.eq_ignore_ascii_case("Core") {
+    if plugin == "Core" {
         return false;
     }
-    if plugin.eq_ignore_ascii_case("Experimental")
-        && !get("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN").unwrap_or(false)
-    {
+    if plugin == "Experimental" && !experimental_asked(env) {
         return true;
     }
     let all = get("NWNX_CORE_SKIP_ALL").unwrap_or(false);
     get(&format!("NWNX_{}_SKIP", plugin.to_ascii_uppercase())).unwrap_or(all)
 }
 
+/// Whether the settings ask for the Experimental plugin, which NWNX
+/// leaves out otherwise.
+fn experimental_asked(env: &BTreeMap<String, String>) -> bool {
+    env.get("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN").and_then(|v| truth(v)).unwrap_or(false)
+}
+
 /// Why a plugin is skipped, in the settings' words.
 fn why_skipped(plugin: &str, env: &BTreeMap<String, String>) -> String {
+    if plugin == "Experimental" && !experimental_asked(env) {
+        return match env.get("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN") {
+            Some(v) => format!("NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN={v}"),
+            None => "NWNX_CORE_LOAD_EXPERIMENTAL_PLUGIN is not set".to_string(),
+        };
+    }
     let key = format!("NWNX_{}_SKIP", plugin.to_ascii_uppercase());
     match env.get(&key) {
         Some(v) if truth(v).is_some() => format!("{key}={v}"),
@@ -288,6 +310,15 @@ fn why_skipped(plugin: &str, env: &BTreeMap<String, String>) -> String {
 /// include switched off, scripts that call NWNX while it is off, scripts
 /// that keep their first version). The project's files are only read.
 pub fn resolve(project: &ProjectFile, o: &Options) -> Resolved {
+    resolve_with(project, o, &[])
+}
+
+/// [`resolve`] with more lines for the server's environment after the
+/// project's environment file (`mg serve --env`): they win, and they are
+/// checked with it (a plugin they switch on must be there, and is on for
+/// the scripts' check). A relative `NWNX_CORE_LOAD_PATH` of theirs is
+/// made whole from the current folder, as a path on the command line is.
+pub fn resolve_with(project: &ProjectFile, o: &Options, more: &[(String, String)]) -> Resolved {
     let mut out = Resolved::default();
     let root = project.place().map(|p| p.root.clone());
     let rules = &project.nwnx;
@@ -295,6 +326,8 @@ pub fn resolve(project: &ProjectFile, o: &Options) -> Resolved {
         Choice::Off => None,
         Choice::Home(dir) => Some(dir.clone()),
         Choice::Project => match rules.use_nwnx {
+            // (Not on Linux, no home would help: said below, alone.)
+            Some(true) if !o.linux => Some(PathBuf::new()),
             Some(true) => {
                 let home = rules.own_home.as_deref().or(rules.team_home.as_deref());
                 if home.is_none() {
@@ -317,7 +350,7 @@ pub fn resolve(project: &ProjectFile, o: &Options) -> Resolved {
         }
         other => other,
     };
-    out.nwnx = home.and_then(|home| nwnx_at(home, rules, root.as_deref(), &mut out.notes));
+    out.nwnx = home.and_then(|home| nwnx_at(home, rules, root.as_deref(), more, &mut out.notes));
     if let Some(module) = o.module {
         out.notes.extend(script_notes(module, out.nwnx.as_ref(), o.live));
     }
@@ -333,6 +366,7 @@ fn nwnx_at(
     home: PathBuf,
     rules: &NwnxRules,
     root: Option<&Path>,
+    more: &[(String, String)],
     notes: &mut Vec<Note>,
 ) -> Option<Nwnx> {
     let home = std::path::absolute(&home).unwrap_or(home);
@@ -360,11 +394,18 @@ fn nwnx_at(
             }
         }
     }
-    let settings: BTreeMap<String, String> = env.iter().cloned().collect();
-    let binaries = match settings.get("NWNX_CORE_LOAD_PATH").filter(|p| !p.trim().is_empty()) {
-        Some(p) => path_from(p.trim(), root),
-        None => home.join("Binaries"),
+    let given = |lines: &[(String, String)]| {
+        (lines.iter().rev())
+            .find(|(k, v)| k == "NWNX_CORE_LOAD_PATH" && !v.trim().is_empty())
+            .map(|(_, v)| v.trim().to_string())
     };
+    let binaries = match (given(more), given(&env)) {
+        (Some(p), _) => std::path::absolute(&p).unwrap_or_else(|_| PathBuf::from(p)),
+        (None, Some(p)) => path_from(&p, root),
+        (None, None) => home.join("Binaries"),
+    };
+    env.extend(more.iter().cloned());
+    let settings: BTreeMap<String, String> = env.iter().cloned().collect();
     let core = home.join("Binaries").join("NWNX_Core.so");
     if !core.is_file() {
         notes.push(Note::error(format!("NWNX's core {} is not there", core.display())));
@@ -380,7 +421,8 @@ fn nwnx_at(
     });
     for plugin in present.keys().cloned().chain(named) {
         let there = present.keys().find(|p| p.eq_ignore_ascii_case(&plugin));
-        if skipped(&plugin, &settings) {
+        // (By its file's name where it is there: Experimental's exact.)
+        if skipped(there.unwrap_or(&plugin), &settings) {
             continue;
         }
         match there {
@@ -394,10 +436,14 @@ fn nwnx_at(
         }
     }
     plugins.insert("Core".into());
+    // (NWNX reads a plugin's switch by its file's name upper-cased; which
+    // file a switch is for can't be told back from it, so none is named.)
     for plugin in &missing {
-        let up = plugin.to_ascii_uppercase();
+        let key = format!("NWNX_{}_SKIP", plugin.to_ascii_uppercase());
+        let value = settings.get(&key).map_or("n", String::as_str);
         notes.push(Note::error(format!(
-            "NWNX_{up}_SKIP switches the plugin {plugin} on, but {} has no NWNX_{plugin}.so",
+            "{key}={value} switches a plugin on, but there is no NWNX plugin library for \
+             {plugin} in {}",
             binaries.display()
         )));
     }
@@ -538,8 +584,18 @@ pub fn console_note(line: &str, nwnx: bool) -> Option<Note> {
     let l = line.trim();
     // The loader: "ERROR: ld.so: object '…' from LD_PRELOAD cannot be
     // preloaded (…): ignored." The server then runs without NWNX.
+    // Only NWNX's core not loaded is NWNX not running; another library
+    // left out is a warning, the server running without it.
     if l.contains("LD_PRELOAD") && l.contains("cannot be preloaded") {
-        return Some(Note::error(format!("NWNX was not loaded into the server: {l}")));
+        let object = l.split_once("object '").and_then(|(_, r)| r.split_once('\'')).map(|o| o.0);
+        let core = object.is_none_or(|o| Path::new(o).file_name().is_some_and(|n| n == CORE_FILE));
+        return Some(match core {
+            true => Note::error(format!("NWNX was not loaded into the server: {l}")),
+            false => Note::warning(format!(
+                "the server runs without {}, which the loader could not preload: {l}",
+                object.unwrap_or_default()
+            )),
+        });
     }
     if !nwnx {
         return None;
