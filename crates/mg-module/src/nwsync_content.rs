@@ -402,7 +402,8 @@ impl HakFiles {
                 _ => "its resources spread over the others".to_string(),
             };
             out.push(format!(
-                "the server publishes no origins file: {} on disk taken from disk as {},                  {others}; on the server a hak listed above another is read over it",
+                "the server publishes no origins file: {} on disk taken from disk as {}, \
+                 {others}; on the server a hak listed above another is read over it",
                 self.kept_on_disk.join(", "),
                 if self.kept_on_disk.len() == 1 { "it is" } else { "they are" },
             ));
@@ -786,6 +787,7 @@ mod tests {
         assert_eq!(std::fs::read(&f.tlk_f.as_ref().unwrap().1).unwrap(), b"TLK female");
         let notes = f.notes();
         assert!(notes[0].starts_with("the server publishes no origins file: wip on disk"));
+        assert!(notes[0].contains("as it is, its resources spread"), "one space: {}", notes[0]);
         assert!(f.summary().starts_with("2 haks from NWSync manifest"), "{}", f.summary());
 
         // Newer than the manifest: used over it, said.

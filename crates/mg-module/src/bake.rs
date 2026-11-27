@@ -53,8 +53,10 @@ pub const DEFAULT_ROWS_FILE: &str = "baked_rows.toml";
 pub const PENDING_LABEL: &str = "bake:rows";
 
 /// The priority of [`PENDING_LABEL`]'s layer: over the haks (whose
-/// placeables.2da it carries), under a development folder.
-pub const PENDING_PRIORITY: u32 = priority::HAK_USER + 1;
+/// placeables.2da it carries), the module's NWSync content and a hak read
+/// over that (`priority::HAK_OVER_NWSYNC`), whose tables it may carry
+/// too; under a development folder.
+pub const PENDING_PRIORITY: u32 = priority::HAK_OVER_NWSYNC + 1;
 
 /// A model's name is at most this long (a resource name).
 const NAME_LEN: usize = 16;
