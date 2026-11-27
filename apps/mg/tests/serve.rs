@@ -71,6 +71,58 @@ fn a_module_is_served_until_a_line_of_its_log() {
     assert_eq!(std::fs::read_dir(&user).unwrap().count(), 0);
 }
 
+/// The user folder `mg` finds by itself (here `NWN_HOME`, and the game
+/// `NWN_ROOT`: no `--root`, which leaves the user folder unfound), as a
+/// builder's own would be, with a `development` folder: its server gets a
+/// link to it, and none with `--no-development` (an earlier run's link taken
+/// away) or `--no-user-dir`. The player's folder is left as it was.
+#[test]
+fn the_found_user_folder_s_development_is_linked_unless_told_not_to() {
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-serve-no-development");
+    let user = dir.join("found");
+    std::fs::create_dir_all(user.join("development")).unwrap();
+    std::fs::write(user.join("development/mg_dev.nss"), "// mine\n").unwrap();
+    let chess = dir.join("Chess Game.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let served = dir.join("served");
+    let link = served.join("development");
+    let run = |more: &[&str]| {
+        let mut mg = crate::mg();
+        mg.env("NWN_HOME", &user).env("NWN_ROOT", &root).args(more);
+        mg.args(["serve", chess.to_str().unwrap(), "--dir", served.to_str().unwrap()]);
+        let out = mg.args(["--until", "Loading Module", "--timeout", "90"]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    };
+    // (A link: the server makes a folder of its own there when it has none.)
+    let linked = || mg_module::links::is_link(&link);
+
+    run(&[]);
+    assert!(mg_module::links::is_link(&link), "the found folder's, linked");
+    assert_eq!(std::fs::read_to_string(link.join("mg_dev.nss")).unwrap(), "// mine\n");
+    run(&["--no-user-dir"]);
+    assert!(!linked(), "no user folder, no link");
+    run(&[]);
+    assert!(linked());
+    // (`--no-development` is the command's, after `serve`.)
+    let mut mg = crate::mg();
+    mg.env("NWN_HOME", &user).env("NWN_ROOT", &root);
+    mg.args(["serve", chess.to_str().unwrap(), "--dir", served.to_str().unwrap()]);
+    let out = mg
+        .args(["--no-development", "--until", "Loading Module", "--timeout", "90"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(!linked(), "--no-development: the earlier run's link taken away");
+    let names: Vec<_> = std::fs::read_dir(&user).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names, ["development"], "nothing made in the player's folder");
+    assert!(user.join("development/mg_dev.nss").is_file());
+}
+
 /// A module kept as files (a folder, a nasher project) is served with its
 /// scripts compiled: its load script, there as source only, runs.
 #[test]

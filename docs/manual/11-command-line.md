@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:25:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T19:32:16Z }
 ---
 
 # Command-line tools
@@ -379,7 +379,15 @@ place of the one in your tlk folder.
   names another; your own NWN folder is refused without
   `--real-user-dir`, and with it a file of yours there (not a link
   Moonglow made) is never replaced: one the module's NWSync content
-  would replace stops the run, saying so.
+  would replace stops the run, saying so. The server's `development`
+  folder is a link to yours (the user folder `--user-dir` names, or the
+  one `mg` finds), as Test Module's game has it; nothing is written into
+  yours. A `--dir` whose `development` folder has files of its own
+  keeps it, and the run says so (an empty one, as the server makes when
+  it starts without the link, gives way). `--no-development` gives the server none (a link an earlier run
+  made is taken away), and so does `--no-user-dir`: for a script that
+  runs `mg serve` without naming a user folder, where the one found is
+  your own.
 - **A module whose project names an NWSync server** (`[nwsync] source`,
   [NWSync content instead of haks](09-build-and-test.md#nwsync-content-instead-of-haks)):
   the haks that server hands out are written from its manifest into
@@ -456,8 +464,9 @@ void main()
   run names those whose compiled script in your module is not what their
   source compiles to now: changed since, or made by another compiler
   (`mg compile` compiles them there). The scratch folder links your
-  `development` folder as `mg serve`'s does, so what is there is also
-  what the tests' server finds first. One that does not
+  `development` folder as `mg serve`'s does (none with
+  `--no-development`), so what is there is also what the tests' server
+  finds first. One that does not
   compile now runs with the compiled script it has, and the run says so;
   one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
@@ -543,7 +552,8 @@ it reads only at its start.
 - `--serve` also runs the module in the server, as `mg serve` does, on a
   scratch user directory whose `development` folder is the one written
   into (a folder of its own, not a link to yours: with `--dev-dir`
-  elsewhere the server has the link to yours, as `mg serve` gives it): `--dir`, `--port`, `--player-password`, `--dm-password`,
+  elsewhere the server has the link to yours, as `mg serve` gives it,
+  and none with `--no-development`): `--dir`, `--port`, `--player-password`, `--dm-password`,
   `--admin-password`, `--env`, `--preload` and the arguments after `--`
   are `mg serve`'s, and so is what you type (your own NWN folder as
   `--dir` is refused, before anything is written there). The passwords not given are

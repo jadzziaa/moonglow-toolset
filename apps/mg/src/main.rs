@@ -378,6 +378,10 @@ enum Cmd {
         /// project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// Give the server no link to your development folder (the found
+        /// user folder's, or --user-dir's).
+        #[arg(long)]
+        no_development: bool,
         /// The port (default: a free one).
         #[arg(long)]
         port: Option<u16>,
@@ -458,6 +462,10 @@ enum Cmd {
         /// project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// Give the server no link to your development folder (the found
+        /// user folder's, or --user-dir's).
+        #[arg(long)]
+        no_development: bool,
         /// A file of NAME=value lines for the server's environment.
         #[arg(long)]
         env: Vec<PathBuf>,
@@ -730,6 +738,10 @@ enum Cmd {
         /// though the project named no NWSync server ([nwsync] source).
         #[arg(long)]
         no_nwsync: bool,
+        /// With --serve or --test: give the server no link to your
+        /// development folder.
+        #[arg(long)]
+        no_development: bool,
         /// With --serve: the server's user directory (default: a scratch
         /// one).
         #[arg(long)]
@@ -3140,6 +3152,7 @@ fn run(cli: &Cli) -> Result<Output> {
             dir,
             real_user_dir,
             no_nwsync,
+            no_development,
             port,
             public,
             name,
@@ -3170,7 +3183,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 project: None,
                 progress: !cli.json,
                 no_nwsync: *no_nwsync,
-                development: serve::Development::Players,
+                development: serve::Development::players_unless(*no_development),
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -3223,6 +3236,7 @@ fn run(cli: &Cli) -> Result<Output> {
             include,
             dir,
             no_nwsync,
+            no_development,
             env,
             preload,
             server_args,
@@ -3248,6 +3262,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     args: server_args.clone(),
                     progress: !cli.json,
                     no_nwsync: *no_nwsync,
+                    development: serve::Development::players_unless(*no_development),
                     ..Default::default()
                 },
             };
@@ -4330,6 +4345,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         ndb,
         serve,
         no_nwsync,
+        no_development,
         dir,
         port,
         passwords,
@@ -4419,6 +4435,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
             serve: serve::Config {
                 name: "Moonglow test run".into(),
                 no_nwsync: *no_nwsync,
+                development: serve::Development::players_unless(*no_development),
                 ..Default::default()
             },
         };
@@ -4490,7 +4507,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         no_nwsync: *no_nwsync,
         development: match watched {
             true => serve::Development::Watched,
-            false => serve::Development::Players,
+            false => serve::Development::players_unless(*no_development),
         },
         ..Default::default()
     };
