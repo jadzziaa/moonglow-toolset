@@ -1817,7 +1817,9 @@ unlit: as bright in an area lit 0x101010 as by day.
 
 A texel is cut out where its alpha is 0.2 or less (`fAlphaDiscardValue`),
 whatever the TXI says and with an MTR or without. What is left of a
-`blending punchthrough` texture is drawn solid; of any other, blended.
+cut-out (`blending punchthrough`, [Which TXI makes a mesh a
+cut-out](#which-txi-makes-a-mesh-a-cut-out)) is drawn solid; of any
+other texture, blended.
 A cut-out whose mesh's alpha is under 1 is drawn solid and cut all the
 same (a disc of `alpha 0.5` opaque, a quarter lighter than the plain
 one: `reading_see_through_cut_out`, 2026-10-30); a transparency hint
@@ -1827,6 +1829,35 @@ changes nothing.
   each surface with the value through a patched `inc_standard.shd`.
 - **Moonglow:** `crates/mg-render/src/renderer.rs` (`Slots::twosided`).
 - **Wiki:** not compared.
+
+### Which TXI makes a mesh a cut-out
+
+The client takes a mesh to be a cut-out (`blending punchthrough`) by
+the TXI of the name it binds, its bitmap: with a bitmap naming a
+texture, that texture's TXI (with an MTR named by `materialname` too);
+with a bitmap naming an MTR, the TXI of the MTR's name (`name.txi`
+beside `name.mtr`), whatever its texture's TXI says. Such a mesh is
+solid where it is kept, `transparencyhint 1` or not and the MTR's
+`transparency 1` or not; a mesh whose MTR's texture alone has the TXI is
+blended by its texels' alpha, as one of no TXI. Every card is cut at
+the same alpha, 0.2 (kept from 52/255, cut at 50/255), whichever it is.
+
+- **Checked:** game client, `client_render/soft.rs`'s
+  `reading_punch_cut` (ten cards, each read as solid or blended against
+  a bar behind it; the reading asserts what was seen), and
+  `reading_soft_depth` with `MG_SOFT_KIND=punch` (the hint's cut-out
+  cards hide the water and the particle behind them), 2026-11-27.
+- **Moonglow:** since 2026-11-27 (`crates/mg-render/src/renderer.rs`,
+  `Renderer::surface` and the pass a draw takes), either shader. Before,
+  the hint made a cut-out blended, and the TXI was read from the MTR's
+  texture: five of the ten cards differed. Mean difference from the
+  client's picture, of 255, before and after, the Shaders off and on:
+  `reading_punch_cut`'s cards 21.8 to 20.6 and 22.5 to 21.3 (each card
+  now as the client's), `reading_soft_depth`'s placeable (`punch`)
+  37.7 to 25.7 and 37.9 to 25.2. Test
+  `a_cut_out_with_a_transparency_hint_is_solid`; the reading asserts
+  Moonglow's cards against the client's.
+- **Wiki:** missing.
 
 ### A compiled mesh's index list is drawn, and tiles fade about the player
 
@@ -2679,8 +2710,9 @@ mesh of `alpha` under 1. So soft meshes hide each other by their order:
   hides; with an MTR's `transparency 1`, the reverse).
 
 A 32-bit TGA's alpha on a placeable's mesh is drawn opaque, the hint or
-not, and a texture with TXI `blending punchthrough` and the hint is cut,
-not blended.
+not, and a texture with TXI `blending punchthrough` and the hint is a
+cut-out, solid, not blended ([Which TXI makes a mesh a
+cut-out](#which-txi-makes-a-mesh-a-cut-out)).
 
 - **Checked:** game client, `client_render/soft.rs`'s
   `reading_soft_depth` (`MG_SOFT_KIND=hint`, `dxt5`, `tga`, `punch`,
@@ -2702,9 +2734,9 @@ not blended.
   `soft_texels_hide_the_water_behind_them` and
   `the_water_s_copy_holds_the_see_through_meshes_behind_it`. Left
   ([deferred list](deferred.md), "Soft see-through texels"): Moonglow's
-  own water (the Shaders switch off) drawn before the card, the
-  punch-through texture blended, and two meshes of one model ordered by
-  distance.
+  own water (the Shaders switch off) drawn before the card, and two
+  meshes of one model ordered by distance. (The punch-through texture
+  with the hint, blended here then, is solid since 2026-11-27.)
 - **Wiki:** missing.
 
 ### When the client shows an area transition

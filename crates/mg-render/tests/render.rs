@@ -510,6 +510,12 @@ impl TestAssets {
 impl mg_render::Assets for TestAssets {
     fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
         self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // (A name of no texture of its own: its MTR's first, as the
+        // game's assets read it.)
+        let name = match self.materials.get(name).and_then(|m| m.textures[0].as_deref()) {
+            Some(t) if !self.textures.contains_key(name) => t,
+            _ => name,
+        };
         Some(mg_render::LoadedTexture {
             texture: self.textures.get(name)?.clone(),
             txi: self.txis.get(name).cloned().unwrap_or_default(),
@@ -9398,6 +9404,84 @@ fn a_cut_out_s_mesh_alpha_does_not_blend_it() {
         let solid = shot(1.0, 1.0);
         assert_eq!(shot(0.5, 1.0), solid, "mesh alpha 0.5: solid (game's programs: {game})");
         assert_ne!(shot(1.0, 0.5), solid, "an instance at half opacity is blended ({game})");
+    }
+}
+
+/// A cut-out texture (`blending punchthrough`) on a mesh of
+/// `transparencyhint 1` is drawn solid, as without the hint: the client
+/// draws its texels of alpha 0.2 to 1 opaque, hiding what is behind
+/// (`client_render`'s `soft::reading_punch_cut`, 2026-11-27). Bound
+/// through an MTR it is a cut-out by the MTR's TXI (of its name), not
+/// its texture's: blended by its alpha without one, the MTR's
+/// `transparency 1` or not. Whichever shader draws it.
+#[test]
+fn a_cut_out_with_a_transparency_hint_is_solid() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    // (The game's path: a program giving the texture's alpha, which the
+    // test pair's `fslit` leaves at 1.)
+    assets.shaders.insert(
+        "fslit".into(),
+        "#define SHADER_TYPE 2\nuniform sampler2D texUnit0;\nvarying vec2 vUv;\n\
+         void main ()\n{\n    gl_FragColor = texture2D(texUnit0, vUv);\n}\n"
+            .into(),
+    );
+    let punch = mg_image::txi::Txi::parse(b"blending punchthrough\n");
+    for name in ["punch", "plain"] {
+        assets.solid(name, [200, 200, 200, 128]);
+    }
+    for name in ["punch", "punchg", "punchi"] {
+        assets.txis.insert(name.into(), punch.clone());
+    }
+    // (Of the TXI's texture, of a texture of none.)
+    let mtrs = [
+        ("punchm", "punch", "transparency 1\n"),
+        ("punche", "punch", ""),
+        ("punchg", "plain", ""),
+        ("punchi", "plain", "transparency 1\n"),
+    ];
+    for (mtr, texture, lines) in mtrs {
+        let text = format!("texture0 {texture}\n{lines}");
+        assets.materials.insert(mtr.into(), mg_image::mtr::Mtr::parse(text.as_bytes()));
+    }
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // (bitmap, hint, drawn solid)
+    let kinds = [
+        ("punch", 0, true),
+        ("punch", 1, true),
+        ("plain", 1, false),
+        ("punchm", 0, false),
+        ("punchm", 1, false),
+        ("punche", 0, false),
+        ("punchg", 0, true),
+        ("punchi", 1, true),
+    ];
+    for game in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game;
+        for (bitmap, hint, solid) in kinds {
+            let mut m = quad();
+            let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+            mesh.textures[0] = Some(bitmap.into());
+            mesh.transparency_hint = hint;
+            let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+            let mut shot = |background: [f32; 3]| {
+                let instances = vec![Instance::new(model.clone(), Mat4::IDENTITY)];
+                let scene = Scene { instances, background, ..Default::default() };
+                r.render_image(&gpu, &assets, &scene, &camera, 32, 32).pixel(16, 16)
+            };
+            let (on_red, on_blue) = (shot([1.0, 0.0, 0.0]), shot([0.0, 0.0, 1.0]));
+            let what =
+                format!("{bitmap}, hint {hint}, game's programs {game}: {on_red:?} {on_blue:?}");
+            assert_eq!(on_red == on_blue, solid, "{what}");
+        }
+        assert_eq!(r.game_shader_failures(), &[]);
     }
 }
 

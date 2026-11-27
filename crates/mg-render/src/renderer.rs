@@ -2601,6 +2601,30 @@ impl Renderer {
             Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
             None => (Blending::Default, None, false, (false, false), false, false),
         };
+        // A cut-out by the TXI of the name the mesh binds: where that is an
+        // MTR's, the MTR's TXI (`name.txi` beside `name.mtr`), not its
+        // texture's, whose `blending punchthrough` the client leaves
+        // blended by its alpha (`soft::reading_punch_cut` in
+        // `client_render`, 2026-11-27).
+        let blending = match tex.as_ref().zip(names[0].as_deref()) {
+            Some((_, bound)) if blending != Blending::Additive => {
+                let named = slots.names[0].as_deref().or_else(unnamed);
+                let named = named.map(|n| {
+                    inst.textures.as_ref().and_then(|t| t.get(n)).map_or(n, String::as_str)
+                });
+                match named.filter(|n| n.eq_ignore_ascii_case(bound)) {
+                    Some(n) if assets.material(n).is_some() => {
+                        if assets.txi(n).is_some_and(|t| t.blending() == Blending::Punchthrough) {
+                            Blending::Punchthrough
+                        } else {
+                            Blending::Default
+                        }
+                    }
+                    _ => blending,
+                }
+            }
+            _ => blending,
+        };
         // The environment map a mesh reflects: its texture's (TXI
         // `envmaptexture`), else its object's (placeables.2da
         // `Reflection`, appearance.2da `ENVMAP`); `default` the area's
@@ -3254,11 +3278,11 @@ impl Renderer {
                     let flag = |b: bool| if b { 1.0 } else { 0.0 };
                     // See-through of its own, whatever the instance's opacity.
                     // (A cut-out is solid where it is not cut: its rim is not
-                    // blended, as the client draws it.)
-                    let see_through = (surface.has_alpha
-                        && !surface.reflects
-                        && surface.blending != Blending::Punchthrough)
-                        || mat.transparency_hint > 0
+                    // blended, as the client draws it, `transparencyhint 1`
+                    // or not: `soft::reading_punch_cut` in `client_render`.)
+                    let cut_out = surface.blending == Blending::Punchthrough;
+                    let see_through = (surface.has_alpha && !surface.reflects && !cut_out)
+                        || (mat.transparency_hint > 0 && !cut_out)
                         || slots.effect.is_some_and(|e| e.blend);
                     let pass = if fade_color.is_some() {
                         Pass::SkyFade
