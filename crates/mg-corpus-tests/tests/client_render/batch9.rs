@@ -1153,6 +1153,9 @@ fn batch9_static_alpha_mean_checks() {
 /// Predicted before the run: the 0.9 texture's card first in all four
 /// (the blue in the first two, against the model's order; the red in the
 /// last two, against it as well).
+///
+/// Seen (2026-11-26, 89.8193.37): all four as predicted, and Moonglow
+/// (`in_client_order`) as the client.
 #[test]
 #[ignore]
 fn batch9_static_alpha_mean_in_a_model() {

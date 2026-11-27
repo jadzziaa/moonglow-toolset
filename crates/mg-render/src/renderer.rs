@@ -458,8 +458,9 @@ struct Draw<'a> {
     twosided: bool,
     depth: f32,
     hint: u32,
-    /// Where it comes among the see-through draws of its hint, before
-    /// their depth ([`see_through_order`]).
+    /// A mesh of mesh `alpha` under 1 drawn in one part: where it comes
+    /// among those of its hint ([`see_through_order`]); [`UNORDERED`]
+    /// for any other draw.
     order: u16,
     /// Its uniforms' place among the frame's.
     uniform: u32,
@@ -491,22 +492,51 @@ struct Draw<'a> {
     late: bool,
 }
 
-/// A see-through draw's place among those of its hint, before their
-/// depth ([`Draw::order`]): a static placeable's mesh of `alpha` under 1
-/// by its texture's alpha mean (`Some`), the highest first, before the
-/// others (`None`), as the client draws them: its static geometry's
-/// meshes by texture (`Scene::AddPartsToDrawBuckets` walks `meshbuckets`
-/// in `AurTextureGetOrdering`'s order, the textures sorted by alpha mean,
-/// the highest first), put in the draw buckets before the sorted dynamic
-/// objects' (`batch9_static_alpha_mean` in `client_render.rs`). Textures
-/// of one mean keep the depth's order: the client leaves them to
-/// `std::sort` over its whole static texture list, an order Moonglow
-/// can't know.
-fn see_through_order(static_mean: Option<f32>) -> u16 {
-    match static_mean {
+/// [`Draw::order`] of a draw that is not a mesh of `alpha` under 1 drawn
+/// in one part.
+const UNORDERED: u16 = u16::MAX;
+
+/// The order among themselves of the meshes of mesh `alpha` under 1
+/// drawn in one part (`ordered`), as the client draws them: a static
+/// placeable's (`Some`, its texture's alpha mean) before the dynamic
+/// ones', by the mean, the highest first; the client draws its static
+/// geometry's meshes by texture (`Scene::AddPartsToDrawBuckets` walks
+/// `meshbuckets` in `AurTextureGetOrdering`'s order, the textures sorted
+/// by alpha mean, the highest first) into the draw buckets before the
+/// sorted dynamic objects' (`batch9_static_alpha_mean` in
+/// `client_render.rs`). Those of one mean, and the dynamic ones, keep the
+/// depth's order (the client leaves textures of one mean to `std::sort`
+/// over its whole static texture list, an order Moonglow can't know).
+/// Only these draws are put in this order, in the places the depth gave
+/// them ([`in_client_order`]): how the client orders them against other
+/// see-through meshes was not read.
+fn see_through_order(ordered: bool, static_mean: Option<f32>) -> u16 {
+    match (ordered, static_mean) {
+        (false, _) => UNORDERED,
         // (Means of 0 to 2 in 15 bits, the highest the smallest.)
-        Some(mean) => 0x7FFF - (mean.clamp(0.0, 2.0) * 16383.5) as u16,
-        None => 0x8000,
+        (true, Some(mean)) => 0x7FFF - (mean.clamp(0.0, 2.0) * 16383.5) as u16,
+        (true, None) => 0x8000,
+    }
+}
+
+/// Puts the ordered draws ([`see_through_order`]) of each run of `draws`
+/// sorted by `keys` (one pass and hint) in their order, in the places
+/// they hold: the other draws keep theirs, and those of one order their
+/// depth's.
+fn in_client_order(keys: &[(u64, u32)], draws: &mut [Draw<'_>]) {
+    let mut start = 0;
+    while start < keys.len() {
+        let run = keys[start].0 >> 32;
+        let end = start + keys[start..].iter().take_while(|k| k.0 >> 32 == run).count();
+        let places: Vec<usize> = (start..end).filter(|&k| draws[k].order != UNORDERED).collect();
+        if places.len() > 1 {
+            let mut ordered: Vec<Draw<'_>> = places.iter().map(|&k| draws[k]).collect();
+            ordered.sort_by_key(|d| d.order);
+            for (&k, d) in places.iter().zip(ordered) {
+                draws[k] = d;
+            }
+        }
+        start = end;
     }
 }
 
@@ -3152,14 +3182,13 @@ impl Renderer {
                         && surface.blending != Blending::Punchthrough;
                     let sort_depth =
                         if ordered { instance_depth } else { -view.transform_point3(centre).z };
-                    // Static geometry's (a static placeable's) meshes of
-                    // mesh `alpha` under 1 are drawn by texture, as the
-                    // client draws its static buckets, before the dynamic
-                    // ones': the highest alpha mean first (tiles' alike in
-                    // the client, untried there: theirs keep their place).
+                    // (A static placeable's by its texture's alpha mean,
+                    // before the dynamic ones'. Tiles' are in the client's
+                    // static buckets too, untried there: theirs keep the
+                    // depth's order.)
                     let order = see_through_order(
-                        (ordered && inst.receives_shadows && !inst.tile)
-                            .then_some(surface.alpha_mean),
+                        ordered,
+                        (inst.receives_shadows && !inst.tile).then_some(surface.alpha_mean),
                     );
                     // A mesh solid of its own in an instance drawn see-through
                     // (a tile or a blueprint about to be placed): its depth is
@@ -3610,13 +3639,14 @@ impl Renderer {
                 // first.)
                 let bits = d.depth.to_bits();
                 let ascending = if bits >> 31 == 1 { !bits } else { bits | 1 << 31 };
-                let hint = u64::from(d.hint.min((1 << 13) - 1));
-                rank << 61 | hint << 48 | u64::from(d.order) << 32 | u64::from(!ascending)
+                let hint = u64::from(d.hint.min((1 << 29) - 1));
+                rank << 61 | hint << 32 | u64::from(!ascending)
             };
             (key, i as u32)
         }));
         keys.sort_unstable();
         let mut draws: Vec<Draw<'_>> = keys.iter().map(|&(_, i)| draws[i as usize]).collect();
+        in_client_order(&keys, &mut draws);
         self.sort_keys = keys;
 
         // Draws of one mesh become one draw of as many instances, where
@@ -4976,9 +5006,11 @@ mod tests {
         assert_eq!(client_alpha_mean(&compressed(Format::Bc1), &none, false), 1.0);
         let bioware = mg_image::Texture { alpha_mean: Some(0.7), ..compressed(Format::Bc3) };
         assert_eq!(client_alpha_mean(&bioware, &txi, false), 0.7);
-        let order: Vec<u16> =
-            [Some(1.0), Some(0.961), Some(0.9), Some(0.3), None].map(see_through_order).to_vec();
+        let order: Vec<u16> = [Some(1.0), Some(0.961), Some(0.9), Some(0.3), None]
+            .map(|mean| see_through_order(true, mean))
+            .to_vec();
         assert!(order.is_sorted_by(|a, b| a < b), "{order:?}");
+        assert_eq!(see_through_order(false, Some(1.0)), super::UNORDERED);
     }
 
     /// The sky is around the camera at ground level for every camera the

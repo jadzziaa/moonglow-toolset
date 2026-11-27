@@ -720,9 +720,11 @@ Nothing open.
   client to `std::sort` over its whole static texture list, an order
   of no rule Moonglow can know; Moonglow keeps their origins' order,
   so such pairs still differ from the client in about half
-  (`batch9_static_order`, `batch9_static_tiles`). Tiles' meshes share
-  the static buckets in the client; untried there, they keep their
-  place. Each see-through mesh of alpha 1
+  (`batch9_static_order`, `batch9_static_tiles`). Only these meshes
+  are put in that order among themselves: against other see-through
+  meshes (a soft texture's parts, water) a static one is drawn by depth,
+  the client's order there not read. Tiles' meshes share the static
+  buckets in the client; untried there, they keep the depth's order. Each see-through mesh of alpha 1
   costs two draws. On macOS the solid part's discarded fragments wrote
   their depth (the plant's edge hid the ground again) until the shader
   stopped at each discard: seen and mended on the CI's Mac, a virtual

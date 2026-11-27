@@ -2306,18 +2306,27 @@ only, with the owner's leave as CLAUDE.md's last resort):
   same textures on dynamic cards drew the farther first in all six
   pairs (the reading of the overlaps holds with these textures), and a
   static card was drawn before a dynamic one in all four pairs,
-  whichever was nearer and whichever color. (The first run's 245 TGA
+  whichever was nearer and whichever color. `batch9_static_alpha_mean_in_a_model`:
+  two cards of one static model go by their means too, against the
+  model's order (four models, all as predicted). (The first run's 245 TGA
   was written 24-bit, of mean 1, tying the 1.0 one; its pairs went as
   predicted by the tie's order. Run again as 32-bit, all held.) A PLT's
   0.5 and a standard DXT1's 1 are read, not run.
 - **Moonglow:** as the client since 2026-11-26 for static placeables
   (`mg-render`'s `renderer.rs`: `client_alpha_mean`,
-  `see_through_order`; `static_see_through_meshes_go_by_their_textures_alpha_means`,
-  `a_texture_s_alpha_mean_is_the_client_s`): all 34 pairs of both
-  batches as the client's, by both shader paths, where before 14 differed.
-  Textures of one mean keep their origins' order (the client's
-  `std::sort` order can't be known). Tiles share the static buckets in
-  the client, untried there: their meshes keep their place.
+  `see_through_order`, `in_client_order`;
+  `static_see_through_meshes_go_by_their_textures_alpha_means`,
+  `a_texture_s_alpha_mean_is_the_client_s`): all 38 pairs of the three
+  batches as the client's, by both shader paths, where before 14 of the
+  first two's differed. Only the meshes of `alpha` under 1 drawn in one
+  part are put in this order among themselves, in the places the depth
+  gave them: against the other see-through meshes (a soft texture's
+  parts, water) a static one is still drawn by depth, as how the client
+  orders those was not read. Textures of one mean keep their origins'
+  order (the client's `std::sort` order can't be known), and so do
+  means closer than about 6e-5 (Moonglow's key holds 15 bits). Tiles
+  share the static buckets in the client, untried there: their meshes
+  keep the depth's order.
 - **Wiki:** missing.
 
 ### The client makes an uncompressed texture's levels by plain means
