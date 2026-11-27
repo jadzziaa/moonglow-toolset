@@ -8,7 +8,7 @@ use mg_uikit::header::{self, Place};
 
 /// The names `Settings::hidden_area_tools` hides the header's controls
 /// by (`icons::AREA_TOOLS`), but the Show toggles' ("Show Creatures").
-const AREA_TOOLS: [&str; 29] = [
+const AREA_TOOLS: [&str; 30] = [
     "Start",
     "All",
     "None",
@@ -16,6 +16,7 @@ const AREA_TOOLS: [&str; 29] = [
     "Lighting",
     "Shadows",
     "Fog",
+    "Player's Light",
     "Fade Geometry",
     "Animations",
     "Grass",
@@ -109,7 +110,7 @@ fn held_names(h: &Harness<'_, Moonglow>) -> Vec<String> {
 
 /// The controls inside the popovers, menus and held menus: each found by
 /// [`area_tool`] (which opens what holds it) at the widths it is tried at.
-const IN_POPOVERS: [&str; 22] = [
+const IN_POPOVERS: [&str; 23] = [
     "Show Creatures",
     "Show Start",
     "All",
@@ -120,6 +121,7 @@ const IN_POPOVERS: [&str; 22] = [
     "Light shadows",
     "High",
     "Fog",
+    "Player's light",
     "Fade Geometry",
     "Animations",
     "Grass",
@@ -467,6 +469,7 @@ fn the_wide_row_unfolds_the_popovers_with_their_words() {
         "Use the area's lighting",
         "Shadows",
         "Fog",
+        "Player's light",
         "Grid",
         "Minimap",
         "Walkmesh",

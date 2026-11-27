@@ -2300,6 +2300,22 @@ mod tests {
         assert_eq!(casting_light(&pair, aside, 1.0, feet), Some(1));
     }
 
+    /// The player's vision light (`mg_area::player_light`: ambient only,
+    /// 0.3 0.3 0.4, radius 11, 0.64 m ahead and 2.65 m up) casts no
+    /// creature's shadow and takes no lamp's place, however near: the
+    /// client's, beside a lamp post, leaves every creature's shadow the
+    /// lamp's (`batch6_player_light_shadows`, 2026-11-27).
+    #[test]
+    fn the_player_s_light_takes_no_lamp_s_place() {
+        let lamp = PointLight::new(Vec3::new(5.0, 0.0, 4.0), Vec3::ONE, 10.0, false, 4)
+            .casting(true, 10.0, 3.0);
+        let player =
+            PointLight::new(Vec3::new(0.0, 0.64, 2.65), Vec3::new(0.3, 0.3, 0.4), 11.0, true, 3);
+        let (at, feet) = (Vec3::new(0.0, 3.0, 1.0), Vec3::new(0.0, 3.0, 0.0));
+        assert_eq!(casting_light(&[player, lamp], at, 0.6, feet), Some(1));
+        assert_eq!(casting_light(&[player], at, 0.6, feet), None);
+    }
+
     /// A light's view holds the creature and what lies behind it: the
     /// ball's middle and its edge are in sight, the light's side of it is
     /// not cut off, and a point behind it, on the ground, is in the map.

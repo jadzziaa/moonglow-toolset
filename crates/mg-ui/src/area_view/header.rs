@@ -216,6 +216,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let shadows_before = Cell::new(view.shadows_before);
     let quality = Cell::new(app.settings.shadow_quality);
     let mut fog = view.fog;
+    let mut player_light = app.settings.player_light;
     let fade = Cell::new(view.fade);
     let mut animated = !app.settings.still_objects;
     let mut grass = !app.settings.no_grass;
@@ -488,6 +489,14 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             .check(PopCheck::new(&mut fog, "Fog").icon(crate::icons::FOG).unfolded_words(true));
         lighting_rows += 1;
     }
+    if shown("Player's Light") {
+        let row = PopCheck::new(&mut player_light, "Player's light")
+            .icon(crate::icons::PLAYER_LIGHT)
+            .unfolded_words(true)
+            .tip(PLAYER_LIGHT_TIP);
+        lighting = lighting.check(row);
+        lighting_rows += 1;
+    }
     if shown("Fade Geometry") {
         let value = &fade;
         let full = lead + fade_width;
@@ -527,7 +536,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         lighting_rows += 1;
     }
     if lighting_rows > 0 {
-        let tip = "Lighting, shadows, fog and how the scene is drawn";
+        let tip = "Lighting, shadows, fog, the player's light and how the scene is drawn";
         h = h.right(pop_item(form, Icon::Light, lighting, tip));
     } else {
         drop(lighting);
@@ -682,6 +691,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     }
     s.shadow_quality = quality.get();
     view.fog = fog;
+    app.settings.player_light = player_light;
     if view.fade != fade.get() {
         view.fade = fade.get();
         app.settings.fade_geometry = view.fade as u8;
@@ -942,6 +952,8 @@ const LIGHTS_TIP: &str =
 /// (Grayed out without Creature shadows, its check kept: the lights'
 /// shadows are the creatures', as in the game.)
 const LIGHTS_OFF_TIP: &str = "Check Creature shadows first: creatures cast these";
+const PLAYER_LIGHT_TIP: &str =
+    "Light the start location as the game lights the player in a dim area";
 const ANIMATIONS_TIP: &str =
     "Play placed objects' animations, in every area view. Off, they hold still.";
 const GRASS_TIP: &str = "Draw the tileset's and the area's own grass, in every area view";

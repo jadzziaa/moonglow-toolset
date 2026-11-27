@@ -1465,6 +1465,171 @@ fn batch6_player_light_at_night() {
     eprintln!("{}", pictures[0].0.display());
 }
 
+/// The player's own light's shadows (the owner's ruling "player light
+/// shadows: yes"): a ttr01 field at night with no moon shadows (opacity
+/// 100), the player visible, facing north, at (20, 20), four commoners
+/// 3 m north, east, south and west of it, each facing away; the client
+/// with Creature Shadow Detail Best, Off and (`dim_alone` only) Fast,
+/// Moonglow's area view beside it with the player's light at the player's
+/// place (`View::player`). Cases (`MG_B6_CASES`): `dim_alone` (ambient
+/// and diffuse 0x101010: the vision light on), `dim_lamp` (and a lamp post,
+/// placeables.2da row 73, 5 m east of the player: which casts, the
+/// player's light or the lamp), `bright_lamp` (0x606060 each: the vision
+/// light out). Each commoner's shadow is read just beyond its feet away
+/// from the player and, with a lamp, away from the lamp: how much darker
+/// Best (or Fast) is than Off there; `darker.png` to look at.
+///
+/// Predicted (before the client's pictures): every commoner casting
+/// outward from the vision model's other light (`fx_light_clr`'s
+/// `AuroraLight01`: black, `shadow 1`), and with the lamp that light
+/// alone casting, as the client casts from the one light nearest the
+/// player. Seen (2026-11-27, 89.8193.37): neither. Alone, no creature
+/// casts at Best or Fast (darker by 0.001 at most, `darker.png` black
+/// but the creatures' edges); with the lamp, the lamp casts every
+/// creature's shadow, the player's too, in the dim area as in the bright
+/// one (west of the west commoner 0.21, north and south of the others
+/// 0.38 to 0.39; the east one's, 2 m from the lamp, short, under it).
+/// So the player's vision light casts nothing and takes no lamp's place:
+/// Moonglow's player's light, which casts none, draws the same. (The
+/// lamp's shadows darken alike in the dim area and the bright one, whose
+/// picture is 38 against 22 of 255 Off: Moonglow's, by the lamp's share,
+/// 0.48 and 0.11; the deferred list's "Shadows".)
+#[test]
+#[ignore]
+fn batch6_player_light_shadows() {
+    let only = std::env::var("MG_B6_CASES").ok();
+    let wanted = |c: &str| only.as_deref().is_none_or(|o| o.split(',').any(|x| x == c));
+    let start = Vec3::new(20.0, 20.0, 0.0);
+    let lamp = Vec3::new(25.0, 20.0, 0.0);
+    let people: [(Vec3, f32); 4] = [
+        (start + Vec3::new(0.0, 3.0, 0.0), 90.0),
+        (start + Vec3::new(3.0, 0.0, 0.0), 0.0),
+        (start + Vec3::new(0.0, -3.0, 0.0), 270.0),
+        (start + Vec3::new(-3.0, 0.0, 0.0), 180.0),
+    ];
+    let camera = (90.0, 16.0, 10.0);
+    let cases: [(&str, u32, bool, &[u8]); 3] = [
+        ("dim_alone", 0x101010, false, &[2, 0, 1]),
+        ("dim_lamp", 0x101010, true, &[2, 0]),
+        ("bright_lamp", 0x606060, true, &[2, 0]),
+    ];
+    for (case, level, with_lamp, modes) in cases {
+        if !wanted(case) {
+            continue;
+        }
+        let mut shots = Vec::new();
+        for &mode in modes {
+            let light = Lighting { ambient: level, diffuse: level, main_light: 0, only_tile: None };
+            let mut r = Reading::new(&format!("player_shadows_{case}_{mode}"), "ttr01", light, &[]);
+            for (label, v) in
+                [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 100), ("IsNight", 1)]
+            {
+                r.are.root.set(label, Value::Byte(v));
+            }
+            for &(at, facing) in &people {
+                super::batch3::put_creature(&mut r, "nw_commale", at.to_array(), facing);
+            }
+            if with_lamp {
+                r.place(73, lamp.to_array(), 0.0, &[("Static", Value::Byte(0))]);
+            }
+            let on = mode != 0;
+            let (dir, client, moonglow) = super::batch4::shoot_close_beside_at(
+                r,
+                super::batch3::WHERE,
+                &super::batch3::shadow_settings(mode),
+                camera,
+                &|v, pc| {
+                    (v.creature_shadows, v.light_shadows) = (on, on);
+                    v.player = Some((pc, std::f32::consts::FRAC_PI_2));
+                },
+            );
+            print_log(&dir);
+            shots.push((mode, dir, client, moonglow.map(|(_, on)| on)));
+        }
+        let off = shots.iter().find(|s| s.0 == 0).map(|s| s.2.clone()).unwrap();
+        let off_mg = shots.iter().find(|s| s.0 == 0).and_then(|s| s.3.clone());
+        let log = std::fs::read_to_string(shots[0].1.join("user/logs/nwclientLog1.txt"))
+            .unwrap_or_default();
+        let pc = log
+            .lines()
+            .find_map(|l| {
+                let p: Vec<f32> = l
+                    .split("MG_PC ")
+                    .nth(1)?
+                    .split_whitespace()
+                    .filter_map(|v| v.parse().ok())
+                    .collect();
+                (p.len() == 3).then(|| Vec3::new(p[0], p[1], p[2]))
+            })
+            .unwrap_or(start);
+        let cam = super::batch4::close_camera(pc, camera);
+        let aspect = off.width as f32 / off.height.max(1) as f32;
+        let to_screen = cam.projection(aspect) * cam.view();
+        let on_screen = |p: Vec3| {
+            let c = to_screen * p.extend(1.0);
+            [(c.x / c.w + 1.0) * 0.5, (1.0 - c.y / c.w) * 0.5]
+        };
+        let around = |p: Vec3| {
+            let [x, y] = on_screen(p);
+            [x - 0.012, y - 0.012, x + 0.012, y + 0.012]
+        };
+        for (mode, dir, client, moonglow) in shots.iter().filter(|s| s.0 != 0) {
+            darker_runs(client, &off, &dir.join("darker.png"), [0.45, 0.55]);
+            if let (Some(m), Some(o)) = (moonglow, &off_mg) {
+                darker_runs(m, o, &dir.join("darker_moonglow.png"), [0.45, 0.55]);
+            }
+            for (i, &(at, _)) in people.iter().enumerate() {
+                let from_player = (at - pc).truncate().normalize_or_zero().extend(0.0);
+                let beyond = at + from_player * 1.2;
+                let ours = |p: Vec3| {
+                    moonglow
+                        .as_ref()
+                        .zip(off_mg.as_ref())
+                        .map(|(m, o)| super::batch3::darker(m, o, around(p)))
+                };
+                let shown = |d: Option<f32>| d.map_or("-".to_string(), |d| format!("{d:.3}"));
+                let (theirs, mine) =
+                    (super::batch3::darker(client, &off, around(beyond)), ours(beyond));
+                let mut line = format!(
+                    "{case} mode {mode}: commoner {i} at ({:.1}, {:.1}): away from the player \
+                     darker by {theirs:.3} in the client, {} in Moonglow",
+                    at.x,
+                    at.y,
+                    shown(mine)
+                );
+                // (Seen: the player's light casts none, in the client or
+                // in Moonglow.)
+                if !with_lamp {
+                    assert!(theirs < 0.04, "{line}: the client's player's light casts");
+                    assert!(mine.is_none_or(|d| d < 0.04), "{line}: Moonglow's casts");
+                }
+                if with_lamp {
+                    let from_lamp = (at - lamp).truncate().normalize_or_zero().extend(0.0);
+                    let beyond = at + from_lamp * 1.2;
+                    let (theirs, mine) =
+                        (super::batch3::darker(client, &off, around(beyond)), ours(beyond));
+                    line += &format!(
+                        "; away from the lamp {theirs:.3} in the client, {} in Moonglow",
+                        shown(mine)
+                    );
+                    // (Seen: the lamp casts the north and south commoners'
+                    // shadows whether the player's light is on or not; the
+                    // player's light takes no lamp's place.)
+                    if i % 2 == 0 {
+                        assert!(theirs > 0.2, "{line}: the client's lamp casts none");
+                        assert!(
+                            mine.is_none_or(|d| d > 0.04),
+                            "{line}: Moonglow's lamp casts none"
+                        );
+                    }
+                }
+                eprintln!("{line}");
+            }
+            eprintln!("{case} mode {mode}: {}", dir.display());
+        }
+    }
+}
+
 /// Creatures whose nodes an animation moves otherwise by number than by
 /// name, walking (the deferred list's "Animations bind by part number"):
 /// a mohrg (appearance 123, `c_mohrg`: `a_ba`'s cloak bones' keys fall on

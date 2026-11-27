@@ -59,6 +59,7 @@ mod outline_color;
 mod outliner;
 mod palettes;
 mod part_emitters;
+mod player_light;
 mod plugin_kinds;
 mod plugins;
 mod preview_panel;

@@ -47,8 +47,20 @@ pub(super) fn shoot_close_beside(
     r: Reading,
     body: &str,
     settings: &str,
-    (facing, distance, pitch): (f32, f32, f32),
+    camera: (f32, f32, f32),
     view: &dyn Fn(&mut mg_area::View),
+) -> (PathBuf, Rgba, Option<(Rgba, Rgba)>) {
+    shoot_close_beside_at(r, body, settings, camera, &|v, _| view(v))
+}
+
+/// [`shoot_close_beside`], Moonglow's view set knowing where the player
+/// stands (from the client's log): to give it the player's light.
+pub(super) fn shoot_close_beside_at(
+    r: Reading,
+    body: &str,
+    settings: &str,
+    (facing, distance, pitch): (f32, f32, f32),
+    view: &dyn Fn(&mut mg_area::View, Vec3),
 ) -> (PathBuf, Rgba, Option<(Rgba, Rgba)>) {
     let (are, git) = (r.are.clone(), r.git.clone());
     let dir = r.dir.clone();
@@ -70,7 +82,7 @@ pub(super) fn shoot_close_beside(
     let pc = player_stood(&dir, &game, &model, glam::Vec2::new(20.0, 20.0));
     let camera = close_camera(pc, (facing, distance, pitch));
     let mut v = mg_area::View { fog: false, ..mg_area::View::of(&model) };
-    view(&mut v);
+    view(&mut v, pc);
     let mut scene = area_scene.scene(&model, &v);
     if v.animate {
         let mut sims = HashMap::new();

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:41:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -742,11 +742,21 @@ Nothing open.
   post, `batch6_light_shadow_ring`; Moonglow cast 16: a tile each of an
   atlas that grows now, up to 4,096 creatures; [the
   findings](findings.md), "Every creature in a lamp's reach casts; one
-  lamp casts"). A player's own light casting the shadows of the
-  creatures about the player (`batch6_player_light_at_night`) is
-  settled by design: the toolset places no player. Settled by the
-  owner's rulings of 2026-11-26, nothing left open (the entry kept as
-  the record):
+  lamp casts"). Open: a lamp's shadow is as dark in a bright area as
+  in a dim one (beyond what was asked: seen 2026-11-27 while reading
+  the player's light's shadows, `batch6_player_light_shadows`, which
+  found that the player's vision light casts none, as Moonglow's). The
+  client darkened the floor beyond the commoners north and south of
+  the player, about 5 m from a lamp post, by 0.38 and 0.39 in a dim
+  field (ambient and diffuse 0x101010; 22 of 255 across the picture,
+  Shadow Detail Off) and by 0.39 and 0.38 in a bright one (0x606060; 38
+  of 255), and west of the west commoner by 0.21 in both. Moonglow,
+  darkening by the lamp's share of the light there (read in one room
+  of 0x303030), gave 0.48 and 0.51 in the dim field and 0.11 in the
+  bright one: the share rule holds within one area's light and not
+  across them. What the client's darkness follows wants readings of
+  one lamp in areas of several levels. Settled by the owner's rulings
+  of 2026-11-26 (the entry kept as their record):
   - each creature casts from its own nearest lamp, by design: the
     client casts from one light alone, the one nearest the player
     (every creature in its reach casts from it, and the creatures by

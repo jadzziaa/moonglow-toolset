@@ -36,6 +36,9 @@ icons! {
     START = Start;
     NIGHT = Moon;
     FOG = Fog;
+    /// The area view's Player's Light (the player's vision light at the
+    /// start location): a person, the player.
+    PLAYER_LIGHT = User;
     /// The area view's Tile Border (what the game draws past the edge).
     TILE_BORDER = TileBorder;
     /// The area view's Shadows switch (and the model view's Shadow).
@@ -173,7 +176,7 @@ pub(crate) struct Tools {
 /// Header, the header's right-click menu), by the names the retired area
 /// toolbar gave them, kept so that a stored list keeps its meaning
 /// (`area_view::header`); the objects' filters are [`area_tool_kind`]'s.
-pub(crate) const AREA_TOOLS: [&str; 29] = [
+pub(crate) const AREA_TOOLS: [&str; 30] = [
     "Start",
     "All",
     "None",
@@ -181,6 +184,7 @@ pub(crate) const AREA_TOOLS: [&str; 29] = [
     "Lighting",
     "Shadows",
     "Fog",
+    "Player's Light",
     "Fade Geometry",
     "Animations",
     "Grass",
@@ -328,6 +332,7 @@ mod tests {
             LIGHTING,
             SHADOWS,
             FOG,
+            PLAYER_LIGHT,
             FADE,
             TILE_BORDER,
             ANIMATIONS,

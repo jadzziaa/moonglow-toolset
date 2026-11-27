@@ -1006,6 +1006,7 @@ const AREA_HOLDERS: [(&str, &[&str]); 8] = [
             "Fast",
             "High",
             "Fog",
+            "Player's light",
             "Fade Geometry",
             "Animations",
             "Grass",
