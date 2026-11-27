@@ -5512,10 +5512,10 @@ fn hak_editor_and_attach() {
         .with_size(egui::vec2(1280.0, 800.0))
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
+    settle(&mut h);
     mg_ui::hak_view::open_hak(h.state_mut());
     h.state_mut().haks[0].hak.add_files(&[added]);
-    h.run();
+    settle(&mut h);
     shoot(&mut h, &dir, "hak-editor");
     // Its resources viewed: a picture, a table (`hak-editor-view-*`).
     for t in [mg_core::ResType::TGA, mg_core::ResType::DDS, mg_core::ResType::TWODA] {
@@ -5523,11 +5523,11 @@ fn hak_editor_and_attach() {
         let Some(item) = items.iter().find(|i| i.key.restype == t) else { continue };
         let name = item.key.to_string();
         h.state_mut().haks[0].filter = name.clone();
-        h.run();
+        settle(&mut h);
         h.get_by_label(&name).click_secondary();
-        h.run();
+        settle(&mut h);
         h.get_all_by_label("View").last().unwrap().click();
-        h.run();
+        settle(&mut h);
         shoot(&mut h, &dir, &format!("hak-editor-view-{t}"));
     }
     h.state_mut().haks[0].filter.clear();
@@ -5536,12 +5536,12 @@ fn hak_editor_and_attach() {
     h.state_mut().haks.clear();
     // (Chess opens on its start area: Module Properties is opened.)
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
-    h.run();
+    settle(&mut h);
     use egui_kittest::kittest::Queryable;
     h.get_by_label("Custom Content").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Add Haks and Talk Table…").click();
-    h.run();
+    settle(&mut h);
     shoot(&mut h, &dir, "attach");
 }
 
@@ -16769,11 +16769,19 @@ fn u26_gallery_views() {
             };
             h.query_all_by_label_contains("Barrel").find(tile).map(|n| n.rect())
         };
+        let grid_top = |h: &Harness<'_, Moonglow>| {
+            (h.query_all_by(|n| {
+                n.role() == egui::accesskit::Role::List
+                    && n.label().as_deref() == Some("Placeables")
+            }))
+            .next()
+            .map(|n| n.rect().top())
+        };
         let start = std::time::Instant::now();
         let down_now = std::cell::Cell::new(false);
         while in_sight(h).is_none() {
             assert!(
-                start.elapsed().as_secs() < 20,
+                start.elapsed().as_secs() < 30,
                 "no barrel's picture in sight: {:?} {screen:?}, the grid {:?}, down {}",
                 h.query_all_by_label_contains("Barrel").map(|n| n.rect()).collect::<Vec<_>>(),
                 h.query_all_by(|n| n.role() == egui::accesskit::Role::List
@@ -16805,8 +16813,17 @@ fn u26_gallery_views() {
                 source: egui::MouseWheelSource::Unknown,
                 modifiers: egui::Modifiers::NONE,
             });
-            pictures_shown(h);
+            // (Until the grid has moved, not a count of frames: a fixed
+            // wait each step once ran the walk past the deadline. At an
+            // end it does not move: a second without it is that.)
+            let was = grid_top(h);
+            let moved = std::time::Instant::now();
+            while grid_top(h) == was && moved.elapsed().as_secs() < 1 {
+                h.step();
+            }
+            settle(h);
         }
+        pictures_shown(h);
         // (The Preview shows it, another row than before the click: the
         // Appearance panel is the dock's other tab, behind.)
         let rows = |h: &Harness<'_, Moonglow>| -> std::collections::BTreeSet<u32> {
