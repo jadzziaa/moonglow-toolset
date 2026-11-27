@@ -2407,13 +2407,17 @@ pub(crate) fn install(cli: &Cli) -> Result<GameInstall> {
     Ok(gi)
 }
 
+/// The user directory `mg` was given (`--user-dir`) or finds, without
+/// the game too; none with `--no-user-dir`.
+fn user_folder(cli: &Cli) -> Option<PathBuf> {
+    (cli.user_dir.clone()).or_else(GameInstall::detect_user_dir).filter(|_| !cli.no_user_dir)
+}
+
 /// The codepage the game client reads text in, as the user directory's
 /// `settings.tml` sets it ([`client_codepage`]); the user directory as
 /// `mg` finds it, without the game too.
 fn user_codepage(cli: &Cli) -> Option<Codepage> {
-    (cli.user_dir.clone())
-        .or_else(GameInstall::detect_user_dir)
-        .filter(|_| !cli.no_user_dir)
+    user_folder(cli)
         .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
         .and_then(|t| client_codepage(&t))
 }
@@ -2597,6 +2601,9 @@ fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered)
 
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
+    if matches!(cli.cmd, Cmd::Plugin { .. }) {
+        let _ = plugins::USER_DIR.set(user_folder(cli));
+    }
     let out = match &cli.cmd {
         Cmd::Ls { archive, sha256 } => {
             // (Mapped, not read: a hak is gigabytes, and its names are in
