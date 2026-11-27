@@ -794,20 +794,6 @@ Nothing open.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **The renderer's textures by name, across sources:** the window's one
-  renderer keeps its textures by name; they are forgotten when the game
-  data changes, a module closes, or a texture, MTR or TXI of the
-  module's own files changes outside (the review's B15), but not when
-  the model viewer draws a hak's model from the hak's own load order
-  through the same renderer. Since the review's last pass (its item 6)
-  an Import forgets them where a DDS, TGA, PLT, MTR or TXI of the
-  module changed, was added or was removed (`refresh_module_layer`).
-  Clearing them at every change of source would read every texture
-  again, and a hak's model drawn beside an area view would clear them
-  twice a frame: a real unintended consequence. Caches per source in the
-  renderer would do. (M) (the review of November 2026, B15, and what its
-  fixers saw on the way)
-
 ## Models and textures
 
 - **Heed's previews after 1.33.0** (not reproduced): the Drow shields of

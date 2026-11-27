@@ -155,15 +155,54 @@ pub struct Layer {
     pub fingerprint: u64,
 }
 
+/// What tells one source of resources from every other the process
+/// makes: a number of its own, never given again, held while the source
+/// is. What is kept of a source by its number (the renderer's textures)
+/// can be watched for the source being let go of ([`Identity::watch`]).
+#[derive(Debug)]
+pub struct Identity(std::sync::Arc<u64>);
+
+impl Identity {
+    pub fn new() -> Identity {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Identity(std::sync::Arc::new(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+    }
+
+    /// Its number: never 0, and no other identity's.
+    pub fn id(&self) -> u64 {
+        *self.0
+    }
+
+    /// What says whether the identity is still held (`upgrade` gives
+    /// `None` once it is let go of).
+    pub fn watch(&self) -> std::sync::Weak<u64> {
+        std::sync::Arc::downgrade(&self.0)
+    }
+}
+
+impl Default for Identity {
+    fn default() -> Identity {
+        Identity::new()
+    }
+}
+
 /// A stack of layers, highest priority first.
 #[derive(Debug, Default)]
 pub struct ResMan {
     layers: Vec<Layer>,
+    identity: Identity,
 }
 
 impl ResMan {
     pub fn new() -> ResMan {
         ResMan::default()
+    }
+
+    /// Which load order this is: each [`ResMan`] made has its own, kept
+    /// as its layers change (what is kept by it is forgotten where the
+    /// change calls for it, as the window forgets its textures).
+    pub fn identity(&self) -> &Identity {
+        &self.identity
     }
 
     /// The layers, highest priority first.

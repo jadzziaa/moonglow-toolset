@@ -4,11 +4,11 @@
 //! session don't each leave their textures on the GPU for good. What is
 //! drawn is never let go, however much it is.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use super::Renderer;
+use super::{Cache, Renderer};
 
 /// How long a texture goes undrawn before it is stale: let go of when the
 /// stale ones are too many.
@@ -120,19 +120,22 @@ impl Renderer {
         self.kept.clock += by;
     }
 
-    /// What the textures take on the GPU, and how much of it is stale.
+    /// What the textures take on the GPU (every source's), and how much of
+    /// it is stale.
     pub fn texture_memory(&self) -> TextureMemory {
-        let last = self.last_drawn();
         let mut m = TextureMemory { let_go: self.kept.let_go, ..Default::default() };
-        for (name, entry) in &self.textures {
-            let Some(e) = entry else { continue };
-            m.textures += 1;
-            m.bytes += e.bytes;
-            if e.gpu.texture.format() == wgpu::TextureFormat::Rgba8Unorm {
-                m.uncompressed += e.bytes;
-            }
-            if self.stale(last.get(name.as_str()).copied(), e) {
-                m.stale += e.bytes;
+        for (_, cache) in self.all_caches() {
+            let last = self.last_drawn(cache);
+            for (name, entry) in &cache.textures {
+                let Some(e) = entry else { continue };
+                m.textures += 1;
+                m.bytes += e.bytes;
+                if e.gpu.texture.format() == wgpu::TextureFormat::Rgba8Unorm {
+                    m.uncompressed += e.bytes;
+                }
+                if self.stale(last.get(name.as_str()).copied(), e) {
+                    m.stale += e.bytes;
+                }
             }
         }
         m
@@ -143,13 +146,17 @@ impl Renderer {
         self.kept.frame_at(Instant::now());
     }
 
-    /// When each texture a material binds was last drawn (by its
-    /// materials: a texture's own stamp is in its entry).
-    fn last_drawn(&self) -> HashMap<&str, u32> {
+    /// Every source's cache, by its source: the one drawn from first.
+    fn all_caches(&self) -> impl Iterator<Item = (u64, &Cache)> {
+        std::iter::once((self.source, &self.cache)).chain(self.caches.iter().map(|(s, c)| (*s, c)))
+    }
+
+    /// When each texture of `cache` a material binds was last drawn (by
+    /// its materials: a texture's own stamp is in its entry).
+    fn last_drawn<'a>(&self, cache: &'a Cache) -> HashMap<&'a str, u32> {
         let mut last: HashMap<&str, u32> = HashMap::new();
-        for (i, key) in self.material_keys.iter().enumerate() {
-            let Some(key) = key else { continue };
-            let at = self.kept.materials.get(i).copied().unwrap_or(0);
+        for (key, &i) in &cache.materials {
+            let at = self.kept.materials.get(i as usize).copied().unwrap_or(0);
             for name in key.0.iter().flatten().chain([&key.1]) {
                 let e = last.entry(name.as_str()).or_default();
                 *e = (*e).max(at);
@@ -163,93 +170,112 @@ impl Renderer {
         self.kept.now.saturating_sub(at) >= STALE_AFTER.as_secs() as u32
     }
 
-    /// Once a second at most: where the stale textures take more than is
-    /// kept of them, lets go of the longest unused until half that is
-    /// left, and of only the materials, surfaces, and game-shader groups
-    /// that bound those evicted textures. Says how many were let go.
+    /// Once a second at most: lets go of the caches of sources let go of
+    /// ([`Renderer::let_go_of_gone_sources`]); and where the stale textures
+    /// (every source's) take more than is kept of them, lets go of the
+    /// longest unused until half that is left, and of only the materials,
+    /// surfaces, and game-shader groups that bound those evicted textures,
+    /// in their own source's cache. Says how many textures were let go.
     pub(crate) fn let_go_of_stale_textures(&mut self) -> usize {
         if self.kept.checked == Some(self.kept.now) {
             return 0;
         }
         self.kept.checked = Some(self.kept.now);
+        self.let_go_of_gone_sources();
         // (Not even all of them past what is kept: none can be stale past it.)
-        if self.textures_bytes <= self.kept.stale_bytes {
+        let held: u64 = self.all_caches().map(|(_, c)| c.textures_bytes).sum();
+        if held <= self.kept.stale_bytes {
             return 0;
         }
-        let last = self.last_drawn();
-        let mut stale: Vec<(u32, &str, u64)> = (self.textures.iter())
-            .filter_map(|(name, entry)| {
+        let mut stale: Vec<(u32, u64, &str, u64)> = Vec::new();
+        for (source, cache) in self.all_caches() {
+            let last = self.last_drawn(cache);
+            stale.extend(cache.textures.iter().filter_map(|(name, entry)| {
                 let e = entry.as_ref()?;
                 let by_material = last.get(name.as_str()).copied();
                 self.stale(by_material, e).then(|| {
                     let at = by_material.unwrap_or(0).max(e.used.load(Ordering::Relaxed));
-                    (at, name.as_str(), e.bytes)
+                    (at, source, name.as_str(), e.bytes)
                 })
-            })
-            .collect();
-        let mut bytes: u64 = stale.iter().map(|s| s.2).sum();
+            }));
+        }
+        let mut bytes: u64 = stale.iter().map(|s| s.3).sum();
         if bytes <= self.kept.stale_bytes {
             return 0;
         }
         stale.sort_unstable();
-        let mut gone = Vec::new();
-        for (_, name, b) in stale {
+        let mut gone: HashMap<u64, HashSet<String>> = HashMap::new();
+        for (_, source, name, b) in stale {
             if bytes <= self.kept.stale_bytes / 2 {
                 break;
             }
             bytes -= b;
-            gone.push(name.to_string());
+            gone.entry(source).or_default().insert(name.to_string());
         }
-        if gone.is_empty() {
-            return 0;
-        }
-        let gone_names: std::collections::HashSet<String> = gone.into_iter().collect();
-        // Preserve material-draw timestamps on retained textures before dropping
-        // any materials referencing them.
-        for (name, entry) in &self.textures {
-            if !gone_names.contains(name.as_str())
-                && let (Some(e), Some(&at)) = (entry, last.get(name.as_str()))
-            {
-                e.used.fetch_max(at, Ordering::Relaxed);
-            }
-        }
-        drop(last);
-        for name in &gone_names {
-            if let Some(Some(e)) = self.textures.remove(name) {
-                self.textures_bytes = self.textures_bytes.saturating_sub(e.bytes);
-            }
-        }
-        let mut gone_mats: std::collections::HashSet<u32> = std::collections::HashSet::new();
-        for (i, key) in self.material_keys.iter().enumerate() {
-            let Some(key) = key else { continue };
-            if key.0.iter().flatten().chain([&key.1]).any(|n| gone_names.contains(n.as_str())) {
-                gone_mats.insert(i as u32);
-            }
-        }
-        for &slot in &gone_mats {
-            let idx = slot as usize;
-            if let Some(key) = self.material_keys[idx].take() {
-                self.materials.remove(&key);
-            }
-            self.groups[idx] = None;
-            self.free_materials.push(slot);
-            if let Some(at) = self.kept.materials.get_mut(idx) {
-                *at = 0;
+        let mut count = 0;
+        let mut gone_mats: HashSet<u32> = HashSet::new();
+        for (source, gone_names) in gone {
+            count += gone_names.len();
+            let cache = if source == self.source {
+                Some(&mut self.cache)
+            } else {
+                self.caches.get_mut(&source)
+            };
+            if let Some(cache) = cache {
+                gone_mats.extend(let_go_in(cache, &gone_names, &self.kept.materials));
             }
         }
         if !gone_mats.is_empty() {
-            self.particle_materials.retain(|_, slot| !gone_mats.contains(slot));
-            let surface_gone = |s: &super::Surface| {
-                gone_mats.contains(&s.material)
-                    || s.water_material.is_some_and(|(m, _)| gone_mats.contains(&m))
-            };
-            self.surfaces.retain(|_, list| !list.iter().any(surface_gone));
-            self.surfaces_prev.retain(|_, list| !list.iter().any(surface_gone));
-            self.game.forget_materials_in(&gone_mats);
+            self.free_groups(&gone_mats);
         }
-        self.kept.let_go += gone_names.len();
-        gone_names.len()
+        self.kept.let_go += count;
+        count
     }
+}
+
+/// Lets go of the textures `gone` in `cache`, and of the materials that
+/// bound them and the surfaces drawn with those: the materials' places
+/// among the groups, for the renderer to free. (`drawn_at`: when each
+/// material was last drawn, [`Kept::materials`].)
+fn let_go_in(cache: &mut Cache, gone: &HashSet<String>, drawn_at: &[u32]) -> HashSet<u32> {
+    // Preserve material-draw timestamps on retained textures before dropping
+    // any materials referencing them.
+    let mut last: HashMap<&str, u32> = HashMap::new();
+    for (key, &i) in &cache.materials {
+        let at = drawn_at.get(i as usize).copied().unwrap_or(0);
+        for name in key.0.iter().flatten().chain([&key.1]) {
+            let e = last.entry(name.as_str()).or_default();
+            *e = (*e).max(at);
+        }
+    }
+    for (name, entry) in &cache.textures {
+        if !gone.contains(name.as_str())
+            && let (Some(e), Some(&at)) = (entry, last.get(name.as_str()))
+        {
+            e.used.fetch_max(at, Ordering::Relaxed);
+        }
+    }
+    drop(last);
+    for name in gone {
+        if let Some(Some(e)) = cache.textures.remove(name) {
+            cache.textures_bytes = cache.textures_bytes.saturating_sub(e.bytes);
+        }
+    }
+    let binds_gone = |key: &super::MaterialKey| {
+        key.0.iter().flatten().chain([&key.1]).any(|n| gone.contains(n.as_str()))
+    };
+    let mats: HashSet<u32> =
+        cache.materials.iter().filter(|(key, _)| binds_gone(key)).map(|(_, &i)| i).collect();
+    if !mats.is_empty() {
+        cache.materials.retain(|_, i| !mats.contains(i));
+        cache.particle_materials.retain(|_, slot| !mats.contains(slot));
+        let surface_gone = |s: &super::Surface| {
+            mats.contains(&s.material) || s.water_material.is_some_and(|(m, _)| mats.contains(&m))
+        };
+        cache.surfaces.retain(|_, list| !list.iter().any(surface_gone));
+        cache.surfaces_prev.retain(|_, list| !list.iter().any(surface_gone));
+    }
+    mats
 }
 
 #[cfg(test)]
