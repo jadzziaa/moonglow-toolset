@@ -46,26 +46,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `mg_core::release` is in v2.9.0 and after, so the line can only go in
   with the viewer's move to a newer tag (in its repository, not this
   one). (S, waits on the viewer's next toolset tag)
-- **Tests of the review of November 2026 not seen failing before their
-  fix:** each of its fixes came with a test, but these were not run
-  against the code before the fix, and rest on the review's trace or
-  the fixer's reading: the command line's and plugin host's C1 to C28
-  but C7 (C4's timed before the fix); the formats' timed tests (F9, F13
-  to F15) and hostile-file tests (F2, F8), whose old code would take
-  gigabytes or minutes; opening and saving's P2 to P23 but P7, P16, P20
-  and P21. D28's test passed before its change too, as did the test of
-  a rename's list made through a set (seen on the way): both findings
-  were suspected. Each test run at its fix's parent commit would show
-  which fail there. The X and B parts were run on 10 November: each
-  test of X3 to X25 and of the blueprint editors' fixer (but B15's and
-  B19's) that can run at its fix's parent failed there for its
-  finding's reason; those of X11, X18, X20, X22 and X23 cannot run
-  there, as they call functions their fixes added (`found`,
-  `spans_lines` and `lines_text`, the `reads` counter, `binds_uses`
-  and the new `element`, `holds`), and X25's commit has no test of its
-  own. (S, waits on the reviewer's run against the code before the
-  fixes) (the review of November 2026, [its
-  fixes](review-2026-11/fixes.md))
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S) (waits on Neovim and Helix: neither is on the
