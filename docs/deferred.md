@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:18:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -708,31 +708,21 @@ Nothing open.
   transparent texels' colors counted, as the client makes them
   (`batch9_soft_edge_levels`; [the findings](findings.md), "The client
   makes an uncompressed texture's levels by plain means"); a compressed
-  DDS's own levels are used as stored. Not explained: static
-  placeables' such meshes are not put in order by distance in the
-  client: of two cards the same one is drawn first in every static pair
-  of a scene, whichever is nearer (the red in all ten of
-  `batch9_see_through_statics`, the blue in all eight of
-  `batch8d_see_through_two_models` read again; its first reading, which
-  had static pairs of textures of their own drawn farthest first, read
-  the client's pictures a few pixels off), whether they share a texture
-  or a model with dynamic placeables or not, whichever is listed first.
-  Which texture goes first is not read, after three batches. Not by
-  name (model or texture), by the texture listed first or last in the
-  area or loaded first, by the count of each texture's cards or their
-  mean, nearest or farthest place (`batch9_static_order`, 2026-11-26:
-  lone cards untying each texture's places, the list varied, the names
-  swapped), and not by tile: one pair of models' sixteen pairs wholly
-  inside four tiles near and far, across x 20 with the nearer card on
-  either tile and across y 30, all drew the blue first
-  (`batch9_static_tiles`, 2026-11-26), where other pairs of textures
-  in earlier batches drew the red. So one order holds for two
-  textures over the whole area, whatever their places, tiles and list,
-  and differs from one pair of textures to another as no name or list
-  rule read predicts (a hash's order of the textures, or of where they
-  were loaded, would; not read). Moonglow puts static ones in order by their origins,
-  and half the static pairs differ ([the findings](findings.md), "Two
-  placeables' see-through meshes"). Each see-through mesh of alpha 1
+  DDS's own levels are used as stored. Static placeables' such meshes
+  are drawn as the client's since 2026-11-26: by their textures' alpha
+  means, the highest first, before the dynamic ones', whichever is
+  nearer (read from the client's code with the owner's leave, after
+  three batches had found no rule, and confirmed by running it:
+  `batch9_static_alpha_mean`, 34 pairs predicted before the run, all
+  held; [the findings](findings.md), "Static placeables' see-through
+  meshes go by their textures' alpha means"). Not matchable: textures
+  of one alpha mean (every opaque texture's is 1) are left in the
+  client to `std::sort` over its whole static texture list, an order
+  of no rule Moonglow can know; Moonglow keeps their origins' order,
+  so such pairs still differ from the client in about half
+  (`batch9_static_order`, `batch9_static_tiles`). Tiles' meshes share
+  the static buckets in the client; untried there, they keep their
+  place. Each see-through mesh of alpha 1
   costs two draws. On macOS the solid part's discarded fragments wrote
   their depth (the plant's edge hid the ground again) until the shader
   stopped at each discard: seen and mended on the CI's Mac, a virtual

@@ -2455,6 +2455,96 @@ fn two_models_see_through_meshes_go_by_their_instances_origins() {
     }
 }
 
+/// Static placeables' see-through meshes (mesh `alpha` under 1) go by
+/// their textures' alpha means, the highest first, before the dynamic
+/// ones', whichever is nearer, as the client draws them
+/// (`batch9_static_alpha_mean` in `client_render.rs`); dynamic ones by
+/// their origins, the farther first. Two cards, red and blue, one 1 m
+/// nearer the eye than the other and 0.6 m west: where the nearer is
+/// drawn first, it hides the farther where they overlap; drawn second, it
+/// is laid over it.
+#[test]
+fn static_see_through_meshes_go_by_their_textures_alpha_means() {
+    let Some(gpu) = gpu() else { return };
+    let wall = colored_quad(&gpu, [0.5, 0.5, 0.5]);
+    let behind = Mat4::from_translation(Vec3::new(0.0, 3.0, 0.8))
+        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+        * Mat4::from_scale(Vec3::splat(8.0));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.9,
+        near: 0.1,
+        far: 100.0,
+    };
+    let card = |bitmap| {
+        let list = [Card { bitmap, alpha: 0.5, at: Vec3::ZERO, turn: 0.0 }];
+        Arc::new(GpuModel::new(&gpu, Arc::new(cards(&list))))
+    };
+    let (red, blue) = (card("red"), card("blue"));
+    let (w, h) = (96u32, 96u32);
+    let dir = mg_testkit::output_dir("render");
+    // (The red texture's alpha mean (a TXI's `alphamean`) and the blue's,
+    // whether each is static, the nearer color, and the color drawn first.)
+    let cases = [
+        (0.9, 0.6, true, true, 'R', 'R'),
+        (0.9, 0.6, true, true, 'B', 'R'),
+        (0.6, 0.9, true, true, 'R', 'B'),
+        (0.6, 0.9, true, true, 'B', 'B'),
+        // (Dynamic: the farther first, whatever the means.)
+        (0.9, 0.6, false, false, 'R', 'B'),
+        (0.9, 0.6, false, false, 'B', 'R'),
+        // (Static before dynamic, whatever the means.)
+        (0.6, 0.9, true, false, 'B', 'R'),
+        (0.6, 0.9, false, true, 'R', 'B'),
+    ];
+    for (i, (red_mean, blue_mean, red_static, blue_static, near, first)) in
+        cases.into_iter().enumerate()
+    {
+        let mut assets = TestAssets::default();
+        assets.solid("red", [255, 0, 0, 255]);
+        assets.solid("blue", [0, 0, 255, 255]);
+        for (name, mean) in [("red", red_mean), ("blue", blue_mean)] {
+            let txi = mg_image::txi::Txi::parse(format!("alphamean {mean}").as_bytes());
+            assets.txis.insert(name.to_string(), txi);
+        }
+        let place = |model: &Arc<GpuModel>, color: char, statics: bool| {
+            let at =
+                if color == near { Vec3::new(-0.3, -0.5, 0.0) } else { Vec3::new(0.3, 0.5, 0.0) };
+            Instance {
+                receives_shadows: statics,
+                ..Instance::new(model.clone(), Mat4::from_translation(at))
+            }
+        };
+        let scene = Scene {
+            instances: vec![
+                Instance::new(wall.clone(), behind),
+                place(&red, 'R', red_static),
+                place(&blue, 'B', blue_static),
+            ],
+            area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let img = r.render_image(&gpu, &assets, &scene, &camera, w, h);
+        save(&img, &dir.join(format!("static_see_through_{i}.png")));
+        let at = |p: Vec3| {
+            let c = (camera.projection(w as f32 / h as f32) * camera.view()).project_point3(p);
+            img.pixel(((c.x + 1.0) * 0.5 * w as f32) as u32, ((1.0 - c.y) * 0.5 * h as f32) as u32)
+        };
+        // (Where they overlap, on the nearer card's plane; the nearer alone
+        // west.)
+        let overlap = at(Vec3::new(0.0, -0.5, 1.0));
+        let nearer_alone = at(Vec3::new(-0.9, -0.5, 1.0));
+        let nearer_first = (0..3).all(|k| overlap[k].abs_diff(nearer_alone[k]) <= 6);
+        assert_eq!(
+            nearer_first,
+            first == near,
+            "case {i}: overlap {overlap:?}, the nearer alone {nearer_alone:?}"
+        );
+    }
+}
+
 /// The pipelines of the game's programs a renderer made, kept as lines
 /// (`Renderer::game_pipelines_made`), are made by another before it draws
 /// (`Renderer::prepare_game_pipelines`, as a module opens with what its

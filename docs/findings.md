@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:18:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2248,9 +2248,76 @@ places, tiles and list; which, no name or list rule read predicts.
 - **Moonglow:** dynamic placeables as the client (`mg-render`'s
   `renderer.rs`, `instance_depth`;
   `two_models_see_through_meshes_go_by_their_instances_origins`). Static
-  ones are put in order as dynamic ones, by their origins: half of the
-  static pairs differ from the client (open in the [deferred
-  list](deferred.md), "See-through meshes").
+  ones: the next finding, which explains this one's batches (all their
+  textures opaque TGAs, of one alpha mean).
+- **Wiki:** missing.
+
+### Static placeables' see-through meshes go by their textures' alpha means
+
+The client draws static geometry's (a static placeable's) meshes by
+texture: of two static see-through meshes (mesh `alpha` under 1), the
+one whose texture has the higher alpha mean is drawn first, whichever
+is nearer, and all of them before the dynamic placeables' (which go by
+their origins, farthest first). A texture's alpha mean is a PLT's 0.5;
+a BioWare DDS's its header's, over a TXI `alphamean` beside it; else
+the TXI's `alphamean`; else, of a picture stored uncompressed, the mean
+of its texels' alpha over 255 (1 without an alpha channel: a 24-bit
+TGA); of a compressed one, 0.5 with an alpha channel (DXT3, DXT5), else
+1. Textures of one mean (every opaque TGA's, 1) are left to
+`std::sort` over the client's whole static texture list: why three
+batches of opaque cards found one texture first in every pair of a
+scene and no rule for which.
+
+Read from the client's code (`nm` and `objdump` on `nwmain-linux`, read
+only, with the owner's leave as CLAUDE.md's last resort):
+
+- `Scene::AddPartsToDrawBuckets` (0x4751d0) resets the draw buckets,
+  takes `AurTextureGetOrdering()` (0x486180: `TextureIndices`,
+  0x19abe10) and walks `meshbuckets` (0x19abc60) and `fadebuckets`
+  (0x19abc50) in that order, adding each texture's static parts with
+  `DrawBucketManager::AddPartToBucket` (0x47be30: the bucket at
+  `type * 3 + kind`, then `DrawBucket::Add`, 0x47bce0, a plain append);
+  only then does it sort the dynamic objects (`Gob`s, by
+  `std::__introsort_loop`) and add theirs.
+- `TextureIndices` is the static texture list
+  (`CAurTextureBasic::m_StaticTextureList`, 0x19abe40) sorted in
+  `AurTextureBuildAndStoreAll` (0x48e680) by `std::sort` (introsort
+  0x490160, insertion sort 0x48ff10) with the comparator at 0x4842b0:
+  `movss 0x30(%rdi); ucomiss 0x30(%rsi); seta`, the higher +0x30 first.
+- `CAurTextureBasic` +0x30 is -1 from the constructor (0x487250);
+  `ParseField` (0x4881e0) writes a TXI's `alphamean` there;
+  `LoadImage` (0x487980, at build, after the TXI) passes it to
+  `AurGetImageWrapper`, whose DDS reader writes a BioWare header's;
+  `ConstructImage` (0x48a5d0) sets 0.5 for a PLT; and
+  `BuildAndStoreTexture` (0x48b320), where it is still -1, takes 1.0
+  (0.5 with four channels) for a compressed format, else
+  `ImageGetAlphaMean` (0x4b8770: 1.0 for three channels or fewer, else
+  an `f32` sum of each texel's alpha over 255 by their count).
+
+- **Checked:** game client, `client_render`'s `batch9_static_alpha_mean`
+  (2026-11-26): seven textures of distinct means from every source above
+  (32-bit TGAs of alpha 255 and 245, a BioWare DDS of header 0.9, an
+  opaque TGA with a TXI `alphamean 0.8`, a BioWare DDS of header 0.7
+  with a TXI of 0.95 beside it, a standard DXT5 DDS, a BioWare DDS of
+  0.3), names scrambled against the means, on static cards in twelve
+  pairs, each with the red nearer and with the blue: all 24 pairs drew
+  first the predicted texture, written in the test before the run (the
+  header over its TXI included). `batch9_static_alpha_mean_checks`: the
+  same textures on dynamic cards drew the farther first in all six
+  pairs (the reading of the overlaps holds with these textures), and a
+  static card was drawn before a dynamic one in all four pairs,
+  whichever was nearer and whichever color. (The first run's 245 TGA
+  was written 24-bit, of mean 1, tying the 1.0 one; its pairs went as
+  predicted by the tie's order. Run again as 32-bit, all held.) A PLT's
+  0.5 and a standard DXT1's 1 are read, not run.
+- **Moonglow:** as the client since 2026-11-26 for static placeables
+  (`mg-render`'s `renderer.rs`: `client_alpha_mean`,
+  `see_through_order`; `static_see_through_meshes_go_by_their_textures_alpha_means`,
+  `a_texture_s_alpha_mean_is_the_client_s`): all 34 pairs of both
+  batches as the client's, by both shader paths, where before 14 differed.
+  Textures of one mean keep their origins' order (the client's
+  `std::sort` order can't be known). Tiles share the static buckets in
+  the client, untried there: their meshes keep their place.
 - **Wiki:** missing.
 
 ### The client makes an uncompressed texture's levels by plain means

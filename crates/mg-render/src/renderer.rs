@@ -157,6 +157,9 @@ struct TextureEntry {
     /// The game cuts a mesh by it (`NO_DISCARD` 0): it has alpha, or its
     /// TXI's `alphamean` is below 1 (that decides, where given).
     cut: bool,
+    /// Its alpha mean as the client takes it ([`client_alpha_mean`]):
+    /// static placeables' see-through meshes are drawn by it.
+    alpha_mean: f32,
     blending: Blending,
     env: Option<String>,
     decal: bool,
@@ -320,6 +323,37 @@ fn alpha_in(t: &mg_image::Texture) -> bool {
     }
 }
 
+/// A texture's alpha mean as the client takes it (`CAurTextureBasic`
+/// +0x30, read from its code and confirmed by running it:
+/// `docs/findings.md`, "Static placeables' see-through meshes go by their
+/// textures' alpha means"). A PLT's is 0.5 (`ConstructImage`); a BioWare
+/// DDS's its header's (read with the image, after the TXI, so over a TXI
+/// `alphamean`); else a TXI's `alphamean`; else, of a picture stored
+/// uncompressed, the mean of its texels' alpha (`ImageGetAlphaMean`: an
+/// `f32` sum of each over 255, in order, by their count; 1 without an
+/// alpha channel); of a compressed one, 0.5 with an alpha channel (DXT3,
+/// DXT5), else 1.
+fn client_alpha_mean(t: &mg_image::Texture, txi: &mg_image::txi::Txi, plt: bool) -> f32 {
+    if plt {
+        return 0.5;
+    }
+    if let Some(header) = t.alpha_mean {
+        return header;
+    }
+    if let Some(mean) = txi.alpha_mean() {
+        return mean;
+    }
+    match (t.format, t.mips.first()) {
+        (mg_image::Format::Rgba8, Some(level)) if t.has_alpha => {
+            let texels = level.as_chunks::<4>().0;
+            let sum = texels.iter().fold(0f32, |s, p| s + f32::from(p[3]) / 255.0);
+            if texels.is_empty() { 0.0 } else { sum / texels.len() as f32 }
+        }
+        (mg_image::Format::Bc2 | mg_image::Format::Bc3, _) => 0.5,
+        _ => 1.0,
+    }
+}
+
 /// Whether a fragment shader's source switches the environment map off.
 fn env_switched_off(source: &str) -> bool {
     defines(source, "ENVIRONMENT_MAP", "0")
@@ -360,6 +394,9 @@ struct Surface {
     /// The game cuts it by its texture's alpha (`NO_DISCARD` 0, with the
     /// draw's own reasons: [`crate::game::no_discard`]).
     cut: bool,
+    /// Its texture's alpha mean as the client takes it
+    /// ([`TextureEntry::alpha_mean`]; 1 untextured).
+    alpha_mean: f32,
     /// What chooses the game's stock pair for it.
     traits: crate::game::Traits,
     /// It reflects an environment map, and that is a cube map.
@@ -421,6 +458,9 @@ struct Draw<'a> {
     twosided: bool,
     depth: f32,
     hint: u32,
+    /// Where it comes among the see-through draws of its hint, before
+    /// their depth ([`see_through_order`]).
+    order: u16,
     /// Its uniforms' place among the frame's.
     uniform: u32,
     /// Its material's bind group, in [`Renderer::groups`].
@@ -449,6 +489,25 @@ struct Draw<'a> {
     /// `sample_framebuffer`), both its parts: after the copy, which is
     /// made after the other see-through meshes, their soft parts too.
     late: bool,
+}
+
+/// A see-through draw's place among those of its hint, before their
+/// depth ([`Draw::order`]): a static placeable's mesh of `alpha` under 1
+/// by its texture's alpha mean (`Some`), the highest first, before the
+/// others (`None`), as the client draws them: its static geometry's
+/// meshes by texture (`Scene::AddPartsToDrawBuckets` walks `meshbuckets`
+/// in `AurTextureGetOrdering`'s order, the textures sorted by alpha mean,
+/// the highest first), put in the draw buckets before the sorted dynamic
+/// objects' (`batch9_static_alpha_mean` in `client_render.rs`). Textures
+/// of one mean keep the depth's order: the client leaves them to
+/// `std::sort` over its whole static texture list, an order Moonglow
+/// can't know.
+fn see_through_order(static_mean: Option<f32>) -> u16 {
+    match static_mean {
+        // (Means of 0 to 2 in 15 bits, the highest the smallest.)
+        Some(mean) => 0x7FFF - (mean.clamp(0.0, 2.0) * 16383.5) as u16,
+        None => 0x8000,
+    }
 }
 
 /// A mesh's pipeline of the game's programs, and a see-through one's
@@ -952,6 +1011,7 @@ fn load_texture(
                 gpu,
                 alpha: false,
                 cut: false,
+                alpha_mean: 1.0,
                 blending: txi.blending(),
                 env: None,
                 decal: false,
@@ -992,6 +1052,9 @@ fn texture_entry(
     role: Role,
     lost: Option<Arc<TextureEntry>>,
 ) -> Option<TextureEntry> {
+    // (Its alpha mean, from the picture as read.)
+    let plt = crate::assets::split_colors(name).1.is_some();
+    let alpha_mean = client_alpha_mean(&t.texture, &t.txi, plt);
     // What the rippling procedure makes of the picture where it doesn't
     // ripple it: of a DDS, a flat gray (the client loses its picture);
     // with `distort 0`, the channels scaled and moved.
@@ -1007,7 +1070,6 @@ fn texture_entry(
     // procedure takes it: a compressed texture is a DDS to it.)
     // (A name in colors is a PLT's colored copy: only a PLT is asked for
     // so, `Assets::takes_colors`.)
-    let plt = crate::assets::split_colors(name).1.is_some();
     let compressed = (role.compressed(t.txi.blending(), plt) && !t.txi.arturo())
         .then(|| crate::texture::compressed(gpu, &t.texture, t.txi.mipmap()))
         .flatten();
@@ -1024,6 +1086,7 @@ fn texture_entry(
         cube: false,
         alpha,
         cut,
+        alpha_mean,
         gpu,
         blending: t.txi.blending(),
         // (Water reflects its `bumpyshinytexture`, as the game's shiny
@@ -2483,6 +2546,7 @@ impl Renderer {
             ripple: tex.as_ref().and_then(|t| t.ripple),
             water: tex.as_ref().is_some_and(|t| t.water),
             has_alpha,
+            alpha_mean: tex.as_ref().map_or(1.0, |t| t.alpha_mean),
             reflects,
             // (An environment-mapped texture's alpha is its reflectivity.)
             cut: cut && !env_mapped,
@@ -3088,6 +3152,15 @@ impl Renderer {
                         && surface.blending != Blending::Punchthrough;
                     let sort_depth =
                         if ordered { instance_depth } else { -view.transform_point3(centre).z };
+                    // Static geometry's (a static placeable's) meshes of
+                    // mesh `alpha` under 1 are drawn by texture, as the
+                    // client draws its static buckets, before the dynamic
+                    // ones': the highest alpha mean first (tiles' alike in
+                    // the client, untried there: theirs keep their place).
+                    let order = see_through_order(
+                        (ordered && inst.receives_shadows && !inst.tile)
+                            .then_some(surface.alpha_mean),
+                    );
                     // A mesh solid of its own in an instance drawn see-through
                     // (a tile or a blueprint about to be placed): its depth is
                     // laid first, so that the instance's nearer surfaces hide
@@ -3266,6 +3339,7 @@ impl Renderer {
                                         twosided: slots.twosided,
                                         depth: sort_depth,
                                         hint: mat.transparency_hint,
+                                        order,
                                         uniform: 0,
                                         material: surface.material,
                                         mesh,
@@ -3292,6 +3366,7 @@ impl Renderer {
                                         twosided: slots.twosided,
                                         depth: sort_depth,
                                         hint: mat.transparency_hint,
+                                        order,
                                         uniform: 0,
                                         material: surface.material,
                                         mesh,
@@ -3416,6 +3491,7 @@ impl Renderer {
                         twosided: slots.twosided,
                         depth: sort_depth,
                         hint: mat.transparency_hint,
+                        order,
                         uniform: uniforms.len() as u32,
                         material: surface.material,
                         mesh,
@@ -3534,8 +3610,8 @@ impl Renderer {
                 // first.)
                 let bits = d.depth.to_bits();
                 let ascending = if bits >> 31 == 1 { !bits } else { bits | 1 << 31 };
-                let hint = u64::from(d.hint.min((1 << 29) - 1));
-                rank << 61 | hint << 32 | u64::from(!ascending)
+                let hint = u64::from(d.hint.min((1 << 13) - 1));
+                rank << 61 | hint << 48 | u64::from(d.order) << 32 | u64::from(!ascending)
             };
             (key, i as u32)
         }));
@@ -4871,6 +4947,39 @@ pub(crate) fn sky_place(camera: &Camera) -> Mat4 {
 mod tests {
     use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
+
+    /// A texture's alpha mean as the client's, from each source it reads:
+    /// a PLT's 0.5; a BioWare DDS's header over its TXI; a TXI's
+    /// `alphamean`; an uncompressed picture's texels (1 without alpha); a
+    /// compressed one's 0.5 with alpha, else 1. And the order it gives:
+    /// the highest first, before every draw that isn't a static mesh's.
+    #[test]
+    fn a_texture_s_alpha_mean_is_the_client_s() {
+        use super::{client_alpha_mean, see_through_order};
+        use mg_image::{Format, Rgba, txi::Txi};
+        let none = Txi::default();
+        let txi = Txi::parse(b"alphamean 0.25");
+        let picture = |a: &[u8]| {
+            let data = a.iter().flat_map(|&a| [9, 9, 9, a]).collect();
+            Rgba { width: a.len() as u32, height: 1, data }.into_texture(true)
+        };
+        let mean = client_alpha_mean(&picture(&[255, 200, 100, 0]), &none, false);
+        let sum = [255u8, 200, 100, 0].iter().fold(0f32, |s, &a| s + f32::from(a) / 255.0);
+        assert_eq!(mean, sum / 4.0);
+        assert_eq!(client_alpha_mean(&picture(&[255, 0]), &txi, false), 0.25);
+        assert_eq!(client_alpha_mean(&picture(&[255, 0]), &none, true), 0.5);
+        let mut opaque = picture(&[255, 255]);
+        opaque.has_alpha = false;
+        assert_eq!(client_alpha_mean(&opaque, &none, false), 1.0);
+        let compressed = |format| mg_image::Texture { format, ..picture(&[255]) };
+        assert_eq!(client_alpha_mean(&compressed(Format::Bc3), &none, false), 0.5);
+        assert_eq!(client_alpha_mean(&compressed(Format::Bc1), &none, false), 1.0);
+        let bioware = mg_image::Texture { alpha_mean: Some(0.7), ..compressed(Format::Bc3) };
+        assert_eq!(client_alpha_mean(&bioware, &txi, false), 0.7);
+        let order: Vec<u16> =
+            [Some(1.0), Some(0.961), Some(0.9), Some(0.3), None].map(see_through_order).to_vec();
+        assert!(order.is_sorted_by(|a, b| a < b), "{order:?}");
+    }
 
     /// The sky is around the camera at ground level for every camera the
     /// game can have (at most `GAME_CAMERA_REACH` from its target, over a

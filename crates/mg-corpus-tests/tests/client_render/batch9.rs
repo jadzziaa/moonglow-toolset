@@ -1,7 +1,9 @@
 //! The deferred list's "See-through meshes" entry, its last two items (the
 //! ninth client batch, 2026-11-26): how the client makes the smaller
 //! levels of an uncompressed texture with soft edges, and how it orders
-//! static placeables' see-through meshes against each other. Each test
+//! static placeables' see-through meshes against each other (by their
+//! textures' alpha means, read from its code and confirmed by
+//! [`batch9_static_alpha_mean`]). Each test
 //! writes the client's picture (and Moonglow's beside it) to its scratch
 //! directory and prints what it measured; what was seen is in its comment.
 //!
@@ -578,7 +580,9 @@ const ORDER_SETS: [OrderSet; 7] = [
 /// from the eye (`u1` and `u3`, alike but for their listing, stand
 /// 4.5 m apart, either side of the camera), and the tiles its cards
 /// stand on (`u1` straddles x 20, the second row y 30). Moonglow (by the
-/// origins) differs in half the pairs.
+/// origins) differs in half the pairs. Explained since from the client's
+/// code ([`batch9_static_alpha_mean`]): its textures are opaque TGAs of
+/// one alpha mean, whose order the client leaves to `std::sort`.
 #[test]
 #[ignore]
 fn batch9_static_order() {
@@ -851,7 +855,10 @@ fn rung_files(code: &str, from: MeanFrom, color: char) -> Vec<(String, Vec<u8>)>
     let dxt5 = || mg_image::encode::compress(&opaque, mg_image::Format::Bc3, true, false);
     let txi = |mean: f32| (format!("{name}.txi"), format!("alphamean {mean}\n").into_bytes());
     match from {
-        MeanFrom::Tga(a) => vec![(format!("{name}.tga"), solid([rgb[0], rgb[1], rgb[2], a]))],
+        // (32-bit: [`solid`] writes 24-bit TGAs, whose mean is 1.)
+        MeanFrom::Tga(a) => {
+            vec![(format!("{name}.tga"), tga32(4, 4, |_, _| [rgb[0], rgb[1], rgb[2], a]))]
+        }
         MeanFrom::Txi(mean) => {
             vec![(format!("{name}.tga"), solid([rgb[0], rgb[1], rgb[2], 255])), txi(mean)]
         }
@@ -1002,6 +1009,12 @@ fn shoot_pairs(mut r: Reading, pairs: &[Placed]) {
 /// first): q d R, d q B, d w R, w h R, h b R, b t R, t m R, m q B, w t R,
 /// b w B (the DDS header's 0.7 over its TXI's 0.95, which would put `b`
 /// first), m h B, t d B.
+///
+/// Seen (2026-11-26, 89.8193.37): all 24 as predicted. (The first run
+/// wrote `d` 24-bit, of mean 1 as `q`'s: its two pairs with `q` went as
+/// predicted by the tie's order; run again 32-bit, all held.) Moonglow
+/// before differed in 12 (by the origins, the farther first), and since
+/// (`client_alpha_mean`, `see_through_order`) is as the client in all.
 #[test]
 #[ignore]
 fn batch9_static_alpha_mean() {
@@ -1059,6 +1072,11 @@ fn batch9_static_alpha_mean() {
 /// Predicted before the run: the dynamic pairs farther first (six); the
 /// static card first in all four static-against-dynamic pairs, whichever
 /// is nearer and whichever color is static.
+///
+/// Seen (2026-11-26, 89.8193.37): all ten as predicted (the mixed pixels
+/// 270 to 496 where the farther was drawn first, 0 where not). Moonglow
+/// before differed in the two pairs with the static card farther; since,
+/// as the client in all.
 #[test]
 #[ignore]
 fn batch9_static_alpha_mean_checks() {
