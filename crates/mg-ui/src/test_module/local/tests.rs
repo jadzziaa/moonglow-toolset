@@ -16,7 +16,9 @@ fn fake_server(dir: &Path, said: &str, end: bool) -> PathBuf {
             "while read line; do case \"$line\" in exit) echo exit > {exit}; exit 0;; esac; done"
         ),
     };
-    let text = format!("#!/bin/sh\necho \"$@\" > {args}\nprintf '{said}'\n{rest}\n");
+    let pid = shell_quoted(&dir.join("server.pid"));
+    let text =
+        format!("#!/bin/sh\necho $$ > {pid}\necho \"$@\" > {args}\nprintf '{said}'\n{rest}\n");
     std::fs::write(&script, text).unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     script
@@ -243,4 +245,67 @@ fn a_dropped_run_is_stopped_before_the_drop_returns() {
     drop(run);
     assert!(dir.join("exit.txt").is_file(), "the server was told to exit");
     assert!(!PathBuf::from(format!("/proc/{}", pid.trim())).exists(), "the game was stopped");
+}
+
+/// What \`a_killed_moonglow_takes_its_run_with_it\` runs in a process of its
+/// own: a local run, served and joined, then waiting to be killed.
+#[test]
+#[ignore]
+fn local_run_helper() {
+    let Some(dir) = std::env::var_os("MG_LOCAL_RUN_DIR").map(PathBuf::from) else { return };
+    let plan = LocalPlan::new(
+        fake_server(&dir, LOADS, false),
+        dir.join("server"),
+        prepared(),
+        Join::CharacterList,
+    );
+    let mut run = LocalRun::start(plan, fake_game(&dir, 60));
+    let start = Instant::now();
+    while !(dir.join("game.pid").is_file() && dir.join("server.pid").is_file())
+        && start.elapsed() < Duration::from_secs(30)
+    {
+        run.poll();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::fs::write(dir.join("ready"), b"").unwrap();
+    std::thread::sleep(Duration::from_secs(60));
+}
+
+/// Moonglow killed outright (\`kill -9\`, a crash) while a local run
+/// serves: its server and its game die with it (the parent-death signal
+/// of the run's thread), nothing left running.
+#[test]
+fn a_killed_moonglow_takes_its_run_with_it() {
+    let dir = mg_testkit::scratch_dir("ui-local-run-killed");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut helper = Command::new(std::env::current_exe().unwrap());
+    helper.args(["--exact", "test_module::local::tests::local_run_helper", "--ignored"]);
+    helper.env("MG_LOCAL_RUN_DIR", &dir);
+    helper.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    let mut helper = helper.spawn().unwrap();
+    let start = Instant::now();
+    while !dir.join("ready").is_file() && start.elapsed() < Duration::from_secs(60) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(dir.join("ready").is_file(), "the helper's run never joined");
+    let pid = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap().trim().to_string();
+    let (server, game) = (pid("server.pid"), pid("game.pid"));
+    helper.kill().unwrap();
+    helper.wait().unwrap();
+    // (Gone, or ended and not yet reaped by whoever took it.)
+    let gone = |p: &str| match std::fs::read_to_string(format!("/proc/{p}/stat")) {
+        Err(_) => true,
+        Ok(stat) => stat.rsplit_once(") ").is_some_and(|(_, rest)| rest.starts_with('Z')),
+    };
+    let both = (0..250).any(|_| {
+        std::thread::sleep(Duration::from_millis(20));
+        gone(&server) && gone(&game)
+    });
+    // (Left running, they are stopped here: they are this test's.)
+    for p in [&server, &game] {
+        if !gone(p) {
+            let _ = Command::new("kill").args(["-9", p.as_str()]).status();
+        }
+    }
+    assert!(both, "the server ({}) or the game ({}) outlived Moonglow", gone(&server), gone(&game));
 }
