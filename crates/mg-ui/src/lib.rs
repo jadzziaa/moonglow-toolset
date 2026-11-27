@@ -4985,6 +4985,10 @@ impl Moonglow {
             self.game.as_ref().map_or(0, |g| Arc::strong_count(g) - 1),
             if self.install.is_some() { "known" } else { "none" },
         ));
+        // (The last module's NWSync content forgotten, a Sync of it called
+        // off, whether the layers are made now or once the game data is
+        // free: `layer_open_module` replaces only what was mounted.)
+        self.nwsync_content.module_closed();
         // (Something still reading the game data: the haks are layered
         // once it is free, and the log says so meanwhile.)
         if self.game_free_for(|w| w.layers = true)
@@ -4999,7 +5003,6 @@ impl Moonglow {
             }
             // (The NWSync server the project names: its content over the
             // haks, from what is here; Build › NWSync Content downloads.)
-            self.nwsync_content.module_closed();
             if let Some(n) = nwsync {
                 if let Some(line) = n.summary() {
                     self.log.info(line);
@@ -7818,7 +7821,7 @@ impl Moonglow {
         };
         let (client, real, name) = (client.to_path_buf(), user.to_path_buf(), name.to_string());
         self.start_job(
-            "Test Module: the haks from NWSync",
+            test_module::WRITE_TITLE,
             move |ctx| -> Result<(std::path::PathBuf, String), String> {
                 let progress = |p: mg_nwsync::haks::Progress| {
                     ctx.progress.step((p.bytes >> 20) as usize, (p.of_bytes >> 20) as usize);
@@ -7840,8 +7843,12 @@ impl Moonglow {
                 Ok((dir, said))
             },
             move |app, made| match made {
-                Ok((dir, summary)) => {
-                    app.log.info(format!("Test Module: {summary}"));
+                Ok((dir, said)) => {
+                    // (What was written, then each file on disk used over
+                    // the manifest: an entry each.)
+                    for line in said.lines() {
+                        app.log.info(format!("Test Module: {line}"));
+                    }
                     app.launch_test(&client, &dir, &name, choose);
                 }
                 Err(e) => app.log.error(format!("Test Module: the module's NWSync content: {e}")),
@@ -8471,7 +8478,11 @@ impl Moonglow {
     fn layer_open_module(&mut self) {
         let Some(game) = exclusive(&mut self.game) else { return };
         remove_layers(&mut game.resman, is_module_layer);
-        self.nwsync_content.module_closed();
+        // (What was mounted replaced, nothing else of the NWSync window:
+        // this is reached after edits and before jobs that read the game,
+        // and a Sync under way goes on. Closing or opening a module
+        // forgets the rest, `NwSyncContent::module_closed`.)
+        self.nwsync_content.mounted = None;
         let mut layered = Vec::new();
         match (&mut self.ws, &self.install) {
             (Some(ws), Some(gi)) => {

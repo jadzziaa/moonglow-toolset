@@ -2,6 +2,10 @@
 //! tab open in the whole application, read through the accessibility tree
 //! and the module. No game install is needed but for Build and Images.
 
+// (Moonglow's cache folder the tests' own, set before `main`.)
+#[path = "support/own_cache.rs"]
+mod own_cache;
+
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use mg_core::ResType;

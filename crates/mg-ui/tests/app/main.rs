@@ -7,6 +7,9 @@
 //! module of its subject; what several share goes in `common`.
 
 mod common;
+// (Moonglow's cache folder the tests' own, set before `main`.)
+#[path = "../support/own_cache.rs"]
+mod own_cache;
 
 mod appearance_tab;
 mod area_header;

@@ -291,6 +291,10 @@ pub(crate) fn other_games() -> Vec<Running> {
 /// ([`content_user_dir`]).
 pub const CONTENT_USER_DIR: &str = "test-user";
 
+/// What the Status Bar calls the writing of a module's haks from its
+/// NWSync content for Test Module.
+pub const WRITE_TITLE: &str = "Write Haks from NWSync";
+
 /// Links `to` to the folder `from`: a symbolic link, else (Windows,
 /// without the right to make one) a junction.
 fn link_dir(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -420,8 +424,11 @@ pub fn content_of(
 /// as on any test), and `hak` and `tlk` are folders of `dir`'s own with
 /// links to the content's files. `nwn.ini` is copied without its `HAK`
 /// and `TLK` aliases (the game would look for haks where they lead).
-/// Nothing of the player's folder is written; links made before are
-/// kept, and what the game made in `dir` stays.
+/// Nothing of the player's folder is written. Each run makes again the
+/// link (or, on Windows without one, the copy) of each of the player's
+/// files: a copy kept would never follow the player's file again. A
+/// folder's link made before is kept, and what the game made in `dir`
+/// that the player's folder has no entry of stays.
 ///
 /// The game can't read NWSync on a module of its own, and Moonglow
 /// never writes into the player's `hak` folder.
@@ -435,12 +442,27 @@ pub fn content_user_dir(real: &Path, dir: &Path, content: &Content) -> Result<()
     for entry in std::fs::read_dir(real).map_err(|e| err(real, e))?.flatten() {
         let name = entry.file_name();
         let to = dir.join(&name);
-        if own(&name) || is_there(&to) {
+        if own(&name) {
             continue;
         }
         let from = entry.path();
-        let made = if from.is_dir() { link_dir(&from, &to) } else { link_file(&from, &to) };
-        made.map_err(|e| err(&to, e))?;
+        if from.is_dir() {
+            // (A folder's link, or a folder the game made before the
+            // player had one, kept.)
+            if !is_there(&to) {
+                link_dir(&from, &to).map_err(|e| err(&to, e))?;
+            }
+            continue;
+        }
+        // (A file's link, hard link or copy, made by the run before: made
+        // again. Only `dir`'s own entry is removed, never the player's
+        // file; a folder there of the game's making is left alone.)
+        if std::fs::symlink_metadata(&to).is_ok_and(|m| !m.is_dir()) {
+            std::fs::remove_file(&to).map_err(|e| err(&to, e))?;
+        }
+        if !is_there(&to) {
+            link_file(&from, &to).map_err(|e| err(&to, e))?;
+        }
     }
     // nwn.ini, without the aliases of the folders that are dir's own.
     let ini = real.join("nwn.ini");
@@ -491,8 +513,8 @@ mod tests {
     /// The content user directory: the player's folder linked thing by
     /// thing but for `hak` and `tlk`, which hold the content (and none of
     /// what was linked there before), `nwn.ini` without its hak and talk
-    /// table aliases; the player's folder unchanged.
-    #[cfg(unix)]
+    /// table aliases; the player's folder unchanged. On every system (CI
+    /// runs it on Windows: junctions, hard links).
     #[test]
     fn a_content_user_directory() {
         let root = mg_testkit::scratch_dir("ui-content-user-dir");
@@ -519,6 +541,8 @@ mod tests {
         let dir = root.join("test-user");
         content_user_dir(&real, &dir, &content).unwrap();
         assert_eq!(std::fs::read(dir.join("localvault/me.bic")).unwrap(), b"me");
+        // (A symbolic link; on Windows one or a junction, which Rust takes
+        // for one too.)
         assert!(std::fs::symlink_metadata(dir.join("modules")).unwrap().is_symlink());
         assert_eq!(std::fs::read(dir.join("settings.tml")).unwrap(), b"x = 1");
         assert_eq!(std::fs::read(dir.join("hak/pw_parts.hak")).unwrap(), b"from nwsync");
@@ -544,6 +568,50 @@ mod tests {
             std::fs::read_dir(real.join("hak")).unwrap().flatten().map(|e| e.file_name()).collect();
         names.sort();
         assert_eq!(names, ["old.hak"]);
+    }
+
+    /// A file of the player's is linked again at every run: a copy of it
+    /// (Windows, where a hard link fails across drives) or a link the
+    /// game replaced follows the player's file, where it was kept frozen
+    /// at the first test. `nwn.ini` is made again too. What the game made
+    /// in the directory that the player has no entry of stays, and the
+    /// player's folder is as it was.
+    #[test]
+    fn a_content_user_directory_follows_the_player_s_files() {
+        let root = mg_testkit::scratch_dir("ui-content-user-dir-again");
+        let real = root.join("real");
+        std::fs::create_dir_all(real.join("localvault")).unwrap();
+        std::fs::write(real.join("settings.tml"), b"x = 1").unwrap();
+        std::fs::write(real.join("cdkey.ini"), b"key").unwrap();
+        std::fs::write(real.join("nwn.ini"), "[Alias]\nHAK=/h\n[Game Options]\nA=1\n").unwrap();
+        let dir = root.join("test-user");
+        content_user_dir(&real, &dir, &Content::default()).unwrap();
+        // (As a copy left by the run before: a file of the directory's own,
+        // the player's as it was then.)
+        std::fs::remove_file(dir.join("settings.tml")).unwrap();
+        std::fs::write(dir.join("settings.tml"), b"x = 1").unwrap();
+        // (What the game made of its own, and the options it saved.)
+        std::fs::create_dir_all(dir.join("currentgame.0")).unwrap();
+        std::fs::write(dir.join("currentgame.0/a.txt"), b"game").unwrap();
+        std::fs::write(dir.join("game_made.txt"), b"game").unwrap();
+        std::fs::write(dir.join("nwn.ini"), "[Game Options]\nA=2\n").unwrap();
+        // The player changes their settings, and tests again.
+        std::fs::write(real.join("settings.tml"), b"x = 2").unwrap();
+        content_user_dir(&real, &dir, &Content::default()).unwrap();
+        assert_eq!(std::fs::read(dir.join("settings.tml")).unwrap(), b"x = 2");
+        assert_eq!(std::fs::read(dir.join("cdkey.ini")).unwrap(), b"key");
+        let ini = std::fs::read_to_string(dir.join("nwn.ini")).unwrap();
+        assert_eq!(ini, "[Alias]\n[Game Options]\nA=1\n", "made again from the player's");
+        assert_eq!(std::fs::read(dir.join("currentgame.0/a.txt")).unwrap(), b"game");
+        assert_eq!(std::fs::read(dir.join("game_made.txt")).unwrap(), b"game");
+        // The player's folder: its files as the player left them, nothing
+        // added.
+        assert_eq!(std::fs::read(real.join("settings.tml")).unwrap(), b"x = 2");
+        assert_eq!(std::fs::read(real.join("cdkey.ini")).unwrap(), b"key");
+        let mut names: Vec<_> =
+            std::fs::read_dir(&real).unwrap().flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        assert_eq!(names, ["cdkey.ini", "localvault", "nwn.ini", "settings.tml"]);
     }
 
     /// A program running is found by its name, with its arguments where
