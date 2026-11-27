@@ -1671,7 +1671,7 @@ mod tests {
     #[test]
     fn a_served_module_gets_what_it_is_given_alone() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = mg_testkit::scratch_dir("mg-serve-clean-env");
+        let dir = mg_testkit::scratch_dir("mg-serve-env-given-alone");
         let Some(lib) = a_real_library(&dir.join("lib"), "libextra.so") else { return };
         let root = dir.join("root");
         let server = root.join("bin/linux-x86/nwserver-linux");
