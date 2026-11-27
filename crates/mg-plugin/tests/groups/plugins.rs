@@ -6,6 +6,8 @@ mod events;
 mod examples;
 #[path = "../kinds.rs"]
 mod kinds;
+#[path = "../nwsync.rs"]
+mod nwsync;
 #[path = "../outside.rs"]
 mod outside;
 #[path = "../package.rs"]

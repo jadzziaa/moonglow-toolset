@@ -152,6 +152,20 @@ that web server serves into a folder, as neverwinter.nim's
 - **Latest:** **Make it the latest (what nwserver serves unless told a
   hash)** points the repository's `latest` at
   it; nwserver serves `latest` unless given `-nwsynchash`.
+- **Origins:** **Write an origins file** (`mg nwsync --write-origins`,
+  as `nwn_nwsync_write --write-origins`) writes `manifests/HASH.origin`
+  beside the manifest: each hak (and the talk table's file, and the
+  module with the module itself) a resource came from, with the
+  resources it gave. The game reads none of it; Moonglow does, where
+  your team reads the module's haks from NWSync
+  ([below](#nwsync-content-instead-of-haks)): it then knows which of the
+  module's haks the manifest holds, and writes each of them with exactly
+  its resources for a test. Each is named by its file's name alone
+  (`Erf:pw_parts.hak`), where `nwn_nwsync_write` writes the whole path it
+  was given: the folders of your computer stay off the web server. Upload
+  sends it with the manifests. A manifest published again with it is the
+  same manifest (the same hash): Moonglow asks for its origins file at
+  the next Sync even where it kept the manifest before.
 - **Compression:** the data files are compressed with zstd at level 3,
   as `nwn_nwsync_write` compresses them (the reference library, built
   into Moonglow: nothing to install). `mg nwsync --level` takes another,
@@ -302,6 +316,22 @@ source = "https://nwsync.example.org"   # as nwserver's -nwsyncurl
 manifest = "latest"                     # or a manifest's SHA-1, to stay on it
 ```
 
+**A repository folder** on this computer or a shared drive (the folder
+Publish to NWSync or `mg nwsync` writes: `latest`, `manifests/`,
+`data/sha1/…`) can be the source too, with no web server: `source =
+"file:///srv/nwsync"`, a whole path (`"/srv/nwsync"`, `"D:\\nwsync"`), or a
+path from the project's folder starting `./` or `../` (`"../nwsync"`;
+for a module kept in one file, from the `.mod`'s folder). A name alone
+(`"nwsync"`) is taken for a server's name that lacks its `https://`, and
+said. Sync reads the folder in place, without a server, and copies the
+manifest and the data not here into Moonglow's cache, each checked
+against its SHA-1, just as it downloads them from a server: the module
+then opens from the cache whatever becomes of the folder (a drive taken
+away, the repository pruned or published again), and a clean-up of
+either never takes what the other holds. The cost is the space of the
+copy. Where the folder isn't there, the manifest here is used and the
+log says so.
+
 When the module opens, the server's manifest is put into the game data
 as one layer, where the game puts it: above the haks, below the
 `development` folder and other loose files. Each resource is read from
@@ -331,8 +361,9 @@ downloaded yet can't be read (the log says so): Sync first.
 **Haks:** the game loads no hak files for a server that has a manifest
 (the manifest holds the haks' content), so a hak of the module's list
 that isn't on disk isn't reported missing. Where the server publishes
-its origins file (`nwn_nwsync_write --write-origins` writes
-`manifests/<sha1>.origin`, which names each hak and its resources), only
+its origins file (`mg nwsync --write-origins` and `nwn_nwsync_write
+--write-origins` write `manifests/<sha1>.origin`, which names each hak
+and its resources), only
 the haks it names are taken from NWSync, and any other is still
 reported. Haks that are on disk are read too, under the manifest, as the
 game would read them, except one newer than the manifest (below).
@@ -376,6 +407,55 @@ window (`--online` asks the server for its latest manifest first), and
 `mg nwsync-pull MODULE` downloads (`--sample N` downloads N data files
 alone, to try a server); both take `--source URL` for a server the
 project doesn't name.
+
+A plugin reads the same state with `mg.nwsync.status()` (since plugin
+API 0.11; [the plugin API](17-plugin-api.md#mgnwsync)): the source,
+the manifest in the game data, the haks it holds, your files newer than
+it, the data not downloaded yet (as the NWSync Content window last
+looked) and a Sync under way, never the sign-in.
+
+### A private server
+
+A server that hands out its content only to those signed in (a web
+server asking for a token or a password) is signed in to with a token,
+sent as `Authorization: Bearer`, or with a user and password (`Basic`).
+Put them in **your own `.moonglow/user.toml`**, never in the team's
+`moonglow.toml`:
+
+```toml
+[nwsync]
+host = "nwsync.example.org"   # the server the sign-in is sent to
+token = "…"                   # or: user = "…" and password = "…"
+```
+
+`host` names the one server the sign-in is sent to; it may be left out
+where the same file names the source (`source = "https://…"`), whose
+host it then is. It is never taken from the team's file: a checkout
+that named another server would otherwise get your token. The sign-in
+is sent to that host alone: never with a redirect to another server, or
+to another port or scheme of the same one, and never over plain
+`http://` except to this computer (`localhost`, `127.0.0.1`): a
+source on `http://` to another computer is refused with a sign-in, and
+said, where anyone on the way could read it. A token, user, password or
+host in the team's `moonglow.toml` (or a `.mod`'s file beside it, which
+has no `.moonglow/user.toml`) is not read, and the log and `mg` say so
+with the file and line: take it out and have it replaced on the server,
+as everyone with the checkout has it. A user and password written into
+the source's address (`https://user:password@…`) are refused too.
+`.moonglow/` stays out of version control by the `.gitignore` of `*`
+Moonglow makes in it (one made by hand needs one too: the log warns).
+
+The token is never shown: not in the log, a message, `mg`'s output or
+its JSON. Build › NWSync Content… says *Signed in with a token from
+.moonglow/user.toml*; `mg nwsync-status --online` and `mg nwsync-pull`
+say *signed in with a token from .moonglow/user.toml* (JSON:
+`"signed_in": "a token"`). Where the server refuses it, the message
+says the sign-in was refused, or that the server asked for one.
+
+There is no environment variable for it: a sign-in is bound to a host
+that the builder's own file names, and a variable would follow
+whatever source a checkout names. On a build machine, write
+`.moonglow/user.toml` from the machine's secret before `mg` runs.
 
 ### Testing with NWSync content
 
@@ -472,6 +552,13 @@ for copies; `--jobs N`, 4 at once).
 manifest needs (data files, written haks, older manifests and their
 files) and removes it when you say **Remove** (the Status Bar shows
 either while it runs); **Keep Everything** leaves the cache as it is.
+**Cancel** stops either before the next file, and so does closing the
+module (the look at what is here as the window opens, and a Sync, stop
+the same way). A clean-up stopped leaves the cache whole: it takes away
+the manifests it doesn't keep before their haks and data, so every
+manifest still in the cache has all it had, and what was left goes with
+the next clean-up; the window and the log say what it removed by then.
+A look for what would go that was stopped offers nothing to remove.
 Kept: the module's
 manifest (and the one pinned), the newest each server named, and the
 three last used (`[nwsync] keep` in the project file changes the

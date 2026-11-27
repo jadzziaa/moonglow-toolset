@@ -1,14 +1,14 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, mg.nwsync (the module's NWSync content and its state), findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-26T04:59:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:12:13Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.10. The API is
+Everything a plugin's code can use, for plugin API 0.11. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,7 +29,7 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.10"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.11"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
@@ -43,6 +43,7 @@ nothing, and a check is reported as failed.
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
 | `mg.struct_id(struct)` | A struct's id (since Moonglow 2.2.0): of one read with `gff`, kept beside its table as its path is, never among its fields (an equipped item's is its slot, `Equip_ItemList`); of one read with `raw`, its `__struct_id`. Nil for a table that is neither. |
 | `mg.vars` | The variables the module's project describes (its `variables.toml`): `describe(name)` and `described()` (below; since Moonglow 2.13.0). |
+| `mg.nwsync` | The module's NWSync content: `status()`, whether its haks come from an NWSync server and in what state that content is (below; since API 0.11). |
 
 An id is registered once; registering one the manifest doesn't declare,
 or not registering one it does, is a fault `mg plugin check` reports.
@@ -83,6 +84,62 @@ file's order. A description is a table:
 | `runtime` | The scripts set it while the server runs: never kept in a file. |
 | `requires` | The variables it needs beside it on the same object: a list of names, empty for none. |
 | `default` | The value the scripts take where it isn't set, as text, or nil. |
+
+### `mg.nwsync`
+
+Whether the module's haks and talk table come from an NWSync server
+(its project's `[nwsync] source`; [NWSync content instead of
+haks](09-build-and-test.md#nwsync-content-instead-of-haks)), and the
+state of that content (since API 0.11). `mg.nwsync.status()` is a
+table of what is known of it as the job began, nil where the module's
+project names no NWSync source. Making it reads nothing from disk and
+asks no server: it is what the window already knows (what the NWSync
+Content window shows), so it costs nothing to call. It never holds the
+sign-in to a private server, only whether there is one. The table:
+
+| Field | |
+| --- | --- |
+| `off` | True where your own `.moonglow/user.toml` turns the team's server off (`source = ""`): the haks are read from disk. Then `source` is the team's server, and the rest is empty, false or nil. |
+| `source` | The server's address (`"https://nwsync.example.org"`), or a repository folder as a `file://` address, as the project names it. |
+| `signed_in` | Whether a sign-in for this source is set (a token, or a user and password, in `.moonglow/user.toml`). The sign-in itself is never given. |
+| `manifest` | The SHA-1 of the manifest in the game data, as 40 hexadecimal digits; nil where none is (none downloaded yet, or no game data). |
+| `from` | Where that manifest was read from: `"cache"` (Moonglow's cache) or `"game_storage"` (the game's own NWSync storage), as `mg nwsync-status --json` names it; nil without a manifest. |
+| `arrived` | When the manifest came here, in seconds since 1970 (UTC; `os.date` reads it): the time the game registered it, or the time Moonglow's cache kept it. Your files newer than this are used over it. Nil where neither says, or without a manifest. |
+| `resources` | How many resources the manifest's layer holds; nil without a manifest. |
+| `haks` | The module's haks that are not on disk and that the manifest holds, by name, in the module's order (from 1). |
+| `by_origins` | Whether the server's origins file said which haks the manifest holds; false where it publishes none, and every hak not on disk is taken to be in it. |
+| `haks_missing` | The module's haks neither on disk nor in the manifest (by its origins file): missing, as the log says. |
+| `newer_on_disk` | Your files on disk newer than the manifest, used over it, by their file names: `"castle.hak"`, `"world.tlk"`. |
+| `survey` | How much of the manifest's data is here, as the NWSync Content window last looked (nil until it has): `resources`, `data_files`, `in_game_storage`, `in_cache`, `missing` (the data files not downloaded yet) and `missing_bytes`, named as `mg nwsync-status --json`'s `survey`. |
+| `syncing` | Whether a Sync is under way. |
+| `cleaning` | Whether a clean-up of the cache (or the look at what it would remove) is under way. |
+
+The table is a copy: it does not change while the job runs, and a Sync
+that ends meanwhile is seen by the next job. With `mg plugin run`, the
+manifest is the one `mg` puts into the game data; `survey` is nil and
+nothing is under way.
+
+```lua
+local s = mg.nwsync.status()
+if s == nil then
+  ctx.log:info("The module's haks don't come from NWSync")
+elseif s.off then
+  ctx.log:info(`NWSync is turned off for you: {s.source}`)
+elseif s.manifest == nil then
+  ctx.log:warn(`No manifest of {s.source} is here yet: sync it in Build › NWSync Content`)
+else
+  ctx.log:info(`Manifest {string.sub(s.manifest, 1, 8)}, {s.resources} resources, from {s.from}`)
+  for _, file in s.newer_on_disk do
+    ctx.log:info(`{file} on disk is newer than the manifest: used over it`)
+  end
+  if s.survey and s.survey.missing > 0 then
+    ctx.log:warn(`{s.survey.missing} data files are not downloaded yet`)
+  end
+  if s.syncing then
+    ctx.log:info("A Sync is under way")
+  end
+end
+```
 
 ### `ctx.fix`
 

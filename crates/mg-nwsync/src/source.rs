@@ -2,7 +2,7 @@
 //! here (no network), and how much of its data is here.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::manifest::{self, Entry};
@@ -21,11 +21,16 @@ pub enum Wanted {
 /// Where a module's content comes from (`[nwsync]` in the project file).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    /// The server's repository (`https://nwsync.example.org`).
+    /// The server's repository (`https://nwsync.example.org`), or a
+    /// repository folder on this computer as a `file://` URL
+    /// ([`local_folder`], [`source_url`]).
     pub url: String,
     pub manifest: Wanted,
     /// Moonglow's cache folder, where not the default one.
     pub cache: Option<PathBuf>,
+    /// The sign-in to a private server, from the builder's own
+    /// `.moonglow/user.toml` ([`Auth`]: sent to its own host alone).
+    pub auth: Option<crate::Auth>,
 }
 
 /// Where a manifest was found.
@@ -33,6 +38,9 @@ pub struct Settings {
 pub enum ManifestFrom {
     /// Downloaded now.
     Server,
+    /// Read now from a repository folder on this computer (a `file://`
+    /// source), into the cache.
+    Folder,
     /// Moonglow's cache.
     Cache,
     /// The game's NWSync storage.
@@ -44,8 +52,21 @@ impl ManifestFrom {
     pub fn said(self) -> &'static str {
         match self {
             ManifestFrom::Server => "downloaded from the server",
+            ManifestFrom::Folder => "read from the repository folder",
             ManifestFrom::Cache => "Moonglow's cache",
             ManifestFrom::GameStorage => "the game's NWSync storage",
+        }
+    }
+
+    /// As `mg nwsync-status --json` and the plugin API's
+    /// `mg.nwsync.status()` name it: `"server"`, `"folder"`, `"cache"`,
+    /// `"game_storage"`.
+    pub fn word(self) -> &'static str {
+        match self {
+            ManifestFrom::Server => "server",
+            ManifestFrom::Folder => "folder",
+            ManifestFrom::Cache => "cache",
+            ManifestFrom::GameStorage => "game_storage",
         }
     }
 }
@@ -76,6 +97,115 @@ impl Found {
     /// The first eight digits of its SHA-1, as messages name it.
     pub fn short(&self) -> String {
         sha1_hex(&self.sha1)[..8].to_string()
+    }
+}
+
+/// The repository folder a source names (`file:///srv/nwsync`,
+/// `file://localhost/srv/nwsync`, `file:///C:/nwsync`; `%20` and the like
+/// read), where it names one; `None` for an HTTP(S) server.
+pub fn local_folder(url: &str) -> Option<PathBuf> {
+    let url = url.trim();
+    let scheme = url.get(..7)?;
+    if !scheme.eq_ignore_ascii_case("file://") {
+        return None;
+    }
+    let rest = &url[7..];
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    let decoded = percent_decoded(rest)?;
+    // (`/C:/nwsync`: a Windows drive after the URL's slash.)
+    let b = decoded.as_bytes();
+    let path = if b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':' {
+        &decoded[1..]
+    } else {
+        &decoded[..]
+    };
+    let path = PathBuf::from(path);
+    path.is_absolute().then_some(path)
+}
+
+/// `%XX` read as the byte it stands for; `None` where what is left is no
+/// UTF-8 text, or a `%` stands before no two hexadecimal digits.
+fn percent_decoded(text: &str) -> Option<String> {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = text.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// A repository folder as a source's `file://` URL (`/srv/nwsync`:
+/// `file:///srv/nwsync`, `C:\nwsync`: `file:///C:/nwsync`), what
+/// [`local_folder`] reads back: `%` written `%25`, the rest as it is.
+pub fn folder_url(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('%', "%25");
+    let text = if cfg!(windows) { text.replace('\\', "/") } else { text };
+    if text.starts_with('/') { format!("file://{text}") } else { format!("file:///{text}") }
+}
+
+/// A path with its `.` and `..` taken out by its words alone (no link
+/// followed, the folder need not be there).
+fn normalized(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// A source as the project file or `--source` gives it, as
+/// [`Settings::url`] keeps it: an HTTP or HTTPS address (without the
+/// trailing `/`); a `file://` URL; or a repository folder's path, whole or
+/// starting `./` or `../` (resolved against `base`, the project's folder),
+/// as a `file://` URL. `None` for anything else: a server's name alone
+/// (`nwsync.example.org`) is a forgotten `https://`, not a folder, and a
+/// relative folder without a `base` can't be placed. An address with a
+/// user or password in it (`https://u:p@host`) is `None` too: a sign-in
+/// is the builder's own file's ([`Auth`](crate::Auth)).
+pub fn source_url(text: &str, base: Option<&Path>) -> Option<String> {
+    let text = text.trim();
+    let scheme = text.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
+    match scheme.as_deref() {
+        // (A user or password in the address is refused: it would be
+        // in every message and file that names the source.)
+        Some("http" | "https") if crate::auth::has_userinfo(text) => None,
+        Some("http" | "https") => {
+            let url = text.trim_end_matches('/');
+            let host = url.split_once("://").map_or("", |(_, rest)| rest);
+            (!host.is_empty()).then(|| url.to_string())
+        }
+        Some("file") => local_folder(text).map(|p| folder_url(&normalized(&p))),
+        Some(_) => None,
+        None => {
+            let path = Path::new(text);
+            let relative = ["./", "../", ".\\", "..\\"].iter().any(|p| text.starts_with(p))
+                || text == "."
+                || text == "..";
+            let whole = if path.is_absolute() {
+                path.to_path_buf()
+            } else if relative {
+                std::path::absolute(base?.join(path)).ok()?
+            } else {
+                return None;
+            };
+            Some(folder_url(&normalized(&whole)))
+        }
     }
 }
 
@@ -113,7 +243,9 @@ pub(crate) fn time_of(
     let cached = || cache.and_then(|c| c.manifest_time(sha1));
     match from {
         ManifestFrom::GameStorage => registered(sha1, game).or_else(cached),
-        ManifestFrom::Cache | ManifestFrom::Server => cached().or_else(|| registered(sha1, game)),
+        ManifestFrom::Cache | ManifestFrom::Server | ManifestFrom::Folder => {
+            cached().or_else(|| registered(sha1, game))
+        }
     }
 }
 
@@ -230,10 +362,26 @@ pub fn survey(
     game: Option<&GameStorage>,
     cache: Option<&Cache>,
 ) -> Result<Survey, String> {
+    survey_until(entries, game, cache, &|| false)
+}
+
+/// [`survey`], stopping before the next file of the cache it looks at
+/// once `stop` says so (the window's Cancel, the module closed): then the
+/// error is [`crate::CANCELED`]. It changes nothing, so a look stopped
+/// leaves everything as it was.
+pub fn survey_until(
+    entries: &[Entry],
+    game: Option<&GameStorage>,
+    cache: Option<&Cache>,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Result<Survey, String> {
     let mut files: HashMap<Sha1, u32> = HashMap::new();
     for (_, sha, size) in entries {
         let s = files.entry(*sha).or_insert(0);
         *s = (*s).max(*size);
+    }
+    if stop() {
+        return Err(crate::CANCELED.into());
     }
     let in_storage = match game {
         Some(g) => g.hashes()?,
@@ -253,7 +401,11 @@ pub fn survey(
                     .chunks(chunk)
                     .map(|part| {
                         s.spawn(move || {
-                            part.iter().filter(|(sha, _)| !c.contains(sha)).copied().collect()
+                            (part.iter())
+                                .take_while(|_| !stop())
+                                .filter(|(sha, _)| !c.contains(sha))
+                                .copied()
+                                .collect()
                         })
                     })
                     .collect();
@@ -262,6 +414,10 @@ pub fn survey(
         }
         None => rest.clone(),
     };
+    // (A part stopped short counted less as missing: none of it is said.)
+    if stop() {
+        return Err(crate::CANCELED.into());
+    }
     Ok(Survey {
         resources: entries.len(),
         data_files: files.len(),

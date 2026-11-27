@@ -1266,15 +1266,6 @@ File › Project. What is left:
   storage alone; a run of `mg nwsync-status` on a machine whose game
   has joined the server waits on one. (S, waits on a machine with the
   game's storage)
-- **A look or a clean-up of the NWSync window can't be stopped:** a
-  module closed while one runs leaves it to end on its thread (what it
-  makes thrown away, nothing else started meanwhile: `NwSyncContent`'s
-  `left`); a clean-up's removal goes on with the closed module's kept
-  manifests while the next module's are put in (the newest each server
-  named and what changed within the hour are kept whatever the module).
-  Stopping them takes a stop in `mg_nwsync::survey` and
-  `mg_nwsync::prune`, beyond what the review's batch for the window
-  was asked (mg-ui). (S, beyond what was asked; the review of PR #53)
 
 ## Questions asked, unanswered
 

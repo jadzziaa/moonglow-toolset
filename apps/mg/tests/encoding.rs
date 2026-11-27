@@ -106,6 +106,19 @@ fn a_module_s_encoding_table_is_the_text_of_its_commands() {
     let manifest = std::fs::read(repository.join(format!("manifests/{sha}.json"))).unwrap();
     let manifest: Json = serde_json::from_slice(&manifest).unwrap();
     assert_eq!(manifest["module_name"], "Yağ Evi", "{manifest}");
+    assert!(made["origins"].is_null());
+    // With its origins file: the hak and the module by their files' names.
+    let args = ["nwsync", module, repository.to_str().unwrap(), "--with-module", "--write-origins"];
+    let (ok, made) = mg(&root, Some(&user), &args);
+    assert!(ok, "{made}");
+    let sha = made["sha1"].as_str().unwrap();
+    assert_eq!(made["origins"], format!("manifests/{sha}.origin"));
+    assert_eq!(made["origin_containers"], 2);
+    let text = std::fs::read_to_string(repository.join(format!("manifests/{sha}.origin"))).unwrap();
+    let origins = mg_nwsync::Origins::parse(&text);
+    assert_eq!(origins.haks().collect::<Vec<_>>(), ["mg_turkish"], "{text}");
+    assert!(origins.containers[0].resources.contains(&"encoding.2da".to_string()), "{text}");
+    assert_eq!(origins.containers[1].path, "turkish.mod", "{text}");
 
     // Without it (the hak not found): Windows-1252, as ever.
     let (ok, info) = mg(&root, None, &["info", module]);

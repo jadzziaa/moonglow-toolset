@@ -1569,10 +1569,12 @@ fn module_name_in_every_language_and_variables() {
 /// Build › NWSync Content…: a module folder whose project names an NWSync
 /// server, the game's storage holding its manifest and one of its two
 /// data files. Opened, the layer is in the game data (the log says so);
-/// the window says what is here; Sync, through a server of the test's
+/// the window says what is here, and that a token from the builder's own
+/// file signs in (never the token); Sync, through a server of the test's
 /// own, downloads the other into the cache, and it reads.
 #[test]
 fn nwsync_content_from_the_build_menu() {
+    const TOKEN: &str = "ui-s3cret-token";
     use mg_core::sha1::sha1;
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-nwsync-content");
@@ -1608,7 +1610,10 @@ fn nwsync_content_from_the_build_menu() {
         .unwrap();
     std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
     let cache = dir.join("cache");
-    let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+    let own = format!(
+        "[nwsync]\ncache = '{}'\ntoken = '{TOKEN}'\nhost = 'nwsync.example.org'\n",
+        cache.display()
+    );
     std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
     let mut app = game_app(&root, Some(user));
     app.background_jobs = true;
@@ -1660,6 +1665,9 @@ fn nwsync_content_from_the_build_menu() {
     let s = h.state().nwsync_content.survey.clone().expect("looked");
     assert_eq!((s.in_game, s.in_cache, s.missing.len()), (1, 0, 1));
     h.get_by_label_contains("1 data file (");
+    h.get_by_label("Signed in with a token from .moonglow/user.toml");
+    assert!(h.query_by_label_contains(TOKEN).is_none());
+    assert!(!log(&h).contains(TOKEN));
     h.get_by_label("Sync").click();
     h.run_steps(1);
     // Under way it is no job (the window takes input meanwhile), and the
@@ -1704,7 +1712,7 @@ fn the_tests_keep_moonglow_s_cache_in_their_own_folder() {
 /// A module folder whose project names an NWSync server, the game's
 /// storage holding manifest `m1` (whose resources are `m1`'s), and the
 /// cache in `dir`. The module's folder, the user folder and the cache.
-fn nwsync_module(
+pub(crate) fn nwsync_module(
     dir: &std::path::Path,
     m1: &[(ResKey, Vec<u8>)],
     in_game: usize,
@@ -1739,11 +1747,11 @@ fn nwsync_module(
     (folder, user, cache)
 }
 
-const NWSYNC_URL: &str = "https://nwsync.example.org";
+pub(crate) const NWSYNC_URL: &str = "https://nwsync.example.org";
 
 /// A server of the test's: `latest` names `manifest`, served with
 /// `data`; a data file's answer waits for `held` (the test lets it go).
-fn held_server(
+pub(crate) fn held_server(
     manifest: Vec<u8>,
     data: Vec<Vec<u8>>,
     held: std::sync::mpsc::Receiver<()>,
@@ -1779,7 +1787,7 @@ fn held_server_saying(
 }
 
 /// Waits (a deadline that fails) until `done` says so, a frame at a time.
-fn frames_until(
+pub(crate) fn frames_until(
     h: &mut Harness<'_, Moonglow>,
     what: &str,
     done: impl Fn(&Harness<'_, Moonglow>) -> bool,
@@ -1794,7 +1802,7 @@ fn frames_until(
 }
 
 /// Opens Build › NWSync Content… and waits for its look.
-fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
+pub(crate) fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
     h.get_by_label("Build").click();
     h.run();
     h.get_by_label("NWSync Content…").click();
@@ -2013,6 +2021,7 @@ fn nwsync_mount_is_timed() {
             url: NWSYNC_URL.into(),
             manifest: mg_nwsync::Wanted::Latest,
             cache: Some(dir.join("cache")),
+            auth: None,
         };
         let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
         let mut game = shared_game_data(&root, Some(user));

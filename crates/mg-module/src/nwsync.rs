@@ -9,6 +9,11 @@
 //!   name and type, size and SHA-1, sorted by SHA-1, name and type, with
 //!   resources of the same bytes listed once and mapped to the first;
 //! - `manifests/<sha1>.json`: what it is (name, sizes, when);
+//! - `manifests/<sha1>.origin`, where asked ([`Options::origins`], as
+//!   `nwn_nwsync_write --write-origins`): each container a resource came
+//!   from, by its file's name, with the resources it gave
+//!   ([`mg_nwsync::origins`]), which tells a reader which of a module's
+//!   haks the manifest holds;
 //! - `latest`: the newest manifest's SHA-1.
 //!
 //! A module's manifest holds what players need: its haks' resources (the
@@ -37,12 +42,34 @@ pub const SKIPPED: [ResType; 3] = [ResType::NSS, ResType::NDB, ResType::GIC];
 /// nwn_nwsync_write's default limit on one file: 15 MB.
 pub const FILE_LIMIT: u64 = 15 * 1024 * 1024;
 
+/// What an origins file names the container a resource came from by:
+/// its kind (`Erf`, `ResFile`, `ResDir`) and its file's name.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Origin {
+    pub kind: String,
+    pub name: String,
+}
+
+impl Origin {
+    /// The kind and the name of `path`'s file (the whole path where it
+    /// has no name).
+    pub fn of(kind: &str, path: &Path) -> Origin {
+        let name = path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned();
+        Origin { kind: kind.to_string(), name }
+    }
+}
+
 /// Where a resource's bytes are.
 #[derive(Debug, Clone)]
 pub enum Source {
     Erf(Arc<ErfContainer>),
     File(PathBuf),
+    /// Bytes of no container: an origins file names it as a file of its
+    /// own.
     Bytes(Arc<[u8]>),
+    /// Bytes from the container named (the module's own resources, its
+    /// talk table read from a file or a project's source).
+    In(Arc<[u8]>, Arc<Origin>),
 }
 
 impl Source {
@@ -50,8 +77,29 @@ impl Source {
         match self {
             Source::Erf(c) => c.read(key).map(|d| d.into_owned()).map_err(|e| e.to_string()),
             Source::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
-            Source::Bytes(b) => Ok(b.to_vec()),
+            Source::Bytes(b) | Source::In(b, _) => Ok(b.to_vec()),
         }
+    }
+
+    /// The container an origins file names for `key` from here.
+    pub fn origin(&self, key: &ResKey) -> Origin {
+        match self {
+            Source::Erf(c) => Origin::of("Erf", &c.path),
+            Source::File(p) => Origin::of("ResFile", p),
+            Source::Bytes(_) => Origin { kind: "ResFile".into(), name: resource_name(key) },
+            Source::In(_, o) => (**o).clone(),
+        }
+    }
+}
+
+/// A resource as an origins file names it: `name.ext`, a type without an
+/// extension by its number (`thing.30000`), as [`mg_nwsync::haks::origin_key`]
+/// reads it.
+pub fn resource_name(key: &ResKey) -> String {
+    let resref = key.resref.to_lowercase();
+    match key.restype.extension() {
+        Some(ext) => format!("{resref}.{ext}"),
+        None => format!("{resref}.{}", key.restype.0),
     }
 }
 
@@ -79,6 +127,8 @@ pub struct Options {
     /// The zstd level the data files are compressed at
     /// (`mg_erf::compressedbuf::LEVELS`; 0: the default, 3).
     pub level: i32,
+    /// Write the manifest's origins file too (`manifests/<sha1>.origin`).
+    pub origins: bool,
 }
 
 /// A manifest written.
@@ -92,6 +142,9 @@ pub struct Written {
     pub on_disk: u64,
     /// Data files written now (not there already).
     pub new_files: usize,
+    /// The origins file's containers, where one was asked for (written,
+    /// but in a dry run).
+    pub origins: Option<usize>,
 }
 
 /// Resources and where their bytes are, in priority order.
@@ -123,14 +176,26 @@ pub fn module_contents(
         crate::talk::Custom::Found { name, found } => {
             if let Some(key) = ResKey::parse(&name, ResType::TLK) {
                 // A table in a hak is among the hak's resources already; a
-                // project's JSON goes as the game reads it.
-                out.push((key, Source::Bytes(found.tlk_bytes()?.into())));
+                // project's JSON goes as the game reads it (a file of its
+                // own to an origins file).
+                let origin = match &found.source {
+                    crate::talk::Source::File(p) => Origin::of("ResFile", p),
+                    _ => Origin { kind: "ResFile".into(), name: resource_name(&key) },
+                };
+                out.push((key, Source::In(found.tlk_bytes()?.into(), Arc::new(origin))));
             }
         }
         crate::talk::Custom::Unreadable { error, .. } => return Err(error),
         crate::talk::Custom::None | crate::talk::Custom::NotFound { .. } => {}
     }
     if with_module {
+        // (The module kept in one file, or as a folder.)
+        let origin = Arc::new(match &m.location {
+            Some(crate::ModuleLocation::Archive(p)) => Origin::of("Erf", p),
+            Some(crate::ModuleLocation::Folder(d)) => Origin::of("ResDir", d),
+            Some(crate::ModuleLocation::Project { root, .. }) => Origin::of("ResDir", root),
+            None => Origin { kind: "Erf".into(), name: "module.mod".into() },
+        });
         for key in m.keys().copied() {
             let Some(data) = m.get(&key) else { continue };
             let data: Arc<[u8]> = if key == Module::info_key() {
@@ -144,7 +209,7 @@ pub fn module_contents(
             } else {
                 data.into()
             };
-            out.push((key, Source::Bytes(data)));
+            out.push((key, Source::In(data, origin.clone())));
         }
     }
     Ok((out, missing))
@@ -212,6 +277,9 @@ pub fn write_until(
     let (mut bytes, mut on_disk, mut new_files) = (0u64, 0u64, 0usize);
     let mut done: HashSet<[u8; 20]> = HashSet::new();
     let mut ifo_uuid: Option<String> = None;
+    // (Each container in the order its first resource won, its resources
+    // with it.)
+    let mut origins: Vec<(Origin, Vec<String>)> = Vec::new();
     for (i, (key, source)) in wanted.iter().enumerate() {
         if stop() {
             return Err(CANCELED.into());
@@ -238,6 +306,14 @@ pub fn write_until(
         let digest = sha1(&data);
         bytes += u64::from(size);
         entries.push((*key, digest, size));
+        if o.origins {
+            let origin = source.origin(key);
+            let name = resource_name(key);
+            match origins.iter_mut().find(|(c, _)| *c == origin) {
+                Some((_, list)) => list.push(name),
+                None => origins.push((origin, vec![name])),
+            }
+        }
         if done.insert(digest) {
             let h = hex(&digest);
             let path = root.join("data/sha1").join(&h[0..2]).join(&h[2..4]).join(&h);
@@ -282,16 +358,42 @@ pub fn write_until(
         let uuid = o.uuid.clone().or(ifo_uuid).unwrap_or_else(new_uuid);
         json["uuid"] = uuid.into();
     }
+    let containers = o.origins.then_some(origins.len());
     if !o.dry_run {
         let manifests = root.join("manifests");
         write_atomic(&manifests.join(&digest), &bytes_of_manifest)?;
         let text = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         write_atomic(&manifests.join(format!("{digest}.json")), text.as_bytes())?;
+        // (Beside the manifest before `latest` names it: a reader that
+        // finds the manifest finds its origins.)
+        if o.origins {
+            let text = origins_file(origins).to_text();
+            write_atomic(&manifests.join(format!("{digest}.origin")), text.as_bytes())?;
+        }
         if o.latest {
             write_atomic(&root.join("latest"), digest.as_bytes())?;
         }
     }
-    Ok(Written { sha1: digest, files: entries.len(), bytes, on_disk, new_files })
+    Ok(Written {
+        sha1: digest,
+        files: entries.len(),
+        bytes,
+        on_disk,
+        new_files,
+        origins: containers,
+    })
+}
+
+/// The origins file of containers and their resources, each container's
+/// sorted by their bytes, as `nwn_nwsync_write` sorts them.
+fn origins_file(containers: Vec<(Origin, Vec<String>)>) -> mg_nwsync::Origins {
+    let containers = (containers.into_iter())
+        .map(|(o, mut resources)| {
+            resources.sort();
+            mg_nwsync::Origin { kind: o.kind, path: o.name, resources }
+        })
+        .collect();
+    mg_nwsync::Origins { containers }
 }
 
 /// Reads a manifest back: each resource with its SHA-1 and size
@@ -662,6 +764,83 @@ mod tests {
         assert!(write(&dir, &big, &Options { limit: Some(10), ..o }, &mut |_, _| {}).is_err());
         assert_eq!(new_uuid().len(), 36);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `--write-origins`: beside the manifest, each container by its
+    /// file's name in the order its first resource won, the resources it
+    /// gave (the winners alone, sorted, not scripts' source); read back by
+    /// `mg_nwsync::Origins`, and taken by the reader's plan of haks. A dry
+    /// run says it and writes none; without it, none.
+    #[test]
+    fn an_origins_file_is_written_beside_the_manifest() {
+        let dir = mg_testkit::scratch_dir("mg-nwsync-origins");
+        let hak_path = dir.join("hak/PW_Parts.hak");
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        for (name, t, text) in [
+            ("pw_head", ResType::MDL, "a head"),
+            ("appearance", ResType::TWODA, "2DA hak's"),
+            ("pw_src", ResType::NSS, "void main() {}"),
+            ("thing", ResType(30000), "no extension"),
+        ] {
+            w.add(mg_core::ResRef::from_str(name).unwrap(), t, text.as_bytes().to_vec()).unwrap();
+        }
+        std::fs::create_dir_all(hak_path.parent().unwrap()).unwrap();
+        std::fs::write(&hak_path, w.to_bytes().unwrap()).unwrap();
+        let hak = Arc::new(ErfContainer::open(&hak_path).unwrap());
+        let module = Arc::new(Origin::of("ResDir", &dir.join("modules/krezk")));
+        let tlk = Arc::new(Origin::of("ResFile", &dir.join("tlk/world.tlk")));
+        let mut contents: Contents =
+            hak.index().iter().map(|&(k, _)| (k, Source::Erf(hak.clone()))).collect();
+        contents.extend([
+            // (The module's copy of the hak's 2DA comes under the hak's.)
+            (
+                key("appearance", ResType::TWODA),
+                Source::In(Arc::from(&b"mine"[..]), module.clone()),
+            ),
+            (key("module", ResType::IFO), Source::In(Arc::from(&b"IFO"[..]), module)),
+            (key("world", ResType::TLK), Source::In(Arc::from(&b"TLK V3.0"[..]), tlk)),
+            (key("loose", ResType::TXT), Source::Bytes(Arc::from(&b"loose"[..]))),
+        ]);
+        let o = Options { origins: true, latest: true, ..Default::default() };
+        let repo = dir.join("repo");
+        let written = write(&repo, &contents, &o, &mut |_, _| {}).unwrap();
+        assert_eq!(written.origins, Some(4));
+        let text = std::fs::read_to_string(repo.join(format!("manifests/{}.origin", written.sha1)))
+            .unwrap();
+        assert_eq!(
+            text,
+            "Erf:PW_Parts.hak\n\tappearance.2da\n\tpw_head.mdl\n\tthing.30000\n\
+             ResDir:krezk\n\tmodule.ifo\nResFile:world.tlk\n\tworld.tlk\nResFile:loose.txt\n\t\
+             loose.txt\n"
+        );
+        let origins = mg_nwsync::Origins::parse(&text);
+        assert_eq!(origins.to_text(), text);
+        assert_eq!(origins.haks().collect::<Vec<_>>(), ["PW_Parts"]);
+        let m = std::fs::read(repo.join("manifests").join(&written.sha1)).unwrap();
+        let entries = read_manifest(&m).unwrap();
+        // (As many named as the manifest holds, each once.)
+        assert_eq!(origins.resources(), entries.len());
+        let names = vec!["pw_parts".to_string(), "other".to_string()];
+        let plan = mg_nwsync::haks::from_origins(&origins, &entries, &names).unwrap();
+        assert_eq!(plan.haks.len(), 1);
+        let mut planned: Vec<String> =
+            plan.haks[0].resources.iter().map(|(k, _, _)| resource_name(k)).collect();
+        planned.sort();
+        assert_eq!(planned, ["appearance.2da", "pw_head.mdl", "thing.30000"]);
+        let hak_2da = entries.iter().find(|(k, _, _)| k.restype == ResType::TWODA).unwrap();
+        assert_eq!(hak_2da.1, sha1(b"2DA hak's"));
+
+        // A dry run: counted, none written.
+        let dry = dir.join("dry");
+        let w = write(&dry, &contents, &Options { dry_run: true, ..o.clone() }, &mut |_, _| {});
+        assert_eq!(w.unwrap().origins, Some(4));
+        assert!(!dry.join("manifests").exists());
+        // Not asked for: none.
+        let plain = dir.join("plain");
+        let w = write(&plain, &contents, &Options { origins: false, ..o }, &mut |_, _| {});
+        let w = w.unwrap();
+        assert_eq!(w.origins, None);
+        assert!(!plain.join(format!("manifests/{}.origin", w.sha1)).exists());
     }
 
     /// Makes a file look written `days` ago.

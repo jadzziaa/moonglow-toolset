@@ -699,12 +699,20 @@ pub struct ProjectFile {
     /// over the team's ([`ProjectFile::nwsync_settings`]); `source = ""`
     /// in the builder's own file turns the team's off for them.
     pub nwsync_source: Option<String>,
+    /// The team's `[nwsync] source` that `source = ""` in the builder's
+    /// own file turned off for them (then `nwsync_source` is none); none
+    /// where it names no server or nothing turned it off.
+    pub nwsync_off: Option<String>,
     /// `[nwsync] manifest`: which of its manifests (`"latest"`, the
     /// default, or one's SHA-1), the builder's own file's over the team's.
     pub nwsync_manifest: Option<mg_nwsync::Wanted>,
     /// `[nwsync] cache`: where Moonglow keeps what it downloads, where not
     /// its own cache folder; the builder's own file's alone.
     pub nwsync_cache: Option<PathBuf>,
+    /// `[nwsync] token`, or `user` and `password`, with `host`: the
+    /// sign-in to a private server, the builder's own file's alone
+    /// ([`mg_nwsync::Auth`], whose `Debug` hides the secret).
+    pub nwsync_auth: Option<mg_nwsync::Auth>,
     /// `[nwsync] keep`: how many manifests last used a prune of the cache
     /// keeps besides the module's own (`mg nwsync-cache-prune`), the
     /// builder's own file's over the team's.
@@ -956,20 +964,39 @@ impl<'a> Reader<'a> {
     }
 
     /// `[nwsync] source`: an HTTP or HTTPS address, without the
-    /// trailing `/`. In the builder's own file (`own`), `""` is
-    /// `Some(None)`: the team's server turned off for this builder.
-    fn nwsync_source(&mut self, entry: Entry, own: bool) -> Option<Option<String>> {
-        let url = self.text(entry)?.trim().trim_end_matches('/').to_string();
-        if own && url.is_empty() {
+    /// trailing `/`, or a repository folder ([`mg_nwsync::source_url`]: a
+    /// `file://` URL, a whole path, or one from `./` or `../` resolved
+    /// against `base`, the project's folder). In the builder's own file
+    /// (`own`), `""` is `Some(None)`: the team's server turned off for
+    /// this builder.
+    fn nwsync_source(
+        &mut self,
+        entry: Entry,
+        own: bool,
+        base: Option<&Path>,
+    ) -> Option<Option<String>> {
+        let text = self.text(entry)?.trim().to_string();
+        if own && text.is_empty() {
             return Some(None);
         }
-        let scheme = url.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
-        match scheme.as_deref() {
-            Some("http" | "https") if url.len() > "https://".len() => Some(Some(url)),
-            _ => {
+        // (Said without the address, which would show the password.)
+        if mg_nwsync::auth::has_userinfo(&text) {
+            let message = "source is not read: it has a user or password in its address, which \
+                           would be in every message that names it. Give them as [nwsync] user \
+                           and password in your own file (.moonglow/user.toml)";
+            self.warn(entry.1.span().start, message);
+            return None;
+        }
+        match mg_nwsync::source_url(&text, base) {
+            Some(url) => Some(Some(url)),
+            None => {
+                // (Not echoed with an @ in it: `user:pass@host` without
+                // its https://.)
+                let text = if text.contains('@') { "…".to_string() } else { text };
                 let message = format!(
-                    "source \"{url}\" is to be the NWSync server's address, as nwserver's \
-                     -nwsyncurl: \"https://nwsync.example.org\""
+                    "source \"{text}\" is to be the NWSync server's address, as nwserver's \
+                     -nwsyncurl: \"https://nwsync.example.org\", or a repository folder: \
+                     \"file:///srv/nwsync\", or \"../nwsync\" from the project's folder"
                 );
                 self.warn(entry.1.span().start, message);
                 None
@@ -1015,6 +1042,92 @@ impl<'a> Reader<'a> {
         }
         c.run = c.run.filter(|r| !r.trim().is_empty());
         Some(c)
+    }
+}
+
+/// `[nwsync] token`, `user`, `password` and `host` of the builder's own
+/// file, each with where it is (the values never in a message).
+#[derive(Default)]
+struct SignIn {
+    token: Option<(String, usize)>,
+    user: Option<(String, usize)>,
+    password: Option<(String, usize)>,
+    host: Option<(String, usize)>,
+    /// `source` in the same file, whose host a sign-in without `host` is
+    /// for.
+    source: Option<String>,
+}
+
+impl SignIn {
+    /// The sign-in, bound to `host`, else to the host of the file's own
+    /// `source` (never the team's: a checkout could name any server).
+    fn auth(self, r: &mut Reader, at: usize) -> Option<mg_nwsync::Auth> {
+        let given = |v: Option<(String, usize)>| v.filter(|(t, _)| !t.trim().is_empty());
+        let (token, user, password) = (given(self.token), given(self.user), given(self.password));
+        let credentials = match (token, user, password) {
+            (None, None, None) => {
+                if let Some((_, at)) = self.host {
+                    r.warn(
+                        at,
+                        "host is the server a sign-in is sent to, and there is none: give \
+                                token, or user and password, with it",
+                    );
+                }
+                return None;
+            }
+            (Some((token, at)), user, password) => {
+                if user.is_some() || password.is_some() {
+                    r.warn(at, "token and user or password are both given: the token is sent");
+                }
+                mg_nwsync::Credentials::Token(token.trim().to_string())
+            }
+            (None, Some((user, _)), Some((password, _))) => {
+                mg_nwsync::Credentials::Basic { user, password }
+            }
+            (None, Some((_, at)), None) | (None, None, Some((_, at))) => {
+                r.warn(at, "user and password go together: no sign-in is sent without both");
+                return None;
+            }
+        };
+        let source_host = self.source.as_deref().and_then(mg_nwsync::auth::host_of);
+        let host = match self.host {
+            Some((text, at)) => match mg_nwsync::auth::host_given(&text) {
+                Some(h) => {
+                    if source_host.as_ref().is_some_and(|s| *s != h) {
+                        r.warn(
+                            at,
+                            format!(
+                                "host \"{h}\" is not the host of this file's source: the \
+                                 sign-in is sent to {h} alone"
+                            ),
+                        );
+                    }
+                    h
+                }
+                // (Not echoed: an address pasted whole may carry a
+                // password.)
+                None => {
+                    r.warn(
+                        at,
+                        "host is to be the server's name alone (nwsync.example.org): no sign-in \
+                         is sent",
+                    );
+                    return None;
+                }
+            },
+            None => match source_host {
+                Some(h) => h,
+                None => {
+                    r.warn(
+                        at,
+                        "a sign-in is sent to one server, and this file names none: give its \
+                         name, host = \"nwsync.example.org\" (or its source here)",
+                    );
+                    return None;
+                }
+            },
+        };
+        Some(mg_nwsync::Auth { host, credentials })
     }
 }
 
@@ -1071,6 +1184,7 @@ impl ProjectFile {
             url: self.nwsync_source.clone()?,
             manifest: self.nwsync_manifest.unwrap_or(mg_nwsync::Wanted::Latest),
             cache: self.nwsync_cache.clone(),
+            auth: self.nwsync_auth.clone(),
         })
     }
 
@@ -1474,8 +1588,39 @@ impl ProjectFile {
                 }
                 // (Either file's: the team's server, or a builder's own.)
                 ("nwsync", _) => {
+                    let mut sign_in = SignIn::default();
                     for e in r.section(entry) {
                         match e.0.get_ref().as_ref() {
+                            // (A secret, and where it is sent: never a
+                            // checkout's, which everyone with it reads
+                            // and anyone could change.)
+                            k @ ("token" | "user" | "password" | "host") if beside => r.warn(
+                                e.0.span().start,
+                                format!(
+                                    "{k} is read from a builder's own file alone, which a module \
+                                     kept in one file (.mod) has none of: no sign-in is sent"
+                                ),
+                            ),
+                            "host" if !own => r.warn(
+                                e.0.span().start,
+                                "host is read from your own file alone (.moonglow/user.toml), \
+                                 with the sign-in it is for: it is where the sign-in is sent",
+                            ),
+                            k @ ("token" | "user" | "password") if !own => r.warn(
+                                e.0.span().start,
+                                format!(
+                                    "{k} is not read from a file the team shares: a sign-in is \
+                                     read from your own file alone (.moonglow/user.toml). Take \
+                                     it out, and have it replaced on the server: everyone with \
+                                     the checkout has it"
+                                ),
+                            ),
+                            "token" => sign_in.token = r.text(e).map(|t| (t, e.0.span().start)),
+                            "user" => sign_in.user = r.text(e).map(|t| (t, e.0.span().start)),
+                            "password" => {
+                                sign_in.password = r.text(e).map(|t| (t, e.0.span().start))
+                            }
+                            "host" => sign_in.host = r.text(e).map(|t| (t, e.1.span().start)),
                             "upload" if beside => r.warn(
                                 e.0.span().start,
                                 "upload is not read beside a module kept in one file (.mod): it \
@@ -1487,7 +1632,16 @@ impl ProjectFile {
                                 }
                             }
                             "source" => {
-                                if let Some(url) = r.nwsync_source(e, own) {
+                                let base = self.place.as_ref().map(|p| p.root.clone());
+                                if let Some(url) = r.nwsync_source(e, own, base.as_deref()) {
+                                    // (Turned off: the team's server, said
+                                    // so; a server named again: on.)
+                                    self.nwsync_off = match &url {
+                                        None => (self.nwsync_source.clone())
+                                            .or_else(|| self.nwsync_off.take()),
+                                        Some(_) => None,
+                                    };
+                                    sign_in.source = url.clone();
                                     self.nwsync_source = url;
                                 }
                             }
@@ -1541,6 +1695,9 @@ impl ProjectFile {
                             }
                             _ => r.unknown(section, e),
                         }
+                    }
+                    if own && !beside {
+                        self.nwsync_auth = sign_in.auth(&mut r, key.span().start);
                     }
                 }
                 // (A trust decision is never read from the checkout: one a
@@ -3073,9 +3230,16 @@ keeper_variable = "tdod_store"
         p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
         assert_eq!(p.warnings, Vec::<String>::new());
         assert!(p.nwsync_settings().is_none());
+        // (What was turned off is kept, for the plugin API's status.)
+        assert_eq!(p.nwsync_off.as_deref(), Some("https://a.example"));
+        // `""` with no team server turns nothing off.
+        let mut p = ProjectFile::default();
+        p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
+        assert_eq!((p.nwsync_source.as_deref(), p.nwsync_off.as_deref()), (None, None));
         let mut p = ProjectFile::default();
         p.apply("moonglow.toml", "[nwsync]\nsource = \"\"\n", false);
         assert!(p.nwsync_settings().is_none());
+        assert_eq!(p.nwsync_off, None);
         assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
 
         let p = read(
@@ -3098,6 +3262,177 @@ keeper_variable = "tdod_store"
         p.apply("user.toml", "[nwsync]\nkeep = -1\n", true);
         p.apply("user.toml", "[nwsync]\nkeep = \"two\"\n", true);
         assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 2));
+    }
+
+    /// `[nwsync] token`, or `user` and `password`, with `host`: read from
+    /// the builder's own file alone, bound to `host` or to that file's own
+    /// `source`; in the team's file, beside a `.mod`, in a source's
+    /// address or mistyped, refused with where and why, and the secret
+    /// never in a message or `Debug`.
+    #[test]
+    fn a_sign_in_is_the_builder_s_own() {
+        const SECRET: &str = "s3cret-9f1b";
+        let none_said = |p: &ProjectFile| {
+            let said = format!("{:?} {:?} {p:?}", p.warnings, p.errors);
+            assert!(!said.contains(SECRET), "{said}");
+        };
+        let own = |team: &str, mine: &str| {
+            let mut p = ProjectFile::default();
+            p.apply("moonglow.toml", team, false);
+            p.apply("user.toml", mine, true);
+            none_said(&p);
+            p
+        };
+        let team = "[nwsync]\nsource = \"https://nwsync.example.org\"\n";
+        // Bound to `host`.
+        let p = own(
+            team,
+            &format!("[nwsync]\ntoken = \" {SECRET} \"\nhost = \"NWSync.Example.org\"\n"),
+        );
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        let s = p.nwsync_settings().unwrap();
+        let auth = s.auth.as_ref().unwrap();
+        assert_eq!(auth.host, "nwsync.example.org");
+        assert_eq!(auth.header(), format!("Bearer {SECRET}"));
+        assert!(!format!("{s:?}").contains(SECRET));
+        // To the file's own source, without `host`; a user and password.
+        let mine = format!(
+            "[nwsync]\nuser = \"ann\"\npassword = \"{SECRET}\"\nsource = \"https://own.example:8443\"\n"
+        );
+        let p = own(team, &mine);
+        let auth = p.nwsync_auth.clone().unwrap();
+        assert_eq!(auth.host, "own.example");
+        assert!(
+            matches!(auth.credentials, mg_nwsync::Credentials::Basic { ref user, .. } if user == "ann")
+        );
+        // Never to the team's source: a host is asked for.
+        let p = own(team, &format!("[nwsync]\ntoken = \"{SECRET}\"\n"));
+        assert_eq!(p.nwsync_auth, None);
+        assert!(
+            p.warnings[0].starts_with("user.toml:1: a sign-in is sent to one server"),
+            "{:?}",
+            p.warnings
+        );
+        // A host that isn't one, said without what it is.
+        let p = own(
+            team,
+            &format!("[nwsync]\ntoken = \"x\"\nhost = \"https://u:{SECRET}@a.example\"\n"),
+        );
+        assert_eq!(p.nwsync_auth, None);
+        assert!(
+            p.warnings[0].starts_with("user.toml:3: host is to be the server's name"),
+            "{:?}",
+            p.warnings
+        );
+        // Half a user and password; both kinds.
+        let p = own(team, "[nwsync]\nuser = \"ann\"\nhost = \"a.example\"\n");
+        assert_eq!(p.nwsync_auth, None);
+        assert!(p.warnings[0].contains("user and password go together"), "{:?}", p.warnings);
+        let p = own(
+            team,
+            &format!("[nwsync]\ntoken = \"{SECRET}\"\nuser = \"ann\"\nhost = \"a.example\"\n"),
+        );
+        assert!(matches!(p.nwsync_auth.unwrap().credentials, mg_nwsync::Credentials::Token(_)));
+        assert!(p.warnings[0].contains("the token is sent"), "{:?}", p.warnings);
+        // In the team's file: refused, naming the file and why.
+        let p = own(
+            &format!(
+                "{team}token = \"{SECRET}\"\npassword = \"{SECRET}\"\nhost = \"nwsync.example.org\"\n"
+            ),
+            "",
+        );
+        assert_eq!(p.nwsync_auth, None);
+        assert_eq!(p.warnings.len(), 3, "{:?}", p.warnings);
+        assert!(
+            p.warnings[0].starts_with(
+                "moonglow.toml:3: token is not read from a file the team shares: a sign-in is read \
+             from your own file alone (.moonglow/user.toml)"
+            ),
+            "{:?}",
+            p.warnings
+        );
+        assert!(p.warnings[0].contains("replaced on the server"));
+        assert!(
+            p.warnings[2].starts_with("moonglow.toml:5: host is read from your own file alone")
+        );
+        // (And the team's host doesn't bind the builder's token.)
+        let p = own(
+            &format!("{team}host = \"evil.example\"\n"),
+            &format!("[nwsync]\ntoken = \"{SECRET}\"\n"),
+        );
+        assert_eq!(p.nwsync_auth, None);
+        // A user or password in a source's address: not read, not said.
+        for source in [format!("https://u:{SECRET}@a.example"), format!("u:{SECRET}@a.example")] {
+            for (name, own_file) in [("moonglow.toml", false), ("user.toml", true)] {
+                let mut p = ProjectFile::default();
+                p.apply(name, &format!("[nwsync]\nsource = \"{source}\"\n"), own_file);
+                none_said(&p);
+                assert_eq!(p.nwsync_source, None);
+                assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+            }
+        }
+        // A secret mistyped (no quotes, one quote): the file not read, and
+        // the secret not said.
+        for mine in
+            [format!("[nwsync]\ntoken = {SECRET}\n"), format!("[nwsync]\ntoken = \"{SECRET}\n")]
+        {
+            let p = own(team, &mine);
+            assert_eq!((p.nwsync_auth.as_ref(), p.errors.len()), (None, 1), "{:?}", p.errors);
+        }
+        let p = own(team, "[nwsync]\ntoken = 12345678\nhost = \"a.example\"\n");
+        assert!(!format!("{:?}", p.warnings).contains("12345678"), "{:?}", p.warnings);
+        // Beside a .mod, which has no builder's file.
+        let dir = mg_testkit::scratch_dir("mg-pf-nwsync-sign-in");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("krezk.moonglow.toml"), format!("{team}token = \"{SECRET}\"\n"))
+            .unwrap();
+        let p = ProjectFile::read_at(&Place::beside(&dir.join("krezk.mod")).unwrap());
+        none_said(&p);
+        assert_eq!(p.nwsync_auth, None);
+        assert!(
+            p.warnings[0].contains("token is read from a builder's own file alone"),
+            "{:?}",
+            p.warnings
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `[nwsync] source` naming a repository folder: a relative path
+    /// resolved against the project's folder (a `.mod`'s: its own
+    /// folder), a whole path or a `file://` URL taken as it is; a server's
+    /// name alone, and a relative path without a project, said.
+    #[test]
+    fn an_nwsync_source_may_be_a_folder() {
+        let dir = mg_testkit::scratch_dir("project-file-nwsync-folder");
+        std::fs::create_dir_all(dir.join("krezk")).unwrap();
+        std::fs::create_dir_all(dir.join("repo")).unwrap();
+        let repo = std::fs::canonicalize(dir.join("repo")).unwrap();
+        let folder_of = |url: &str| {
+            let at = mg_nwsync::local_folder(url).unwrap();
+            assert!(at.is_absolute() && !at.components().any(|c| c.as_os_str() == ".."), "{url}");
+            std::fs::canonicalize(at).unwrap()
+        };
+        std::fs::write(dir.join("krezk/moonglow.toml"), "[nwsync]\nsource = \"../repo\"\n")
+            .unwrap();
+        let p = ProjectFile::read(&dir.join("krezk"));
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(folder_of(&p.nwsync_settings().unwrap().url), repo);
+        // Beside a .mod: from the .mod's folder.
+        std::fs::write(dir.join("krezk.moonglow.toml"), "[nwsync]\nsource = \"./repo\"\n").unwrap();
+        let place = Place::beside(&dir.join("krezk.mod")).unwrap();
+        let url = ProjectFile::read_at(&place).nwsync_settings().unwrap().url;
+        assert_eq!(folder_of(&url), repo);
+        let whole = if cfg!(windows) { "D:\\\\nwsync" } else { "/srv/nwsync" };
+        let p = read(&format!("[nwsync]\nsource = \"{whole}\"\n"));
+        assert_eq!(
+            p.nwsync_settings().unwrap().url,
+            mg_nwsync::folder_url(Path::new(&whole.replace("\\\\", "\\")))
+        );
+        let p = read("[nwsync]\nsource = \"file:///srv/nwsync\"\n");
+        assert!(p.warnings.is_empty() && p.nwsync_settings().is_some(), "{:?}", p.warnings);
+        let p = read("[nwsync]\nsource = \"../repo\"\n");
+        assert!(p.nwsync_settings().is_none());
+        assert!(p.warnings[0].contains("repository folder"), "{:?}", p.warnings);
     }
 
     /// `[nwsync] upload`: text, or a table for each system and `input`;

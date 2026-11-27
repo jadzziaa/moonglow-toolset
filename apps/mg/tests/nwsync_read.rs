@@ -7,8 +7,8 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use mg_core::ResType;
 use mg_module::nwsync::{Options, Source, write};
@@ -19,24 +19,47 @@ use mg_resman::ResKey;
 /// each on a thread): its address, whether it is to answer 503 as a
 /// server that is down, and how many data files it was asked for.
 pub(crate) fn serve(root: PathBuf) -> (String, Arc<AtomicBool>, Arc<AtomicUsize>) {
+    let (url, down, asked, _) = serve_signed(root, None);
+    (url, down, asked)
+}
+
+/// The `Authorization` headers a server was sent, a request each.
+type Heard = Arc<Mutex<Vec<Option<String>>>>;
+
+/// [`serve`], answering 401 to a request without `needed` as its
+/// `Authorization` header where it is given; and the headers it was sent.
+fn serve_signed(
+    root: PathBuf,
+    needed: Option<String>,
+) -> (String, Arc<AtomicBool>, Arc<AtomicUsize>, Heard) {
+    let heard: Heard = Arc::default();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let down = Arc::new(AtomicBool::new(false));
     let asked = Arc::new(AtomicUsize::new(0));
-    let (is_down, data) = (down.clone(), asked.clone());
+    let (is_down, data, sent) = (down.clone(), asked.clone(), heard.clone());
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let (root, is_down, data) = (root.clone(), is_down.clone(), data.clone());
+            let (needed, sent) = (needed.clone(), sent.clone());
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut first = String::new();
                 let _ = reader.read_line(&mut first);
+                let mut auth = None;
                 loop {
                     let mut line = String::new();
                     if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
                         break;
                     }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("authorization")
+                    {
+                        auth = Some(value.trim().to_string());
+                    }
                 }
+                let refused = needed.is_some() && auth != needed;
+                sent.lock().unwrap().push(auth);
                 let path = first.split(' ').nth(1).unwrap_or("/").trim_start_matches('/');
                 if path.starts_with("data/") {
                     data.fetch_add(1, Ordering::Relaxed);
@@ -44,6 +67,7 @@ pub(crate) fn serve(root: PathBuf) -> (String, Arc<AtomicBool>, Arc<AtomicUsize>
                 let file = (!path.contains("..")).then(|| std::fs::read(root.join(path)).ok());
                 let (status, body) = match file.flatten() {
                     _ if is_down.load(Ordering::Relaxed) => ("503 Service Unavailable", Vec::new()),
+                    _ if refused => ("401 Unauthorized", Vec::new()),
                     Some(b) => ("200 OK", b),
                     None => ("404 Not Found", Vec::new()),
                 };
@@ -56,7 +80,7 @@ pub(crate) fn serve(root: PathBuf) -> (String, Arc<AtomicBool>, Arc<AtomicUsize>
             });
         }
     });
-    (url, down, asked)
+    (url, down, asked, heard)
 }
 
 fn key(name: &str, restype: ResType) -> ResKey {
@@ -307,4 +331,196 @@ fn serve_test_and_watch_take_no_nwsync() {
         let help = String::from_utf8_lossy(&out.stdout);
         assert!(help.contains("--no-nwsync"), "mg {cmd} --help: {help}");
     }
+}
+
+/// A repository folder as the source (`source = "../repo"` in the
+/// project's moonglow.toml, resolved from the project's folder): a
+/// repository Moonglow published, pulled from the folder in place into
+/// the cache (no server), then read from the cache; `--source` takes a
+/// folder too, and a name alone that is no folder is refused.
+#[test]
+fn a_repository_folder_is_the_source() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-folder");
+    let resources: Vec<(ResKey, &[u8])> = vec![
+        (key("pw_appear", ResType::TWODA), b"2DA V2.0\n\n A\n0 x\n"),
+        (key("pw_head", ResType::MDL), b"a model of a head, a model of a head"),
+    ];
+    let contents: Vec<(ResKey, Source)> =
+        resources.iter().map(|(k, b)| (*k, Source::Bytes((*b).into()))).collect();
+    let o = Options { latest: true, origins: true, ..Default::default() };
+    let written = write(&dir.join("repo"), &contents, &o, &mut |_, _| {}).unwrap();
+    let folder = module_naming(&dir, "unused");
+    std::fs::write(folder.join("moonglow.toml"), "[nwsync]\nsource = \"../repo\"\n").unwrap();
+    let cache = dir.join("cache");
+    let (c, f) = (cache.to_str().unwrap(), folder.to_str().unwrap());
+
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(ok, "{j}");
+    assert_eq!(j["manifest"], written.sha1.as_str());
+    assert_eq!(j["from"], "folder");
+    assert_eq!(j["downloaded"], 2);
+    let url = j["server"].as_str().unwrap().to_string();
+    let at = mg_nwsync::local_folder(&url).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(at).unwrap(),
+        std::fs::canonicalize(dir.join("repo")).unwrap()
+    );
+    assert_eq!(j["origins"].as_array().map(Vec::len), Some(0), "{j}");
+    let kept = mg_nwsync::Cache::new(&cache);
+    assert!(resources.iter().all(|(_, b)| kept.contains(&mg_core::sha1::sha1(b))));
+    assert!(kept.latest(&url).is_some());
+
+    let out = crate::mg_output(&["--no-user-dir", "nwsync-status", f, "--cache", c]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success() && text.contains("repository folder: "), "{text}");
+    assert!(text.contains("Moonglow's cache"), "{text}");
+
+    let repo = dir.join("repo");
+    let args = ["--no-user-dir", "nwsync-status", "--source", repo.to_str().unwrap(), "--cache", c];
+    let (ok, j) = crate::mg_json(&args);
+    assert!(ok && j["server"] == url.as_str(), "{j}");
+    let args = ["--no-user-dir", "nwsync-status", "--source", "nwsync.example.org", "--cache", c];
+    let (ok, j) = crate::mg_json(&args);
+    assert!(!ok && j["error"].to_string().contains("repository folder"), "{j}");
+}
+
+/// A private server: the token in the builder's `.moonglow/user.toml`
+/// signs `mg nwsync-pull` and `nwsync-status --online` in (said as "a
+/// token", never its value); in the team's `moonglow.toml` it is refused
+/// with a warning naming the file, and not sent. The token is in no
+/// output, standard error or JSON, not even where the server refuses it.
+#[test]
+fn a_private_server_is_signed_in_to_from_the_builder_s_own_file() {
+    const TOKEN: &str = "tok-7d2f-s3cret";
+    let dir = mg_testkit::scratch_dir("mg-nwsync-private");
+    let resources: Vec<(ResKey, &[u8])> = vec![
+        (key("pw_appear", ResType::TWODA), b"2DA V2.0\n\n A\n0 x\n"),
+        (key("pw_head", ResType::MDL), b"a model of a head, a model of a head"),
+    ];
+    let contents: Vec<(ResKey, Source)> =
+        resources.iter().map(|(k, b)| (*k, Source::Bytes((*b).into()))).collect();
+    let o = Options { latest: true, ..Default::default() };
+    let written = write(&dir.join("repo"), &contents, &o, &mut |_, _| {}).unwrap();
+    let (url, _, asked, heard) = serve_signed(dir.join("repo"), Some(format!("Bearer {TOKEN}")));
+    let folder = module_naming(&dir, &url);
+    let cache = dir.join("cache");
+    let (c, f) = (cache.to_str().unwrap(), folder.to_str().unwrap());
+    // What mg said, everywhere it says it, without the token.
+    let run = |args: &[&str]| {
+        let out = crate::mg_output(args);
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!said.contains(TOKEN) && !said.contains("dG9r"), "{said}");
+        (out.status.success(), said)
+    };
+
+    // No sign-in: refused, and asked for.
+    let (ok, said) = run(&["--json", "--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(!ok && said.contains("401") && said.contains("asks for a sign-in"), "{said}");
+    // In the team's file: refused, said, not sent.
+    let team = format!("[nwsync]\nsource = \"{url}/\"\ntoken = \"{TOKEN}\"\n");
+    std::fs::write(folder.join("moonglow.toml"), &team).unwrap();
+    heard.lock().unwrap().clear();
+    let (ok, said) = run(&["--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(!ok, "{said}");
+    assert!(
+        said.contains("moonglow.toml:3: token is not read from a file the team shares"),
+        "{said}"
+    );
+    assert!(heard.lock().unwrap().iter().all(Option::is_none), "{:?}", heard.lock().unwrap());
+
+    // In the builder's own: signed in.
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}/\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let host = "[nwsync]\nhost = \"127.0.0.1\"\n";
+    std::fs::write(folder.join(".moonglow/user.toml"), format!("{host}token = \"{TOKEN}\"\n"))
+        .unwrap();
+    let (ok, said) = run(&["--json", "--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(ok, "{said}");
+    let j: serde_json::Value = serde_json::from_str(&said[..said.rfind('}').unwrap() + 1]).unwrap();
+    assert_eq!(
+        (j["manifest"].as_str(), j["downloaded"].as_u64()),
+        (Some(written.sha1.as_str()), Some(2))
+    );
+    assert_eq!(j["signed_in"], "a token");
+    assert_eq!(asked.load(Ordering::Relaxed), 2);
+    let (ok, said) = run(&["--no-user-dir", "nwsync-status", f, "--cache", c, "--online"]);
+    assert!(ok && said.contains("signed in with a token from .moonglow/user.toml"), "{said}");
+    assert!(
+        heard
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(3)
+            .all(|h| h.as_deref() == Some(&format!("Bearer {TOKEN}")[..]))
+    );
+
+    // A token the server refuses: said as refused, never shown.
+    std::fs::write(folder.join(".moonglow/user.toml"), format!("{host}token = \"{TOKEN}-old\"\n"))
+        .unwrap();
+    let (ok, said) =
+        run(&["--json", "--no-user-dir", "nwsync-status", f, "--cache", c, "--online"]);
+    assert!(ok && said.contains("refused the sign-in"), "{said}");
+    // A user and password in --source's address: refused unsaid.
+    let source = format!("http://ann:{TOKEN}@127.0.0.1:1");
+    let (ok, said) = run(&["--no-user-dir", "nwsync-status", "--source", &source, "--cache", c]);
+    assert!(!ok && said.contains("user or password in its address"), "{said}");
+}
+
+/// `mg plugin run` tells a plugin's `mg.nwsync.status()` what it put
+/// into the game data (API 0.11): the source, the manifest the game's
+/// storage holds and where from, its resources; no survey and nothing
+/// under way, `mg` running no Sync beside it.
+#[test]
+fn a_plugin_run_by_mg_reads_the_nwsync_status() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-plugin-status");
+    let url = "https://nwsync.example.org";
+    let folder = module_naming(&dir, url);
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    std::fs::write(folder.join(".moonglow/.gitignore"), "*\n").unwrap();
+    let own = format!("[nwsync]\ncache = '{}'\n", dir.join("cache").display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let table: &[u8] = b"2DA V2.0\n\n A\n0 x\n";
+    let entry = (key("pw_appear", ResType::TWODA), mg_core::sha1::sha1(table));
+    let manifest = mg_nwsync::manifest::write(&[(entry.0, entry.1, table.len() as u32)]);
+    let user = dir.join("user");
+    write_storage(
+        &user.join("nwsync"),
+        &[Registered {
+            sha1: mg_core::sha1::sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: vec![entry],
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(entry.1, table.to_vec())]],
+    );
+    let plugin = dir.join("status-plugin");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.cfg"),
+        "[plugin]\nid = \"t.nwsync\"\nname = \"t\"\nversion = \"1.0.0\"\napi = \"0.11\"\n\
+         license = \"MIT\"\n\n[command]\nid = \"status\"\ntitle = \"Status\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("main.luau"),
+        "local mg = require(\"@moonglow\")\nmg.command(\"status\", function(ctx)\n  \
+         local s = mg.nwsync.status()\n  \
+         ctx.log:info(`{s.source} {s.manifest} {s.from} {s.arrived} {s.resources} \
+         {s.survey} {s.syncing}`)\nend)\n",
+    )
+    .unwrap();
+    let (m, u, p) = (folder.to_str().unwrap(), user.to_str().unwrap(), plugin.to_str().unwrap());
+    let (ok, j) = crate::mg_json(&["--user-dir", u, "plugin", "run", m, p, "status"]);
+    assert!(ok, "{j}");
+    let sha = mg_nwsync::sha1_hex(&mg_core::sha1::sha1(&manifest));
+    let said = format!("{url} {sha} game_storage 1 1 nil false");
+    assert_eq!(j["log"], serde_json::json!([{ "level": "info", "text": said }]), "{j}");
 }

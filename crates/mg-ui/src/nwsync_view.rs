@@ -27,6 +27,8 @@ pub struct Publish {
     pub description: String,
     pub group_id: u32,
     pub latest: bool,
+    /// Write the manifest's origins file too (`mg nwsync --write-origins`).
+    pub origins: bool,
     /// The last one written.
     pub written: Option<mg_module::nwsync::Written>,
     /// What the last Remove Unused Data found and did.
@@ -253,6 +255,7 @@ fn start(app: &mut Moonglow) {
         dry_run: false,
         // (The default, 3.)
         level: 0,
+        origins: p.origins,
     };
     app.settings.nwsync_repository = Some(folder.clone());
     let at = folder.clone();
@@ -395,6 +398,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     &mut p.latest,
                     "Make it the latest (what nwserver serves unless told a hash)",
                 );
+                ui.check_box(&mut p.origins, "Write an origins file").on_hover_text(
+                    "Name the hak or file each resource came from, so a reader knows which haks \
+                     the manifest holds",
+                );
             });
             if let Some(e) = &p.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -409,13 +416,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 });
                 ui.weak(format!(
-                    "{} files, {:.1} MB ({:.1} MB compressed; {} written now). Serve the folder \
+                    "{} files, {:.1} MB ({:.1} MB compressed; {} written now){}. Serve the folder \
                      with a web server (Upload sends it) and start nwserver with -nwsyncurl and \
                      its address (-nwsynchash {} to pin this manifest).",
                     w.files,
                     w.bytes as f64 / 1048576.0,
                     w.on_disk as f64 / 1048576.0,
                     w.new_files,
+                    match w.origins {
+                        Some(1) => ", with its origins file of 1 hak or file".to_string(),
+                        Some(n) => format!(", with its origins file of {n} haks and files"),
+                        None => String::new(),
+                    },
                     w.sha1
                 ));
             }

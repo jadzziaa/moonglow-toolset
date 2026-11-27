@@ -16,6 +16,12 @@
 //! name, a dot and its type's extension (a number for a type with none),
 //! after a tab (spaces above). The game reads none of it; it tells which
 //! of a module's haks a manifest holds.
+//!
+//! Moonglow's publish writes one too where asked (`mg nwsync
+//! --write-origins`, [`Origins::to_text`]): the same lines, each
+//! container by its file's name alone (a whole path would put the
+//! builder's folders on the web server, and the reader takes the name
+//! alone), its resources sorted as neverwinter.nim sorts them.
 
 /// One container of an origins file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +96,27 @@ impl Origins {
     pub fn resources(&self) -> usize {
         self.containers.iter().map(|c| c.resources.len()).sum()
     }
+
+    /// The file's text, as [`Origins::parse`] reads it back: each
+    /// container's line (`kind:path`), then its resources after a tab.
+    /// A line break in a name, which no file name of a container or a
+    /// resource has, is written as a space so that the lines stay.
+    pub fn to_text(&self) -> String {
+        let one_line = |t: &str| t.replace(['\r', '\n'], " ");
+        let mut out = String::new();
+        for c in &self.containers {
+            out.push_str(&one_line(&c.kind));
+            out.push(':');
+            out.push_str(&one_line(&c.path));
+            out.push('\n');
+            for r in &c.resources {
+                out.push('\t');
+                out.push_str(&one_line(r));
+                out.push('\n');
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -119,6 +146,45 @@ mod tests {
         assert_eq!(o.containers[2].kind, "ResFile");
         assert_eq!(o.containers[3].resources[1], "thing.9999");
         assert_eq!(o.resources(), 6);
+    }
+
+    /// What Moonglow writes is read back as it was, a Windows path and a
+    /// type without an extension too.
+    #[test]
+    fn origins_written_are_read_back() {
+        let o = Origins {
+            containers: vec![
+                Origin {
+                    kind: "Erf".into(),
+                    path: "pw_parts.hak".into(),
+                    resources: vec!["pfh0_head001.mdl".into(), "thing.9999".into()],
+                },
+                Origin {
+                    kind: "ResFile".into(),
+                    path: "world.tlk".into(),
+                    resources: vec!["world.tlk".into()],
+                },
+                Origin { kind: "ResDir".into(), path: "C:\\mods\\krezk".into(), resources: vec![] },
+            ],
+        };
+        let text = o.to_text();
+        assert_eq!(
+            text,
+            "Erf:pw_parts.hak\n\tpfh0_head001.mdl\n\tthing.9999\nResFile:world.tlk\n\tworld.tlk\n\
+             ResDir:C:\\mods\\krezk\n"
+        );
+        assert_eq!(Origins::parse(&text), o);
+        // (A line break in a name can't make lines of its own.)
+        let odd = Origins {
+            containers: vec![Origin {
+                kind: "Erf".into(),
+                path: "a\nb.hak".into(),
+                resources: vec!["x\r\ny.mdl".into()],
+            }],
+        };
+        let back = Origins::parse(&odd.to_text());
+        assert_eq!(back.containers.len(), 1);
+        assert_eq!(back.containers[0].resources, ["x  y.mdl"]);
     }
 
     /// An empty file, blank lines and a resource before any container.

@@ -5,7 +5,18 @@
 //! or canceled goes on from there the next time.
 //!
 //! [`Fetch`] is the seam: `mg` and the window give [`Client`] (feature
-//! `http`), the tests answers of their own ([`from_fn`]).
+//! `http`) or, for a repository folder on this computer (a `file://`
+//! source), [`Folder`] ([`for_settings`] picks), the tests answers of
+//! their own ([`from_fn`]).
+//!
+//! A folder's files are read in place, without a server, and go through
+//! the same steps as a server's: checked against their SHA-1 and copied
+//! into the cache, its `latest/` and `used/` marks kept as for a server.
+//! The cache so stays whole on its own: a module opens offline whatever
+//! becomes of the folder (a removable or network drive gone, the
+//! repository pruned or published again), and a clean-up of either never
+//! takes what the other holds. The cost is the disk space of the data
+//! copied.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,7 +25,7 @@ use std::time::Duration;
 use crate::manifest::{self, Entry};
 use crate::{
     Cache, Found, GameStorage, ManifestFrom, Origins, Settings, Sha1, Survey, Wanted, find,
-    parse_sha1, sha1_hex, survey, unpack_checked,
+    parse_sha1, sha1_hex, survey_until, unpack_checked,
 };
 
 /// The most of a manifest that is read (a large persistent world's, 220,000 resources, is
@@ -56,6 +67,57 @@ pub fn from_fn(
         }
     }
     Arc::new(Answers(answer))
+}
+
+/// A repository folder on this computer, read in place: `base` is the
+/// source's `file://` URL as [`at`] builds the files' addresses from it.
+#[derive(Debug, Clone)]
+pub struct Folder {
+    base: String,
+    root: std::path::PathBuf,
+}
+
+impl Folder {
+    /// The folder a `file://` source names; `None` for a server.
+    pub fn of(url: &str) -> Option<Folder> {
+        let root = crate::local_folder(url)?;
+        Some(Folder { base: at(url, ""), root })
+    }
+}
+
+impl Fetch for Folder {
+    fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, String> {
+        let rel =
+            url.strip_prefix(&self.base).ok_or_else(|| format!("{url} is not in the folder"))?;
+        // (A path of the repository's own, nothing above or beside it.)
+        let rel = std::path::Path::new(rel);
+        if rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Err(format!("{url} is not in the folder"));
+        }
+        if !self.root.is_dir() {
+            return Err(format!("the repository folder {} is not there", self.root.display()));
+        }
+        let path = self.root.join(rel);
+        let said = |e: std::io::Error| format!("{}: {e}", path.display());
+        let meta = match std::fs::metadata(&path) {
+            Ok(m) if m.is_file() => m,
+            Ok(_) => return Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(said(e)),
+        };
+        if meta.len() > limit {
+            return Err(format!("{} is larger than it should be", path.display()));
+        }
+        use std::io::Read as _;
+        let mut bytes = Vec::with_capacity(meta.len() as usize);
+        let file = std::fs::File::open(&path).map_err(said)?;
+        // (Read to the limit: a file grown since it was looked at.)
+        file.take(limit + 1).read_to_end(&mut bytes).map_err(said)?;
+        if bytes.len() as u64 > limit {
+            return Err(format!("{} is larger than it should be", path.display()));
+        }
+        Ok(Some(bytes))
+    }
 }
 
 /// A file of the repository at `url`.
@@ -158,9 +220,11 @@ pub fn resolve(
     };
     if let Ok(found) = find(url, Wanted::Pinned(wanted), Some(cache), game) {
         keep_latest()?;
-        // (The game's has no origins: they are asked for, where the server
-        // has them.)
-        if found.from == ManifestFrom::GameStorage && found.origins.is_none() {
+        // (The game's has no origins, and one kept before the server
+        // published them has none either: they are asked for, where the
+        // server has them now. Publishing them again doesn't change the
+        // manifest's SHA-1.)
+        if found.origins.is_none() {
             let hex = sha1_hex(&wanted);
             if let Ok(Some(side)) =
                 fetch.get(&at(url, &format!("manifests/{hex}.origin")), SIDE_LIMIT)
@@ -183,7 +247,10 @@ pub fn resolve(
                 .manifest(&wanted, "origin")
                 .map(|b| Origins::parse(&String::from_utf8_lossy(&b)));
             let includes_module = crate::source::includes_module(&wanted, Some(cache), game);
-            let from = ManifestFrom::Server;
+            let from = match crate::local_folder(url) {
+                Some(_) => ManifestFrom::Folder,
+                None => ManifestFrom::Server,
+            };
             let at = crate::source::time_of(&wanted, from, Some(cache), game);
             let found = Found { sha1: wanted, entries, from, origins, includes_module, at };
             Ok(Resolved { found, server_latest, warnings: Vec::new() })
@@ -349,7 +416,8 @@ pub enum Step {
 
 /// The manifest of `settings` resolved ([`resolve`]) and the data files
 /// neither the game's storage nor the cache has downloaded into the
-/// cache ([`download`]).
+/// cache ([`download`]). Stopped while it looks, the error is
+/// [`crate::CANCELED`]; while it downloads, [`Downloaded::stopped`].
 pub fn pull(
     fetch: &dyn Fetch,
     settings: &Settings,
@@ -362,7 +430,7 @@ pub fn pull(
     step(Step::Asking);
     let resolved = resolve(fetch, settings, cache, game)?;
     step(Step::Looking);
-    let before = survey(&resolved.found.entries, game, Some(cache))?;
+    let before = survey_until(&resolved.found.entries, game, Some(cache), stop)?;
     let progress = |p: Progress| step(Step::Downloading(p));
     let downloaded = if before.missing.is_empty() || stop() {
         Downloaded { stopped: stop(), ..Default::default() }
@@ -375,37 +443,120 @@ pub fn pull(
 #[cfg(feature = "http")]
 pub use client::Client;
 
+/// What makes the requests for `settings`: a repository folder's
+/// [`Folder`], else the [`Client`], signed in where [`Settings::auth`]
+/// is for the server's host. A sign-in for a server over plain `http://`
+/// to another computer is refused, not sent where anyone on the way
+/// could read it.
+#[cfg(feature = "http")]
+pub fn for_settings(settings: &Settings) -> Result<Arc<dyn Fetch>, String> {
+    if let Some(f) = Folder::of(&settings.url) {
+        return Ok(Arc::new(f));
+    }
+    if let Some(why) = settings.auth.as_ref().and_then(|a| a.refused_for(&settings.url)) {
+        return Err(why);
+    }
+    Ok(Arc::new(Client::new().with_auth(settings.auth.clone())))
+}
+
 #[cfg(feature = "http")]
 mod client {
     //! What is sent is the request alone: `GET` of the address with
-    //! `User-Agent: Moonglow/<version>`. No identifier, cookie or token;
-    //! a proxy is used where the environment names one (`HTTPS_PROXY`).
+    //! `User-Agent: Moonglow/<version>`, and the builder's sign-in
+    //! ([`crate::Auth`]) to its own host where there is one. No
+    //! identifier or cookie; a proxy is used where the environment names
+    //! one (`HTTPS_PROXY`). Redirects are followed here, not by ureq, so
+    //! that the sign-in goes on only to the same scheme, host and port as
+    //! the address first asked.
 
     use std::time::Duration;
 
     use super::Fetch;
+    use crate::Auth;
+    use crate::auth::{origin_of, redirected};
 
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
     const READ_TIMEOUT: Duration = Duration::from_secs(30);
+    const REDIRECTS: usize = 5;
 
     /// The requests, with ureq (rustls, its own certificates). A server
-    /// may be HTTP or HTTPS, as the game's NWSync allows.
+    /// may be HTTP or HTTPS, as the game's NWSync allows. Its `Debug`
+    /// never shows the sign-in's secret.
     #[derive(Debug, Clone)]
     pub struct Client {
         agent: ureq::Agent,
+        auth: Option<Auth>,
+    }
+
+    /// The agent: through a proxy the environment names where `proxy`.
+    fn agent(proxy: bool) -> ureq::Agent {
+        let config = ureq::Agent::config_builder()
+            .user_agent(format!("Moonglow/{}", mg_core::release::version()))
+            // (Followed in `get`, which decides where the sign-in goes.)
+            .max_redirects(0)
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_recv_response(Some(READ_TIMEOUT))
+            .timeout_per_read(Some(READ_TIMEOUT));
+        let config = if proxy { config } else { config.proxy(None) };
+        config.build().into()
     }
 
     impl Client {
         pub fn new() -> Client {
-            let agent = ureq::Agent::config_builder()
-                .user_agent(format!("Moonglow/{}", mg_core::release::version()))
-                .max_redirects(5)
-                .timeout_connect(Some(CONNECT_TIMEOUT))
-                .timeout_recv_response(Some(READ_TIMEOUT))
-                .timeout_per_read(Some(READ_TIMEOUT))
-                .build()
-                .into();
-            Client { agent }
+            Client { agent: agent(true), auth: None }
+        }
+
+        /// Signed in with `auth` (sent to its host alone). A sign-in to
+        /// this computer, the one sent over plain HTTP, goes through no
+        /// proxy (`HTTP_PROXY`), which would read it on the way.
+        pub fn with_auth(mut self, auth: Option<Auth>) -> Client {
+            if auth.as_ref().is_some_and(|a| crate::auth::loopback(&a.host)) {
+                self.agent = agent(false);
+            }
+            self.auth = auth;
+            self
+        }
+
+        /// Whether the sign-in goes with a request of `url`, as the
+        /// address ureq connects to reads (`ureq::http::Uri`) and as
+        /// [`Auth::sent_to`] does: both, or not at all.
+        fn sent_to<'a>(&'a self, url: &str) -> Option<&'a Auth> {
+            let a = self.auth.as_ref()?;
+            let uri: ureq::http::Uri = url.parse().ok()?;
+            let host = uri.host()?.trim_end_matches('.').to_ascii_lowercase();
+            let https = uri.scheme_str().is_some_and(|s| s.eq_ignore_ascii_case("https"));
+            let userinfo = uri.authority().is_some_and(|au| au.as_str().contains('@'));
+            let ok = !userinfo
+                && host == a.host
+                && (https || crate::auth::loopback(&host))
+                && a.sent_to(url);
+            ok.then_some(a)
+        }
+
+        /// What is said of a refusal (401, 403), with why the sign-in
+        /// was or wasn't sent, never what it is.
+        fn refused(&self, code: u16, sent: bool, first: bool) -> String {
+            match &self.auth {
+                Some(a) if sent => format!(
+                    "the server answered {code}: it refused the sign-in ({} from \
+                     .moonglow/user.toml)",
+                    a.said()
+                ),
+                Some(a) if !first => format!(
+                    "the server answered {code} at the address it redirected to, which the \
+                     sign-in for {} is not sent to",
+                    a.host
+                ),
+                Some(a) => format!(
+                    "the server answered {code}: the sign-in in .moonglow/user.toml is for {}, \
+                     not this server",
+                    a.host
+                ),
+                None => format!(
+                    "the server answered {code}: it asks for a sign-in (a token, or a user and \
+                     password, in [nwsync] of .moonglow/user.toml)"
+                ),
+            }
         }
     }
 
@@ -417,19 +568,59 @@ mod client {
 
     impl Fetch for Client {
         fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, String> {
-            let mut answer = match self.agent.get(url).call() {
-                Ok(a) => a,
-                Err(ureq::Error::StatusCode(404 | 410)) => return Ok(None),
-                Err(ureq::Error::StatusCode(code)) => {
-                    return Err(format!("the server answered {code}"));
+            let origin = origin_of(url);
+            let mut at = url.to_string();
+            let mut hops = 0;
+            let mut answer = loop {
+                let first = hops == 0;
+                let sent = self.sent_to(&at).filter(|_| first || origin_of(&at) == origin);
+                let mut request = self.agent.get(&at);
+                if let Some(a) = sent {
+                    let mut value =
+                        ureq::http::HeaderValue::from_str(&a.header()).map_err(|_| {
+                            "the sign-in in .moonglow/user.toml can't be sent: it \
+                                      has a line break or control character in it"
+                        })?;
+                    value.set_sensitive(true);
+                    request = request.header(ureq::http::header::AUTHORIZATION, value);
                 }
-                Err(ureq::Error::HostNotFound) => {
-                    return Err("the server's name was not found (not connected?)".into());
+                let a = match request.call() {
+                    Ok(a) => a,
+                    Err(ureq::Error::StatusCode(404 | 410)) => return Ok(None),
+                    Err(ureq::Error::StatusCode(code @ (401 | 403))) => {
+                        return Err(self.refused(code, sent.is_some(), first));
+                    }
+                    Err(ureq::Error::StatusCode(code)) => {
+                        return Err(format!("the server answered {code}"));
+                    }
+                    Err(ureq::Error::HostNotFound) => {
+                        return Err("the server's name was not found (not connected?)".into());
+                    }
+                    Err(ureq::Error::Timeout(_)) => {
+                        return Err("the server didn't answer in time".into());
+                    }
+                    Err(e) => return Err(e.to_string()),
+                };
+                if !a.status().is_redirection() {
+                    break a;
                 }
-                Err(ureq::Error::Timeout(_)) => {
-                    return Err("the server didn't answer in time".into());
+                hops += 1;
+                let to = (a.headers().get(ureq::http::header::LOCATION))
+                    .and_then(|l| l.to_str().ok())
+                    .and_then(|l| redirected(&at, l))
+                    .filter(
+                        |to| matches!(origin_of(to), Some((s, ..)) if s == "http" || s == "https"),
+                    );
+                match to {
+                    Some(to) if hops <= REDIRECTS => at = to,
+                    Some(_) => return Err("the server redirected too many times".into()),
+                    None => {
+                        return Err(format!(
+                            "the server answered {} without an address to go to",
+                            a.status().as_u16()
+                        ));
+                    }
                 }
-                Err(e) => return Err(e.to_string()),
             };
             if answer.body().content_length().is_some_and(|n| n > limit) {
                 return Err(format!("{url} is larger than it should be"));
