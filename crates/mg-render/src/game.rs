@@ -1198,6 +1198,37 @@ pub(crate) struct PipelineKey {
     pub(crate) pass: GamePass,
 }
 
+/// A pipeline as it is made: its key, and a hash of each of its programs
+/// as assembled (its own file, the includes and the preamble; or why it
+/// can't be). Two load orders' copies of a program of one name differ;
+/// the same text read from two is one pipeline, made once.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Made {
+    pub(crate) key: PipelineKey,
+    vs: u64,
+    fs: u64,
+}
+
+impl Made {
+    fn of(
+        key: &PipelineKey,
+        vs: &Result<mg_shader::Assembled, String>,
+        fs: &Result<mg_shader::Assembled, String>,
+    ) -> Made {
+        Made { key: key.clone(), vs: text_hash(vs), fs: text_hash(fs) }
+    }
+}
+
+/// A hash of a program's assembled text (or of why it can't be).
+fn text_hash(a: &Result<mg_shader::Assembled, String>) -> u64 {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    match a {
+        Ok(a) => hasher.hash_one((0u8, &a.text)),
+        Err(why) => hasher.hash_one((1u8, why)),
+    }
+}
+
 impl PipelineKey {
     /// The key as a line of text (`vs fs pass` and its four switches as
     /// 0 or 1: `NO_DISCARD`, skinned, tangents, two-sided), as a module's
@@ -1600,10 +1631,18 @@ fn blocks_buffer(gpu: &Gpu, label: &str, size: u64) -> wgpu::Buffer {
 #[derive(Debug)]
 pub(crate) struct GameShaders {
     preamble: Preamble,
-    /// Each pair's pipeline, made by the worker (`None`: it can't be).
-    pipelines: HashMap<PipelineKey, Option<Arc<GamePipeline>>>,
+    /// Each pair's pipeline, made by the worker (`None`: it can't be), by
+    /// its key and its programs' text: two sources' copies of a program
+    /// of one name are two pipelines, and the same text from two sources
+    /// one ([`Made`]).
+    pipelines: HashMap<Made, Option<Arc<GamePipeline>>>,
     /// Those asked of the worker and not yet made.
-    pending: std::collections::HashSet<PipelineKey>,
+    pending: std::collections::HashSet<Made>,
+    /// What each source's keys were assembled to, by source
+    /// ([`crate::Assets::source`]; 0, the one of all that give none):
+    /// a key is assembled once a source, not each time it is looked for.
+    /// Let go of with the source ([`GameShaders::forget_source`]).
+    by_source: HashMap<u64, HashMap<PipelineKey, Made>>,
     worker: Option<WorkerLink>,
     /// Bumped as the programs are forgotten: what the worker made of the
     /// ones before is dropped.
@@ -1632,7 +1671,8 @@ pub(crate) struct GameShaders {
     /// uploaded.
     regions: Vec<[Region; 4]>,
     /// Each program pair's values' number ([`GamePipeline::values`]).
-    value_ids: HashMap<(String, String, bool, bool), u32>,
+    /// (By the programs' text: [`Made`].)
+    value_ids: HashMap<(u64, u64, bool, bool), u32>,
     /// The places of the lights' values written this frame, by pipeline's
     /// values, stage and set (its number plus one: the particles', with
     /// none, `u32::MAX`, at 0); `u32::MAX` where not written.
@@ -1787,7 +1827,7 @@ fn assembled(
 /// A pipeline to make.
 struct Job {
     era: u64,
-    key: PipelineKey,
+    key: Made,
     /// Asked for ahead of a draw ([`GameShaders::prepare`]): a failure
     /// is not reported (the draw that needs it asks again and reports it).
     quiet: bool,
@@ -1840,7 +1880,7 @@ struct Built {
 /// What the worker made of a job.
 struct Done {
     era: u64,
-    key: PipelineKey,
+    key: Made,
     quiet: bool,
     built: Result<Built, String>,
     stats: ShaderStats,
@@ -1883,8 +1923,9 @@ impl std::fmt::Debug for WorkerLink {
 struct Worker {
     gpu: Gpu,
     era: u64,
-    /// By name, stage and `NO_DISCARD`.
-    programs: HashMap<(String, Stage, bool), Result<Arc<Program>, String>>,
+    /// By their text (a hash of it), stage and `NO_DISCARD`: two sources'
+    /// copies of a program of one name are two.
+    programs: HashMap<(u64, Stage, bool), Result<Arc<Program>, String>>,
     stats: ShaderStats,
 }
 
@@ -1944,8 +1985,8 @@ impl Worker {
         no_discard: bool,
         cache: Option<&ProgramCache>,
     ) -> Result<Arc<Program>, String> {
+        let key = (text_hash(a), stage, no_discard);
         let a = a.as_ref().map_err(Clone::clone)?;
-        let key = (a.name.to_ascii_lowercase(), stage, no_discard);
         if let Some(p) = self.programs.get(&key) {
             return p.clone();
         }
@@ -1969,7 +2010,7 @@ impl Worker {
     }
 
     fn build(&mut self, job: &Job) -> Result<Built, String> {
-        let key = &job.key;
+        let key = &job.key.key;
         let w = self;
         let at = |name: &str, e: String| format!("{name}: {e}");
         let cache = job.cache.as_ref();
@@ -2327,6 +2368,7 @@ impl GameShaders {
             preamble: Preamble { keyholing: false, ..Preamble::default() },
             pipelines: HashMap::new(),
             pending: std::collections::HashSet::new(),
+            by_source: HashMap::new(),
             worker: None,
             era: 0,
             cache: None,
@@ -2377,6 +2419,7 @@ impl GameShaders {
         self.era += 1;
         self.pending.clear();
         self.pipelines.clear();
+        self.by_source.clear();
         self.groups.clear();
         self.stage0_groups.clear();
         self.draw_groups.clear();
@@ -2426,17 +2469,36 @@ impl GameShaders {
         wait: bool,
     ) -> Ready {
         let ready = |p: &Option<Arc<GamePipeline>>| p.clone().map_or(Ready::No, Ready::Yes);
-        if let Some(p) = self.pipelines.get(key) {
+        let source = assets.source().map_or(0, mg_resman::Identity::id);
+        // (Assembled before for this source: made, or being made; one
+        // asked for ahead and dropped, failing, is asked for again.)
+        if let Some(made) = self.by_source.get(&source).and_then(|m| m.get(key)) {
+            if let Some(p) = self.pipelines.get(made) {
+                return ready(p);
+            }
+            if self.pending.contains(made) {
+                if !wait {
+                    return Ready::Pending;
+                }
+                let made = made.clone();
+                return self.wait_for(&made);
+            }
+        }
+        let preamble = Preamble { no_discard: key.no_discard, ..self.preamble.clone() };
+        let vs = assembled(assets, &preamble, &key.vs, Stage::Vertex);
+        let fs = assembled(assets, &preamble, &key.fs, Stage::Fragment);
+        let made = Made::of(key, &vs, &fs);
+        self.by_source.entry(source).or_default().insert(key.clone(), made.clone());
+        if let Some(p) = self.pipelines.get(&made) {
             return ready(p);
         }
-        if !self.pending.contains(key) {
-            let preamble = Preamble { no_discard: key.no_discard, ..self.preamble.clone() };
+        if !self.pending.contains(&made) {
             let job = Job {
                 era: self.era,
-                key: key.clone(),
+                key: made.clone(),
                 quiet: false,
-                vs: assembled(assets, &preamble, &key.vs, Stage::Vertex),
-                fs: assembled(assets, &preamble, &key.fs, Stage::Fragment),
+                vs,
+                fs,
                 format,
                 samples,
                 cache: self.cache.clone(),
@@ -2446,34 +2508,50 @@ impl GameShaders {
                 return Ready::No;
             }
         }
-        if wait {
-            while self.pending.contains(key) {
-                let Some(done) = self.worker.as_ref().and_then(|w| w.done.recv().ok()) else {
-                    self.worker = None;
-                    self.pending.clear();
-                    self.fail(
-                        &format!("{}/{}", key.vs, key.fs),
-                        "the compiling thread stopped".into(),
-                    );
-                    self.pipelines.insert(key.clone(), None);
-                    return Ready::No;
-                };
-                self.finish(done);
-            }
-            return self.pipelines.get(key).map_or(Ready::No, ready);
+        if wait { self.wait_for(&made) } else { Ready::Pending }
+    }
+
+    /// Waits for the worker to make `made`'s pipeline.
+    fn wait_for(&mut self, made: &Made) -> Ready {
+        while self.pending.contains(made) {
+            let Some(done) = self.worker.as_ref().and_then(|w| w.done.recv().ok()) else {
+                self.worker = None;
+                self.pending.clear();
+                let key = &made.key;
+                self.fail(&format!("{}/{}", key.vs, key.fs), "the compiling thread stopped".into());
+                self.pipelines.insert(made.clone(), None);
+                return Ready::No;
+            };
+            self.finish(done);
         }
-        Ready::Pending
+        self.pipelines.get(made).and_then(Clone::clone).map_or(Ready::No, Ready::Yes)
+    }
+
+    /// Lets go of what was kept of `source`'s programs (the source let go
+    /// of): what its keys were assembled to, and the pipelines no other
+    /// source's keys are.
+    pub(crate) fn forget_source(&mut self, source: u64) {
+        if self.by_source.remove(&source).is_none() {
+            return;
+        }
+        let used: std::collections::HashSet<&Made> =
+            self.by_source.values().flat_map(HashMap::values).collect();
+        let gone: Vec<Made> =
+            self.pipelines.keys().filter(|m| !used.contains(m)).cloned().collect();
+        for m in gone {
+            self.pipelines.remove(&m);
+        }
     }
 
     /// Gives the worker `job` (started the first time): whether it took it.
     /// A pipeline that can't be asked for is reported (unless the job is
     /// quiet) and, but for a quiet one, kept as one that can't be made.
     fn send(&mut self, gpu: &Gpu, job: Job) -> bool {
-        let (key, quiet) = (job.key.clone(), job.quiet);
+        let (made, quiet) = (job.key.clone(), job.quiet);
         let failed = |s: &mut Self, why: &str| {
             if !quiet {
-                s.fail(&format!("{}/{}", key.vs, key.fs), why.into());
-                s.pipelines.insert(key.clone(), None);
+                s.fail(&format!("{}/{}", made.key.vs, made.key.fs), why.into());
+                s.pipelines.insert(made.clone(), None);
             }
             false
         };
@@ -2496,7 +2574,7 @@ impl GameShaders {
             self.worker = None;
             return failed(self, "the compiling thread stopped");
         }
-        self.pending.insert(key);
+        self.pending.insert(made);
         true
     }
 
@@ -2514,18 +2592,22 @@ impl GameShaders {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> bool {
-        if self.pipelines.contains_key(key) || self.pending.contains(key) {
-            return false;
-        }
         let preamble = Preamble { no_discard: key.no_discard, ..self.preamble.clone() };
         let vs = assembled(assets, &preamble, &key.vs, Stage::Vertex);
         let fs = assembled(assets, &preamble, &key.fs, Stage::Fragment);
         if vs.is_err() || fs.is_err() {
             return false;
         }
+        let made = Made::of(key, &vs, &fs);
+        // (Kept as the source's: what it asks for ahead stays while it does.)
+        let source = assets.source().map_or(0, mg_resman::Identity::id);
+        self.by_source.entry(source).or_default().insert(key.clone(), made.clone());
+        if self.pipelines.contains_key(&made) || self.pending.contains(&made) {
+            return false;
+        }
         let job = Job {
             era: self.era,
-            key: key.clone(),
+            key: made,
             quiet: true,
             vs,
             fs,
@@ -2541,11 +2623,13 @@ impl GameShaders {
     /// there are), as their keys, the earliest made first.
     pub(crate) fn made_after(&self, mark: u32) -> Vec<&PipelineKey> {
         let mut made: Vec<(u32, &PipelineKey)> = (self.pipelines.iter())
-            .filter_map(|(k, p)| Some((p.as_ref()?.id, k)))
+            .filter_map(|(m, p)| Some((p.as_ref()?.id, &m.key)))
             .filter(|(id, _)| *id > mark)
             .collect();
         made.sort_unstable_by_key(|(id, _)| *id);
-        made.into_iter().map(|(_, k)| k).collect()
+        // (A key made from two sources' texts: once, the first.)
+        let mut seen = std::collections::HashSet::new();
+        made.into_iter().map(|(_, k)| k).filter(|k| seen.insert(*k)).collect()
     }
 
     /// The newest pipeline's number ([`GamePipeline::id`]: given once,
@@ -2614,7 +2698,7 @@ impl GameShaders {
                 let value_ids = &mut self.value_ids;
                 let next_values_id = &mut self.next_values_id;
                 let values = *value_ids
-                    .entry((key.vs.clone(), key.fs.clone(), key.no_discard, key.skinned))
+                    .entry((key.vs, key.fs, key.key.no_discard, key.key.skinned))
                     .or_insert_with(|| {
                         *next_values_id += 1;
                         *next_values_id
@@ -2637,7 +2721,7 @@ impl GameShaders {
                 }))
             }
             Err(why) => {
-                self.fail(&format!("{}/{}", key.vs, key.fs), why);
+                self.fail(&format!("{}/{}", key.key.vs, key.key.fs), why);
                 None
             }
         };
@@ -4110,12 +4194,13 @@ void main ()
             twosided: false,
             pass: GamePass::Opaque,
         };
+        let (vs, fs) = (Err("none".into()), Err("none".into()));
         let job = Job {
             era: 0,
-            key,
+            key: Made::of(&key, &vs, &fs),
             quiet: true,
-            vs: Err("none".into()),
-            fs: Err("none".into()),
+            vs,
+            fs,
             format: wgpu::TextureFormat::Rgba8Unorm,
             samples: 1,
             cache: None,

@@ -2051,6 +2051,7 @@ impl Renderer {
             if let Some(c) = self.caches.remove(id) {
                 self.forget_cache(c);
             }
+            self.game.forget_source(*id);
         }
         gone.len()
     }

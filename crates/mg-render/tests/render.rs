@@ -3734,6 +3734,64 @@ void main ()
     assert_eq!(img.pixel(32, 13), [0, 255, 0, 255], "scriptableVec1");
 }
 
+/// Two sources (the area's load order and a hak's) each with its own copy
+/// of one program, `fswall`, drawing another color, drawn by one renderer
+/// in turn: each draw is its own source's program, and switching back
+/// compiles nothing again. A third source whose program is the same text
+/// as the first's draws with the first's pipeline, made once. A source let
+/// go of is let go of with what was kept of its programs.
+#[test]
+fn each_source_draws_its_own_programs() {
+    let Some(gpu) = gpu() else { return };
+    let source = |rgb: &str| {
+        let mut a = clip_space_assets();
+        a.identity = Some(mg_resman::Identity::new());
+        a.opaque("white", [255, 255, 255]);
+        let wall = format!(
+            "#define SHADER_TYPE 2\nvarying vec2 vUv;\nvoid main ()\n{{\n    \
+             gl_FragColor = vec4({rgb}, 1.0);\n}}\n"
+        );
+        a.shaders.insert("fswall".into(), wall);
+        let mtr = "customshaderVS vslit\ncustomshaderFS fswall\ntexture0 white\n";
+        a.materials.insert("wall".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+        a
+    };
+    let (a, b, c) = (source("1.0, 0.0, 0.0"), source("0.0, 0.0, 1.0"), source("1.0, 0.0, 0.0"));
+    let (_, camera) = clip_space_scene(&gpu);
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "wall", Vec3::new(0.0, 0.0, 1.0), 0.75)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let draw = |r: &mut Renderer, s: &TestAssets| {
+        let img = r.render_image(&gpu, s, &scene, &camera, 64, 64);
+        assert_eq!(r.game_shader_failures(), &[]);
+        assert_eq!(r.drawn.game, 1, "{:?}", r.drawn);
+        img.pixel(32, 32)
+    };
+    let red = [255, 0, 0, 255];
+    let blue = [0, 0, 255, 255];
+    assert_eq!(draw(&mut r, &a), red, "a's");
+    assert_eq!(draw(&mut r, &b), blue, "b's");
+    let made = r.game_shader_stats();
+    assert_eq!(draw(&mut r, &a), red, "a's again");
+    assert_eq!(draw(&mut r, &b), blue, "b's again");
+    let again = r.game_shader_stats();
+    assert_eq!((again.pipelines, again.compiled), (made.pipelines, made.compiled), "made once");
+    assert_eq!(draw(&mut r, &c), red, "c's, a's text");
+    let shared = r.game_shader_stats();
+    assert_eq!(shared.pipelines, made.pipelines, "c's is a's pipeline");
+    // b let go of (a second on): its programs with it, and a, c as before.
+    drop(b);
+    r.age_textures(std::time::Duration::from_secs(2));
+    assert_eq!(draw(&mut r, &a), red, "a's, b gone");
+    assert_eq!(draw(&mut r, &c), red, "c's, b gone");
+    let after = r.game_shader_stats();
+    assert_eq!(after.pipelines, made.pipelines, "a's and c's kept, made once");
+}
+
 /// Two meshes of one pipeline and material lying in one plane are drawn
 /// by the game's programs in the order of the scene's instances, whatever
 /// their meshes' addresses: one wins where they meet the same each run

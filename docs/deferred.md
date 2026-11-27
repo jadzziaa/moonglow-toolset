@@ -807,23 +807,6 @@ Nothing open.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **The game's compiled programs by name, across sources:** the
-  renderer keeps each source's textures, MTRs and what is worked out of
-  them apart since 26 November 2026 (`Assets::source`: a hak's model in
-  the model viewer is drawn in the hak's own `zz_tex`, not the area's),
-  but the pipelines of the game's programs are still kept by the
-  programs' names alone: a hak being edited that has its own copy of a
-  shader or include (`fslit`, `inc_lighting`) draws with whichever
-  source's copy was compiled first, the area's or the hak's (read from
-  the code, `GameShaders::pipeline` keyed by `PipelineKey`; not
-  reproduced in a picture). Left for
-  going beyond what was asked (the textures' entry): keeping them per
-  source would compile every program again for each source (13 to 27 ms
-  each, the same text in the usual case); keying them by the assembled
-  text instead is a change to how the game's programs are kept and
-  asked for of their thread, of its own. (M) (found closing the
-  textures' entry of the review of November 2026, B15)
-
 ## Models and textures
 
 - **Heed's previews after 1.33.0** (not reproduced): the Drow shields of
