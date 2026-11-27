@@ -852,17 +852,20 @@ mod tests {
         }
         let assets = skin::Assets::default();
         let state = Shown { node: layers(3), chosen: chosen(2) };
-        let mut h = Harness::builder().with_size(vec2(420.0, 1400.0)).build_ui_state(
-            |ui, shown: &mut Shown| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let mut s = Settings::default();
-                    if let Some(moved) = editor(ui, &mut shown.node, &mut s, &assets) {
-                        moved.follow(&mut shown.chosen, "/root/children/0");
-                    }
-                });
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(vec2(420.0, 1400.0))
+            .build_ui_state(
+                |ui, shown: &mut Shown| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let mut s = Settings::default();
+                        if let Some(moved) = editor(ui, &mut shown.node, &mut s, &assets) {
+                            moved.follow(&mut shown.chosen, "/root/children/0");
+                        }
+                    });
+                },
+                state,
+            );
         h.run();
         h.get_by_label("Draw Layers").click();
         h.run();

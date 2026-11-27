@@ -328,7 +328,7 @@ fn a_creature_s_sound_set_and_faction_are_on_its_basic_page() {
         return;
     };
     h.run();
-    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
+    let y = |h: &Harness<'_, Moonglow>, label: &str| label_node(h, label).rect().center().y;
     assert!(y(&h, "Gender") < y(&h, "Sound set"), "after the gender");
     h.get_by_label("Play Sample");
     h.get_by_label("Faction");
@@ -465,7 +465,7 @@ fn a_skill_s_description_shows_on_hover() {
     page(&mut h, "Skills");
     h.run();
     assert!(h.query_by_label_contains("opposed test").is_none());
-    let hide = h.get_by_label("Hide").rect().center();
+    let hide = label_nodes(&h, "Hide").next().unwrap().rect().center();
     h.hover_at(hide);
     // (A tooltip waits a moment.)
     h.run_steps(60);
@@ -1877,7 +1877,7 @@ fn a_color_typed_into_the_picker_s_hex_field_is_taken() {
     // (The row's own field shows it too: the picker's is the last.)
     let hex = |h: &Harness<'_, Moonglow>, v: &str| h.get_all_by_value(v).count();
     assert!(hex(&h, "#ffffff") >= 2, "the picker's field shows the color");
-    h.get_all_by_value("#ffffff").filter(in_popup).last().unwrap().click();
+    h.get_all_by_value("#ffffff").rfind(in_popup).unwrap().click();
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.event(egui::Event::Text("#ff0000".into()));
@@ -1944,10 +1944,10 @@ fn a_cleric_s_domains_fit_a_narrow_window() {
     let window = h.state_mut().dock.get_window_state_mut(at.surface).expect("a window");
     window.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(480.0, 600.0));
     h.run_steps(3);
-    let right = h.get_by_label("Domains").rect().left() + 470.0;
+    let right = label_node(&h, "Domains").rect().left() + 470.0;
     let pickers: Vec<egui::Rect> = h.get_all_by_value("Not set").map(|n| n.rect()).collect();
     assert!(pickers.len() >= 2, "both domains");
-    let domain_row = h.get_by_label("Domains").rect().center().y;
+    let domain_row = label_node(&h, "Domains").rect().center().y;
     let domains: Vec<_> =
         pickers.iter().filter(|r| (r.center().y - domain_row).abs() < 4.0).collect();
     assert_eq!(domains.len(), 2, "both on the Domains row");
@@ -3285,13 +3285,10 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let level0 = spell_list(&mut h, &key, "MemorizedList0");
     let lights = level0.iter().filter(|e| e.0 == light).count();
     let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
-    let up = h
-        .get_all_by_label("One More")
-        // (The upper of the two at the field's end: M4's U10.)
-        .find(|n| (n.rect().center().y - row.center().y).abs() < 8.0)
-        .expect("its arrow up")
-        .rect()
-        .center();
+    // (The upper of the two at the field's end, M4's U10, named with it.)
+    let up = h.get_by_label("Light prepared: One More").rect();
+    assert!((up.center().y - row.center().y).abs() < 8.0, "on its row");
+    let up = up.center();
     h.hover_at(up);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {

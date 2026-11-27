@@ -1516,7 +1516,12 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
                                 );
                             }
                             _ => {
+                                // (Named by its row and column, which its
+                                // heading alone doesn't say.)
+                                let id = ui.next_auto_id();
                                 int_key(ui, d, &section, HEIGHT_KEYS[(col - 2) / 2], -1..=4);
+                                let of = KEYS[(col - 2) / 2].to_lowercase();
+                                crate::widgets::name_node(ui, id, &format!("Rule {i} {of} height"));
                             }
                         });
                     }
@@ -1627,7 +1632,10 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
         {
             let mut ui = cell(1);
             ui.spacing_mut().interact_size.x = cells[1].width();
+            // (Named by its row and column, which its heading alone doesn't say.)
+            let id = ui.next_auto_id();
             int_key(&mut ui, d, section, "Type", 0..=i32::MAX);
+            crate::widgets::name_node(&ui, id, &format!("Door {n} type"));
         }
         // (Its row's label, where the game data has the table.)
         let row = d.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
@@ -1639,7 +1647,9 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
         for (c, key) in [(3, "X"), (4, "Y"), (5, "Z"), (6, "Orientation")] {
             let mut ui = cell(c);
             ui.spacing_mut().interact_size.x = cells[c].width();
+            let id = ui.next_auto_id();
             float_key(&mut ui, d, section, key);
+            crate::widgets::name_node(&ui, id, &format!("Door {n} {}", key.to_lowercase()));
         }
     }
     if doors.is_empty() {
@@ -2273,9 +2283,14 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
                     let k = r * g.columns as usize + c;
                     let current = g.tiles.get(k).copied().flatten().map_or(-1, |t| t as i64);
                     let last = t.tiles.len() as i64 - 1;
+                    // (Named by its place: the heading over the grid names
+                    // none of them.)
+                    let id = ui.next_auto_id();
                     if let Some(v) = crate::widgets::commit_number(ui, current, -1..=last) {
                         d.set_key(&section, &format!("Tile{k}"), &v.to_string());
                     }
+                    let place = format!("Tile {}, row {}, column {}", k, r + 1, c + 1);
+                    crate::widgets::name_node(ui, id, &place);
                 }
             });
         }

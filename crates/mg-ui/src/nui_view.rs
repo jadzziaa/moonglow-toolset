@@ -3046,7 +3046,7 @@ fn property(
     // value and its formatting are.
     if let Some(name) = value.get("bind").and_then(Value::as_str) {
         let name = name.to_owned();
-        form::row(ui, &label, tip, |ui, lead| {
+        form::row(ui, &label, tip, |ui, _lead| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 more(ui, key, ty, &label, value, s, remove);
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -3302,8 +3302,18 @@ fn named_choices(key: &str) -> Option<&'static [&'static str]> {
 }
 
 /// A value's field: text, a number or a color, set as the other editors set
-/// theirs (see `fields`). The response of a field that is one widget.
+/// theirs (see `fields`). The response of a field that is one widget, named
+/// by the field label drawn before it.
 fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
+    let r = scalar_field(ui, v);
+    if let Some(r) = &r {
+        crate::widgets::labelled_by_its_label(ui.ctx(), r.id);
+    }
+    r
+}
+
+/// [`scalar`], not named.
+fn scalar_field(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
     match v {
         Value::String(text) => return fields::text(ui, text, ui.available_width().max(0.0)),
         Value::Bool(b) => return Some(ui.check_box(b, "On")),
@@ -3344,7 +3354,9 @@ fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
                 }
             });
         }
-        Value::Null | Value::Array(_) | Value::Object(_) => fields::value(ui, v, 0),
+        Value::Null | Value::Array(_) | Value::Object(_) => {
+            fields::value(ui, v, 0);
+        }
     }
     None
 }
@@ -3422,8 +3434,9 @@ mod tests {
     fn a_numbered_choice_reads_by_its_name() {
         let mut image = mg_nui::template("image");
         image["image_aspect"] = json!(5);
-        let mut h =
-            Harness::builder().build_ui(|ui| properties(ui, &mut image, &mut Settings::default()));
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .build_ui(|ui| properties(ui, &mut image, &mut Settings::default()));
         h.run();
         h.get_by_label("Appearance").click();
         h.run();
@@ -3436,8 +3449,9 @@ mod tests {
         let mut window = mg_nui::window();
         window["size_constraint"] = Value::Null;
         window["edge_constraint"] = Value::Null;
-        let mut h =
-            Harness::builder().build_ui(|ui| properties(ui, &mut window, &mut Settings::default()));
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .build_ui(|ui| properties(ui, &mut window, &mut Settings::default()));
         h.run();
         assert!(h.query_by_label("Window size limits").is_none());
         h.get_by_label("Add Property").click();
@@ -3456,9 +3470,10 @@ mod tests {
             "fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false,
             "a":{"x":0.0,"y":0.0},"b":{"x":10.0,"y":10.0},"ctrl0":{"x":0.0,"y":5.0},"ctrl1":{"x":5.0,"y":10.0}}]);
         let assets = skin::Assets::default();
-        let mut h = Harness::builder().build_ui(|ui| {
-            draw::editor(ui, &mut spacer, &mut Settings::default(), &assets);
-        });
+        let mut h =
+            Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui(|ui| {
+                draw::editor(ui, &mut spacer, &mut Settings::default(), &assets);
+            });
         h.run();
         h.get_by_label("Draw Layers").click();
         h.run();
@@ -3478,10 +3493,11 @@ mod tests {
         let mut window = mg_nui::window();
         window["title"] = json!("Character");
         let mut s = Settings::default();
-        let mut h = Harness::builder().build_ui_state(
-            |ui, (w, s): &mut (Value, Settings)| properties(ui, w, s),
-            (window, s.clone()),
-        );
+        let mut h =
+            Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui_state(
+                |ui, (w, s): &mut (Value, Settings)| properties(ui, w, s),
+                (window, s.clone()),
+            );
         h.run();
         h.get_by_label("Title bar").click();
         h.run();
@@ -3507,9 +3523,11 @@ mod tests {
     fn an_unset_property_is_set_to_its_default_not_to_a_json_type() {
         for ty in mg_nui::ELEMENTS {
             let mut node = mg_nui::template(ty);
-            let mut h = Harness::builder().build_ui(|ui| {
-                properties(ui, &mut node, &mut Settings::default());
-            });
+            let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
+                .build_ui(|ui| {
+                    properties(ui, &mut node, &mut Settings::default());
+                });
             h.run();
             assert!(h.query_by_label("Advanced Properties").is_none(), "standard template: {ty}");
             if let Some(header) = h.query_by_label("Advanced Properties") {
@@ -3520,9 +3538,10 @@ mod tests {
         }
         let mut node = mg_nui::template("button");
         node["label"] = Value::Null;
-        let mut h = Harness::builder().build_ui(|ui| {
-            properties(ui, &mut node, &mut Settings::default());
-        });
+        let mut h =
+            Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui(|ui| {
+                properties(ui, &mut node, &mut Settings::default());
+            });
         h.run();
         assert!(h.query_by_label("Advanced Properties").is_none());
         h.get_by_label("Set Value…").click();
@@ -3548,6 +3567,7 @@ mod tests {
             }
             let before = node.clone();
             let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
                 .build_ui(|ui| properties(ui, &mut node, &mut Settings::default()));
             h.run();
             assert!(h.query_by_label("Advanced Properties").is_none());
@@ -3560,6 +3580,7 @@ mod tests {
             node["vendor_extension"] = json!({"payload":[1,2,3]});
             let before = node.clone();
             let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
                 .build_ui(|ui| properties(ui, &mut node, &mut Settings::default()));
             h.run();
             assert!(h.query_by_label("Advanced Properties").is_some());
@@ -3570,12 +3591,13 @@ mod tests {
 
     #[test]
     fn a_talk_table_string_is_set_then_bound() {
-        let mut h = Harness::builder().build_ui_state(
-            |ui, state: &mut (Value, Settings)| {
-                property(ui, "value", "label", &mut state.0, &mut state.1, &mut None);
-            },
-            (json!("Text"), Settings::default()),
-        );
+        let mut h =
+            Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui_state(
+                |ui, state: &mut (Value, Settings)| {
+                    property(ui, "value", "label", &mut state.0, &mut state.1, &mut None);
+                },
+                (json!("Text"), Settings::default()),
+            );
         h.run();
         h.get_by_label_contains("More for ").click();
         h.run();
@@ -3601,12 +3623,14 @@ mod tests {
                 .bindings
                 .insert("old".into(), Binding { value: json!("Unchanged"), ..Default::default() });
             let original = settings.clone();
-            let mut h = Harness::builder().build_ui_state(
-                |ui, state: &mut (Value, Settings)| {
-                    property(ui, "value", "label", &mut state.0, &mut state.1, &mut None);
-                },
-                (initial.clone(), settings),
-            );
+            let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
+                .build_ui_state(
+                    |ui, state: &mut (Value, Settings)| {
+                        property(ui, "value", "label", &mut state.0, &mut state.1, &mut None);
+                    },
+                    (initial.clone(), settings),
+                );
             h.run();
             h.get_by_label_contains("More for ").click();
             h.run();
@@ -3632,12 +3656,13 @@ mod tests {
         settings
             .bindings
             .insert("shared".into(), Binding { value: json!(10), ..Default::default() });
-        let mut h = Harness::builder().build_ui_state(
-            |ui, state: &mut (Value, Settings)| {
-                property(ui, "max", "textedit", &mut state.0, &mut state.1, &mut None);
-            },
-            (json!(128), settings),
-        );
+        let mut h =
+            Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui_state(
+                |ui, state: &mut (Value, Settings)| {
+                    property(ui, "max", "textedit", &mut state.0, &mut state.1, &mut None);
+                },
+                (json!(128), settings),
+            );
         h.run();
         h.get_by_label_contains("More for ").click();
         h.run();

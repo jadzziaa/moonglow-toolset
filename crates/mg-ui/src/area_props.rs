@@ -2138,7 +2138,10 @@ fn chooser_ui(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, view: f32) {
     let tilesets = c.tilesets(app, &areas);
     let tileset_label = |t: ResRef| {
         let name = tilesets.iter().find(|(r, _)| *r == t).map_or("", |(_, n)| n.as_str());
-        if name.is_empty() || name == t.to_string() {
+        // (An area with no tileset: its row said nothing.)
+        if t == ResRef::EMPTY {
+            "No tileset".to_string()
+        } else if name.is_empty() || name == t.to_string() {
             t.to_string()
         } else {
             format!("{name} ({t})")

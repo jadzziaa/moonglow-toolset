@@ -621,14 +621,17 @@ mod tests {
             serde_json::to_vec(&doc).unwrap(),
         );
         ws.module.set(ResKey::parse("swap_test", ResType::TXT).unwrap(), settings.bytes());
-        Harness::builder().with_size(egui::vec2(1300.0, 1200.0)).build_ui_state(
-            |ui, app: &mut Moonglow| {
-                let key = ResKey::parse("swap_test", ResType::JUI).unwrap();
-                super::super::panels::test_frame(app, ui, key);
-                app.run_actions();
-            },
-            app,
-        )
+        Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(1300.0, 1200.0))
+            .build_ui_state(
+                |ui, app: &mut Moonglow| {
+                    let key = ResKey::parse("swap_test", ResType::JUI).unwrap();
+                    super::super::panels::test_frame(app, ui, key);
+                    app.run_actions();
+                },
+                app,
+            )
     }
 
     fn read(h: &Harness<'_, Moonglow>) -> (Value, Settings) {

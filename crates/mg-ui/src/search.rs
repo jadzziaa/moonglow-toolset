@@ -1515,7 +1515,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             let h = &draft.hits[i];
                             let mine = h.layer.is_none();
                             let tick = mg_uikit::Checkbox::without_text(&mut draft.ticked[i]);
-                            let tick = ui.add_enabled(mine, tick);
+                            let tick = ui
+                                .add_enabled(mine, tick)
+                                // (Its place the link's beside it.)
+                                .accessible_name("Include in the edit");
                             let r = ui.link(place).on_hover_ui(|ui| {
                                 ui.label(match &h.layer {
                                     Some(layer) => {

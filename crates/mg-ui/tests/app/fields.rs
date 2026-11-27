@@ -54,7 +54,7 @@ fn a_color_is_pasted_into_a_color_button() {
     };
     let mut h = Harness::new_ui_state(
         |ui, rgb: &mut [u8; 3]| {
-            mg_ui::color_button::edit_srgb(ui, rgb);
+            mg_ui::color_button::edit_srgb(ui, rgb).accessible_name("Color");
         },
         [10, 20, 30],
     );
@@ -2805,19 +2805,24 @@ fn the_form_widgets_and_the_color_chooser_are_exported() {
         }
     }
     let palette = mg_image::Rgba { width: 256, height: 176, data };
-    let mut h = Harness::new_ui_state(
-        |ui, color: &mut u8| {
-            mg_ui::widgets::install_fonts(ui.ctx());
-            mg_ui::widgets::section_heading(ui, "Colors");
-            mg_ui::widgets::field_label(ui, "Cloth 1");
-            if let Some(c) =
-                mg_ui::widgets::palette_color(ui, "cloth1", Some(&palette), "Cloth 1", *color, None)
-            {
-                *color = c;
-            }
-        },
-        3u8,
-    );
+    let mut h =
+        Harness::builder().with_context_setup(mg_uikit::FieldLabels::install).build_ui_state(
+            |ui, color: &mut u8| {
+                mg_ui::widgets::install_fonts(ui.ctx());
+                mg_ui::widgets::section_heading(ui, "Colors");
+                // (A form's row: the label names the box beside it.)
+                ui.horizontal(|ui| {
+                    mg_ui::widgets::field_label(ui, "Cloth 1");
+                    let pal = Some(&palette);
+                    let picked =
+                        mg_ui::widgets::palette_color(ui, "cloth1", pal, "Cloth 1", *color, None);
+                    if let Some(c) = picked {
+                        *color = c;
+                    }
+                });
+            },
+            3u8,
+        );
     h.run();
     h.get_by_label("Colors");
     let combo = egui::accesskit::Role::ComboBox;

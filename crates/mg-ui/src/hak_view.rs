@@ -1727,6 +1727,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(cell));
                     let edit =
                         child.add(mg_uikit::text_field(typed).desired_width(cell.width() - 40.0));
+                    let edit = edit.accessible_name(format!("New name of {key}"));
                     if std::mem::take(&mut rename_focus) {
                         edit.request_focus();
                     }

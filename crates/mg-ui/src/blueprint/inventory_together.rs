@@ -250,6 +250,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                             let mut v = on;
                             let r_box = ui
                                 .add(mg_uikit::Checkbox::new(&mut v, "").indeterminate(mixed))
+                                .accessible_name(*flag)
                                 .on_hover_text(*tip);
                             if r_box.changed() {
                                 let v = v || mixed;

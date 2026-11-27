@@ -142,12 +142,8 @@ fn category_filter(ui: &mut Ui, id: egui::Id, categories: &[(i32, String)]) -> O
     };
     let options: Vec<Option<i32>> =
         std::iter::once(None).chain(categories.iter().map(|(c, _)| Some(*c))).collect();
-    crate::widgets::dropdown(id).selected_text(name(chosen)).width(200.0).show(
-        ui,
-        &mut chosen,
-        &options,
-        |c| name(*c),
-    );
+    let list = crate::widgets::dropdown(id).name("Category");
+    list.selected_text(name(chosen)).width(200.0).show(ui, &mut chosen, &options, |c| name(*c));
     ui.data_mut(|d| d.insert_temp(id, chosen));
     chosen
 }
@@ -898,6 +894,8 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                         if prepares {
                             let count = g.entries.len() as i64;
+                            // (Its name after it: named for it.)
+                            crate::widgets::name_number_field(ui, &format!("{name} prepared"));
                             if let Some(v) = spin_number(ui, count, 1..=99) {
                                 let first = &lists[l][g.entries[0]];
                                 let edits =
@@ -1381,6 +1379,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                                          is set on each.",
                                 );
                             }
+                            crate::widgets::name_number_field(ui, &format!("{name} prepared"));
                             if let Some(v) = spin_number(ui, shown, 1..=99) {
                                 let entry = m.entry.clone();
                                 let out =

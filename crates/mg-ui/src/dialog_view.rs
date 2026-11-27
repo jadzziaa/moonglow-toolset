@@ -2453,6 +2453,7 @@ fn data_body(
     if let Some(v) = commit_text(app, ui, id, &value, true, width) {
         actions.push(set(key, "Comment", path, label, Value::String(encode(&v))));
     }
+    crate::widgets::name_node(ui, id, "Comments");
 }
 
 /// The conversation's Search (M4's U14, the Node section's second tab):
@@ -3440,7 +3441,7 @@ fn text_panel(
             if from_tlk.is_some() {
                 ui.visuals_mut().override_text_color = Some(crate::blueprint::talk_table_color(ui));
             }
-            crate::widgets::commit_loc_text_in(
+            let typed = crate::widgets::commit_loc_text_in(
                 &mut app.buffers,
                 ui,
                 id,
@@ -3448,7 +3449,9 @@ fn text_panel(
                 Some(2),
                 width,
                 None,
-            )
+            );
+            crate::widgets::name_node(ui, id, "Line text");
+            typed
         })
         .inner
     };

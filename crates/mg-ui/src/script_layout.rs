@@ -1660,8 +1660,12 @@ pub(crate) fn code_edit(
             &full,
         );
         // (egui 0.37 takes the role from the widget's info, a text edit's
-        // `TextInput`: the editor is a multiline one.)
-        ctx.accesskit_node_builder(id, |b| b.set_role(egui::accesskit::Role::MultilineTextInput));
+        // `TextInput`: the editor is a multiline one, named as its tab.)
+        let name = key.to_string();
+        ctx.accesskit_node_builder(id, |b| {
+            b.set_role(egui::accesskit::Role::MultilineTextInput);
+            b.set_label(format!("Script text of {name}"));
+        });
         describe_line(&response, cursor_line + 1, lines);
     }
 

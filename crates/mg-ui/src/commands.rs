@@ -2508,6 +2508,7 @@ mod tests {
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         app.settings.ui_scale = scale;
         let mut h = egui_kittest::Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(1280.0, 720.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run();
@@ -2612,6 +2613,7 @@ mod tests {
     fn first_frames(scale: Option<u16>, zoom: f32) -> Vec<(f32, u16, Vec<egui::Vec2>)> {
         let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         let mut h = egui_kittest::Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(1280.0, 720.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         // (The harness drew frames as it was made, at 100%: this run

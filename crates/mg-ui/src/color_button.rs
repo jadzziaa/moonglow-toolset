@@ -334,6 +334,7 @@ mod tests {
         ] {
             for by in [1.0f32, 1.5, 2.0] {
                 let mut h = egui_kittest::Harness::builder()
+                    .with_context_setup(mg_uikit::FieldLabels::install)
                     .with_size(egui::vec2(700.0, 600.0))
                     .build_ui_state(
                         move |ui, c: &mut Color32| {
@@ -345,7 +346,7 @@ mod tests {
                             }
                             ui.set_style(style.clone());
                             ui.ctx().set_global_style(style);
-                            edit_srgba(ui, c, alpha);
+                            edit_srgba(ui, c, alpha).accessible_name("Color");
                         },
                         color,
                     );

@@ -541,7 +541,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     if let Some((id, mut new_name)) = view.renaming.clone() {
         let mut close = false;
         let footed = crate::widgets::modal(&ctx, "Change Faction Name").show_foot(&ctx, |ui| {
-            let field = ui.add(mg_uikit::text_field(&mut new_name));
+            let field = ui.add(mg_uikit::text_field(&mut new_name)).accessible_name("Faction name");
             crate::widgets::autofocus(ui, &field);
             ((), crate::widgets::Foot::new().main("OK", !new_name.trim().is_empty()).cancel())
         });

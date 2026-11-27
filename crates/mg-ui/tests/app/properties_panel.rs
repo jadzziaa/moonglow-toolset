@@ -284,7 +284,7 @@ fn the_narrow_dock_has_three_tabs_and_the_narrow_row() {
         let standard = h.get_by_label("Standard").rect();
         assert!((standard.center().y - types.center().y).abs() < 4.0, "{w}: Standard beside");
         assert!(standard.left() > types.right(), "{w}: after the dropdown");
-        let group = h.get_by_label("Group by").rect();
+        let group = label_nodes(&h, "Group by").next().unwrap().rect();
         let expand = h.get_by_label("Expand All").rect();
         assert!((expand.center().y - group.center().y).abs() < 4.0, "{w}: on Group by's row");
         assert!(expand.left() > group.right() + 60.0, "{w}: at its end");

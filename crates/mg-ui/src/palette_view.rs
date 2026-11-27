@@ -2131,6 +2131,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     false => 0.0,
                 };
                 crate::widgets::dropdown("palette-type")
+                    .name("Palette type")
                     .selected_text(shown.2)
                     .width((ui.available_width() - after).max(60.0))
                     .show_with(

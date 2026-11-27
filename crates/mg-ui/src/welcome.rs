@@ -1105,8 +1105,10 @@ mod tests {
                 let line = crate::updates::line(&app);
                 assert_eq!(line.is_some(), case >= 2);
                 let mut highs: Vec<(u32, f32)> = Vec::new();
-                let mut h =
-                    egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui(|ui| {
+                let mut h = egui_kittest::Harness::builder()
+                    .with_context_setup(mg_uikit::FieldLabels::install)
+                    .with_size(vec2(400.0, 400.0))
+                    .build_ui(|ui| {
                         mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
                         ui.ctx().set_pixels_per_point(zoom);
                         highs = (300..=2000)

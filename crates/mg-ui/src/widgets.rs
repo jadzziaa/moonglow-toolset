@@ -1262,7 +1262,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             for (i, (language, gender, text, _)) in edit.entries.iter_mut().enumerate() {
                 let text_id = egui::Id::unique(("loc-text", i));
                 ui.horizontal(|ui| {
-                    dropdown(("loc-lang", i)).selected_text(language.name().unwrap_or("?")).show(
+                    let entry = i + 1;
+                    let lang = dropdown(("loc-lang", i)).name(format!("Text {entry} language"));
+                    lang.selected_text(language.name().unwrap_or("?")).show(
                         ui,
                         language,
                         &Language::EE,
@@ -1270,6 +1272,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     );
                     let genders = GENDERS.map(|g| g.0);
                     dropdown(("loc-gender", i))
+                        .name(format!("Text {entry} gender"))
                         .selected_text(GENDERS.iter().find(|g| g.0 == *gender).map_or("?", |g| g.1))
                         .show(ui, gender, &genders, |g| {
                             GENDERS.iter().find(|n| n.0 == *g).map_or("?", |n| n.1)
@@ -1305,6 +1308,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 });
                 let field = egui::TextEdit::multiline(text).desired_rows(3).desired_width(420.0);
                 text_area(ui, text_id, field);
+                name_node(ui, text_id, &format!("Text {}", i + 1));
             }
             if let Some(i) = remove {
                 edit.entries.remove(i);
@@ -2400,6 +2404,7 @@ fn commit_field(
         None => edit,
     };
     let out = edit.id(id).desired_width(width).show(ui);
+    labelled_by_its_label(ui.ctx(), id);
     if rows.is_some() {
         page_keys(ui, &out);
     }
@@ -2474,6 +2479,14 @@ pub(crate) fn page_keys(ui: &Ui, out: &egui::text_edit::TextEditOutput) {
 
 fn press_leaves_id() -> egui::Id {
     egui::Id::unique("moonglow-text-left-at-a-press")
+}
+
+/// Names the widget `id` (`name`) for a screen reader and a test's
+/// `get_by_label`, where no label beside or over it names it
+/// (`mg_uikit::FieldLabels`): a page's text, which the page's heading
+/// names.
+pub(crate) fn name_node(ui: &Ui, id: egui::Id, name: &str) {
+    ui.ctx().accesskit_node_builder(id, |n| n.set_label(name));
 }
 
 /// Says of a text field that sets its text when the keyboard leaves it
@@ -2648,7 +2661,7 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
 ) -> Option<T> {
     let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
     // (Its label, before the field: the arrows are named with it.)
-    let label = number_name(ui);
+    let (label, own) = number_name(ui).map_or((None, false), |(l, own)| (Some(l), own));
     ui.horizontal(|ui| {
         // (A field with its buttons glued on, the mock's `.field-group`:
         // 1 point between their frames, each a point past its widget.)
@@ -2682,6 +2695,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         let shown = run.map_or(base, |r| r.value);
         let (typed, _, _) =
             drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
+        // (A name drawn nowhere names the field too: one drawn beside it
+        // names it already, `mg_uikit::FieldLabels`.)
+        match label.as_deref().filter(|_| own) {
+            Some(l) => name_node(ui, field, l),
+            None => labelled_by_its_label(ui.ctx(), field),
+        }
         // (A number typed is set as it is, the arrows still drawn.)
         if typed.is_some() {
             run = None;
@@ -5656,6 +5675,7 @@ pub(crate) struct RowChoice<'a> {
     numbered: bool,
     hover: Option<String>,
     about: Option<About<'a>>,
+    name: Option<&'a str>,
 }
 
 /// What a row list shows of a row beside it (its picture): [`RowChoice::about`].
@@ -5703,6 +5723,7 @@ pub(crate) fn row_choice<'a>(
         numbered: false,
         hover: None,
         about: None,
+        name: None,
     }
 }
 
@@ -5776,6 +5797,13 @@ impl<'a> RowChoice<'a> {
         self
     }
 
+    /// The box's name, for a screen reader, where no label beside or over
+    /// it names it (`mg_uikit::FieldLabels`): a filter.
+    pub(crate) fn name(mut self, name: &'a str) -> Self {
+        self.name = Some(name);
+        self
+    }
+
     /// What `about` shows of a row (its picture) beside the row the pointer
     /// rests on, and of the chosen one with the pointer on the box.
     pub(crate) fn about(mut self, about: About<'a>) -> Self {
@@ -5804,6 +5832,7 @@ impl<'a> RowChoice<'a> {
             numbered,
             hover,
             mut about,
+            name,
         } = self;
         let shown = shown.unwrap_or_else(|| match current {
             Some(row) => mg_rules::choice_text(choices, row).into(),
@@ -6106,6 +6135,10 @@ impl<'a> RowChoice<'a> {
             }
         }
         let mut response = list.response;
+        match name {
+            Some(name) => response = response.accessible_name(name),
+            None => labelled_by_its_label(ui.ctx(), response.id),
+        }
         if let Some(hover) = hover {
             response = response.on_hover_text(hover);
         }
@@ -6309,6 +6342,8 @@ pub(crate) struct Dropdown {
     stays_open: bool,
     /// The box's width as asked (held to its room as it is shown).
     width: Option<f32>,
+    /// Its name for a screen reader, where no label beside it names it.
+    name: Option<String>,
 }
 
 /// A box's width as asked, `want`, held to `ui`'s room where it is wider
@@ -6341,6 +6376,7 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
         filtered: false,
         stays_open: false,
         width: None,
+        name: None,
     }
 }
 
@@ -6355,6 +6391,25 @@ impl Dropdown {
                 combo.width(w)
             }
             None => combo,
+        }
+    }
+
+    /// Its name for a screen reader (and a test's `get_by_label`), where
+    /// no label beside it names it (a header's or a toolbar's box).
+    pub(crate) fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// `r`, the box, named as [`Dropdown::name`] asked.
+    fn named(name: Option<String>, r: egui::Response) -> egui::Response {
+        match name {
+            Some(n) => r.accessible_name(n),
+            None => {
+                // (Else by the field label drawn before it.)
+                labelled_by_its_label(&r.ctx, r.id);
+                r
+            }
         }
     }
 
@@ -6456,6 +6511,7 @@ impl Dropdown {
             })
         })
         .response;
+        let r = Self::named(self.name, r);
         // (The options read only when an arrow key is pressed: not each
         // frame the box has the keys.)
         let keyed = ui.input(|i| {
@@ -6629,6 +6685,7 @@ impl Dropdown {
             })
         })
         .response;
+        let r = Self::named(self.name.clone(), r);
         if self.filtered {
             ui.data_mut(|d| d.insert_temp(filter_id, filter));
             // (Where the field's keys put the cursor: at the first row, or
@@ -6669,7 +6726,9 @@ impl Dropdown {
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
         let combo = Self::held(self.combo, self.width, ui);
-        combo_looks(ui, |ui| combo.show_ui(ui, contents))
+        let mut shown = combo_looks(ui, |ui| combo.show_ui(ui, contents));
+        shown.response = Self::named(self.name, shown.response);
+        shown
     }
 }
 
@@ -6905,7 +6964,51 @@ pub fn field_label(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
     let text = text.into();
     let r = mg_uikit::field_label(ui, text.clone());
     name_number_by(ui, &text, r.rect);
+    // (A label with words: a grid's empty one names nothing.)
+    if !text.trim().is_empty() {
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.data_mut(|d| d.insert_temp(last_label_id(), (pass, r.id, r.rect)));
+    }
     r
+}
+
+fn last_label_id() -> egui::Id {
+    egui::Id::unique("last-field-label")
+}
+
+/// Has the field `field` (drawn this pass) named by the field label drawn
+/// last before it, on its row (before it, from a row over the field's top
+/// to a few under it), where it has no name: a narrow form's label at the top of
+/// its row, over the field's own line, which `mg_uikit::FieldLabels`
+/// doesn't take for beside it. The first such field after a label takes
+/// it.
+pub(crate) fn labelled_by_its_label(ctx: &egui::Context, field: egui::Id) {
+    let pass = ctx.cumulative_pass_nr();
+    let Some((at, label, rect)) =
+        ctx.data(|d| d.get_temp::<(u64, egui::Id, egui::Rect)>(last_label_id()))
+    else {
+        return;
+    };
+    let Some(drawn) = ctx.viewport(|v| v.this_pass.widgets.get(field).map(|w| w.rect)) else {
+        return;
+    };
+    let row = ctx.global_style().spacing.interact_size.y;
+    // (Centered on its row, a label stands under a field whose row holds
+    // more lines under it: a localized name's StrRef.)
+    let beside = rect.right() <= drawn.left() + 1.0
+        && rect.top() <= drawn.bottom() + 4.0 * row
+        && rect.bottom() >= drawn.top() - row;
+    if at != pass || !beside {
+        return;
+    }
+    // (Taken: it names the first field after it alone, a row without a
+    // label of its own is not named by the one before.)
+    ctx.data_mut(|d| d.remove::<(u64, egui::Id, egui::Rect)>(last_label_id()));
+    ctx.accesskit_node_builder(field, |n| {
+        if n.label().is_none() && n.labelled_by().is_empty() {
+            n.push_labelled_by(label.accesskit_id());
+        }
+    });
 }
 
 /// Names the number field after this on the row (its arrows: "Level: One
@@ -6929,8 +7032,9 @@ fn name_number_by(ui: &Ui, text: &str, rect: egui::Rect) {
 
 /// The label of the number field about to be drawn at `ui`'s cursor: the
 /// last one kept this pass, on the same row and before it (taken: a field
-/// on a later row isn't named by it).
-fn number_name(ui: &Ui) -> Option<String> {
+/// on a later row isn't named by it); and whether it is a name alone
+/// ([`name_number_field`]), drawn nowhere, which names the field too.
+fn number_name(ui: &Ui) -> Option<(String, bool)> {
     let kept = ui.data_mut(|d| {
         let kept = d.get_temp::<(u64, String, egui::Rect)>(number_name_id());
         d.remove::<(u64, String, egui::Rect)>(number_name_id());
@@ -6939,10 +7043,23 @@ fn number_name(ui: &Ui) -> Option<String> {
     let (pass, text, rect) = kept;
     let at = ui.cursor();
     let row = rect.y_range().expand(4.0);
-    let same_row = row.contains(at.top()) || row.contains(at.center().y);
-    let before = rect.left() <= at.left() + 1.0;
+    let own = rect == own_number_rect();
+    let same_row = own || row.contains(at.top()) || row.contains(at.center().y);
+    let before = own || rect.left() <= at.left() + 1.0;
     (pass == ui.ctx().cumulative_pass_nr() && same_row && before && !text.is_empty())
-        .then_some(text)
+        .then_some((text, rect == own_number_rect()))
+}
+
+/// The rect [`name_number_field`] keeps its name at: none a label has.
+fn own_number_rect() -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(f32::MIN, f32::MIN), egui::Vec2::ZERO)
+}
+
+/// Names the number field after this (the next drawn this pass, wherever
+/// it is) and its arrows, where no label is drawn beside or over it to name
+/// it (`mg_uikit::FieldLabels`): a size's two numbers, "16 × 16".
+pub(crate) fn name_number_field(ui: &mut Ui, label: &str) {
+    name_number_by(ui, label, own_number_rect());
 }
 
 /// The field label (`field_label`) of the field about to be drawn at
@@ -7587,31 +7704,34 @@ mod tests {
         }
 
         let id = (key, GffPath::root());
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                ui.text_edit_singleline(&mut s.other);
-                let actions = std::mem::take(&mut s.app.actions);
-                for action in actions {
-                    if let crate::Action::Apply(cmd) = action {
-                        let _ = s.app.apply(cmd);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    ui.text_edit_singleline(&mut s.other).accessible_name("Other");
+                    let actions = std::mem::take(&mut s.app.actions);
+                    for action in actions {
+                        if let crate::Action::Apply(cmd) = action {
+                            let _ = s.app.apply(cmd);
+                        }
                     }
-                }
-                let list = s
-                    .app
-                    .ws
-                    .as_mut()
-                    .and_then(|w| w.doc(&s.target.key).ok())
-                    .and_then(|g| g.root.list("VarTable"))
-                    .map(<[Struct]>::to_vec)
-                    .unwrap_or_default();
-                super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
-                if s.discard_once {
-                    s.discard_once = false;
-                    ui.ctx().request_discard("multi-pass test");
-                }
-            },
-            State { app, target, other: String::from("external"), discard_once: false },
-        );
+                    let list = s
+                        .app
+                        .ws
+                        .as_mut()
+                        .and_then(|w| w.doc(&s.target.key).ok())
+                        .and_then(|g| g.root.list("VarTable"))
+                        .map(<[Struct]>::to_vec)
+                        .unwrap_or_default();
+                    super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
+                    if s.discard_once {
+                        s.discard_once = false;
+                        ui.ctx().request_discard("multi-pass test");
+                    }
+                },
+                State { app, target, other: String::from("external"), discard_once: false },
+            );
         h.run();
 
         // Add an incomplete draft row (empty name -> does not commit yet).
@@ -7663,19 +7783,25 @@ mod tests {
             show_spin: bool,
         }
 
-        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
-            |ui, s: &mut State| {
-                if s.show_spin
-                    && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
-                {
-                    s.value = next;
-                }
-            },
-            State { value: 10, show_spin: true },
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(400.0, 200.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    if s.show_spin {
+                        super::name_number_field(ui, "Value");
+                    }
+                    if s.show_spin
+                        && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
+                    {
+                        s.value = next;
+                    }
+                },
+                State { value: 10, show_spin: true },
+            );
         h.run();
 
-        let up_pos = h.get_by_label("One More").rect().center();
+        let up_pos = h.get_by_label("Value: One More").rect().center();
         let hold_up = |h: &mut Harness<'_, State>, start: f64| {
             h.hover_at(up_pos);
             h.input_mut().time = Some(start);
@@ -7861,21 +7987,24 @@ mod row_choice_tests {
             choices[count / 2].text = "A choice with a name far longer than its box".into();
         }
         let state = State { choices };
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                // (The application's scroll bars: room of their own.)
-                let bars = egui::style::ScrollStyle::solid();
-                if ui.ctx().global_style().spacing.scroll != bars {
-                    ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
-                }
-                let id = egui::Id::unique("list");
-                ui.horizontal(|ui| {
-                    ui.add_space(100.0);
-                    super::row_choice(id, &s.choices, 3).width(160.0).show(ui);
-                });
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    // (The application's scroll bars: room of their own.)
+                    let bars = egui::style::ScrollStyle::solid();
+                    if ui.ctx().global_style().spacing.scroll != bars {
+                        ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
+                    }
+                    let id = egui::Id::unique("list");
+                    ui.horizontal(|ui| {
+                        ui.add_space(100.0);
+                        super::row_choice(id, &s.choices, 3).name("List").width(160.0).show(ui);
+                    });
+                },
+                state,
+            );
         h.run();
         let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
         let at = h.get(combo).rect();
@@ -7922,19 +8051,22 @@ mod row_choice_tests {
     #[test]
     fn an_always_box_is_unticked_when_its_question_is_asked_again() {
         let id = egui::Id::unique("a-question-always");
-        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
-            move |ui, (asked, on): &mut (bool, bool)| {
-                if *asked {
-                    // (As a footer's check box shows it: `Foot::check`.)
-                    let (mut now, tip) = super::always_now(ui.ctx(), id, "Options");
-                    ui.checkbox(&mut now, "Always do this").on_hover_text(tip);
-                    *on = super::always_kept(ui.ctx(), id, Some(now));
-                } else {
-                    ui.label("Nothing asked");
-                }
-            },
-            (true, false),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(400.0, 200.0))
+            .build_ui_state(
+                move |ui, (asked, on): &mut (bool, bool)| {
+                    if *asked {
+                        // (As a footer's check box shows it: `Foot::check`.)
+                        let (mut now, tip) = super::always_now(ui.ctx(), id, "Options");
+                        ui.checkbox(&mut now, "Always do this").on_hover_text(tip);
+                        *on = super::always_kept(ui.ctx(), id, Some(now));
+                    } else {
+                        ui.label("Nothing asked");
+                    }
+                },
+                (true, false),
+            );
         h.run();
         h.get_by_label("Always do this").click();
         h.run();
@@ -8019,12 +8151,19 @@ mod row_choice_tests {
             assert_eq!(offered.rows[n].row, n);
         }
         let state = State { choices, offered, value: "12345".into() };
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                super::value_choice(ui, 0, false, &s.choices, &s.offered, &mut s.value, 220.0);
-            },
-            state,
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    ui.horizontal(|ui| {
+                        super::field_label(ui, "Value");
+                        let (choices, offered) = (&s.choices, &s.offered);
+                        super::value_choice(ui, 0, false, choices, offered, &mut s.value, 220.0);
+                    });
+                },
+                state,
+            );
         h.run();
         let t = std::time::Instant::now();
         for _ in 0..20 {
@@ -8096,13 +8235,16 @@ mod row_choice_tests {
         let choices = (0..50_000)
             .map(|row| mg_rules::Choice { row, text: format!("Choice {row:05}") })
             .collect();
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
-            |ui, s: &mut State| {
-                let id = egui::Id::unique("list");
-                super::row_choice(id, &s.choices, 31_234).width(160.0).show(ui);
-            },
-            State { choices },
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    let id = egui::Id::unique("list");
+                    super::row_choice(id, &s.choices, 31_234).name("List").width(160.0).show(ui);
+                },
+                State { choices },
+            );
         h.run();
         h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
         h.run();
@@ -8156,7 +8298,7 @@ mod text_menu_tests {
                         true => egui::TextEdit::singleline(&mut fixed),
                         false => egui::TextEdit::singleline(text),
                     };
-                    ui.add(field.id(egui::Id::unique("field")));
+                    ui.add(field.id(egui::Id::unique("field"))).accessible_name("Field");
                     super::text_menus_end(ui.ctx());
                 },
                 "Looked at".to_string(),
@@ -8295,7 +8437,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")));
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "Kept".to_string(),
@@ -8335,7 +8478,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).password(true).id(egui::Id::unique("pw")));
+                ui.add(egui::TextEdit::singleline(text).password(true).id(egui::Id::unique("pw")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "secret".to_string(),
@@ -8358,7 +8502,8 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, text: &mut String| {
                 super::text_menus_begin(ui.ctx());
-                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")));
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                    .accessible_name("Field");
                 super::text_menus_end(ui.ctx());
             },
             "Kept".to_string(),
@@ -8405,9 +8550,11 @@ mod text_menu_tests {
             |ui, chosen: &mut Option<&'static str>| {
                 super::text_menus_begin(ui.ctx());
                 super::pastes_begin(ui.ctx());
-                super::dropdown("kinds").selected_text("Kinds").filtered(true).show_menu(
-                    ui,
-                    |ui, keys| {
+                super::dropdown("kinds")
+                    .name("Kinds")
+                    .selected_text("Kinds")
+                    .filtered(true)
+                    .show_menu(ui, |ui, keys| {
                         for name in ["Alpha", "Beta", "Gamma"] {
                             if !keys.shows(name) {
                                 continue;
@@ -8417,8 +8564,7 @@ mod text_menu_tests {
                                 *chosen = Some(name);
                             }
                         }
-                    },
-                );
+                    });
                 super::text_menus_end(ui.ctx());
             },
             None,
@@ -8468,7 +8614,8 @@ mod text_menu_tests {
                 mg_uikit::popover::Popover::new("Brush")
                     .title(None, "Brush")
                     .custom(|ui| {
-                        ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("size")));
+                        ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("size")))
+                            .accessible_name("Field");
                     })
                     .show(ui, &button);
                 super::text_menus_end(ui.ctx());
@@ -8501,12 +8648,13 @@ mod text_menu_tests {
         let mut h = Harness::new_ui_state(
             |ui, value: &mut f32| {
                 super::text_menus_begin(ui.ctx());
-                egui::ComboBox::from_id_salt("picker")
+                let picker = egui::ComboBox::from_id_salt("picker")
                     .selected_text("Color")
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show_ui(ui, |ui| {
-                        ui.add(egui::DragValue::new(value));
+                        ui.add(egui::DragValue::new(value)).accessible_name("Number");
                     });
+                picker.response.accessible_name("Color");
                 super::text_menus_end(ui.ctx());
             },
             40.0,
@@ -8553,7 +8701,8 @@ mod text_menu_tests {
                 super::text_menus_begin(ui.ctx());
                 ui.style_mut().interaction.tooltip_delay = 0.0;
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")));
+                    ui.add(egui::TextEdit::singleline(text).id(egui::Id::unique("field")))
+                        .accessible_name("Field");
                     ui.button("Beside").on_hover_text("Beside the field");
                 });
                 for i in 0..6 {
@@ -8603,7 +8752,7 @@ mod text_menu_plugin_tests {
     fn app(ui: &mut egui::Ui, s: &mut S) {
         let id = egui::Id::unique("field");
         super::text_menus_begin(ui.ctx());
-        ui.add(egui::TextEdit::singleline(&mut s.text).id(id));
+        ui.add(egui::TextEdit::singleline(&mut s.text).id(id)).accessible_name("Field");
         if ui.button("Other").clicked() {
             s.other += 1;
         }
@@ -8760,8 +8909,9 @@ mod text_menu_submenu_tests {
         let idb = egui::Id::unique("fieldb");
         super::text_menus_begin(ui.ctx());
         let wanted = super::text_menu_wanted(ui.ctx(), id);
-        ui.add(egui::TextEdit::multiline(&mut s.a).id(id).desired_width(600.0));
-        ui.add(egui::TextEdit::singleline(&mut s.b).id(idb));
+        ui.add(egui::TextEdit::multiline(&mut s.a).id(id).desired_width(600.0))
+            .accessible_name("Field");
+        ui.add(egui::TextEdit::singleline(&mut s.b).id(idb)).accessible_name("Field");
         if std::mem::take(&mut s.focus_b) {
             ui.memory_mut(|m| m.request_focus(idb));
         }
@@ -8790,6 +8940,7 @@ mod text_menu_submenu_tests {
 
     fn harness() -> Harness<'static, S> {
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(1400.0, 900.0))
             .build_ui_state(app, S { a: "abc\ndef".into(), b: "bee".into(), ..Default::default() });
         h.run();

@@ -446,10 +446,10 @@ fn more(ui: &mut Ui, all: usize, what: &str) {
     }
 }
 
-pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
+pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) -> Option<egui::Response> {
     if depth > 12 {
         ui.weak("Nested value: use JUI Source");
-        return;
+        return None;
     }
     match v {
         Value::Array(values) => {
@@ -462,7 +462,10 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                         .icon(mg_uikit::collapsing_icon)
                         .default_open(values_simple(item))
                         .show(ui, |ui| {
-                            value(ui, item, depth + 1);
+                            // (A text, number or color named by its header.)
+                            if let Some(r) = value(ui, item, depth + 1) {
+                                widgets::name_node(ui, r.id, &format!("Item {}", i + 1));
+                            }
                             if ui.small_button("Remove Item").clicked() {
                                 remove = Some(i);
                             }
@@ -481,15 +484,18 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             if o.len() == 4
                 && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
         {
-            scalar(ui, v);
+            return scalar(ui, v);
         }
         Value::Object(o) => {
             for (key, item) in o.iter_mut() {
                 ui.push_id(key, |ui| {
                     if item.is_array() || item.is_object() {
-                        egui::CollapsingHeader::new(key)
-                            .icon(mg_uikit::collapsing_icon)
-                            .show(ui, |ui| value(ui, item, depth + 1));
+                        egui::CollapsingHeader::new(key).icon(mg_uikit::collapsing_icon).show(
+                            ui,
+                            |ui| {
+                                value(ui, item, depth + 1);
+                            },
+                        );
                     } else {
                         widgets::field_label(ui, key);
                         value(ui, item, depth + 1);
@@ -514,10 +520,9 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                 }
             });
         }
-        _ => {
-            scalar(ui, v);
-        }
+        _ => return scalar(ui, v),
     }
+    None
 }
 
 fn values_simple(v: &Value) -> bool {

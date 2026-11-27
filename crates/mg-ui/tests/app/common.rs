@@ -726,6 +726,19 @@ pub(crate) fn label_nodes<'t>(
     h.query_all(by)
 }
 
+/// The label `text` itself (one), not the fields it names: a row's
+/// several fields each take its words (`mg_uikit::FieldLabels`).
+#[track_caller]
+pub(crate) fn label_node<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    text: &'t str,
+) -> egui_kittest::Node<'t> {
+    let mut all = label_nodes(h, text);
+    let first = all.next().unwrap_or_else(|| panic!("no label {text:?}"));
+    assert!(all.next().is_none(), "two or more labels {text:?}");
+    first
+}
+
 /// Whether `n` is in the group named `group` (`mg_uikit::name_group`).
 pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
     use egui::accesskit::Role;
@@ -2653,7 +2666,7 @@ pub(crate) fn popup_item<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
 ) -> egui_kittest::Node<'t> {
-    h.get_all_by_label(name).filter(in_menu).last().unwrap_or_else(|| panic!("no menu item {name}"))
+    h.get_all_by_label(name).rfind(in_menu).unwrap_or_else(|| panic!("no menu item {name}"))
 }
 
 /// Opens the submenu `name` of the right-click menu that is open (the
@@ -2679,7 +2692,7 @@ pub(crate) fn submenu_items(h: &mut Harness<'_, Moonglow>, name: &str, item: &st
 /// to bottom: the buttons of the menu `last` is in.
 pub(crate) fn menu_items(h: &Harness<'_, Moonglow>, last: &str) -> Vec<String> {
     use egui_kittest::kittest::AccessKitNode;
-    let item = h.get_all_by_label(last).filter(in_menu).last().expect("the menu's item");
+    let item = h.get_all_by_label(last).rfind(in_menu).expect("the menu's item");
     // The popup: the menu it is in, or the nearest of its containers with
     // a place on the screen. (Not what it hangs under: egui 0.37 puts a
     // menu under the widget it opened from.)

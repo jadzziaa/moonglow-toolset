@@ -207,15 +207,18 @@ fn harness(children: Value, height: f32, settings: Settings) -> Harness<'static,
     let mut doc = mg_nui::window();
     doc["geometry"] = json!({"x":-1.0,"y":-1.0,"w":680.0,"h":height});
     doc["root"]["children"] = children;
-    Harness::builder().with_size(vec2(1100.0, 1000.0)).build_ui_state(
-        |ui, t: &mut Case| canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets),
-        Case {
-            doc,
-            settings,
-            state: State { zoom: 1.0, ..Default::default() },
-            assets: skin::Assets::default(),
-        },
-    )
+    Harness::builder()
+        .with_context_setup(mg_uikit::FieldLabels::install)
+        .with_size(vec2(1100.0, 1000.0))
+        .build_ui_state(
+            |ui, t: &mut Case| canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets),
+            Case {
+                doc,
+                settings,
+                state: State { zoom: 1.0, ..Default::default() },
+                assets: skin::Assets::default(),
+            },
+        )
 }
 
 fn assert_width(h: &Harness<'_, Case>, name: &str, expected: f32) -> Rect {

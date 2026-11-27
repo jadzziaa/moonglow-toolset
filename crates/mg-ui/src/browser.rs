@@ -2787,12 +2787,10 @@ pub(crate) fn two_da(
             browser.rows_from = browser.rows_from.filter(|&i| i < l.copies.len());
             let options: Vec<Option<usize>> =
                 std::iter::once(None).chain((0..l.copies.len()).map(Some)).collect();
-            crate::widgets::dropdown("2da-rows-from").selected_text(label(browser.rows_from)).show(
-                ui,
-                &mut browser.rows_from,
-                &options,
-                |i| label(*i),
-            );
+            crate::widgets::dropdown("2da-rows-from")
+                .name("Rows from")
+                .selected_text(label(browser.rows_from))
+                .show(ui, &mut browser.rows_from, &options, |i| label(*i));
         }
     });
     if layered {

@@ -1375,6 +1375,7 @@ mod tests {
         viewer.recovery_dir = Some(dir.join("recovery"));
         viewer.recoveries = vec![copy];
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(800.0, 500.0))
             .build_ui_state(|ui, app: &mut Moonglow| window(app, ui), viewer);
         h.run_steps(2);

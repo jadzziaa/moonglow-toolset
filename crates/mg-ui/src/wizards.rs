@@ -120,8 +120,10 @@ fn area_size(ui: &mut Ui, w: &mut AreaWizard) {
     });
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
+        crate::widgets::name_number_field(ui, "Width");
         crate::widgets::spin_draft(ui, &mut w.width, AREA_SIZE_RANGE, 1.0, |d| d);
         ui.label(egui::RichText::new("×").color(mg_uikit::tokens(ui.ctx()).text_2));
+        crate::widgets::name_number_field(ui, "Height");
         crate::widgets::spin_draft(ui, &mut w.height, AREA_SIZE_RANGE, 1.0, |d| d);
         ui.weak("tiles, 10 m each");
     });

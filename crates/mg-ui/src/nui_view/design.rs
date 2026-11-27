@@ -1034,8 +1034,10 @@ mod tests {
 
     #[test]
     fn properties_stay_in_their_panel_as_the_window_and_panels_are_sized() {
-        let mut h =
-            Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, fixture());
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(1130.0, 760.0))
+            .build_ui_state(show, fixture());
         h.run();
         assert_inspector_fits(&h);
         let before = h.state().doc.clone();
@@ -1072,7 +1074,10 @@ mod tests {
             },
         );
         f.widths = Some((0.0, 280.0));
-        let mut h = Harness::builder().with_size(egui::vec2(800.0, 760.0)).build_ui_state(show, f);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 760.0))
+            .build_ui_state(show, f);
         h.run();
         assert_inspector_fits(&h);
         h.get_by_label("Bind Formatting").click();
@@ -1085,8 +1090,10 @@ mod tests {
         for (highest, expected) in [(i32::MAX, 1), (7, 8)] {
             let mut f = fixture();
             f.doc["root"]["children"][0]["children"][0]["elements"][1][1] = json!(highest);
-            let mut h =
-                Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+            let mut h = Harness::builder()
+                .with_context_setup(mg_uikit::FieldLabels::install)
+                .with_size(egui::vec2(1130.0, 760.0))
+                .build_ui_state(show, f);
             h.run();
             h.get_by_label("Add Option").click();
             h.run();
@@ -1205,7 +1212,10 @@ mod tests {
         f.state.selected = "/root/row_template/0/0".into();
         f.state.binding_property = "value".into();
         let before = f.settings.bindings["names"].value.clone();
-        let mut h = Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+        let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(1130.0, 760.0))
+            .build_ui_state(show, f);
         h.run();
         let headers = |h: &Harness<'_, Fixture>, what: &str| {
             let all = h.query_all_by_label_contains(what);

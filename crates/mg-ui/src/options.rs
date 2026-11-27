@@ -1117,6 +1117,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     );
                     ui.add_enabled_ui(draft.dialog_backup, |ui| {
                         let minutes = &mut draft.dialog_backup_minutes;
+                        crate::widgets::name_number_field(ui, "Minutes between backups");
                         crate::widgets::spin_draft(ui, minutes, 1..=180, 1.0, |d| d);
                     });
                     ui.label("minutes");

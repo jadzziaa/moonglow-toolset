@@ -1585,6 +1585,7 @@ impl Form<'_> {
         ) {
             self.set(what, label, Value::String(encode(&v)));
         }
+        crate::widgets::name_node(ui, id, what);
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
@@ -1761,6 +1762,7 @@ impl Form<'_> {
         let id = self.id(label);
         let typed = crate::widgets::loc_text(self.app, ui, id, &current, rows, f32::INFINITY);
         let shown = crate::widgets::loc_shown(self.app, &current).0;
+        crate::widgets::name_node(ui, id, what);
         self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
@@ -1804,6 +1806,7 @@ impl Form<'_> {
                 )
             })
             .inner;
+        crate::widgets::name_node(ui, id, what);
         self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
@@ -1827,6 +1830,7 @@ impl Form<'_> {
         if let Some(v) = typed {
             self.set(what, label, Value::String(encode(&v)));
         }
+        crate::widgets::name_node(ui, id, what);
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 

@@ -390,6 +390,8 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                             {
                                 set_new = Some((row.entry, row.name.clone(), r));
                             }
+                            let what = p.titles.1.to_lowercase();
+                            crate::widgets::name_node(ui, id, &format!("{} {what}", row.name));
                             f.hold_command(ui, id, false, |form, buf| {
                                 if buf == new {
                                     return None;
@@ -1083,8 +1085,9 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
                     let id = f.id(&format!("{}#pick#{k}", p.field));
                     let unset =
                         if k == 0 { "Choose an animation" } else { "Choose the one to play" };
-                    let list =
-                        crate::widgets::row_choice(id, &choices, *slot).width(180.0).unset(unset);
+                    let list = crate::widgets::row_choice(id, &choices, *slot).width(180.0);
+                    let what = [p.titles.0, p.titles.1][k];
+                    let list = list.unset(unset).name(what);
                     if let Some(r) = list.show(ui) {
                         *slot = Some(r);
                     }

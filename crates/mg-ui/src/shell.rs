@@ -6517,6 +6517,7 @@ mod dock_tests {
         app.settings.hide_log = false;
         app.sample_brings = Some((kind, brings));
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(width, 800.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         settle(&mut h);
@@ -6695,6 +6696,7 @@ mod dock_tests {
         app.settings.dock_layouts.insert("welcome".into(), layout);
         app.sample_brings = Some(("welcome", second_kind()));
         let mut h = Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
             .with_size(egui::vec2(1600.0, 800.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         settle(&mut h);

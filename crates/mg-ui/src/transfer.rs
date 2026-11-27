@@ -1827,8 +1827,10 @@ mod tests {
 
         // Second run: confirming in Protected Area window triggers FinishImport.
         app.run_import(draft);
-        let mut h =
-            egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder()
+            .with_context_setup(mg_uikit::FieldLabels::install)
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(
                 |ui, app: &mut Moonglow| {
                     let ctx = ui.ctx().clone();
                     crate::claims::windows(app, &ctx);
