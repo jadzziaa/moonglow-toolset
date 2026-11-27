@@ -8,8 +8,8 @@
 //!   rule](name_lines)), an optional **detail** line right under it (11 on
 //!   14, `text-3`). Nothing is drawn around a whole cell in any state:
 //!   hover turns the rim `raised-hover` and the name `text`; selected
-//!   draws a 2 point `accent` ring (`text-3` where the grid has not the
-//!   keys); a picture still being made shows the kind's icon dimmed
+//!   draws a 2 point `accent` ring, 3 in the light theme (`text-3` where
+//!   the grid has not the keys); a picture still being made shows the kind's icon dimmed
 //!   (`text-off`, 24 points), "No picture" adds a caption under it, "No
 //!   model" a badge at the tile's top left, a favorite a bookmark at its
 //!   top right; disabled, the picture is faded and the name `text-off`.
@@ -66,6 +66,9 @@ pub const JUSTIFIED_GAP: f32 = 8.0;
 /// A tile's radius, the small variant's.
 pub const RADIUS: u8 = 4;
 pub const SMALL_RADIUS: u8 = 3;
+/// A selected tile's ring, the dark theme's and the light theme's.
+const SELECTED_RIM: f32 = 2.0;
+const SELECTED_RIM_LIGHT: f32 = 3.0;
 /// From the tile to the name; the small variant's.
 pub const NAME_GAP: f32 = 6.0;
 pub const SMALL_NAME_GAP: f32 = 3.0;
@@ -533,7 +536,8 @@ impl<'a> GalleryCell<'a> {
             return;
         }
         let t = ui.ctx().tokens();
-        let painter = ui.painter_at(rect.expand(2.0));
+        // Room for the widest ring, outside the tile.
+        let painter = ui.painter_at(rect.expand(SELECTED_RIM_LIGHT));
         let tile = Rect::from_min_size(rect.min, tile.min(rect.size()));
         let radius = CornerRadius::same(self.radius.unwrap_or(match self.small {
             true => SMALL_RADIUS,
@@ -577,13 +581,14 @@ impl<'a> GalleryCell<'a> {
         // without), the keys' cursor. Hovered in the light theme it is
         // `text-off` (2.8:1 on `panel`, 3.2:1 on `inset`; `raised-hover`
         // there, 1.5:1, hardly showed), weaker than selected's `text-3`.
-        let hover = match crate::theme::applied(ui.ctx()) {
-            Some(crate::Theme::Light) => t.text_off,
-            _ => t.raised_hover,
-        };
+        // Selected, the light theme's ring is 3 points (the owner's word:
+        // 2, beside the dark tile, hardly read as chosen); the dark's 2.
+        let light = crate::theme::applied(ui.ctx()) == Some(crate::Theme::Light);
+        let hover = if light { t.text_off } else { t.raised_hover };
+        let chosen = if light { SELECTED_RIM_LIGHT } else { SELECTED_RIM };
         let (width, color) = match (selected, state.keys, hovered, state.cursor && state.keys) {
-            (true, true, _, _) => (2.0, t.accent),
-            (true, false, _, _) => (2.0, t.text_3),
+            (true, true, _, _) => (chosen, t.accent),
+            (true, false, _, _) => (chosen, t.text_3),
             (false, _, _, true) => (1.0, t.accent),
             (false, _, true, _) => (1.0, hover),
             _ => (1.0, t.line),

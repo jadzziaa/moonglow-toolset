@@ -291,8 +291,9 @@ fn each_cell_is_a_named_button_said_selected_with_a_click() {
 
 /// The states as the Quiet Tiles cell draws them, in both themes: at rest
 /// a 1 point `line` rim and the name `text-2`; hovered a `raised-hover`
-/// rim and the name `text`; selected a 2 point `accent` ring, `text-3`
-/// where the grid has not the keys; being made, the kind's icon and no
+/// rim and the name `text`; selected a 2 point `accent` ring (3 in the
+/// light theme, the clip leaving it room), `text-3` where the grid has
+/// not the keys; being made, the kind's icon and no
 /// "…"; no picture, "No picture" under it; no model, the "No model" badge
 /// in `thumb-badge`; a favorite, the bookmark filled `thumb-flag`;
 /// disabled, the name `text-off`; the detail line `text-3`; a model name
@@ -332,11 +333,23 @@ fn each_state_draws_as_quiet_tiles() {
         assert!(rims(&h).contains(&(1.0, hover)), "{theme:?} hovered");
         assert!(texts(&h).contains(&("Corpse Wagon".into(), t.text)), "{theme:?} hovered");
         let selected = || plain().selected(true);
+        let ring = match theme {
+            Theme::Light => 3.0,
+            _ => 2.0,
+        };
         let h = draw(&selected, CellState { keys: true, ..rest });
-        assert!(rims(&h).contains(&(2.0, t.accent)), "{theme:?} selected");
+        assert!(rims(&h).contains(&(ring, t.accent)), "{theme:?} selected: {:?}", rims(&h));
         assert!(texts(&h).contains(&("Corpse Wagon".into(), t.text)), "{theme:?} selected");
+        // The ring is drawn outside the tile, and its clip holds all of it
+        // (a clip 2 points out once cut the light theme's 3 back to 2).
+        let clipped = h.output().shapes.iter().find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.stroke.width == ring => Some((r.rect, c.clip_rect)),
+            _ => None,
+        });
+        let (tile, clip) = clipped.expect("the ring");
+        assert!(clip.contains_rect(tile.expand(ring)), "{theme:?}: {tile:?} clipped to {clip:?}");
         let h = draw(&selected, rest);
-        assert!(rims(&h).contains(&(2.0, t.text_3)), "{theme:?} selected without the keys");
+        assert!(rims(&h).contains(&(ring, t.text_3)), "{theme:?} selected without the keys");
         let missing = || GalleryCell::new("Basket", Picture::Missing).kind(Icon::Placeable);
         assert!(texts(&draw(&missing, rest)).iter().any(|(s, _)| s == "No picture"));
         let no_model = || plain().no_model(true);
