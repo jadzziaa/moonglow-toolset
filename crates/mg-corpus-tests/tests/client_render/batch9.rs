@@ -1140,3 +1140,90 @@ fn batch9_static_alpha_mean_checks() {
     let r = Reading::new("batch9_static_alpha_mean_checks", "tcn01", light, &as_refs(&files));
     shoot_pairs(r, &pairs);
 }
+
+/// One static model's see-through meshes ([`batch9_static_alpha_mean`]'s
+/// reading within a model): its static parts go into the texture
+/// buckets one by one, so two cards of one static model (`alpha 0.5`,
+/// opaque TGAs with a TXI `alphamean`) should be drawn by their textures'
+/// means too, not in the model's order. Four models: the red card listed
+/// first, of mean 0.3, the blue 0.9, the red nearer in one and the blue
+/// in the other; and the same with the means swapped and the blue listed
+/// first.
+///
+/// Predicted before the run: the 0.9 texture's card first in all four
+/// (the blue in the first two, against the model's order; the red in the
+/// last two, against it as well).
+#[test]
+#[ignore]
+fn batch9_static_alpha_mean_in_a_model() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    // (The model's code, its red texture's mean and its blue's, which is
+    // listed first, and which card is nearer.)
+    let models = [
+        ("1", 0.3, 0.9, 'R', 'R'),
+        ("2", 0.3, 0.9, 'R', 'B'),
+        ("3", 0.9, 0.3, 'B', 'R'),
+        ("4", 0.9, 0.3, 'B', 'B'),
+    ];
+    let mut rows = Vec::new();
+    for (code, red_mean, blue_mean, listed, near) in models {
+        let mut quads = Vec::new();
+        for (color, mean) in [('R', red_mean), ('B', blue_mean)] {
+            let texture = format!("mg9lm{code}_{}", color.to_ascii_lowercase());
+            let rgb = if color == 'R' { [255, 0, 0] } else { [0, 0, 255] };
+            files.push((format!("{texture}.tga"), solid([rgb[0], rgb[1], rgb[2], 255])));
+            files.push((format!("{texture}.txi"), format!("alphamean {mean}\n").into_bytes()));
+            let at = if color == near { [0.0, 0.0, 0.0] } else { [0.5, 0.5, 0.0] };
+            quads.push((
+                color,
+                Quad {
+                    name: format!("card{}", color.to_ascii_lowercase()),
+                    at,
+                    corners: [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 1.0], [-0.5, 0.0, 1.0]],
+                    bitmap: Cow::Owned(texture),
+                    extra: "  alpha 0.5\n",
+                    tverts: true,
+                    colors: false,
+                },
+            ));
+        }
+        if listed == 'B' {
+            quads.reverse();
+        }
+        let quads: Vec<Quad> = quads.into_iter().map(|(_, q)| q).collect();
+        let name = format!("mg9lm{code}");
+        files.push((format!("{name}.mdl"), model(&name, &quads).into_bytes()));
+        rows.push(name);
+    }
+    let list: Vec<(&str, u8)> = rows.iter().map(|m| (m.as_str(), 1)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r =
+        Reading::new("batch9_static_alpha_mean_in_a_model", "tcn01", light, &as_refs(&files));
+    for (i, _) in models.iter().enumerate() {
+        let [x, y] = slot(i);
+        r.place(first + i as u32, [x, y, 0.0], 0.0, &[("Static", Value::Byte(1))]);
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let mut failed = Vec::new();
+    for (i, (code, red_mean, blue_mean, listed, near)) in models.into_iter().enumerate() {
+        let predicted = if red_mean > blue_mean { 'R' } else { 'B' };
+        for (side, img) in &pictures {
+            let (mixed, first) = first_drawn(img, near, slot(i));
+            let verdict = if first == predicted { "as predicted" } else { "NOT as predicted" };
+            eprintln!(
+                "{side:22} model {code} (red {red_mean}, blue {blue_mean}, {listed} listed first) nearer {near}: {mixed:4} mixed, {first} first ({verdict})"
+            );
+            if *side == "client" && first != predicted {
+                failed.push(format!("model {code}"));
+            }
+        }
+    }
+    eprintln!("{}", dir.display());
+    assert!(failed.is_empty(), "the client differs from the prediction: {failed:?}");
+}
