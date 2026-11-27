@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:15:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:18:05Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2225,6 +2225,12 @@ in another listed blue first in each pair). Not separated: where a set
 stands from the eye (the sets that differ only in their listing stood
 4.5 m apart), and the tiles its cards stand on (a static placeable is
 merged into its tile; one set straddled x 20, the second row y 30).
+Nor do the tiles decide it (`batch9_static_tiles`): two models' sixteen
+pairs, wholly inside four tiles (two near the camera and two far, at the
+same x; two west of it and two east), across x 20 with the nearer card on
+the earlier tile or the later, and across y 30, all drew the blue first.
+One order holds for two textures over the whole area, whatever their
+places, tiles and list; which, no name or list rule read predicts.
 
 - **Checked:** game client, `client_render`'s
   `batch9_see_through_statics` (2026-11-26: dynamic and static pairs,
@@ -2232,7 +2238,8 @@ merged into its tile; one set straddled x 20, the second row y 30).
   dynamic placeable of another model, models shared with dynamic
   placeables standing either way round) and `batch8d_see_through_two_models`
   run again the same day, and `batch9_static_order` (2026-11-26: the
-  set beside the tree, `x`, read in one pair only). Its first reading (2026-11-25) had static
+  set beside the tree, `x`, read in one pair only) and
+  `batch9_static_tiles` (2026-11-26). Its first reading (2026-11-25) had static
   pairs of textures of their own drawn farthest first: its windows, put
   where the fitted camera puts the overlap, read the client's picture a
   few pixels off; the pairs are now read by the pixels of both colors

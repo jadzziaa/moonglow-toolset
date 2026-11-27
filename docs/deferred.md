@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:15:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:18:05Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -717,16 +717,20 @@ Nothing open.
   had static pairs of textures of their own drawn farthest first, read
   the client's pictures a few pixels off), whether they share a texture
   or a model with dynamic placeables or not, whichever is listed first.
-  Which texture goes first is not read: `batch9_static_order`
-  (2026-11-26; one texture's cards untied by a lone card, the list
-  varied, the names swapped) ruled out a fixed order by model or
-  texture name, the texture listed first, the texture listed last, the
-  number of each texture's cards and their mean place (a lone red card
-  far behind turned one set to the red first and left another, listed
-  the other way, the blue). Not separated: where a set stands from the
-  eye (sets alike but for their listing stood apart), and the tiles a
-  set's cards stand on (a static placeable is merged into its tile; one
-  set straddled x 20, the second row y 30). Moonglow puts static ones in order by their origins,
+  Which texture goes first is not read, after three batches. Not by
+  name (model or texture), by the texture listed first or last in the
+  area or loaded first, by the count of each texture's cards or their
+  mean, nearest or farthest place (`batch9_static_order`, 2026-11-26:
+  lone cards untying each texture's places, the list varied, the names
+  swapped), and not by tile: one pair of models' sixteen pairs wholly
+  inside four tiles near and far, across x 20 with the nearer card on
+  either tile and across y 30, all drew the blue first
+  (`batch9_static_tiles`, 2026-11-26), where other pairs of textures
+  in earlier batches drew the red. So one order holds for two
+  textures over the whole area, whatever their places, tiles and list,
+  and differs from one pair of textures to another as no name or list
+  rule read predicts (a hash's order of the textures, or of where they
+  were loaded, would; not read). Moonglow puts static ones in order by their origins,
   and half the static pairs differ ([the findings](findings.md), "Two
   placeables' see-through meshes"). Each see-through mesh of alpha 1
   costs two draws. On macOS the solid part's discarded fragments wrote

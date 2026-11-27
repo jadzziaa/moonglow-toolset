@@ -677,3 +677,127 @@ fn batch9_static_order() {
     }
     eprintln!("{}", dir.display());
 }
+
+// ---------------------------------------------------------------------------
+// Static see-through meshes and the tiles they stand on.
+
+/// A pair of [`batch9_static_tiles`]: its label, the nearer card's color,
+/// its place (x, y) and the farther card's offset from it (x, y).
+type TilePair = (&'static str, char, [f32; 2], [f32; 2]);
+
+/// The pairs of [`batch9_static_tiles`] (the area's tiles are 10 m; tile
+/// 9 is x 10 to 20, y 20 to 30, 10 east of it, 13 and 14 north of them).
+const TILE_PAIRS: [TilePair; 16] = [
+    // Wholly inside one tile: two pairs a tile, the red nearer in the
+    // first; tiles 9 and 13 at the same x (near and far), 10 and 14 their
+    // mirror east of the camera.
+    ("in 9", 'R', [14.0, 23.0], [0.5, 0.5]),
+    ("in 9", 'B', [16.5, 23.0], [0.5, 0.5]),
+    ("in 10", 'R', [23.0, 23.0], [0.5, 0.5]),
+    ("in 10", 'B', [25.5, 23.0], [0.5, 0.5]),
+    ("in 13", 'R', [14.0, 32.0], [0.5, 0.5]),
+    ("in 13", 'B', [16.5, 32.0], [0.5, 0.5]),
+    ("in 14", 'R', [23.0, 32.0], [0.5, 0.5]),
+    ("in 14", 'B', [25.5, 32.0], [0.5, 0.5]),
+    // Across x 20 (tiles 9 and 10, as far from the camera): the nearer
+    // card on 9 (the earlier) or on 10, either color.
+    ("near on 9 | far on 10", 'R', [19.55, 23.0], [0.5, 0.5]),
+    ("near on 10 | far on 9", 'R', [20.45, 25.0], [-0.5, 0.5]),
+    ("near on 9 | far on 10", 'B', [19.55, 27.0], [0.5, 0.5]),
+    ("near on 10 | far on 9", 'B', [20.45, 33.0], [-0.5, 0.5]),
+    // Across y 30 (tiles 9 and 13, 10 and 14): the nearer card on the
+    // nearer, earlier tile.
+    ("near on 9 | far on 13", 'R', [14.0, 29.6], [0.5, 0.5]),
+    ("near on 9 | far on 13", 'B', [16.5, 29.6], [0.5, 0.5]),
+    ("near on 10 | far on 14", 'R', [23.0, 29.6], [0.5, 0.5]),
+    ("near on 10 | far on 14", 'B', [25.5, 29.6], [0.5, 0.5]),
+];
+
+/// Whether the client draws static placeables' see-through meshes by the
+/// tile they stand on (a static placeable is merged into its tile): by
+/// the tiles' order in the area, or the farther tile first, and within a
+/// tile in a fixed order. Every card is one of two static placeables'
+/// models (red and blue, `alpha 0.5`, 1 m square), the red listed first
+/// in each pair; [`TILE_PAIRS`] lays pairs wholly inside four tiles (two
+/// near the camera, two far, at the same x; two west of it and two east),
+/// across the boundary between two tiles as far from the camera (x 20:
+/// the nearer card on the earlier tile or the later), and across the
+/// boundary between a near tile and a far one (y 30).
+///
+/// What each reading predicts: by the tiles' order, a pair across x 20 is
+/// drawn nearer first with its nearer card on tile 9 and farther first on
+/// 10, and one across y 30 nearer first; by the tiles' distance, one across
+/// y 30 farther first; within a tile, one color first in both its pairs,
+/// the same in every tile for a fixed order.
+///
+/// Seen (2026-11-26, 89.8193.37): the blue first in all sixteen pairs,
+/// inside each of the four tiles, across x 20 whichever tile the nearer
+/// card stands on, and across y 30. Neither the tiles' order nor their
+/// distance decides it: one order for the two textures over the whole
+/// area (Moonglow, by the origins, differs in the eight with the blue
+/// nearer).
+#[test]
+#[ignore]
+fn batch9_static_tiles() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for (name, rgba) in [("mg9t_r", [255, 0, 0, 255]), ("mg9t_b", [0, 0, 255, 255])] {
+        files.push((format!("{name}.tga"), solid(rgba)));
+        let quad = Quad {
+            name: "card".into(),
+            at: [0.0, 0.0, 0.0],
+            corners: [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 1.0], [-0.5, 0.0, 1.0]],
+            bitmap: Cow::Owned(name.to_string()),
+            extra: "  alpha 0.5\n",
+            tverts: true,
+            colors: false,
+        };
+        files.push((format!("{name}.mdl"), model(name, &[quad]).into_bytes()));
+    }
+    let (table, first) = placeables_with(&base, &[("mg9t_r", 1), ("mg9t_b", 1)]);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("batch9_static_tiles", "tcn01", light, &as_refs(&files));
+    let static_field = [("Static", Value::Byte(1))];
+    let far_of = |at: [f32; 2], off: [f32; 2]| [at[0] + off[0], at[1] + off[1]];
+    for (_, near, at, off) in TILE_PAIRS {
+        for color in ['R', 'B'] {
+            let [x, y] = if color == near { at } else { far_of(at, off) };
+            r.place(first + u32::from(color == 'B'), [x, y, 0.0], 0.0, &static_field);
+        }
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let camera = reference_camera();
+    for (label, near, at, off) in TILE_PAIRS {
+        for (side, img) in &pictures {
+            let rect = |at: [f32; 2]| {
+                let pts = [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)].map(|(dx, z)| {
+                    project(&camera, Vec3::new(at[0] + dx, at[1], z), img.width, img.height)
+                });
+                let xs = pts.map(|p| p.0);
+                let ys = pts.map(|p| p.1);
+                [
+                    xs.iter().copied().fold(f32::MAX, f32::min),
+                    ys.iter().copied().fold(f32::MAX, f32::min),
+                    xs.iter().copied().fold(f32::MIN, f32::max),
+                    ys.iter().copied().fold(f32::MIN, f32::max),
+                ]
+            };
+            let (n, f) = (rect(at), rect(far_of(at, off)));
+            let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
+            let mixed = mixed_pixels(img, both, 4.0);
+            let (first, verdict) = match (mixed > 100, near) {
+                (false, c) => (c, "nearer first"),
+                (true, 'R') => ('B', "farther first"),
+                (true, _) => ('R', "farther first"),
+            };
+            eprintln!(
+                "{side:22} {label:22} nearer {near}: {mixed:4} mixed: {verdict} ({first} first)"
+            );
+        }
+    }
+    eprintln!("{}", dir.display());
+}
