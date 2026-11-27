@@ -159,43 +159,10 @@ pub fn new_uuid() -> String {
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
-/// The manifest's bytes for resources (name and type, SHA-1, size).
+/// The manifest's bytes for resources (name and type, SHA-1, size), as
+/// `nwn_nwsync_write` writes them ([`mg_nwsync::manifest::write`]).
 pub fn manifest(entries: &[(ResKey, [u8; 20], u32)]) -> Vec<u8> {
-    use mg_core::bin::WriteLe;
-    let mut sorted: Vec<(&[u8; 20], String, u16, u32)> = entries
-        .iter()
-        .map(|(k, sha, size)| (sha, k.resref.to_lowercase().to_string(), k.restype.0, *size))
-        .collect();
-    sorted.sort_by(|a, b| (a.0, &a.1, a.2).cmp(&(b.0, &b.1, b.2)));
-    let mut unique: Vec<&(&[u8; 20], String, u16, u32)> = Vec::new();
-    let mut mappings = Vec::new();
-    let mut first: BTreeMap<&[u8; 20], usize> = BTreeMap::new();
-    for e in &sorted {
-        match first.get(e.0) {
-            Some(&i) => mappings.push((i, e)),
-            None => {
-                first.insert(e.0, unique.len());
-                unique.push(e);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    out.put_bytes(b"NSYM");
-    out.put_u32(3);
-    out.put_u32_usize(unique.len());
-    out.put_u32_usize(mappings.len());
-    for (sha, name, restype, size) in unique {
-        out.put_bytes(&sha[..]);
-        out.put_u32(*size);
-        out.put_fixed(name.as_bytes(), 16);
-        out.put_u16(*restype);
-    }
-    for (i, (_, name, restype, _)) in mappings {
-        out.put_u32_usize(i);
-        out.put_fixed(name.as_bytes(), 16);
-        out.put_u16(*restype);
-    }
-    out
+    mg_nwsync::manifest::write(entries)
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
@@ -327,34 +294,10 @@ pub fn write_until(
     Ok(Written { sha1: digest, files: entries.len(), bytes, on_disk, new_files })
 }
 
-/// Reads a manifest back: each resource with its SHA-1 and size.
+/// Reads a manifest back: each resource with its SHA-1 and size
+/// ([`mg_nwsync::manifest::read`]).
 pub fn read_manifest(data: &[u8]) -> Result<Vec<(ResKey, [u8; 20], u32)>, String> {
-    let mut r = mg_core::bin::Reader::new(data);
-    let err = |e: mg_core::bin::BinError| format!("not a manifest: {e}");
-    if r.bytes(4).map_err(err)? != b"NSYM" {
-        return Err("not an NWSync manifest".into());
-    }
-    if r.u32().map_err(err)? != 3 {
-        return Err("not a version 3 manifest".into());
-    }
-    let (n, mapped) = (r.u32_usize().map_err(err)?, r.u32_usize().map_err(err)?);
-    let mut out: Vec<(ResKey, [u8; 20], u32)> = Vec::with_capacity(n.min(1 << 20));
-    let name = |r: &mut mg_core::bin::Reader<'_>| -> Result<ResKey, String> {
-        let resref = mg_core::ResRef::from_bytes(r.fixed_str(16).map_err(err)?)
-            .map_err(|e| e.to_string())?;
-        Ok(ResKey::new(resref, ResType(r.u16().map_err(err)?)))
-    };
-    for _ in 0..n {
-        let sha: [u8; 20] = r.array().map_err(err)?;
-        let size = r.u32().map_err(err)?;
-        out.push((name(&mut r)?, sha, size));
-    }
-    for _ in 0..mapped {
-        let i = r.u32_usize().map_err(err)?;
-        let (_, sha, size) = *out.get(i).ok_or("a mapping past the entries")?;
-        out.push((name(&mut r)?, sha, size));
-    }
-    Ok(out)
+    mg_nwsync::manifest::read(data)
 }
 
 /// How old a data file no manifest names must be to be pruned, as

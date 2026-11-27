@@ -1,0 +1,33 @@
+[package]
+name = "mg-nwsync"
+description = "NWSync content read: manifests, the game's NWSync storage (read only), Moonglow's own cache, a resource layer, and the download of what is missing"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+mg-erf.workspace = true
+mg-resman.workspace = true
+rusqlite.workspace = true
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+flate2.workspace = true
+mg-testkit.workspace = true
+# (Its own made-up game storage, for its tests.)
+mg-nwsync = { workspace = true, features = ["fixtures", "http"] }
+
+[features]
+# The requests themselves (ureq, rustls): `mg`'s and the window's. Without
+# it the crate reads what is here and downloads through a `Fetch` it is
+# given (the tests').
+http = ["dep:ureq"]
+# A game's NWSync storage made up in a test's folder (`fixtures`): the
+# tests', here and in the crates above.
+fixtures = []
+
+[lints]
+workspace = true

@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 mg-core.workspace = true
+flate2.workspace = true
 zstd.workspace = true
 thiserror.workspace = true
 

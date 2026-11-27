@@ -286,9 +286,256 @@ pub(crate) fn other_games() -> Vec<Running> {
     running(&CLIENT_NAMES).into_iter().filter(|g| !own.contains(&g.pid)).collect()
 }
 
+/// The folder in Moonglow's cache that Test Module gives the game as its
+/// user directory for a module whose haks come from NWSync
+/// ([`content_user_dir`]).
+pub const CONTENT_USER_DIR: &str = "test-user";
+
+/// Links `to` to the folder `from`: a symbolic link, else (Windows,
+/// without the right to make one) a junction.
+fn link_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(from, to)
+    }
+    #[cfg(windows)]
+    {
+        if std::os::windows::fs::symlink_dir(from, to).is_ok() {
+            return Ok(());
+        }
+        let made =
+            Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(to).arg(from).output()?;
+        if made.status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(String::from_utf8_lossy(&made.stderr).trim().to_string()))
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (from, to);
+        Err(std::io::Error::other("no links on this system"))
+    }
+}
+
+/// Links `to` to the file `from`: a symbolic link (Unix); a hard link,
+/// else a symbolic link, else a copy (Windows).
+fn link_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(from, to)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::hard_link(from, to)
+            .or_else(|_| {
+                #[cfg(windows)]
+                return std::os::windows::fs::symlink_file(from, to);
+                #[cfg(not(windows))]
+                Err(std::io::Error::other("no links"))
+            })
+            .or_else(|_| std::fs::copy(from, to).map(|_| ()))
+    }
+}
+
+/// Whether there is anything at `path`, a link that leads nowhere
+/// included.
+fn is_there(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+/// What goes into the content user directory's `hak` and `tlk` folders:
+/// file names (`pw_parts.hak`) and the files they are.
+#[derive(Debug, Clone, Default)]
+pub struct Content {
+    pub haks: Vec<(std::ffi::OsString, PathBuf)>,
+    pub tlks: Vec<(std::ffi::OsString, PathBuf)>,
+}
+
+/// Test Module's user directory for a module whose project names an
+/// NWSync server: its haks (and talk table) written from that content
+/// into Moonglow's cache ([`mg_module::nwsync_content::write_haks`]),
+/// and `dir` made the player's folder `real` with them
+/// ([`content_user_dir`]). What to say of the haks.
+pub fn with_content(
+    module: &mg_module::Module,
+    install: &mg_resman::GameInstall,
+    real: &Path,
+    dir: &Path,
+    o: &mg_module::nwsync_content::WriteOptions<'_>,
+) -> Result<String, String> {
+    let files = (module.write_nwsync_haks(install, o))
+        .unwrap_or_else(|| Err("the project names no NWSync server".into()))?;
+    let content = content_of(module, install, &files);
+    content_user_dir(real, dir, &content)?;
+    Ok(files.summary())
+}
+
+/// What the content user directory's `hak` and `tlk` hold for a module:
+/// its haks from NWSync, and those of the player's `hak` folder it lists
+/// besides; its talk table from NWSync, else the player's. (The game
+/// finds what is in its own folders and the Workshop's itself.)
+pub fn content_of(
+    module: &mg_module::Module,
+    install: &mg_resman::GameInstall,
+    files: &mg_module::nwsync_content::HakFiles,
+) -> Content {
+    let mut content = Content::default();
+    let user_haks = install.user_folder("hak");
+    for hak in module.haks().unwrap_or_default() {
+        let Some(file) = mg_resman::named_file(&hak, "hak") else { continue };
+        if let Some(w) = files.hak(&hak) {
+            content.haks.push((file, w.path.clone()));
+        } else if let Some(found) = install.find_hak(&hak)
+            && user_haks.as_ref().is_some_and(|u| found.starts_with(u))
+        {
+            content.haks.push((file, found));
+        }
+    }
+    if let Some((name, path)) = &files.tlk {
+        content.tlks.push((name.into(), path.clone()));
+    } else if let Some(tlk) = module.custom_tlk().ok().flatten()
+        && let (Some(file), Some(dir)) =
+            (mg_resman::named_file(&tlk, "tlk"), install.user_folder("tlk"))
+        && dir.join(&file).is_file()
+    {
+        content.tlks.push((file.clone(), dir.join(file)));
+    }
+    content
+}
+
+/// Makes `dir` a user directory for the game that is the player's own
+/// (`real`) but for its `hak` and `tlk` folders, which hold `content`:
+/// each thing of the player's folder is linked from it (so the game
+/// reads and writes the player's characters, settings, modules and logs
+/// as on any test), and `hak` and `tlk` are folders of `dir`'s own with
+/// links to the content's files. `nwn.ini` is copied without its `HAK`
+/// and `TLK` aliases (the game would look for haks where they lead).
+/// Nothing of the player's folder is written; links made before are
+/// kept, and what the game made in `dir` stays.
+///
+/// The game can't read NWSync on a module of its own, and Moonglow
+/// never writes into the player's `hak` folder.
+pub fn content_user_dir(real: &Path, dir: &Path, content: &Content) -> Result<(), String> {
+    let err = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+    std::fs::create_dir_all(dir).map_err(|e| err(dir, e))?;
+    let own = |name: &std::ffi::OsStr| {
+        let n = name.to_string_lossy().to_ascii_lowercase();
+        matches!(n.as_str(), "hak" | "tlk" | "nwn.ini")
+    };
+    for entry in std::fs::read_dir(real).map_err(|e| err(real, e))?.flatten() {
+        let name = entry.file_name();
+        let to = dir.join(&name);
+        if own(&name) || is_there(&to) {
+            continue;
+        }
+        let from = entry.path();
+        let made = if from.is_dir() { link_dir(&from, &to) } else { link_file(&from, &to) };
+        made.map_err(|e| err(&to, e))?;
+    }
+    // nwn.ini, without the aliases of the folders that are dir's own.
+    let ini = real.join("nwn.ini");
+    if let Ok(text) = std::fs::read_to_string(&ini) {
+        let mut section = String::new();
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                let t = line.trim();
+                if t.starts_with('[') {
+                    section = t.to_ascii_lowercase();
+                    return true;
+                }
+                let key = t.split('=').next().unwrap_or("").trim().to_ascii_lowercase();
+                !(section == "[alias]" && (key == "hak" || key == "tlk"))
+            })
+            .collect();
+        let to = dir.join("nwn.ini");
+        let _ = std::fs::remove_file(&to);
+        std::fs::write(&to, kept.join("\n") + "\n").map_err(|e| err(&to, e))?;
+    }
+    for (sub, files) in [("hak", &content.haks), ("tlk", &content.tlks)] {
+        let folder = dir.join(sub);
+        // (A link left from before is taken away; a folder is made.)
+        if std::fs::symlink_metadata(&folder).is_ok_and(|m| !m.is_dir()) {
+            std::fs::remove_file(&folder).map_err(|e| err(&folder, e))?;
+        }
+        std::fs::create_dir_all(&folder).map_err(|e| err(&folder, e))?;
+        // (What the last test linked: links and copies of Moonglow's, never
+        // a folder.)
+        for old in std::fs::read_dir(&folder).map_err(|e| err(&folder, e))?.flatten() {
+            if old.file_type().is_ok_and(|t| !t.is_dir()) {
+                let _ = std::fs::remove_file(old.path());
+            }
+        }
+        for (name, from) in files {
+            let to = folder.join(name);
+            link_file(from, &to).map_err(|e| err(&to, e))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The content user directory: the player's folder linked thing by
+    /// thing but for `hak` and `tlk`, which hold the content (and none of
+    /// what was linked there before), `nwn.ini` without its hak and talk
+    /// table aliases; the player's folder unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn a_content_user_directory() {
+        let root = mg_testkit::scratch_dir("ui-content-user-dir");
+        let real = root.join("real");
+        for sub in ["localvault", "modules", "hak", "tlk"] {
+            std::fs::create_dir_all(real.join(sub)).unwrap();
+        }
+        std::fs::write(real.join("localvault/me.bic"), b"me").unwrap();
+        std::fs::write(real.join("hak/old.hak"), b"the player's").unwrap();
+        std::fs::write(real.join("settings.tml"), b"x = 1").unwrap();
+        std::fs::write(
+            real.join("nwn.ini"),
+            "[Alias]\nHAK=/elsewhere/hak\nMODULES=/m\ntlk = /t\n[Game Options]\nHak=keep\n",
+        )
+        .unwrap();
+        let written = root.join("cache");
+        std::fs::create_dir_all(&written).unwrap();
+        std::fs::write(written.join("k1.hak"), b"from nwsync").unwrap();
+        std::fs::write(written.join("t.tlk"), b"tlk").unwrap();
+        let content = Content {
+            haks: vec![("pw_parts.hak".into(), written.join("k1.hak"))],
+            tlks: vec![("world.tlk".into(), written.join("t.tlk"))],
+        };
+        let dir = root.join("test-user");
+        content_user_dir(&real, &dir, &content).unwrap();
+        assert_eq!(std::fs::read(dir.join("localvault/me.bic")).unwrap(), b"me");
+        assert!(std::fs::symlink_metadata(dir.join("modules")).unwrap().is_symlink());
+        assert_eq!(std::fs::read(dir.join("settings.tml")).unwrap(), b"x = 1");
+        assert_eq!(std::fs::read(dir.join("hak/pw_parts.hak")).unwrap(), b"from nwsync");
+        assert!(!dir.join("hak/old.hak").exists());
+        assert_eq!(std::fs::read(dir.join("tlk/world.tlk")).unwrap(), b"tlk");
+        let ini = std::fs::read_to_string(dir.join("nwn.ini")).unwrap();
+        assert_eq!(ini, "[Alias]\nMODULES=/m\n[Game Options]\nHak=keep\n");
+        // (What the game writes goes to the player's folder.)
+        std::fs::write(dir.join("localvault/new.bic"), b"new").unwrap();
+        assert!(real.join("localvault/new.bic").is_file());
+
+        // Again, with other content: the last test's links gone.
+        let content =
+            Content { haks: vec![("other.hak".into(), written.join("k1.hak"))], tlks: vec![] };
+        content_user_dir(&real, &dir, &content).unwrap();
+        assert!(!is_there(&dir.join("hak/pw_parts.hak")));
+        assert!(dir.join("hak/other.hak").is_file());
+        assert!(!is_there(&dir.join("tlk/world.tlk")));
+        // The player's folder as it was, the written files too.
+        assert_eq!(std::fs::read(real.join("hak/old.hak")).unwrap(), b"the player's");
+        assert!(written.join("k1.hak").is_file() && written.join("t.tlk").is_file());
+        let mut names: Vec<_> =
+            std::fs::read_dir(real.join("hak")).unwrap().flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        assert_eq!(names, ["old.hak"]);
+    }
 
     /// A program running is found by its name, with its arguments where
     /// the system tells them, and is said to play the module its

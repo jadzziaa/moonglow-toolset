@@ -44,6 +44,7 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("nui_view/layouts.rs:create#1", &["Create", "Cancel"], None),
     ("nui_view.rs:how_to_open#1", &["Copy", "Close"], None),
     ("nui_view/workflow.rs:create_bind#1", &["Create", "Cancel"], None),
+    ("nwsync_content_view.rs:window#1", &["Sync", "Clean Up Cache…", "Close"], None),
     ("nwsync_view.rs:window#1", &["Publish", "Remove Unused Data", "Upload"], None),
     ("outside.rs:window#1", &["Keep Moonglow's", "Take the Files'", "Later"], None),
     ("palette_categories.rs:window#1", &["OK", "Use the Game's Categories", "Cancel"], None),

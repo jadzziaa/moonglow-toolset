@@ -526,6 +526,108 @@ fn window_bar_maximize_and_an_older_hak() {
     shoot(&mut h, &dir, "window-bar-restore");
 }
 
+/// Build › NWSync Content…: a module folder whose project names an
+/// NWSync server, the game's storage holding its manifest and the first
+/// of its 61 data files: as it opens (`nwsync-content`), during a Sync
+/// through a slow server of the test's (`nwsync-content-syncing`), and
+/// after (`nwsync-content-synced`).
+#[test]
+#[ignore]
+fn nwsync_content_window() {
+    use mg_core::sha1::sha1;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-nwsync-content");
+    let _ = std::fs::remove_dir_all(dir.join("user"));
+    let _ = std::fs::remove_dir_all(dir.join("cache"));
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let data: Vec<Vec<u8>> = (0..61)
+        .map(|i| format!("2DA V2.0\n\n   Label\n0  row{i}\n").repeat(400).into_bytes())
+        .collect();
+    let entries: Vec<_> = data
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let k = mg_resman::ResKey::parse(&format!("mg_t{i}"), ResType::TWODA).unwrap();
+            (k, sha1(d), d.len() as u32)
+        })
+        .collect();
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let url = "https://nwsync.example.org";
+    mg_nwsync::fixtures::write_storage(
+        &user.join("nwsync"),
+        &[mg_nwsync::fixtures::Registered {
+            sha1: sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(sha1(&data[0]), data[0].clone())]],
+    );
+    let folder = dir.join("module");
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let haks: Vec<String> = ["pw_parts", "pw_vfx", "pw_2da"].map(String::from).to_vec();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &haks));
+    m.set_info(&info).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let own = format!("[nwsync]\ncache = '{}'\n", dir.join("cache").display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let hex = mg_nwsync::sha1_hex(&sha1(&manifest));
+    let served = data.clone();
+    app.nwsync_content.fetch = Some(mg_nwsync::fetch::from_fn(move |u: &str| {
+        if u.ends_with("/latest") {
+            return Ok(Some(hex.clone().into_bytes()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        Ok(served
+            .iter()
+            .find(|d| u.ends_with(&mg_nwsync::sha1_hex(&sha1(d))))
+            .map(|d| mg_erf::compressedbuf::compress(d, *b"NSYC").unwrap()))
+    }));
+    app.open_module(&folder);
+    app.palette_dock = false;
+    app.background_jobs = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("NWSync Content…").click();
+    let wait = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..2000 {
+            h.run_steps(1);
+            if !h.state().nwsync_content.running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content");
+    h.get_by_label("Sync").click();
+    h.run_steps(1);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    shoot(&mut h, &dir, "nwsync-content-syncing");
+    wait(&mut h);
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content-synced");
+    eprintln!("{}", dir.join("nwsync-content-synced.png").display());
+}
+
 /// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
 /// the window after publishing (`nwsync-published`), after Remove Unused
 /// Data took a file no manifest names (`nwsync-pruned`), and Upload by a

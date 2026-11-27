@@ -1566,6 +1566,255 @@ fn module_name_in_every_language_and_variables() {
     assert!(info(h.state_mut()).items(&ifo::VAR_TABLE).is_empty());
 }
 
+/// Build › NWSync Content…: a module folder whose project names an NWSync
+/// server, the game's storage holding its manifest and one of its two
+/// data files. Opened, the layer is in the game data (the log says so);
+/// the window says what is here; Sync, through a server of the test's
+/// own, downloads the other into the cache, and it reads.
+#[test]
+fn nwsync_content_from_the_build_menu() {
+    use mg_core::sha1::sha1;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-nwsync-content");
+    let user = user_folder(&dir, &["hak"]);
+    let here = b"2DA V2.0\n\n   Label\n0  here\n".to_vec();
+    let away = b"2DA V2.0\n\n   Label\n0  downloaded\n".to_vec();
+    let (k_here, k_away) = (
+        ResKey::parse("mg_here", ResType::TWODA).unwrap(),
+        ResKey::parse("mg_away", ResType::TWODA).unwrap(),
+    );
+    let entries =
+        [(k_here, sha1(&here), here.len() as u32), (k_away, sha1(&away), away.len() as u32)];
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let url = "https://nwsync.example.org";
+    mg_nwsync::fixtures::write_storage(
+        &user.join("nwsync"),
+        &[mg_nwsync::fixtures::Registered {
+            sha1: sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(sha1(&here), here.clone())]],
+    );
+    let folder = dir.join("module");
+    Module::open(&sample_module(&dir))
+        .unwrap()
+        .save_as(&ModuleLocation::Folder(folder.clone()))
+        .unwrap();
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let cache = dir.join("cache");
+    let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.background_jobs = true;
+    let hex = mg_nwsync::sha1_hex(&sha1(&manifest));
+    let (served, asked) = (away.clone(), std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+    let (latest, log_of) = (hex.clone(), asked.clone());
+    // (The data file is held until the test lets it go: the Sync seen
+    // under way.)
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    let held = std::sync::Mutex::new(held);
+    app.nwsync_content.fetch = Some(mg_nwsync::fetch::from_fn(move |u: &str| {
+        log_of.lock().unwrap().push(u.to_string());
+        let h = mg_nwsync::sha1_hex(&mg_core::sha1::sha1(&served));
+        Ok(if u.ends_with("/latest") {
+            Some(latest.clone().into_bytes())
+        } else if u.ends_with(&h) {
+            let _ = held.lock().unwrap().recv_timeout(std::time::Duration::from_secs(30));
+            Some(mg_erf::compressedbuf::compress(&served, *b"NSYC").unwrap())
+        } else {
+            None
+        })
+    }));
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let log = |h: &Harness<'_, Moonglow>| -> String {
+        h.state().log.entries.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>().join("\n")
+    };
+    assert!(log(&h).contains(&format!("NWSync content: manifest {}", &hex[..8])), "{}", log(&h));
+    let read = |h: &Harness<'_, Moonglow>, k: &ResKey| {
+        h.state().game.as_ref().unwrap().resman.get(k).map(|d| d.into_owned())
+    };
+    assert_eq!(read(&h, &k_here).unwrap(), here);
+    assert!(read(&h, &k_away).is_err());
+    let until_done = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().nwsync_content.running() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed().as_secs() < 30, "it never ended");
+        }
+        h.run_steps(2);
+    };
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("NWSync Content…").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    let s = h.state().nwsync_content.survey.clone().expect("looked");
+    assert_eq!((s.in_game, s.in_cache, s.missing.len()), (1, 0, 1));
+    h.get_by_label_contains("1 data file (");
+    h.get_by_label("Sync").click();
+    h.run_steps(1);
+    // Under way it is no job (the window takes input meanwhile), and the
+    // Status Bar shows it as one: its title and a bar; gone when it ends.
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.get_by_label("Status Bar")
+            .query_by(|n| n.role() == egui::accesskit::Role::ProgressIndicator)
+            .map(|n| n.accesskit_node().label().unwrap_or_default())
+    };
+    let started = std::time::Instant::now();
+    while shown(&h).as_deref() != Some("Sync NWSync Content, under way") {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed().as_secs() < 30, "never shown: {:?}", shown(&h));
+    }
+    assert!(!h.state().busy(), "no job");
+    go.send(()).unwrap();
+    until_done(&mut h);
+    until_done(&mut h);
+    assert_eq!(shown(&h), None, "gone with the Sync");
+    let c = &h.state().nwsync_content;
+    assert_eq!(c.error, None, "{}", log(&h));
+    assert!(c.synced.as_deref().is_some_and(|l| l.starts_with("1 data file of 1 downloaded")));
+    assert!(c.survey.as_ref().is_some_and(|s| s.complete()), "{:?}", c.survey);
+    assert_eq!(read(&h, &k_away).unwrap(), away);
+    assert!(mg_nwsync::Cache::new(&cache).contains(&sha1(&away)));
+    // (The data the game had was asked for not at all.)
+    let asked = asked.lock().unwrap().clone();
+    assert!(!asked.iter().any(|u| u.ends_with(&mg_nwsync::sha1_hex(&sha1(&here)))), "{asked:?}");
+}
+
+/// A module whose hak and talk table come from NWSync, for Test Module:
+/// they are written from the game's storage into Moonglow's cache, as
+/// the server's origins file names them, and the game is given a user
+/// directory of Moonglow's that is the player's but for its `hak` and
+/// `tlk` folders, which hold them; nothing is written into the player's
+/// folder; a second test writes nothing. Then Build › NWSync Content's
+/// Clean Up Cache says what no kept manifest needs, and removes it, the
+/// written hak kept.
+#[test]
+fn nwsync_haks_for_test_module_and_the_cache_cleaned_up() {
+    use mg_core::sha1::sha1;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-nwsync-test-module");
+    let user = user_folder(&dir, &["hak", "tlk", "localvault"]);
+    let table = b"2DA V2.0\n\n   Label\n0  synced\n".to_vec();
+    let mut tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    tlk.entries.push(mg_tlk::TlkEntry::text("From NWSync"));
+    let tlk = tlk.to_bytes().unwrap();
+    let (k_table, k_tlk) = (
+        ResKey::parse("mg_synced", ResType::TWODA).unwrap(),
+        ResKey::parse("mytlk", ResType::TLK).unwrap(),
+    );
+    let entries =
+        [(k_table, sha1(&table), table.len() as u32), (k_tlk, sha1(&tlk), tlk.len() as u32)];
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let url = "https://nwsync.example.org";
+    mg_nwsync::fixtures::write_storage(
+        &user.join("nwsync"),
+        &[mg_nwsync::fixtures::Registered {
+            sha1: sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![
+            (sha1(&table), mg_erf::compressedbuf::compress(&table, *b"NSYC").unwrap()),
+            (sha1(&tlk), tlk.clone()),
+        ]],
+    );
+    let folder = dir.join("module");
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["mg_sync".into()]));
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let cache_dir = dir.join("cache");
+    let own = format!("[nwsync]\ncache = '{}'\n", cache_dir.display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let cache = mg_nwsync::Cache::new(&cache_dir);
+    let origins =
+        "Erf:/srv/hak/mg_sync.hak\n\tmg_synced.2da\nResFile:/srv/tlk/mytlk.tlk\n\tmytlk.tlk\n";
+    cache.put_manifest(&sha1(&manifest), "origin", origins.as_bytes()).unwrap();
+
+    let module = Module::open(&folder).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let test_dir = dir.join("test-user");
+    let o = mg_module::nwsync_content::WriteOptions::default();
+    let said = mg_ui::test_module::with_content(&module, &install, &user, &test_dir, &o).unwrap();
+    assert!(said.starts_with("1 haks from NWSync manifest"), "{said}");
+    assert!(said.contains("the talk table mytlk.tlk") && said.contains("1 written now"), "{said}");
+    let hak = std::fs::read(test_dir.join("hak/mg_sync.hak")).unwrap();
+    let erf = mg_erf::Erf::read(&hak).unwrap();
+    let got = erf.get(&k_table.resref, k_table.restype).unwrap().unwrap();
+    assert_eq!(&*got, &table[..]);
+    assert_eq!(std::fs::read(test_dir.join("tlk/mytlk.tlk")).unwrap(), tlk);
+    assert!(test_dir.join("localvault").is_dir());
+    assert_eq!(std::fs::read_dir(user.join("hak")).unwrap().count(), 0);
+    assert_eq!(std::fs::read_dir(user.join("tlk")).unwrap().count(), 0);
+    let said = mg_ui::test_module::with_content(&module, &install, &user, &test_dir, &o).unwrap();
+    assert!(said.ends_with("all written before"), "{said}");
+
+    // A data file no manifest needs, written two hours ago.
+    let stale = sha1(b"stale");
+    cache.put(&stale, b"stale").unwrap();
+    let two_hours = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    std::fs::File::options()
+        .write(true)
+        .open(cache.data_path(&stale))
+        .unwrap()
+        .set_modified(two_hours)
+        .unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.background_jobs = true;
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let until_done = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().nwsync_content.running() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed().as_secs() < 30, "it never ended");
+        }
+        h.run_steps(2);
+    };
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("NWSync Content…").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    h.get_by_label("Clean Up Cache…").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    let p = h.state().nwsync_content.prune.clone().expect("a dry run");
+    assert_eq!((p.data_files, p.haks, p.dry_run), (1, 0, true));
+    assert!(cache.contains(&stale));
+    h.get_by_label_contains("Clean up would remove");
+    h.get_by_label("Remove").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    let c = &h.state().nwsync_content;
+    assert!(c.prune.is_none() && c.pruned.as_deref().is_some_and(|l| l.starts_with("Removed")));
+    assert!(!cache.contains(&stale));
+    let index = cache.written(&sha1(&manifest));
+    assert_eq!(index.haks.len(), 1);
+    assert!(cache.hak_path(&index.haks[0].1).is_file());
+}
+
 #[test]
 fn published_to_nwsync_from_the_build_menu() {
     let root = mg_testkit::corpus!();

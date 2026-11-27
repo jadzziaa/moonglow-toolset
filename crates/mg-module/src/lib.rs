@@ -38,6 +38,7 @@ pub mod models;
 pub mod nasher;
 pub mod new;
 pub mod nwsync;
+pub mod nwsync_content;
 pub mod outside;
 pub mod palette;
 pub mod palette_add;
@@ -440,16 +441,33 @@ impl Module {
     /// haks (the user's, else the install's), then the module itself.
     /// The haks found nowhere, and what went wrong opening the others, if
     /// anything did: the module is put over what there is either way.
+    /// ([`Module::stack`], which says what became of its NWSync content
+    /// too.)
     pub fn stack_onto(
         &self,
         resman: &mut mg_resman::ResMan,
         install: &mg_resman::GameInstall,
     ) -> (Vec<String>, Option<mg_resman::ResError>) {
+        let s = self.stack(resman, install);
+        (s.missing, s.wrong)
+    }
+
+    /// [`Module::stack_onto`], with the content of the NWSync server the
+    /// project names (`[nwsync] source`) over the haks, as the game has
+    /// it ([`nwsync_content`]): a hak not on disk that it holds is not
+    /// missing.
+    pub fn stack(
+        &self,
+        resman: &mut mg_resman::ResMan,
+        install: &mg_resman::GameInstall,
+    ) -> Stacked {
         let haks = self.haks().unwrap_or_default();
-        let (missing, wrong) = match resman.add_haks(install, &haks) {
+        let (mut missing, wrong) = match resman.add_haks(install, &haks) {
             Ok(missing) => (missing, None),
             Err(e) => (Vec::new(), Some(e)),
         };
+        let nwsync = (self.project_file.nwsync_settings())
+            .map(|s| nwsync_content::mount(resman, install, &s, &mut missing));
         // The walkmesh bake's rows the haks' table lacks yet, drawn as the
         // project's build will add them (`bake::PENDING_LABEL`).
         let rows = self.project_file.baked_rows().ok();
@@ -460,7 +478,7 @@ impl Module {
             mg_resman::LayerClass::Erf,
             self.container(),
         );
-        (missing, wrong)
+        Stacked { missing, wrong, nwsync }
     }
 
     /// A snapshot of the resources as a resman container (cheap: the data
@@ -1225,6 +1243,18 @@ pub fn gff_root(
 pub(crate) fn build_date() -> (u32, u32) {
     let set = std::env::var("SOURCE_DATE_EPOCH").ok().and_then(|s| s.parse::<u64>().ok());
     mg_core::time::year_day(set.unwrap_or_else(mg_core::time::unix_now))
+}
+
+/// What [`Module::stack`] put together, and what it lacks.
+#[derive(Debug)]
+pub struct Stacked {
+    /// The haks the module lists that are found nowhere the game looks
+    /// (and that its NWSync content doesn't hold).
+    pub missing: Vec<String>,
+    /// What went wrong opening a hak that is there.
+    pub wrong: Option<mg_resman::ResError>,
+    /// The NWSync content, where the project names a server.
+    pub nwsync: Option<nwsync_content::Mounted>,
 }
 
 #[cfg(test)]

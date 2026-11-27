@@ -217,6 +217,9 @@ impl Moonglow {
         if self.references.reading() {
             return Some("the references being read");
         }
+        if self.nwsync_content.running() {
+            return Some("NWSync content being looked at or downloaded");
+        }
         if self.updates.checking() {
             return Some("an update check");
         }
@@ -386,9 +389,13 @@ impl Moonglow {
         }
     }
 
-    /// The job under way as the Status Bar shows it.
+    /// The job under way as the Status Bar shows it; while none runs, a
+    /// Sync of NWSync content under way (no job, as it lets the window be
+    /// worked in: [`crate::nwsync_content_view`]).
     pub(crate) fn job_shown(&self) -> Option<JobShown> {
-        let job = self.job.as_ref()?;
+        let Some(job) = self.job.as_ref() else {
+            return self.nwsync_content.shown();
+        };
         let p = &job.progress;
         let (done, total) = (p.done.load(Ordering::Relaxed), p.total.load(Ordering::Relaxed));
         let steps = (total > 0).then_some((done.min(total), total));

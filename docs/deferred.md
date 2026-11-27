@@ -1271,6 +1271,38 @@ File › Project. What is left:
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 
+## NWSync content read
+
+- **Test Module's user folder on Windows without links:** Test Module
+  gives the game a user folder of Moonglow's that links the player's
+  (`test_module::content_user_dir`): symbolic links, else junctions for
+  folders and hard links, else copies, for files. Checked on Linux; on
+  Windows and macOS it waits on a run there with a module of NWSync
+  content. (S, needs a Windows machine and a Mac)
+- **Haks written from NWSync, end to end:** written and read back from
+  made-up storage and manifests in the tests; a whole persistent world's
+  (one of 16.6 GB) waits on a machine that has downloaded it all
+  (`mg nwsync-haks MODULE --out DIR` says what it wrote and how long it
+  took). (S, waits on a machine with the content)
+- **`mg serve` and `development/`:** the server's own folder gets the
+  module's haks and talk table, not the player's `development` folder, so
+  work in progress there is in Test Module's game but not in `mg serve`'s
+  server. (S, a decision)
+- **A builder's own haks under the manifest:** a hak on disk sits under
+  the NWSync layer (31 < 40), as in the game, so a work-in-progress hak
+  that replaces a resource of the manifest is shadowed; `development/`
+  is above it. Whether a local hak should win while editing is the
+  team's decision. (S, a decision)
+- **Checked against a real game's NWSync storage:** the reader follows
+  the client's schema (`fixtures`), and was checked against a made-up
+  storage alone; a run of `mg nwsync-status` on a machine whose game
+  has joined the server waits on one. (S, waits on a machine with the
+  game's storage)
+- **Opening reads the manifest whole:** a manifest of 220,000 resources
+  is read (9 MB) and its names put in a table each time the game data is
+  put together; the game's storage's hashes are read by the window's
+  look and `mg`, not at opening. (S, if opening is found slow)
+
 ## Questions asked, unanswered
 
 Each waits on its reporter: with no word by 2026-11-12 (a month from
