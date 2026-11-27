@@ -3,8 +3,8 @@ type: Proposal
 title: 'Animated objects in the area scene: a proposal'
 description: How mg-area's AreaScene could play each object's own animation for a game client (Moonglow Client's request) - the cut between crates (a GPU-free player and the visual effects' rows in mg-preview, a per-object pose with transitions on Composed, the run-time state held by the caller beside the scene and keyed by a key of the caller's), one section for each of the eight capabilities asked with its API sketch and cost, how the run-time state relates to the saved AnimationState, the viewer's part, the migration of today's idle animation, the tests and client comparisons, risks, open questions and milestones after 5.5.0.
 tags: [proposal, animation, mg-area, mg-preview, mg-render, moonglow-client, moonglow-viewer, visual-effects]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:45:36Z }
+status: stable
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:17:10Z }
 sources:
   - id: request
     resource: '~/Projects/moonglow-client, branch main at b6d7bbb: docs/research/stage-for-a-client.md, the section "Draft request for Moonglow Toolset" (a draft Finding, read at the client''s pin v5.4.0)'
@@ -58,6 +58,11 @@ mg-preview and mg-render's `anim.rs` did not change
 (`git diff --stat v5.4.0 321a1ef2`).
 
 ## Summary: the cut
+
+**Accepted by the owner, 2026-11-27, not yet built** (the build comes
+after 5.5.0). The owner's rulings: the viewer poses previews through
+`Composed` (question 1), and the player and effects live in mg-preview
+(question 2).
 
 - **The player** (what plays, in which mode, time, speed, queue, the
   one-shot's end and the model's events) is GPU-free plain state in
@@ -519,7 +524,7 @@ its step in `lib.rs` (`Stage::step`), and its effects in `vfx.rs` and
 - its texture fallbacks, if `Composed` does not already do the same
   (*not compared*).
 
-**The ruling the owner needs (open question 1).** Posing is the part that
+**The owner's ruling (question 1, 2026-11-27): through `Composed`.** Posing is the part that
 is not neutral. The viewer poses one `Actor` per model, and a part
 without the animation falls back to `creadyl`, `cpause1`, `pause1`. The
 toolset's `Composed` follows the client-read rule instead: a part without
@@ -531,7 +536,9 @@ Two options:
 - it keeps its actors and shares only `play` and `vfx`.
 
 The first gives one look everywhere. The second keeps the viewer's
-per-part inspection.
+per-part inspection. The owner chose the first: the viewer draws previews
+through `Composed` and a playback, and keeps its own actors only for a
+single model opened alone.
 
 ## Migration of today's idle animation
 
@@ -602,11 +609,11 @@ Nothing is removed, and nothing depends on the `edit` feature.
 
 ## Open questions needing a ruling
 
-1. **The viewer's posing:** Composed and playback (one rule, the
-   client's), or its own actors on the shared player? (See
+1. **The viewer's posing:** settled by the owner, through `Composed` and
+   a playback (one rule, the client's). (See
    [The viewer's part](#the-viewers-part).)
-2. **Where `play` and `vfx` live:** in mg-preview as proposed, or in a
-   new `mg-stage` crate (a wider `Composed` API)?
+2. **Where `play` and `vfx` live:** settled by the owner, in mg-preview
+   as proposed, not a new `mg-stage` crate.
 3. **Each creature's idle phase:** do idles start at each object's own
    time, as a client with `Live` can give them, or does the client keep
    all creatures in step as the editor does? Moonglow Client will read
