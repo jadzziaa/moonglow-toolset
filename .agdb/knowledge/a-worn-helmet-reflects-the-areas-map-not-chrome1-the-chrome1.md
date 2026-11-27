@@ -22,6 +22,6 @@ author: augustaugur
 ## Tried and ruled out
 - The deferred entry's guess (chrome1 reflected differently by a wholly reflecting surface): boxes with chrome1 match.
 ## Watch out
-- Dark lighting (ambient 0x080808, no diffuse): client boxes 4 to 8 times brighter than Moonglow (cause not found; frontLightModelProductSceneColor and lightAreaAmbient equal). Placeable TXI envmaptexture named map is ignored by the client where Reflection is default; Moonglow takes it.
+- Dark lighting (ambient 0x080808, no diffuse): client boxes 4 to 8 times brighter than Moonglow: the player's own Low_Light_Vision light (found 2026-11-26, note a-dark-scenes-extra-light-in-the-client-is-the-players-own-v); the helmet reading's invisible player carries none, so its dark tops agreed. Placeable TXI envmaptexture named map is ignored by the client where Reflection is default; Moonglow takes it.
 - Face windows from Moonglow's camera only work for the fitted cameras (entry, 12/45 turned); the part textures' 5 m level camera is unfitted and put the windows off the helmet in the client.
 - The display lock: other sessions restart the headless display; hold the lock around the whole batch (tools/locks.sh hold display -- ...) and start the display inside it.

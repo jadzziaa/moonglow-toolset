@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -493,19 +493,6 @@ Nothing open.
   November 2026, A14)
 
 ## Rendering: creatures, particles, water and shaders
-
-- **A scene with little light draws the client's boxes 4 to 8 times
-  brighter than Moonglow's:** read with `chrome1_reflection_look`'s dark
-  light (ambient `0x080808`, no diffuse): the client's boxes of
-  `chrome1` stay several times brighter than Moonglow's, in the
-  placeables' boxes and the worn helmet's alike; the light uniforms the
-  two read (`frontLightModelProductSceneColor`, `lightAreaAmbient`) are
-  equal, so the cause is not found. Under the sun, and with none, the
-  two agree within a few of 255. Deferred as beyond what was asked (the
-  helmet fix of 2026-11-25 was the reflection's map; this is the dark
-  scene's whole brightness, and wants a reading of its own: which term
-  the client adds that Moonglow lacks). M. (the chrome1 reading,
-  2026-11-25)
 
 - **Soft see-through texels: three ways the client's differ, left**
   (`soft::reading_soft_depth`, 2026-11-26; since that day a

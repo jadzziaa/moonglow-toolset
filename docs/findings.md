@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1549,6 +1549,54 @@ Shaders switch changes nothing.
   `crates/mg-render/src/renderer.rs`
   (`a_texture_s_default_map_is_the_area_s_unless_the_object_names_one`).
 - **Wiki:** missing.
+
+### The player's own light in a dim area
+
+In a dim area the client lights the scene about the player with one
+more light, the player's own: for an elf, `fx_light_clr`'s
+`Low_Light_Vision` (progfx.2da row 330), an ambient-only light (no N·L)
+of color 0.3 0.3 0.4 and radius 11, uploaded as `lightColor` lin(0.3
+0.3 0.4) = 0.0697 0.0697 0.133 with `.a` −484 (22 m squared, the
+cutoff multiplier 2 at work). It hangs 0.64 m ahead of the player along
+its facing and 2.65 m up, and turns with it. It is there while the
+area's ambient and diffuse gray levels add up to less than 128, and out
+from 128 (ambient 0x7C alone lit, 0x80 alone not; 0x60 with diffuse
+0x1C lit, with 0x20 not; 0x08 with 0x74 lit, with 0x78 not; read with
+gray light only); an
+invisible player (`VFX_DUR_CUTSCENE_INVISIBILITY`) carries none. In a
+dark area (ambient 0x080808, no diffuse) it is nearly all the light
+there is: a box that reflects wholly drew its top 23.7 25.9 37.2 in the
+client against 4.0 4.0 4.4 in Moonglow's area view, which places no
+player, and the floor about the player 17 against 4. With the vision
+light made black in the client's override the client drew that top 4.0
+4.0 4.3, Moonglow's own; with the same light given to Moonglow's scene,
+Moonglow drew it 23.4 25.5 36.6, with the Shaders switch on and off
+alike. So the renderer lights as the client does, and nothing else
+(the scene color floor, the area's ambient, fog, the tonemap, the
+material's emissive) differs; the whole-picture difference fell from
+5.7 to 1.3 of 255 from the client's camera, from 9.3 to 2.1 looking
+west. Under the sun the light is out and nothing changes; in the
+readings' sunless light (ambient 0x606060) it is on and accounts for
+the last few levels (a top 45.8 to 50.1 against the client's 50.2).
+
+- **Checked:** `chrome_reflection.rs` (2026-11-26, 89.8193.37):
+  `MG_CHROME_PAINT=lights` (`numLights` 1 in the client, 0 in Moonglow,
+  at every ambient from 0 to 0x7C), `light0`, `light0a`, `light0world`
+  (the place, the player turned with `SetFacing`), `falloff`, and
+  `MG_CHROME_AMBIENT` for the rule; the prediction run with
+  `MG_CHROME_PLAYER_LIGHT=off`. Held by
+  `the_player_s_light_lights_a_dark_scene` (client, ignored) and
+  `an_ambient_only_light_lights_a_reflecting_mesh_from_either_side`
+  (render).
+- **Moonglow:** the area view places no player and draws no player's
+  light (the editor has no player); the readings give Moonglow's side
+  the light where the client's player is seen
+  (`client_render/readings.rs`, `player_light`).
+- **Wiki:** [Area Lighting](https://nwn.wiki/spaces/NWN1/pages/38174907/Area+Lighting)
+  says the player always carries a light (darkvision, low-light or a
+  default) and [progfx.2da](https://nwn.wiki/spaces/NWN1/pages/38175071/progfx.2da)
+  names its rows; neither gives its place, that it is ambient only, or
+  that a bright area puts it out.
 
 ### The game's shaders and Moonglow's own in stock interiors
 

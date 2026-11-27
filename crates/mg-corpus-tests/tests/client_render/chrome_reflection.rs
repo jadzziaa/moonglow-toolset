@@ -38,16 +38,25 @@
 //! area's, on a held shield (`MG_CHROME_HELD=shield`) and a held long
 //! sword (`weapon`) too, as it now does in Moonglow (`default` in
 //! `creature.rs` and `item.rs`; after the fix the gradient reading agrees
-//! on the sides to 1 or 2 of 255). (Besides: in the dark, ambient 0x080808, the client's boxes
-//! are 4 to 8 times brighter than Moonglow's, 23.7 against 4.0 on a top;
-//! `frontLightModelProductSceneColor` and `lightAreaAmbient` are the same
-//! in both, so what lights them there is not told; smoothed normals of
+//! on the sides to 1 or 2 of 255). (Besides: smoothed normals of
 //! shared corners differ a little, 22 against 35 in the red of one
 //! top's normal; and a placeable's own TXI `envmaptexture mgenv` is
 //! ignored by the client where its `Reflection` is `default`, which
 //! Moonglow now does too.)
 //!
-//! [`VIEWS`] and [`LIGHTS`] are the cameras and lights; `MG_CHROME_VIEWS`
+//! In the dark (ambient 0x080808) the client's boxes were 4 to 8 times
+//! brighter than Moonglow's (23.7 against 4.0 on a top): the player's own
+//! light, `Low_Light_Vision`, ambient only, which the client gives the
+//! player in a dim area and Moonglow's area view, placing no player, has
+//! not (read 2026-11-26 with the `lights`, `light0`, `light0a` and
+//! `light0world` paints: one light in the client, none in Moonglow;
+//! [`super::readings::player_light`]). Moonglow's side of these readings
+//! is now given the same light (`MG_CHROME_PLAYER_LIGHT`), and the tops
+//! agree (23.4 against 23.7); [`the_player_s_light_lights_a_dark_scene`]
+//! holds it. The helmet's reading makes the player invisible, which puts
+//! the light out: its dark tops agreed all along.
+//!
+//! [`VIEWS`] and [`lights`] are the cameras and lights; `MG_CHROME_VIEWS`
 //! and `MG_CHROME_LIGHTS` (comma-separated names) take some. Each face's
 //! mean color (an inset window of it) in the client's picture and in
 //! Moonglow's two is printed, and written to `chrome_<variant>.txt` beside
@@ -73,7 +82,21 @@
 //! with: `uv` (the map's coordinates), `normal` (the view-space normal,
 //! halved and raised), `flags` (`envMapCube`, `texEnvBound`,
 //! `texEnvCubeBound`), `raw` (the map sampled at those coordinates, no bias)
-//! or `biased` (the same, at a bias of 4).
+//! or `biased` (the same, at a bias of 4); and every lit fragment, reflecting
+//! or not, with: `lights` (`numLights` an eighth each in red, the
+//! material's emissive and the area's diffuse at their fourth roots),
+//! `light0` (the first light's color, fourth root), `light0a` (its
+//! `lightColor.a`: a thousandth in red, ambient only in green, a tenth's
+//! fraction in blue), `light0at` (its view-space place), `light0world`
+//! (its world place: x and y's fractions, a quarter of z), `falloff`
+//! (`lightMaxIntensityInv`, `lightFalloffFactor` / 200), `material` and
+//! `matdiffuse`.
+//!
+//! `MG_CHROME_PLAYER_LIGHT` says whose the player's own light is (`both`,
+//! the default; `client`, as before 2026-11-26; `off`: the client's made
+//! black); `MG_CHROME_AMBIENT` takes lights of gray levels instead of
+//! [`lights`]'s three (`08,60/40`); `MG_CHROME_BODY` is run in the entry
+//! script (`pc` in scope).
 
 use super::readings::{Reading, enter, logged, print_log};
 use super::*;
@@ -95,16 +118,33 @@ const VIEWS: [View; 3] = [
 
 /// A light: its name, the area's ambient and diffuse colors.
 struct Light {
-    name: &'static str,
+    name: String,
     ambient: u32,
     diffuse: u32,
 }
 
-const LIGHTS: [Light; 3] = [
-    Light { name: "sun", ambient: 0x606060, diffuse: 0xFFFFFF },
-    Light { name: "nosun", ambient: 0x606060, diffuse: 0x000000 },
-    Light { name: "dark", ambient: 0x080808, diffuse: 0x000000 },
-];
+/// The lights: sun, nosun and dark, or with `MG_CHROME_AMBIENT` (gray
+/// levels in hex, comma-separated, each the ambient or `ambient/diffuse`)
+/// those (`a20`: ambient 0x202020, no diffuse; `a08d40`: ambient 0x080808,
+/// diffuse 0x404040).
+fn lights() -> Vec<Light> {
+    if let Ok(levels) = std::env::var("MG_CHROME_AMBIENT") {
+        let gray =
+            |l: &str| u32::from_str_radix(l, 16).expect("MG_CHROME_AMBIENT: hex levels") * 0x010101;
+        return levels
+            .split(',')
+            .map(|l| match l.split_once('/') {
+                Some((a, d)) => {
+                    Light { name: format!("a{a}d{d}"), ambient: gray(a), diffuse: gray(d) }
+                }
+                None => Light { name: format!("a{l}"), ambient: gray(l), diffuse: 0 },
+            })
+            .collect();
+    }
+    [("sun", 0x606060, 0xFFFFFF), ("nosun", 0x606060, 0), ("dark", 0x080808, 0)]
+        .map(|(name, ambient, diffuse)| Light { name: name.into(), ambient, diffuse })
+        .into()
+}
 
 /// A box: its placeable's row, whether its corners are shared, the turn
 /// (degrees) and where it stands (metres right of the player's line).
@@ -230,19 +270,90 @@ fn painting(game: &GameData, what: &str) -> String {
         "biased" => format!("vec4(texture2D(texUnitEnv, {at}, 4.0).rgb, 1.0)"),
         "scenecolor" => "vec4(frontLightModelProductSceneColor.rgb, 1.0)".to_string(),
         "ambient" => "vec4(lightAreaAmbient, 1.0)".to_string(),
-        other => {
-            panic!("MG_CHROME_PAINT {other}: uv, normal, flags, raw, biased, scenecolor or ambient")
-        }
+        // (The rest paint every lit fragment, reflecting or not, each small
+        // term raised to the fourth root so that a dark scene's show.)
+        "lights" => "vec4(float(numLights) / 8.0, \
+                     sqrt(sqrt(max(materialFrontEmissive.r, max(materialFrontEmissive.g, \
+                     materialFrontEmissive.b)))), sqrt(sqrt(max(lightAreaDiffuse.r, \
+                     max(lightAreaDiffuse.g, lightAreaDiffuse.b)))), 1.0)"
+            .to_string(),
+        "light0" => "(numLights > 0 ? vec4(sqrt(sqrt(abs(MG_LIGHT0.rgb))), 1.0) \
+                     : vec4(1.0, 0.0, 1.0, 1.0))"
+            .to_string(),
+        "light0at" => "(numLights > 0 ? vec4(clamp(lightPosition[0].xyz / 40.0 + 0.5, 0.0, 1.0), \
+                       1.0) : vec4(1.0, 0.0, 1.0, 1.0))"
+            .to_string(),
+        "light0a" => "(numLights > 0 ? vec4(clamp(abs(MG_LIGHT0.a) / 1000.0, 0.0, 1.0), \
+                      MG_LIGHT0.a < 0.0 ? 1.0 : 0.0, fract(abs(MG_LIGHT0.a) / 10.0), 1.0) \
+                      : vec4(1.0, 0.0, 1.0, 1.0))"
+            .to_string(),
+        "light0world" => "(numLights > 0 ? vec4(fract((m_view_inv * vec4(lightPosition[0].xyz, \
+                          1.0)).xy), (m_view_inv * vec4(lightPosition[0].xyz, 1.0)).z / 4.0, 1.0) \
+                          : vec4(1.0, 0.0, 1.0, 1.0))"
+            .to_string(),
+        "falloff" => "vec4(lightMaxIntensityInv, lightFalloffFactor / 200.0, 0.0, 1.0)".to_string(),
+        "material" => "vec4(sqrt(sqrt(materialFrontAmbient.rgb)), 1.0)".to_string(),
+        "matdiffuse" => "vec4(sqrt(sqrt(materialFrontDiffuse.rgb)), 1.0)".to_string(),
+        other => panic!(
+            "MG_CHROME_PAINT {other}: uv, normal, flags, raw, biased, scenecolor, ambient, \
+             lights, light0, light0at, light0world, light0a, falloff, material or matdiffuse"
+        ),
+    };
+    let every_lit = [
+        "lights",
+        "light0",
+        "light0at",
+        "light0world",
+        "light0a",
+        "falloff",
+        "material",
+        "matdiffuse",
+    ];
+    let guard = if every_lit.contains(&what) {
+        "SHADER_TYPE == 2 && LIGHTING == 1"
+    } else {
+        "SHADER_TYPE == 2 && ENVIRONMENT_MAP == 1 && LIGHTING == 1"
     };
     let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
     String::from_utf8_lossy(&src).replace("\r\n", "\n").replace(
         "\tApplyDebugModeOutput(FragmentColor);\n}",
         &format!(
             "\tApplyDebugModeOutput(FragmentColor);\n\
-             #if SHADER_TYPE == 2 && ENVIRONMENT_MAP == 1 && LIGHTING == 1\n\
+             #if {guard}\n\
+             #if GAMMA_CORRECTION == 1\n#define MG_LIGHT0 lightColor[0]\n\
+             #else\n#define MG_LIGHT0 lightDiffuse[0]\n#endif\n\
              \tFragmentColor = {paint};\n#endif\n}}"
         ),
     )
+}
+
+/// `fx_light_clr` with its vision lights (the player's own light:
+/// `Low_Light_Vision`, `Dark_Vision`, `Blind_Vision`, `Ultra_Vision`)
+/// black, as ASCII for the scratch override.
+fn unlit_vision(game: &GameData) -> String {
+    let data = game.resman.get_named("fx_light_clr", ResType::MDL).unwrap();
+    let model = Model::read(&data).unwrap();
+    let text = mg_mdl::ascii_write::to_ascii(&model, &Default::default());
+    let mut out = String::new();
+    let mut vision = false;
+    let mut key = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with("newanim ") {
+            vision = t.contains("_Vision");
+        }
+        if key && vision {
+            // (A colorkey's one key: its time, then the color.)
+            let time = t.split_whitespace().next().unwrap_or("0");
+            out += &format!("    {time} 0 0 0\n");
+            key = false;
+            continue;
+        }
+        key = t.starts_with("colorkey");
+        out += line;
+        out.push('\n');
+    }
+    out
 }
 
 /// One visible face of box `b` for a camera looking along `f` (a unit
@@ -309,6 +420,135 @@ fn variant_files(variant: &str) -> Vec<(String, Vec<u8>)> {
     files
 }
 
+/// Whose is the player's own light (`MG_CHROME_PLAYER_LIGHT`): the
+/// player of the readings carries one in a dim area
+/// ([`super::readings::player_light`]), which Moonglow's area view,
+/// placing no player, has nothing of.
+#[derive(Clone, Copy, PartialEq)]
+enum PlayerLight {
+    /// The client's, and Moonglow's scene given the same (the default):
+    /// like is compared with like.
+    Both,
+    /// The client's alone (`client`): as the readings compared before
+    /// 2026-11-26.
+    Client,
+    /// Neither's (`off`): the client's vision lights made black in the
+    /// override ([`unlit_vision`]).
+    Off,
+}
+
+impl PlayerLight {
+    fn from_env() -> PlayerLight {
+        match std::env::var("MG_CHROME_PLAYER_LIGHT").as_deref() {
+            Err(_) | Ok("both") => PlayerLight::Both,
+            Ok("client") => PlayerLight::Client,
+            Ok("off") => PlayerLight::Off,
+            Ok(other) => panic!("MG_CHROME_PLAYER_LIGHT {other}: both, client or off"),
+        }
+    }
+}
+
+/// The boxes' override files: the variant's, the boxes' models and the
+/// paint's `inc_standard` (`second`: what the second pair of boxes is,
+/// `shared` or `double`).
+fn boxes_files(
+    base: &GameData,
+    variant: &str,
+    second: &str,
+    paint: Option<&str>,
+    player: PlayerLight,
+) -> Vec<(String, Vec<u8>)> {
+    let table = base.table("placeables").unwrap();
+    let model_of = |row: u32| table.get(row as usize, "ModelName").unwrap().to_ascii_lowercase();
+    let mut files = variant_files(variant);
+    for (row, shared) in [(428, false), (447, true)] {
+        let model = model_of(row);
+        files.push((
+            format!("{model}.mdl"),
+            box_model(&model, "mgbox", shared, shared && second == "double", 1.0).into_bytes(),
+        ));
+    }
+    if let Some(what) = paint {
+        files.push(("inc_standard.shd".into(), painting(base, what).into_bytes()));
+    }
+    if player == PlayerLight::Off {
+        files.push(("fx_light_clr.mdl".into(), unlit_vision(base).into_bytes()));
+    }
+    files
+}
+
+/// One run of the boxes: the client's picture and Moonglow's two (Shaders
+/// off and on), and each visible face's window, labeled.
+struct BoxesRun {
+    client: Rgba,
+    off: Rgba,
+    on: Rgba,
+    faces: Vec<(String, [f32; 4])>,
+}
+
+impl BoxesRun {
+    /// The mean colors of the face labeled `label` in the three pictures.
+    fn means(&self, label: &str) -> [[f32; 3]; 3] {
+        let rect = self.faces.iter().find(|(l, _)| l == label).expect(label).1;
+        [&self.client, &self.off, &self.on].map(|img| mean(img, rect))
+    }
+}
+
+/// The boxes seen from `view` in `light`, the override's `files`, the
+/// entry script's `body` run as the player enters (its facing left at 90).
+fn boxes_run(
+    gpu: &Gpu,
+    files: &[(String, Vec<u8>)],
+    name: &str,
+    view: &View,
+    light: &Light,
+    player: PlayerLight,
+    body: &str,
+) -> BoxesRun {
+    let lighting =
+        Lighting { ambient: light.ambient, diffuse: light.diffuse, main_light: 0, only_tile: None };
+    let refs: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let mut r = Reading::new(name, "tic01", lighting, &refs);
+    let (facing, ..) = view.script;
+    let rad = facing.to_radians();
+    let f = Vec3::new(rad.cos(), rad.sin(), 0.0);
+    let right = Vec3::new(rad.sin(), -rad.cos(), 0.0);
+    let player_at = Vec3::new(20.0, 20.0, 0.0);
+    for b in &BOXES {
+        let at = player_at + f * FORWARD + right * b.lateral;
+        r.place(b.row, [at.x, at.y, 0.0], b.turn, &[("Static", Value::Byte(0))]);
+    }
+    let install = GameInstall::new(mg_testkit::nwn_root().unwrap(), Some(r.dir.join("user")), "en");
+    let game = GameData::open(&install).unwrap();
+    let (are, git) = (r.are.clone(), r.git.clone());
+    let (dir, client) = r.shoot(&enter(&logged(body), view.script), SETTINGS);
+    print_log(&dir);
+    let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
+    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+    let area_scene = mg_area::AreaScene::new(gpu, &game, &model);
+    let pc = player_stood(&dir, &game, &model, glam::Vec2::new(20.0, 20.0));
+    let camera = if view.fitted {
+        scripted_camera(pc, facing)
+    } else {
+        let (_, d, p) = view.script;
+        Camera::game(pc, facing, d * 0.92, p - 1.0, FIT_FOCUS, FIT_FOV)
+    };
+    let mut scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    if player == PlayerLight::Both {
+        scene.lights.extend(super::readings::player_light(pc, 90.0, &lighting));
+    }
+    let size = (client.width, client.height);
+    let (off, on) = off_and_on(gpu, &game, &scene, &camera, size, Some(&client), &dir, "moonglow");
+    let mut windows = Vec::new();
+    for (i, b) in BOXES.iter().enumerate() {
+        for (face, corners) in faces(b, pc, f, right) {
+            windows.push((format!("box{i} {face}"), window_rect(&camera, size, corners)));
+        }
+    }
+    BoxesRun { client, off, on, faces: windows }
+}
+
 #[test]
 #[ignore]
 fn chrome1_reflection_look() {
@@ -324,90 +564,113 @@ fn chrome1_reflection_look() {
     };
     let variant = std::env::var("MG_CHROME_VARIANT").unwrap_or_else(|_| "chrome1".into());
     let paint = std::env::var("MG_CHROME_PAINT").ok();
-    let tag = match &paint {
+    let player = PlayerLight::from_env();
+    let mut tag = match &paint {
         Some(p) => format!("{variant}_{p}"),
         None => variant.clone(),
     };
+    match player {
+        PlayerLight::Both => {}
+        PlayerLight::Client => tag += "_plclient",
+        PlayerLight::Off => tag += "_ploff",
+    }
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
-    let table = base.table("placeables").unwrap();
-    let model_of = |row: u32| table.get(row as usize, "ModelName").unwrap().to_ascii_lowercase();
-    let mut files = variant_files(&variant);
     let second = std::env::var("MG_CHROME_SHARED").unwrap_or_else(|_| "shared".into());
-    for (row, shared) in [(428, false), (447, true)] {
-        let model = model_of(row);
-        files.push((
-            format!("{model}.mdl"),
-            box_model(&model, "mgbox", shared, shared && second == "double", 1.0).into_bytes(),
-        ));
-    }
-    if let Some(what) = &paint {
-        files.push(("inc_standard.shd".into(), painting(&base, what).into_bytes()));
-    }
-    let refs: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let files = boxes_files(&base, &variant, &second, paint.as_deref(), player);
+    let body = std::env::var("MG_CHROME_BODY").unwrap_or_default();
     let mut report = String::new();
     for view in VIEWS.iter().filter(|v| wanted("MG_CHROME_VIEWS", v.name)) {
-        for light in LIGHTS.iter().filter(|l| wanted("MG_CHROME_LIGHTS", l.name)) {
-            let lighting = Lighting {
-                ambient: light.ambient,
-                diffuse: light.diffuse,
-                main_light: 0,
-                only_tile: None,
-            };
+        for light in lights().iter().filter(|l| wanted("MG_CHROME_LIGHTS", &l.name)) {
             let name = format!("chrome_{tag}_{}_{}", view.name, light.name);
-            let mut r = Reading::new(&name, "tic01", lighting, &refs);
-            let (facing, ..) = view.script;
-            let rad = facing.to_radians();
-            let f = Vec3::new(rad.cos(), rad.sin(), 0.0);
-            let right = Vec3::new(rad.sin(), -rad.cos(), 0.0);
-            let player = Vec3::new(20.0, 20.0, 0.0);
-            for b in &BOXES {
-                let at = player + f * FORWARD + right * b.lateral;
-                r.place(b.row, [at.x, at.y, 0.0], b.turn, &[("Static", Value::Byte(0))]);
-            }
-            let install =
-                GameInstall::new(mg_testkit::nwn_root().unwrap(), Some(r.dir.join("user")), "en");
-            let game = GameData::open(&install).unwrap();
-            let (are, git) = (r.are.clone(), r.git.clone());
-            let (dir, client) = r.shoot(&enter(&logged(""), view.script), SETTINGS);
-            print_log(&dir);
-            let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
-            let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
-            let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
-            let pc = player_stood(&dir, &game, &model, glam::Vec2::new(20.0, 20.0));
-            let camera = if view.fitted {
-                scripted_camera(pc, facing)
-            } else {
-                let (_, d, p) = view.script;
-                Camera::game(pc, facing, d * 0.92, p - 1.0, FIT_FOCUS, FIT_FOV)
-            };
-            let scene = area_scene
-                .scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
-            let size = (client.width, client.height);
-            let (off, on) =
-                off_and_on(&gpu, &game, &scene, &camera, size, Some(&client), &dir, "moonglow");
-            for (i, b) in BOXES.iter().enumerate() {
-                for (face, corners) in faces(b, pc, f, right) {
-                    let rect = window_rect(&camera, size, corners);
-                    let mut line = format!(
-                        "{} {} box{i}({} {:.0}) {face:6}",
-                        view.name,
-                        light.name,
-                        if !b.shared { "flat" } else { second.as_str() },
-                        b.turn
-                    );
-                    for (who, img) in [("client", &client), ("off", &off), ("on", &on)] {
-                        let m = mean(img, rect);
-                        line += &format!(" | {who} ({:5.1} {:5.1} {:5.1})", m[0], m[1], m[2]);
-                    }
-                    eprintln!("{line}");
-                    report += &(line + "\n");
+            let run = boxes_run(&gpu, &files, &name, view, light, player, &body);
+            for (label, _) in &run.faces {
+                let (i, face) = label.split_once(' ').unwrap();
+                let b = &BOXES[i[3..].parse::<usize>().unwrap()];
+                let kind = if !b.shared { "flat" } else { second.as_str() };
+                let mut line =
+                    format!("{} {} {i}({kind} {:.0}) {face:6}", view.name, light.name, b.turn);
+                for (who, m) in ["client", "off", "on"].iter().zip(run.means(label)) {
+                    line += &format!(" | {who} ({:5.1} {:5.1} {:5.1})", m[0], m[1], m[2]);
                 }
+                eprintln!("{line}");
+                report += &(line + "\n");
             }
         }
     }
     let out = mg_testkit::test_output().join(format!("chrome_{tag}.txt"));
     std::fs::write(&out, report).unwrap();
     eprintln!("the numbers: {}", out.display());
+}
+
+/// The player's own light in a dark scene (the deferred entry "A scene
+/// with little light draws the client's boxes 4 to 8 times brighter than
+/// Moonglow's"): the boxes in the dark (ambient 0x080808, no diffuse)
+/// from the client's own camera. The client lights them with the player's
+/// `Low_Light_Vision` light ([`super::readings::player_light`]), which is
+/// all the difference: with it made black in the client
+/// (`PlayerLight::Off`) the client's flat box top is Moonglow's without
+/// it, and with it given to Moonglow's scene too, Moonglow's is the
+/// client's, Shaders off and on. Seen (2026-11-26, 89.8193.37): the flat
+/// box's top, client 23.7 25.9 37.2 against Moonglow 4.0 4.0 4.4 without
+/// the light (the entry's 4 to 8 times) and 23.4 25.5 36.6 with it; the
+/// client 4.0 4.0 4.3 with its light black. And the light is out at the
+/// edge of the rule: ambient 0x80 with no diffuse, where 0x7C has it.
+#[test]
+#[ignore]
+fn the_player_s_light_lights_a_dark_scene() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    crate::common::gpu_after_display();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let entry = &VIEWS[0];
+    let gray = |name: &str, a: u32, d: u32| Light {
+        name: name.into(),
+        ambient: a * 0x010101,
+        diffuse: d * 0x010101,
+    };
+    let dark = gray("dark", 0x08, 0);
+    // (The flat box turned 45 degrees: its top faces the camera.)
+    let top = "box1 top";
+    let near = |a: [f32; 3], b: [f32; 3], within: f32| {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() <= within)
+    };
+    for player in [PlayerLight::Both, PlayerLight::Off] {
+        let files = boxes_files(&base, "chrome1", "shared", None, player);
+        let tag = if player == PlayerLight::Both { "both" } else { "off" };
+        let run = boxes_run(&gpu, &files, &format!("player_light_{tag}"), entry, &dark, player, "");
+        let [client, off, on] = run.means(top);
+        eprintln!("{tag}: the top client {client:?}, Moonglow off {off:?}, on {on:?}");
+        assert!(near(off, on, 1.0), "Shaders off and on: {off:?} {on:?}");
+        assert!(near(client, off, 2.5), "{tag}: client {client:?}, Moonglow {off:?}");
+        if player == PlayerLight::Both {
+            assert!(client[2] > 25.0, "lit by the player's light: {client:?}");
+        } else {
+            assert!(client[2] < 8.0, "without it: {client:?}");
+        }
+    }
+    // The rule: the light is out where the area's levels add up to 128.
+    let files = boxes_files(&base, "chrome1", "shared", Some("lights"), PlayerLight::Both);
+    for (light, lit) in [(gray("a7c", 0x7C, 0), true), (gray("a80", 0x80, 0), false)] {
+        let lighting = Lighting {
+            ambient: light.ambient,
+            diffuse: light.diffuse,
+            main_light: 0,
+            only_tile: None,
+        };
+        let name = format!("player_light_rule_{}", light.name);
+        let run = boxes_run(&gpu, &files, &name, entry, &light, PlayerLight::Both, "");
+        // (`lights` paints the count of lights in red, an eighth each.)
+        let [client, _, on] = run.means(top);
+        eprintln!("{}: numLights painted, client {client:?}, Moonglow on {on:?}", light.name);
+        assert_eq!(client[0] > 16.0, lit, "the client's light at {}: {client:?}", light.name);
+        let ours = super::readings::player_light(Vec3::ZERO, 90.0, &lighting).is_some();
+        assert_eq!(ours, lit, "player_light at {}", light.name);
+        assert!(near(client, on, 1.0), "Moonglow's count: {on:?}, client {client:?}");
+    }
 }
 
 /// The helmet's box, metres a side.
@@ -605,7 +868,7 @@ fn chrome1_helmet_reflection_look() {
     let refs: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
     let mut report = String::new();
     for view in VIEWS.iter().filter(|v| wanted("MG_CHROME_VIEWS", v.name)) {
-        for light in LIGHTS.iter().filter(|l| wanted("MG_CHROME_LIGHTS", l.name)) {
+        for light in lights().iter().filter(|l| wanted("MG_CHROME_LIGHTS", &l.name)) {
             let lighting = Lighting {
                 ambient: light.ambient,
                 diffuse: light.diffuse,
