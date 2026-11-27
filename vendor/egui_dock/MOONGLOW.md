@@ -1,11 +1,12 @@
 # egui_dock, patched for Moonglow
 
-egui_dock 0.22.0 as published on crates.io, with five additions, in
+egui_dock 0.22.0 as published on crates.io, with six additions, in
 `src/widgets/dock_area/mod.rs`, `src/widgets/dock_area/show/leaf.rs`,
 `src/widgets/dock_area/show/window_surface.rs`,
-`src/dock_state/window_state.rs` and `src/widgets/tab_viewer.rs` (and
-`WindowBarButton` exported from `src/widgets/mod.rs`), each marked
-"Moonglow's patch" there.
+`src/widgets/dock_area/show/separator.rs`,
+`src/dock_state/window_state.rs`, `src/dock_state/translations.rs` and
+`src/widgets/tab_viewer.rs` (and `WindowBarButton` exported from
+`src/widgets/mod.rs`), each marked "Moonglow's patch" there.
 
 The first is `DockArea::main_surface_end_room(room)`. With it, the main surface's tab
 bars have no leaf collapse arrow and no close-all-tabs button (the windows'
@@ -82,6 +83,15 @@ order: Tab goes from the close all to the window's body.
 
 Why: the dialog pattern (U27) asks Tab to follow the reading order of
 every bar; this is the smallest change that does it in a window's bar.
+
+The sixth is `AccessibilityTranslations::separator` ("Resize" in
+English), the name a separator between two nodes gives a screen reader
+(`show/separator.rs`). Without it, the separator is a splitter with no
+name.
+
+Why: egui 0.37's test harness (egui_kittest) fails a test for every
+input with no name, and a screen reader found a nameless splitter
+between every two panes of the editor area.
 
 Ported from 0.21.1 to 0.22.0 (egui 0.37) as they were. Two things
 moved with egui_dock's own changes: a window is made with the frame's

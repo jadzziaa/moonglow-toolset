@@ -227,6 +227,7 @@
 //!         collapse_button: "Zwiń węzeł".to_string(),
 //!         expand_button: "Rozwiń węzeł".to_string(),
 //!         expand_window_button: "Rozwiń okno".to_string(),
+//!         separator: "Zmień rozmiar".to_string(),
 //!     }
 //! };
 //! let dock_state = DockState::<Tab>::new(vec![]).with_translations(translations_pl);

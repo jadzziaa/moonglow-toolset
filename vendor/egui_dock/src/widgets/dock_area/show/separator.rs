@@ -201,6 +201,8 @@ impl<Tab> DockArea<'_, Tab> {
         let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
         let pixels_per_point = ui.ctx().pixels_per_point();
         let mut handle = None;
+        // (Moonglow's patch: the separator's name, from the translations.)
+        let name = self.dock_state.translations.accessibility.separator.clone();
 
         duplicate! {
             [
@@ -223,7 +225,8 @@ impl<Tab> DockArea<'_, Tab> {
                 let response = ui.allocate_rect(interact_rect, Sense::click_and_drag())
                     .on_hover_and_drag_cursor(paste!{ CursorIcon::[<Resize orientation>]});
 
-                response.widget_info(|| WidgetInfo::new(Role::Splitter));
+                // (Moonglow's patch: named.)
+                response.widget_info(|| WidgetInfo::labeled(Role::Splitter, ui.is_enabled(), &name));
 
                 let arrow_key_offset = arrow_key_offset(ui, &response, style.separator.arrow_key_step_distance);
 

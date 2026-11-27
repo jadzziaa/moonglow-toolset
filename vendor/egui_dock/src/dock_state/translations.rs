@@ -91,6 +91,8 @@ pub struct AccessibilityTranslations {
     pub expand_button: String,
     /// Label of the expand button of a collapsed window.
     pub expand_window_button: String,
+    /// Label of the separator between two nodes (Moonglow's patch).
+    pub separator: String,
 }
 
 impl Translations {
@@ -172,6 +174,8 @@ impl AccessibilityTranslations {
             collapse_button: String::from("Collapse leaf"),
             expand_button: String::from("Expand leaf"),
             expand_window_button: String::from("Expand window"),
+            // (Moonglow's patch.)
+            separator: String::from("Resize"),
         }
     }
 }
