@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:26:22Z }
 ---
 
 # Build, verify and test
@@ -335,7 +335,30 @@ its origins file (`nwn_nwsync_write --write-origins` writes
 `manifests/<sha1>.origin`, which names each hak and its resources), only
 the haks it names are taken from NWSync, and any other is still
 reported. Haks that are on disk are read too, under the manifest, as the
-game would read them.
+game would read them, except one newer than the manifest (below).
+
+**Your own files newer than the manifest win.** A hak of the module's
+list that is on disk (in your `hak` folder, the game's, or a Workshop
+item's, as the game finds it), and whose file is newer than the
+manifest (the time the game registered it, for one read from the
+game's storage; else the time Moonglow's cache kept it), is your work
+in progress: it is read over the manifest (the load order shows it
+above the NWSync layer), and every test takes it from disk instead of
+writing it from the manifest. The custom talk table likewise: your
+project's own (`src/tlk/*.tlk.json`) or the one in `tlk`, when newer,
+comes from disk, and its feminine table with it. Each such file is
+said (the log, `mg`'s warnings and its server's notes: "hak x on disk
+is newer than the NWSync manifest: used over it"). A file older than the
+manifest stays under it, as in the game, and nothing is said. To take a
+newer manifest's copy again, sync (the manifest is then newer) or move
+your file away. This is Moonglow's rule, not the game's: a player's
+game reads the manifest over every hak.
+
+**Turning it off for yourself.** A team's `moonglow.toml` that names
+the server turns it on for everyone. `source = ""` under `[nwsync]` in
+your own `.moonglow/user.toml` turns it off for you: the haks and the
+talk table are then read and tested from disk, as without a server.
+`mg serve`, `mg test` and `mg watch` take `--no-nwsync` for one run.
 
 The cache is `nwsync` in Moonglow's cache folder (`~/.cache/moonglow` on
 Linux, `%LOCALAPPDATA%\Moonglow\cache` on Windows,
@@ -361,17 +384,26 @@ first, and given to the game:
   origins file, each hak it names gets exactly the resources it lists
   for it (the copy of each name that won from that hak when the server
   built the manifest). A hak of the module's list that the origins file
-  doesn't name comes from disk, as before. A hak the origins file names
+  doesn't name comes from disk, as before, and so does one on disk newer
+  than the manifest (above). A hak the origins file names
   that the module doesn't list is not written (the game loads the
   module's haks alone; `mg nwsync-haks --all` writes them). Where the
   server publishes no origins file, the manifest's resources (but for
-  talk tables) are spread over all the module's haks, each resource in
-  one, each hak kept under the 2 GiB the game can read (an entry can't
-  start 2 GiB or more into a hak); a manifest too big for that many haks
-  is an error that says so.
+  talk tables) are spread over the module's haks that are **not on
+  disk**, each resource in one, each hak kept under the 2 GiB the game
+  can read (an entry can't start 2 GiB or more into a hak); a manifest
+  too big for that many haks is an error that says so. A hak on disk is
+  your file, perhaps never published, and is never replaced by a guessed
+  slice of the manifest: it is taken from disk, and that is said. (So on
+  the server a hak on disk listed above one written from the manifest is
+  read over it, where the game data reads the manifest over every hak
+  older than it; have the server publish its origins file for an exact
+  copy.) Where every hak is on disk, nothing is written from the
+  manifest.
 - **The talk table** comes from the manifest where it has the module's
   (`world.tlk`), over the project's own and the one in `tlk`, as the
-  game data has it.
+  game data has it, unless the one on disk is newer (above). Its
+  feminine table (`worldf.tlk`) always comes from where it comes from.
 - **Written once.** A hak is kept in the cache by what it holds, written
   the same way every time (resources in the order of their names, no
   build date), so the next test writes nothing, and a newer manifest
@@ -383,9 +415,13 @@ first, and given to the game:
 - **Not downloaded yet**: data the haks need that neither the game's
   storage nor the cache has stops the test before anything is written,
   saying so: Sync first (or `mg nwsync-pull`).
-- **Where the game finds them.** `mg serve` and `mg test` link them into
-  their server's own folder (links, not copies, where the system has
-  them). Test Module starts the game with a user folder of Moonglow's
+- **Where the game finds them.** `mg serve` and `mg test` put them into
+  their server's own folder (hard links to the cache's files, which stay
+  while the server runs whatever a cleanup of the cache does; links or
+  copies where the system has no hard links). With `mg serve --dir
+  YOUR_NWN_FOLDER --real-user-dir` a file of your own there (not a link
+  Moonglow made) is never replaced: one the manifest's would replace
+  stops the run, saying so. Test Module starts the game with a user folder of Moonglow's
   (`test-user` in its cache folder) that is your own linked thing by
   thing (your characters, settings, modules and logs: what the game
   writes there is written in your folder), but for its `hak` and `tlk`

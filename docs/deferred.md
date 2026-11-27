@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T04:12:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:26:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1288,11 +1288,6 @@ File › Project. What is left:
   module's haks and talk table, not the player's `development` folder, so
   work in progress there is in Test Module's game but not in `mg serve`'s
   server. (S, a decision)
-- **A builder's own haks under the manifest:** a hak on disk sits under
-  the NWSync layer (31 < 40), as in the game, so a work-in-progress hak
-  that replaces a resource of the manifest is shadowed; `development/`
-  is above it. Whether a local hak should win while editing is the
-  team's decision. (S, a decision)
 - **Checked against a real game's NWSync storage:** the reader follows
   the client's schema (`fixtures`), and was checked against a made-up
   storage alone; a run of `mg nwsync-status` on a machine whose game
@@ -1313,6 +1308,19 @@ log. None waits now.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A builder's own haks over the NWSync manifest when newer** (the
+  owner's word, 2026-11-27, "newer local wins"; was "A builder's own
+  haks under the manifest" of PR #53's review): a hak of the module's
+  list on disk, or its custom talk table (the project's own or the
+  `tlk` folder's), whose file is newer than the manifest came here (the
+  game's `created_at`, else when Moonglow's cache kept it), is read over
+  the NWSync layer (`priority::HAK_OVER_NWSYNC`, 41) and taken from disk
+  by `mg serve`, `mg test`, `mg nwsync-haks` and Test Module, and said;
+  an older one stays under it, as in the game. Without an origins file
+  the manifest is spread over the haks not on disk only. The rule lives
+  in `mg_module::nwsync_content` (`OnDisk`, `mount`, `write_haks`).
+  ([Build, verify and test](manual/09-build-and-test.md#nwsync-content-instead-of-haks))
 
 - **An include's own `main`: Moonglow's entry point kept, and warned
   of** (the owner's word, 2026-11-26, "Compile: 1 (keep, warn)"; closing
