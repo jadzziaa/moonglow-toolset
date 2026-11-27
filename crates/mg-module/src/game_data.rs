@@ -200,18 +200,68 @@ mod tests {
         assert!(matches!(got.talk, Custom::None));
     }
 
+    /// A manifest the server built with the module's own resources
+    /// (`includes_module_contents`): those are left out of the layer, so
+    /// the module being edited is read, not the server's copy; where the
+    /// game's metadata doesn't say, they stay.
+    #[test]
+    fn a_manifest_built_with_the_module_leaves_its_resources_out() {
+        use mg_core::sha1::sha1;
+        use mg_nwsync::fixtures::{Registered, write_metadata, write_storage};
+        for (says, read) in [(Some(true), &b"module"[..]), (None, &b"server"[..])] {
+            let dir = mg_testkit::scratch_dir("game-data-nwsync-with-module");
+            let gi = install(&dir);
+            let own = ResKey::parse("mg_own", ResType::NSS).unwrap();
+            let theirs = b"server".to_vec();
+            let entries = [(own, sha1(&theirs), theirs.len() as u32)];
+            let manifest = mg_nwsync::manifest::write(&entries);
+            let url = "https://nwsync.example.org";
+            let storage = dir.join("user/nwsync");
+            write_storage(
+                &storage,
+                &[Registered {
+                    sha1: sha1(&manifest),
+                    origin_url: url.into(),
+                    created_at: 1,
+                    last_used_at: 1,
+                    resources: vec![(own, sha1(&theirs))],
+                    cached: None,
+                }],
+                &[vec![(sha1(&theirs), theirs.clone())]],
+            );
+            write_metadata(&storage, &sha1(&manifest), says);
+            let mut m = module(&["gone"], "");
+            m.set(own, b"module".to_vec());
+            m.project_file.nwsync_source = Some(url.into());
+            m.project_file.nwsync_cache = Some(dir.join("cache"));
+            let got = m.game_data(&gi).unwrap();
+            assert!(got.nwsync.as_ref().unwrap().layer.is_ok());
+            assert_eq!(&*got.game.resman.get(&own).unwrap(), read, "{says:?}");
+        }
+    }
+
     /// A module whose project names an NWSync server, with the game's
     /// storage holding the server's manifest (a 2DA a hak on disk has
     /// too, and the custom talk table): its content over the haks, the
     /// talk table read from it, and the haks not on disk not missing (all
     /// of them without an origins file; with one, those it names). With
     /// no manifest of the server here, the haks are missing and that is
-    /// said.
+    /// said. A hak or talk table on disk newer than the manifest is read
+    /// over it, and said (Moonglow's rule).
     #[test]
     fn a_module_s_nwsync_content_over_its_haks() {
         use mg_core::sha1::sha1;
         use mg_nwsync::fixtures::{Registered, write_storage};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
         let dir = mg_testkit::scratch_dir("game-data-nwsync");
+        // (The manifest came a day from now: the files written now are
+        // older than it.)
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let came = now + 86_400;
+        let set_time = |path: &std::path::Path, secs: u64| {
+            let f = std::fs::File::options().write(true).open(path).unwrap();
+            f.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+        };
         let gi = install(&dir);
         let x = ResKey::parse("x", ResType::TWODA).unwrap();
         let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
@@ -231,8 +281,8 @@ mod tests {
             &[Registered {
                 sha1: sha1(&manifest),
                 origin_url: url.into(),
-                created_at: 1,
-                last_used_at: 1,
+                created_at: came as i64,
+                last_used_at: came as i64,
                 resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
                 cached: None,
             }],
@@ -259,6 +309,36 @@ mod tests {
         assert!(matches!(&got.talk, Custom::Found { .. }));
         let custom = got.game.custom_tlk().unwrap();
         assert_eq!(custom.entries[0].text, b"From NWSync");
+
+        // The hak on disk changed after the manifest came: over it, and
+        // said; the talk table on disk too.
+        set_time(&dir.join("user/hak/there.hak"), came + 60);
+        let mut mine = mg_tlk::Tlk::new(Language::ENGLISH);
+        mine.entries.push(mg_tlk::TlkEntry::text("On disk"));
+        std::fs::write(dir.join("user/tlk/mine.tlk"), mine.to_bytes().unwrap()).unwrap();
+        set_time(&dir.join("user/tlk/mine.tlk"), came + 60);
+        let got = m.game_data(&gi).unwrap();
+        let layer = got.nwsync.as_ref().unwrap().layer.as_ref().unwrap();
+        assert_eq!(layer.newer_haks, ["there"]);
+        assert_eq!(layer.newer_tlk.as_deref(), Some("mine"));
+        assert_eq!(&*got.game.resman.get(&x).unwrap(), b"2DA V2.0\n\n A\n0 hak\n");
+        assert_eq!(got.game.resman.origin(&x), Some("hak:there"));
+        assert_eq!(got.game.custom_tlk().unwrap().entries[0].text, b"On disk");
+        assert_eq!(
+            got.warnings(),
+            [
+                "hak there on disk is newer than the NWSync manifest: used over it",
+                "talk table mine on disk is newer than the NWSync manifest: used over it",
+            ]
+        );
+        // Older than the manifest: under it again, silently.
+        set_time(&dir.join("user/hak/there.hak"), came - 60);
+        set_time(&dir.join("user/tlk/mine.tlk"), came - 60);
+        let got = m.game_data(&gi).unwrap();
+        assert!(got.warnings().is_empty(), "{:?}", got.warnings());
+        assert_eq!(&*got.game.resman.get(&x).unwrap(), &synced[..]);
+        assert_eq!(got.game.custom_tlk().unwrap().entries[0].text, b"From NWSync");
+        std::fs::remove_file(dir.join("user/tlk/mine.tlk")).unwrap();
 
         // The server's origins file names one of the two.
         let cache = mg_nwsync::Cache::new(dir.join("cache"));

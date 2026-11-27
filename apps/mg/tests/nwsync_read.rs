@@ -236,3 +236,78 @@ fn a_module_s_haks_are_written_from_its_nwsync_content() {
     let (ok, _) = crate::mg_json(&["--no-user-dir", "nwsync-haks", f, "--cache", c]);
     assert!(ok);
 }
+
+/// `--source` another server than the project's: the project's pinned
+/// manifest (its own server's) is not taken for it, and that is said.
+/// `nwsync-haks --out` replaces what is at a file it puts whole: a link
+/// there of something else's is not written through. A prune says the
+/// manifests it passed over.
+#[test]
+fn another_source_a_link_in_the_out_folder_and_what_a_prune_passed_over() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-other-source");
+    let resources: Vec<(ResKey, &[u8])> = vec![(key("pw_appear", ResType::TWODA), b"2DA V2.0\n")];
+    let contents: Vec<(ResKey, Source)> =
+        resources.iter().map(|(k, b)| (*k, Source::Bytes((*b).into()))).collect();
+    let o = Options { latest: true, ..Default::default() };
+    let written = write(&dir.join("repo"), &contents, &o, &mut |_, _| {}).unwrap();
+    let (theirs, _, _) = serve(dir.join("repo"));
+    let (other, _, _) = serve(dir.join("repo"));
+    let folder = module_naming(&dir, &theirs);
+    let pin = "0123456789abcdef0123456789abcdef01234567";
+    let toml = format!("[nwsync]\nsource = \"{theirs}\"\nmanifest = \"{pin}\"\n");
+    std::fs::write(folder.join("moonglow.toml"), toml).unwrap();
+    let mut m = mg_module::Module::open(&folder).unwrap();
+    let mut info = m.info().unwrap();
+    let mut hak = mg_gff::Struct::new(8);
+    hak.set("Mod_Hak", mg_gff::Value::String(b"pw_one".to_vec()));
+    info.root.set("Mod_HakList", mg_gff::Value::List(vec![hak]));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let (cache, out) = (dir.join("cache"), dir.join("out"));
+    let (c, o, f) = (cache.to_str().unwrap(), out.to_str().unwrap(), folder.to_str().unwrap());
+
+    let (ok, j) =
+        crate::mg_json(&["--no-user-dir", "nwsync-pull", f, "--source", &other, "--cache", c]);
+    assert!(ok, "{j}");
+    assert_eq!(j["manifest"], written.sha1.as_str());
+    let notes = j["notes"].to_string();
+    assert!(notes.contains("[nwsync] manifest 01234567") && notes.contains("not taken"), "{j}");
+
+    #[cfg(unix)]
+    {
+        let victim = dir.join("victim");
+        std::fs::write(&victim, b"not to be written").unwrap();
+        std::fs::create_dir_all(out.join("hak")).unwrap();
+        std::os::unix::fs::symlink(&victim, out.join("hak/pw_one.hak")).unwrap();
+        let args =
+            ["--no-user-dir", "nwsync-haks", f, "--source", &other, "--cache", c, "--out", o];
+        let (ok, j) = crate::mg_json(&args);
+        assert!(ok, "{j}");
+        assert_eq!(std::fs::read(&victim).unwrap(), b"not to be written");
+        let placed = out.join("hak/pw_one.hak");
+        assert!(!std::fs::symlink_metadata(&placed).unwrap().file_type().is_symlink());
+        assert!(mg_erf::Erf::read(&std::fs::read(&placed).unwrap()).is_ok());
+    }
+
+    // A server's latest whose manifest isn't here: passed over, and said.
+    std::fs::write(
+        cache.join("latest/gone.example.org"),
+        "ffffffffffffffffffffffffffffffffffffffff",
+    )
+    .unwrap();
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-cache-prune", "--cache", c]);
+    assert!(ok, "{j}");
+    assert!(j["passed_over"][0].as_str().unwrap().contains("passed over"), "{j}");
+    assert!(j["notes"].to_string().contains("ffffffff"), "{j}");
+}
+
+/// `mg serve`, `mg test` and `mg watch` take `--no-nwsync` (the haks and
+/// talk table from disk, as without [nwsync] source).
+#[test]
+fn serve_test_and_watch_take_no_nwsync() {
+    for cmd in ["serve", "test", "watch"] {
+        let out = crate::mg_output(&[cmd, "--help"]);
+        let help = String::from_utf8_lossy(&out.stdout);
+        assert!(help.contains("--no-nwsync"), "mg {cmd} --help: {help}");
+    }
+}

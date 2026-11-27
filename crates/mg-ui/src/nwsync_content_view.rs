@@ -366,11 +366,18 @@ pub(crate) fn remount(app: &mut Moonglow) {
     let Some(settings) = settings(app) else { return };
     app.release_game_data();
     let haks = app.ws.as_ref().and_then(|ws| ws.module.haks().ok()).unwrap_or_default();
+    // (What is on disk, for the rule: a hak or talk table newer than the
+    // manifest over it.)
+    let on_disk = match (app.ws.as_ref(), app.install.as_ref()) {
+        (Some(ws), Some(gi)) => ws.module.nwsync_on_disk(gi),
+        _ => Default::default(),
+    };
     let (Some(game), Some(gi)) = (crate::exclusive(&mut app.game), &app.install) else { return };
     // (The haks not on disk, as the module's opening found them: those
     // still missing were said then.)
     let mut missing: Vec<String> = haks.into_iter().filter(|h| gi.find_hak(h).is_none()).collect();
-    let m = mg_module::nwsync_content::mount(&mut game.resman, gi, &settings, &mut missing);
+    let m =
+        mg_module::nwsync_content::mount(&mut game.resman, gi, &settings, &on_disk, &mut missing);
     for w in m.warnings() {
         app.log.warn(format!("NWSync content: {w}"));
     }

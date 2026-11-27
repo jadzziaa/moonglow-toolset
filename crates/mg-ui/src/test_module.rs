@@ -368,7 +368,8 @@ pub fn with_content(
         .unwrap_or_else(|| Err("the project names no NWSync server".into()))?;
     let content = content_of(module, install, &files);
     content_user_dir(real, dir, &content)?;
-    Ok(files.summary())
+    // (And the files on disk used over the manifest, by the rule.)
+    Ok(std::iter::once(files.summary()).chain(files.notes()).collect::<Vec<_>>().join("\n"))
 }
 
 /// What the content user directory's `hak` and `tlk` hold for a module:
@@ -392,14 +393,22 @@ pub fn content_of(
             content.haks.push((file, found));
         }
     }
+    // (The feminine table from where the table comes from.)
     if let Some((name, path)) = &files.tlk {
         content.tlks.push((name.into(), path.clone()));
+        if let Some((name, path)) = &files.tlk_f {
+            content.tlks.push((name.into(), path.clone()));
+        }
     } else if let Some(tlk) = module.custom_tlk().ok().flatten()
-        && let (Some(file), Some(dir)) =
-            (mg_resman::named_file(&tlk, "tlk"), install.user_folder("tlk"))
-        && dir.join(&file).is_file()
+        && let Some(dir) = install.user_folder("tlk")
     {
-        content.tlks.push((file.clone(), dir.join(file)));
+        for name in [tlk.clone(), mg_module::talk::feminine(&tlk)] {
+            if let Some(file) = mg_resman::named_file(&name, "tlk")
+                && dir.join(&file).is_file()
+            {
+                content.tlks.push((file.clone(), dir.join(file)));
+            }
+        }
     }
     content
 }

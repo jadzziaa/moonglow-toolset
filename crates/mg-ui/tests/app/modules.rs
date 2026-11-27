@@ -1755,7 +1755,7 @@ fn nwsync_haks_for_test_module_and_the_cache_cleaned_up() {
     let test_dir = dir.join("test-user");
     let o = mg_module::nwsync_content::WriteOptions::default();
     let said = mg_ui::test_module::with_content(&module, &install, &user, &test_dir, &o).unwrap();
-    assert!(said.starts_with("1 haks from NWSync manifest"), "{said}");
+    assert!(said.starts_with("1 hak from NWSync manifest"), "{said}");
     assert!(said.contains("the talk table mytlk.tlk") && said.contains("1 written now"), "{said}");
     let hak = std::fs::read(test_dir.join("hak/mg_sync.hak")).unwrap();
     let erf = mg_erf::Erf::read(&hak).unwrap();

@@ -374,6 +374,10 @@ enum Cmd {
         /// Allow --dir to be your own NWN folder.
         #[arg(long)]
         real_user_dir: bool,
+        /// Take the module's haks and talk table from disk, as though its
+        /// project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// The port (default: a free one).
         #[arg(long)]
         port: Option<u16>,
@@ -450,6 +454,10 @@ enum Cmd {
         /// The server's user directory (default: a scratch one).
         #[arg(long)]
         dir: Option<PathBuf>,
+        /// Take the module's haks and talk table from disk, as though its
+        /// project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// A file of NAME=value lines for the server's environment.
         #[arg(long)]
         env: Vec<PathBuf>,
@@ -718,6 +726,10 @@ enum Cmd {
         /// Run the module in the server too, as `mg serve` does.
         #[arg(long)]
         serve: bool,
+        /// With --serve or --test: the haks and talk table from disk, as
+        /// though the project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// With --serve: the server's user directory (default: a scratch
         /// one).
         #[arg(long)]
@@ -3120,6 +3132,7 @@ fn run(cli: &Cli) -> Result<Output> {
             module,
             dir,
             real_user_dir,
+            no_nwsync,
             port,
             public,
             name,
@@ -3149,6 +3162,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 args: server_args.clone(),
                 project: None,
                 progress: !cli.json,
+                no_nwsync: *no_nwsync,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -3200,6 +3214,7 @@ fn run(cli: &Cli) -> Result<Output> {
             log,
             include,
             dir,
+            no_nwsync,
             env,
             preload,
             server_args,
@@ -3224,12 +3239,13 @@ fn run(cli: &Cli) -> Result<Output> {
                     preload: preload.clone(),
                     args: server_args.clone(),
                     progress: !cli.json,
+                    no_nwsync: *no_nwsync,
                     ..Default::default()
                 },
             };
             let resman = |m: &Module, notes: &mut Vec<String>| {
                 let mut out = Output::default();
-                let rm = module_resman(&gi, m, &mut out)?;
+                let rm = module_resman_as(&gi, m, &mut out, !*no_nwsync)?;
                 notes.append(&mut out.notes);
                 Ok(rm)
             };
@@ -4305,6 +4321,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         r#mod,
         ndb,
         serve,
+        no_nwsync,
         dir,
         port,
         passwords,
@@ -4340,7 +4357,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
     let say = |v: serde_json::Value, lines: Vec<String>| serve::say(cli.json, &v, &lines);
     let resman = |m: &Module| -> Result<ResMan> {
         let mut notes = Output::default();
-        let mut rm = module_resman(&gi, m, &mut notes)?;
+        let mut rm = module_resman_as(&gi, m, &mut notes, !*no_nwsync)?;
         for note in notes.notes {
             say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
         }
@@ -4383,11 +4400,15 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
             own_driver: false,
             settle: 0.0,
             timeout: 120.0,
-            serve: serve::Config { name: "Moonglow test run".into(), ..Default::default() },
+            serve: serve::Config {
+                name: "Moonglow test run".into(),
+                no_nwsync: *no_nwsync,
+                ..Default::default()
+            },
         };
         let resman = |m: &Module, notes: &mut Vec<String>| {
             let mut out = Output::default();
-            let rm = module_resman(&gi, m, &mut out)?;
+            let rm = module_resman_as(&gi, m, &mut out, !*no_nwsync)?;
             notes.append(&mut out.notes);
             Ok(rm)
         };
@@ -4450,6 +4471,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         // (The project's own talk table, made for the server.)
         project: Some(project.clone()),
         progress: !cli.json,
+        no_nwsync: *no_nwsync,
         ..Default::default()
     };
     let mut wrong: Option<anyhow::Error> = None;
@@ -5660,6 +5682,22 @@ pub(crate) fn said(
 }
 
 /// The resman for a module: the game, the module's haks and the module.
+/// [`module_resman`], without the module's NWSync content where `nwsync`
+/// is false (`--no-nwsync`: as its server does, the haks from disk).
+fn module_resman_as(
+    gi: &GameInstall,
+    m: &Module,
+    out: &mut Output,
+    nwsync: bool,
+) -> Result<ResMan> {
+    if nwsync || m.project_file.nwsync_source.is_none() {
+        return module_resman(gi, m, out);
+    }
+    let mut without = m.clone();
+    without.project_file.nwsync_source = None;
+    module_resman(gi, &without, out)
+}
+
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     // (A module whose hak list can't be read, or a hak that can't be

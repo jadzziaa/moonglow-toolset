@@ -696,7 +696,8 @@ pub struct ProjectFile {
     pub nwsync_upload: Option<UploadCommand>,
     /// `[nwsync] source`: the NWSync server the module's haks' content is
     /// read from (`https://nwsync.example.org`), the builder's own file's
-    /// over the team's ([`ProjectFile::nwsync_settings`]).
+    /// over the team's ([`ProjectFile::nwsync_settings`]); `source = ""`
+    /// in the builder's own file turns the team's off for them.
     pub nwsync_source: Option<String>,
     /// `[nwsync] manifest`: which of its manifests (`"latest"`, the
     /// default, or one's SHA-1), the builder's own file's over the team's.
@@ -955,12 +956,16 @@ impl<'a> Reader<'a> {
     }
 
     /// `[nwsync] source`: an HTTP or HTTPS address, without the
-    /// trailing `/`.
-    fn nwsync_source(&mut self, entry: Entry) -> Option<String> {
+    /// trailing `/`. In the builder's own file (`own`), `""` is
+    /// `Some(None)`: the team's server turned off for this builder.
+    fn nwsync_source(&mut self, entry: Entry, own: bool) -> Option<Option<String>> {
         let url = self.text(entry)?.trim().trim_end_matches('/').to_string();
+        if own && url.is_empty() {
+            return Some(None);
+        }
         let scheme = url.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
         match scheme.as_deref() {
-            Some("http" | "https") if url.len() > "https://".len() => Some(url),
+            Some("http" | "https") if url.len() > "https://".len() => Some(Some(url)),
             _ => {
                 let message = format!(
                     "source \"{url}\" is to be the NWSync server's address, as nwserver's \
@@ -1482,8 +1487,8 @@ impl ProjectFile {
                                 }
                             }
                             "source" => {
-                                if let Some(url) = r.nwsync_source(e) {
-                                    self.nwsync_source = Some(url);
+                                if let Some(url) = r.nwsync_source(e, own) {
+                                    self.nwsync_source = url;
                                 }
                             }
                             "manifest" => {
@@ -3060,6 +3065,18 @@ keeper_variable = "tdod_store"
         assert_eq!(s.url, "https://a.example");
         assert_eq!(s.manifest, mg_nwsync::Wanted::Pinned(mg_nwsync::parse_sha1(sha).unwrap()));
         assert_eq!(s.cache.as_deref(), Some(Path::new(big)));
+
+        // `source = ""` in the builder's own file: the team's server off
+        // for them, without a warning; in the team's file, a warning.
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nsource = \"https://a.example\"\n", false);
+        p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert!(p.nwsync_settings().is_none());
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nsource = \"\"\n", false);
+        assert!(p.nwsync_settings().is_none());
+        assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
 
         let p = read(
             "[nwsync]\nsource = \"nwsync.example.org\"\nmanifest = \"newest\"\ncache = \"/x\"\n",
