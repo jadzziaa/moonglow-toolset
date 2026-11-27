@@ -38,6 +38,7 @@ pub mod minimap;
 pub mod models;
 pub mod nasher;
 pub mod new;
+pub mod nwnx;
 pub mod nwsync;
 pub mod nwsync_content;
 pub mod outside;
