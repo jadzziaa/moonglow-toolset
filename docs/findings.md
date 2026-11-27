@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T23:06:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:51:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2119,6 +2119,56 @@ player's own light casts the shadows of the creatures about the player.
   near the client's shares; it was 0.53 to 0.60 at every distance. Past
   10 m (0.08 at 11 and 12 m) Moonglow's lamp still lights the floor a
   little, where the client's shows no shadow.
+- **Wiki:** missing.
+
+### Every creature in a lamp's reach casts; one lamp casts
+
+Every creature within the casting lamp's reach casts its shadow from
+it, however many: 24 commoners in a ring 5.5 m round one lamp post each
+cast one, outward (Moonglow cast 16 until 2026-11-26, the nearest the
+camera's target). But only one light casts in the whole view: of six
+lamp posts, each with an ogre 2.5 m from it, only the lamp nearest the
+player casts, and every creature in its reach casts from it, the
+ogres beside other lamps too (their shadows fall away from the chosen
+lamp, not their own), and the other lamp posts themselves; the ogres
+by the other lamps cast nothing. Moved 3 m, so that another lamp is
+nearest the player (and still not nearest the camera's eye), that lamp
+is the one. `max-casting-lights` 1 and 3 (written where the client
+reads it, in its `settings.tml`) changed nothing.
+
+- **Checked:** game client 89.8193.37, `batch6.rs`'s
+  `batch6_light_shadow_ring` (`ring`: 24 cast of 24, by eye in
+  `darker.png`, 19 of them above 0.15 by the per-creature reading;
+  `lamps`, `MG_LAMPS_DY=-3`, `MG_CASTING_LIGHTS=1` and `3`) and
+  `batch6_light_shadow_casters` (eight ogres, every one casting, the
+  server having pushed some together), each with Moonglow beside it,
+  2026-11-26.
+- **Moonglow:** since 2026-11-26 every creature in a casting light's
+  reach casts (`crates/mg-render/src/shadow.rs`: a tile each of an atlas
+  that grows, up to 4,096 creatures), 24 of 24 in the ring as the
+  client's. Each creature still casts from its own nearest light, so with
+  several lamps Moonglow draws shadows the client doesn't: which light
+  the toolset, placing no player, should take as the one (the light
+  nearest the camera's target, say) waits on the owner's ruling (the
+  deferred list's "Shadows"). Where both cast, the client's shadow beside
+  a lamp is darker (0.39 to 0.51 against Moonglow's 0.14 to 0.19 in the
+  lamps' room, where six lamps light the floor), not read further here.
+- **Cost** (`frame_perf`'s `game_shaders_frames_at_144`, in process on
+  alternate frames against the old path as a hook simulates it, 2026-11-26,
+  about 1,500 MHz): the woods' overview and turned unchanged (6.28
+  against 6.30 ms, 9.5 against 9.6, the quickest tenth; no creature
+  there casts a light's shadow, so only the fixed cost is measured),
+  batch6's room quicker (overview 0.82 against 0.99, close 1.23 against
+  1.8: a pixel reads only the maps of its square). Under one lamp, close
+  up: 0.87 ms at 30 creatures, 1.2 to 1.4 at 100, 2.8 at 500 (about 4 µs
+  a creature; 2.2 with only 16 casting), the median the same. The
+  creatures play their animations, so every map is drawn again each
+  frame there; kept maps save that only where nothing moves. Sixteen
+  lamps of 500, close up, from 2.6 to 4.9 ms as the camera turns and
+  more lamps' maps come into its squares (the quickest tenth 2.7, the
+  median 4.4). High's volumes grow with the casting creatures: 4.1 ms at
+  30 close up, 11.6 at 100 (2.3 with 16 casting), batch6's room as
+  before (the deferred list's "Shadows").
 - **Wiki:** missing.
 
 ### The grass's material: linear colors, and a fade by distance

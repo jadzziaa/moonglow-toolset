@@ -694,7 +694,7 @@ struct ViewState {
     /// Cached bind groups on immutable [`Targets`] (`render_targets` only).
     copy_group: Option<wgpu::BindGroup>,
     sun_darken_group: Option<(u64, wgpu::BindGroup)>,
-    lights_darken_group: Option<wgpu::BindGroup>,
+    lights_darken_group: Option<(u64, wgpu::BindGroup)>,
     vol_copy_group: Option<wgpu::BindGroup>,
     vol_darken_groups: [Option<wgpu::BindGroup>; 2],
 }
@@ -774,6 +774,9 @@ pub struct Drawn {
     /// The sun's shadow map was drawn in this frame: not where the view's
     /// map held the frame's casters as they are already.
     pub sun_map_drawn: bool,
+    /// The lights' maps drawn in this frame: not those whose tiles held
+    /// their creatures as they are already.
+    pub light_maps_drawn: usize,
     /// The frame's bind group was made in this frame: not where the
     /// view's own was kept from its frame before (another view's frames
     /// between them leave it be), on the same buffers and mask.
@@ -4043,7 +4046,7 @@ impl Renderer {
                 self.drawn.sun_map_drawn = maps.cast(gpu, &mut encoder, plan, &mut kept_view.sun);
             }
             if let Some(plan) = &light_plan {
-                maps.cast_lights(gpu, &mut encoder, plan);
+                self.drawn.light_maps_drawn = maps.cast_lights(gpu, &mut encoder, plan);
             }
         }
         {
