@@ -90,7 +90,7 @@ fn the_first_rows_ring_is_in_sight() {
         let mut h = Harness::builder().with_size(egui::vec2(300.0, 300.0)).build_ui(|ui| {
             mg_uikit::apply(ui.ctx(), theme);
             egui::ScrollArea::vertical().id_salt("grid").show(ui, |ui| {
-                let id = egui::Id::new("ring cells");
+                let id = egui::Id::unique("ring cells");
                 GalleryGrid::new(id, 60, 64.0).show(ui, |ui, i, rect, tile, r, mut state| {
                     if r.clicked() {
                         chosen.set(i);
