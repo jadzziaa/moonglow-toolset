@@ -1834,13 +1834,16 @@ changes nothing.
 
 The client takes a mesh to be a cut-out (`blending punchthrough`) by
 the TXI of the name it binds, its bitmap: with a bitmap naming a
-texture, that texture's TXI (with an MTR named by `materialname` too);
+texture, that texture's TXI (with an MTR named by `materialname` too,
+read with the MTR's texture the bitmap's; one naming another texture
+is unread);
 with a bitmap naming an MTR, the TXI of the MTR's name (`name.txi`
 beside `name.mtr`), whatever its texture's TXI says. Such a mesh is
 solid where it is kept, `transparencyhint 1` or not and the MTR's
 `transparency 1` or not; a mesh whose MTR's texture alone has the TXI is
 blended by its texels' alpha, as one of no TXI. Every card is cut at
-the same alpha, 0.2 (kept from 52/255, cut at 50/255), whichever it is.
+the same alpha, 0.2: on each, ten of its 16 bands are left, the first
+of alpha 52/255, and the one of 50/255 is cut.
 
 - **Checked:** game client, `client_render/soft.rs`'s
   `reading_punch_cut` (ten cards, each read as solid or blended against

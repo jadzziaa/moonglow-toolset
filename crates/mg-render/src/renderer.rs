@@ -2601,26 +2601,24 @@ impl Renderer {
             Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
             None => (Blending::Default, None, false, (false, false), false, false),
         };
-        // A cut-out by the TXI of the name the mesh binds: where that is an
-        // MTR's, the MTR's TXI (`name.txi` beside `name.mtr`), not its
-        // texture's, whose `blending punchthrough` the client leaves
+        // A cut-out by the TXI of the name the mesh binds: where its bitmap
+        // names an MTR, the MTR's TXI (`name.txi` beside `name.mtr`), not
+        // its texture's, whose `blending punchthrough` the client leaves
         // blended by its alpha (`soft::reading_punch_cut` in
-        // `client_render`, 2026-11-27).
-        let blending = match tex.as_ref().zip(names[0].as_deref()) {
-            Some((_, bound)) if blending != Blending::Additive => {
-                let named = slots.names[0].as_deref().or_else(unnamed);
-                let named = named.map(|n| {
-                    inst.textures.as_ref().and_then(|t| t.get(n)).map_or(n, String::as_str)
-                });
-                match named.filter(|n| n.eq_ignore_ascii_case(bound)) {
-                    Some(n) if assets.material(n).is_some() => {
-                        if assets.txi(n).is_some_and(|t| t.blending() == Blending::Punchthrough) {
-                            Blending::Punchthrough
-                        } else {
-                            Blending::Default
-                        }
-                    }
-                    _ => blending,
+        // `client_render`, 2026-11-27). (An MTR by `materialname` keeps
+        // its texture's TXI: read only with the bitmap that texture. A
+        // bitmap renamed by its instance to an MTR's name, unread, too.)
+        let bitmap_mtr = slots.mtr.as_deref().filter(|m| {
+            mat.mtr.as_deref().is_none_or(|n| !n.eq_ignore_ascii_case(m))
+                && slots.names[0].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(m))
+                && names[0].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(m))
+        });
+        let blending = match bitmap_mtr {
+            Some(m) if tex.is_some() && blending != Blending::Additive => {
+                if assets.txi(m).is_some_and(|t| t.blending() == Blending::Punchthrough) {
+                    Blending::Punchthrough
+                } else {
+                    Blending::Default
                 }
             }
             _ => blending,

@@ -272,12 +272,13 @@ const PUNCH_LEVELS: [u8; 16] =
 ///
 /// Read 2026-11-27 (game 89.8193.37): every card is cut where its
 /// alpha is 50/255 or less and kept from 52/255 (the 0.2 of
-/// `fAlphaDiscardValue`); a cut-out's kept bands are drawn opaque,
+/// `fAlphaDiscardValue`: ten bands left on each, counted in the
+/// client's picture); a cut-out's kept bands are drawn opaque,
 /// hiding the bar, darker as their alpha rises (the light through it
 /// weighed by its alpha), and a blended card's are blended. The client
 /// takes a mesh to be a cut-out by the TXI of the name it binds (its
 /// bitmap): the texture's own TXI with a bitmap naming the texture
-/// (with `materialname` too), the MTR's (`name.txi` beside `name.mtr`)
+/// (with `materialname` too, its MTR naming the same texture), the MTR's (`name.txi` beside `name.mtr`)
 /// with a bitmap naming an MTR, whose texture's TXI it does not read for
 /// it; `transparencyhint 1` and the MTR's `transparency 1` change nothing.
 /// Before, Moonglow blended the hint's card and the MTR-named TXI's, and
