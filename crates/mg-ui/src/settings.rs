@@ -1165,6 +1165,15 @@ pub struct Settings {
     /// The server's player password, if it has one (kept as typed, in
     /// these settings: a test server's).
     pub test_password: String,
+    /// Options › Test Module: Quick start: a project whose module a local
+    /// server tests (with NWNX) is joined with the project's character in
+    /// [`Settings::test_characters`], alone in the server's vault (the
+    /// player still confirms it once on the list).
+    pub test_quick_start: bool,
+    /// The character each project's quick start takes, by the project's
+    /// folder: the `.bic` chosen last (only read).
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub test_characters: std::collections::BTreeMap<PathBuf, PathBuf>,
     // (`test_without_steam`, Options > General's Start a Steam copy of the
     // game through Steam for a test, unticked, was retired in 5.1.0: a
     // test follows Read Steam Workshop content,
@@ -2922,7 +2931,7 @@ mod tests {
                 old.into_iter().filter(|(n, _)| !retired.contains(&n.as_str())).collect();
             // (Twelve fields came after the file, Anti-aliasing, two from
             // develop's Builders' asks, M5's W1's, 5.2.0's W6's Smooth
-            // scrolling, W7's Colored icons, 5.5.0's five of Options › Test
+            // scrolling, W7's Colored icons, 5.5.0's six of Options › Test
             // Module and W5's Show declarations in tips: written at their
             // defaults, the rest as it was.)
             let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
@@ -2941,6 +2950,7 @@ mod tests {
                 ("test_joins", "false"),
                 ("test_address", "\"\""),
                 ("test_password", "\"\""),
+                ("test_quick_start", "false"),
                 ("no_symbol_tips", "false"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()));

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:25:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T23:23:12Z }
 ---
 
 # Build, verify and test
@@ -853,6 +853,16 @@ preparing, starting, the module loaded, the game joining, what NWNX
 says and the module's log lines), and the status bar says how far it
 is. The checks before the start are `mg serve`'s: an error is said in
 the Log and nothing is started.
+
+**Quick start.** With **Join with a chosen character** ticked in
+[Options › Test Module](10-options.md#test-module), the game joins with
+the project's chosen character instead: one of your local vault's, or a
+`.bic` file of your own, kept for that project (the one chosen last). It
+is put alone in the server's vault (`-servervault 1`, a copy: your file
+is only read), so the character list shows it alone. One confirm
+remains: you still choose it once on that list, for the game has no way
+past it. Without a character chosen, or with its file gone, the game
+shows your own characters, and the Log says why.
 
 When the game ends, the server is told to `exit`. Only the server and
 the game this test started are ever stopped. While they run, the status

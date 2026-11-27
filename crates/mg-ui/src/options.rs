@@ -114,6 +114,13 @@ pub struct OptionsDraft {
     pub test_joins: bool,
     pub test_address: String,
     pub test_password: String,
+    pub test_quick_start: bool,
+    /// The open project's key in [`Settings::test_characters`] (its
+    /// folder; none: no project open, no character to choose), the
+    /// character chosen for it, and the local vault's characters offered.
+    pub test_project: Option<std::path::PathBuf>,
+    pub test_character: Option<std::path::PathBuf>,
+    pub local_characters: Vec<(String, std::path::PathBuf)>,
     pub auto_reload: bool,
     pub backups: bool,
     pub autosave: bool,
@@ -228,7 +235,8 @@ fn test_module_page(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         .on_hover_text("Start the game on the module with its first character, as Aurora does");
     ui.radio_choice(&mut draft.test_starts, TestStarts::Command, "A command of my own")
         .on_hover_text("Run your own command in place of the game, such as a server script");
-    if draft.test_starts != TestStarts::Command {
+    if draft.test_starts == TestStarts::Game {
+        quick_start(ui, draft);
         return;
     }
     ui.add_space(6.0);
@@ -265,6 +273,79 @@ fn test_module_page(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
              with +connect. The game shows the server's character list.",
         );
     });
+}
+
+/// Options › Test Module's Quick Start: a project tested on a local server
+/// (with NWNX) joined with a character of the builder's choosing, the open
+/// project's own (the last one chosen, the local vault's, or a file).
+/// Choose a File… is asked for once the page is drawn
+/// ([`choose_character_id`]).
+fn quick_start(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Quick Start");
+    ui.check_box(&mut draft.test_quick_start, "Join with a chosen character").on_hover_text(
+        "Join the local server with the chosen character, confirmed once on the list",
+    );
+    ui.add_enabled_ui(draft.test_quick_start && draft.test_project.is_some(), |ui| {
+        crate::widgets::field_label(ui, "Character");
+        #[derive(Clone, PartialEq)]
+        enum Pick {
+            Bic(std::path::PathBuf),
+            Choose,
+        }
+        let name_of = |p: &std::path::Path| {
+            draft.local_characters.iter().find(|(_, q)| q == p).map_or_else(
+                || p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                |(n, _)| n.clone(),
+            )
+        };
+        // (The one chosen last first, where the vault doesn't list it.)
+        let mut picks: Vec<Pick> = Vec::new();
+        if let Some(c) = draft.test_character.as_ref()
+            && !draft.local_characters.iter().any(|(_, p)| p == c)
+        {
+            picks.push(Pick::Bic(c.clone()));
+        }
+        picks.extend(draft.local_characters.iter().map(|(_, p)| Pick::Bic(p.clone())));
+        picks.push(Pick::Choose);
+        let shown = draft.test_character.as_deref().map_or_else(|| "None chosen".into(), name_of);
+        // (None chosen: no row of the list, Choose a File… one to pick.)
+        let mut current = Pick::Bic(draft.test_character.clone().unwrap_or_default());
+        let was = current.clone();
+        crate::widgets::dropdown("test-character").selected_text(shown).width(260.0).show(
+            ui,
+            &mut current,
+            &picks,
+            |p| match p {
+                Pick::Bic(p) => name_of(p),
+                Pick::Choose => "Choose a File…".into(),
+            },
+        );
+        if current != was {
+            match current {
+                Pick::Bic(p) => draft.test_character = Some(p),
+                Pick::Choose => {
+                    ui.data_mut(|d| d.insert_temp(choose_character_id(), true));
+                }
+            }
+        }
+    });
+    ui.weak(
+        "For a project that uses NWNX, on Linux, whose module a local server tests. The \
+         character is put alone in the server's vault, and you still confirm it once on the \
+         character list: the game has no way past that. Each project keeps the character \
+         chosen for it last. Without one, or for another module, the game shows your own \
+         characters.",
+    );
+    if draft.test_project.is_none() {
+        ui.weak("Open a project to choose its character.");
+    }
+}
+
+/// Where Options › Test Module's character dropdown notes Choose a File…
+/// for after the page is drawn.
+fn choose_character_id() -> egui::Id {
+    egui::Id::unique("options-choose-test-character")
 }
 
 fn verify_box(word: &str) -> bool {
@@ -344,6 +425,10 @@ impl OptionsDraft {
             test_joins: s.test_joins,
             test_address: s.test_address.clone(),
             test_password: s.test_password.clone(),
+            test_quick_start: s.test_quick_start,
+            test_project: None,
+            test_character: None,
+            local_characters: Vec::new(),
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
             autosave: !s.no_autosave,
@@ -478,6 +563,8 @@ impl OptionsDraft {
             test_joins,
             test_address,
             test_password,
+            test_quick_start,
+            test_characters,
             no_auto_reload,
             no_backups,
             no_autosave,
@@ -604,6 +691,17 @@ impl OptionsDraft {
             test_joins: self.test_joins,
             test_address: self.test_address.trim().to_string(),
             test_password: self.test_password.clone(),
+            test_quick_start: self.test_quick_start,
+            test_characters: {
+                let mut chosen = s.test_characters.clone();
+                if let Some(project) = &self.test_project {
+                    match &self.test_character {
+                        Some(bic) => chosen.insert(project.clone(), bic.clone()),
+                        None => chosen.remove(project),
+                    };
+                }
+                chosen
+            },
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
             no_autosave: !self.autosave,
@@ -1387,6 +1485,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         };
         if let Some(p) = app.dialogs.pick_folder(title, path(field).as_deref()) {
             *field = p.display().to_string();
+        }
+    }
+    if ui.data_mut(|d| d.remove_temp::<bool>(choose_character_id())).is_some() {
+        let start = draft.test_character.as_deref().and_then(std::path::Path::parent);
+        if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Character, start) {
+            draft.test_character = Some(p);
         }
     }
     let keys_file: Option<bool> = ui.data_mut(|d| d.remove_temp(keys_file_id()));

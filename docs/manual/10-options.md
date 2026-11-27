@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T22:25:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T23:23:12Z }
 ---
 
 # Options
@@ -709,6 +709,15 @@ What **Build › Test Module** and **Test From Here** start
   a server to answer at **Server address** (`127.0.0.1:5121` when empty)
   and starts the game connected to it, with the **Player password** if
   the server has one.
+
+With the game, **Quick Start** is for a project that uses NWNX, whose
+module a local server tests
+([Test Module with NWNX](09-build-and-test.md#test-module-with-nwnx)):
+**Join with a chosen character** has the game join with the open
+project's **Character**, the one chosen for it last, one of your local
+vault's (by name) or **Choose a File…**. It is alone on the character
+list, and you confirm it once there: no argument of the game's skips
+that.
 
 **Minimize Toolset on test module** stays on General's Testing, where
 Aurora has it.
