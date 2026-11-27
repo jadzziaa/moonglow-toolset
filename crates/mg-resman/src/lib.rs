@@ -122,6 +122,11 @@ pub mod priority {
     pub const DEVELOPMENT_USER: u32 = 71;
     pub const DEVELOPMENT: u32 = 70;
     pub const RIM: u32 = 60;
+    /// A hak of the module's on disk whose file is newer than the module's
+    /// NWSync manifest: Moonglow's rule, not the engine's (which puts every
+    /// hak under the manifest). The builder's newer work shows over the
+    /// content the server published; an older hak stays under it.
+    pub const HAK_OVER_NWSYNC: u32 = 41;
     pub const NWSYNC: u32 = 40;
     /// Haks found in the user's `hak/` directory.
     pub const HAK_USER: u32 = 31;
@@ -232,6 +237,19 @@ impl ResMan {
     pub fn remove(&mut self, label: &str) -> Option<Layer> {
         let i = self.layers.iter().position(|l| l.label == label)?;
         Some(self.layers.remove(i))
+    }
+
+    /// Gives the layer with this label another priority: it goes below
+    /// the layers of that priority there are (so layers moved one by one,
+    /// in an order, keep it). Whether there is such a layer.
+    pub fn move_to(&mut self, label: &str, priority: u32) -> bool {
+        let Some(i) = self.layers.iter().position(|l| l.label == label) else { return false };
+        let mut layer = self.layers.remove(i);
+        layer.priority = priority;
+        let at =
+            self.layers.iter().position(|l| l.priority < priority).unwrap_or(self.layers.len());
+        self.layers.insert(at, layer);
+        true
     }
 
     /// The layer with this label, to change in place.
@@ -536,6 +554,29 @@ mod tests {
             .map(|(k, i)| (k.to_string(), rm.layers()[*i].label.as_str()))
             .collect();
         assert_eq!(entries, [("a.nss".to_string(), "high"), ("b.nss".to_string(), "low")]);
+    }
+
+    /// A layer given another priority goes below those of that priority:
+    /// haks moved over NWSync one by one keep the order they had.
+    #[test]
+    fn a_layer_moved_keeps_the_order_of_those_moved() {
+        let t = key("t", ResType::TWODA);
+        let mut rm = ResMan::new();
+        for name in ["a", "b", "c"] {
+            let mut c = MemContainer::new();
+            c.insert(t, name.as_bytes().to_vec());
+            rm.add(priority::HAK_USER, format!("hak:{name}"), LayerClass::Erf, c);
+        }
+        let mut sync = MemContainer::new();
+        sync.insert(t, b"nwsync".to_vec());
+        rm.add(priority::NWSYNC, "nwsync", LayerClass::NwSync, sync);
+        assert_eq!(&*rm.get(&t).unwrap(), b"nwsync");
+        assert!(rm.move_to("hak:b", priority::HAK_OVER_NWSYNC));
+        assert!(rm.move_to("hak:c", priority::HAK_OVER_NWSYNC));
+        assert!(!rm.move_to("hak:none", priority::HAK_OVER_NWSYNC));
+        let labels: Vec<&str> = rm.layers().iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(labels, ["hak:b", "hak:c", "nwsync", "hak:a"]);
+        assert_eq!(&*rm.get(&t).unwrap(), b"b");
     }
 
     /// Two haks with the same table (a builder's report: the resource

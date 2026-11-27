@@ -15,9 +15,10 @@
 //! - `used/<sha1>`: an empty file, its time when the manifest was last
 //!   used (one read from the game's storage alone has no other file here).
 //!
-//! A manifest's files are touched when it is used ([`Cache::touch`]), so
-//! that what was used last is kept when the cache is pruned
-//! ([`crate::prune`]).
+//! A manifest's `used/` mark and its index of written haks are touched
+//! when it is used ([`Cache::touch`]), so that what was used last is kept
+//! when the cache is pruned ([`crate::prune`]). Its own file is not: its
+//! time stays when it came here ([`Cache::manifest_time`]).
 //!
 //! Content is named by its SHA-1, so one cache serves every server.
 
@@ -145,6 +146,12 @@ impl Cache {
         write_whole(&self.manifest_path(sha1, ext), data)
     }
 
+    /// When a manifest came into the cache (its file's time: a use doesn't
+    /// change it, [`Cache::touch`]), where it is here.
+    pub fn manifest_time(&self, sha1: &Sha1) -> Option<SystemTime> {
+        std::fs::metadata(self.manifest_path(sha1, "")).ok()?.modified().ok()
+    }
+
     /// Whether a manifest holds the module's own resources, as its `.json`
     /// side file says (`includes_module_contents`): `None` where there is
     /// none, or it doesn't say.
@@ -154,8 +161,7 @@ impl Cache {
         v.get("includes_module_contents")?.as_bool()
     }
 
-    /// The manifests kept, the newest first (by when they were kept, or
-    /// last used: [`Cache::touch`]).
+    /// The manifests kept, the newest first (by when they were kept).
     pub fn manifests(&self) -> Vec<(Sha1, SystemTime)> {
         let Ok(dir) = std::fs::read_dir(self.root.join("manifests")) else { return Vec::new() };
         let mut out: Vec<(Sha1, SystemTime)> = dir
@@ -207,10 +213,11 @@ impl Cache {
         self.root.join("used").join(sha1_hex(manifest))
     }
 
-    /// Marks a manifest used now (its mark in `used/`, its file and its
-    /// index of written haks, where they are here): a prune keeps the last
-    /// used, the game's storage's too. A cache folder that isn't there is
-    /// not made for it.
+    /// Marks a manifest used now (its mark in `used/`, and its index of
+    /// written haks where it has one): a prune keeps the last used, the
+    /// game's storage's too. A cache folder that isn't there is not made
+    /// for it. The manifest's own file keeps its time: when it came here,
+    /// which a hak on disk is compared with ([`crate::Found::at`]).
     pub fn touch(&self, manifest: &Sha1) {
         let now = SystemTime::now();
         if self.root.is_dir() {
@@ -224,10 +231,8 @@ impl Cache {
                 let _ = f.set_modified(now);
             }
         }
-        for path in [self.manifest_path(manifest, ""), self.written_path(manifest)] {
-            if let Ok(f) = std::fs::File::options().write(true).open(&path) {
-                let _ = f.set_modified(now);
-            }
+        if let Ok(f) = std::fs::File::options().write(true).open(self.written_path(manifest)) {
+            let _ = f.set_modified(now);
         }
     }
 

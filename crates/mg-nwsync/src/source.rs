@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::manifest::{self, Entry};
 use crate::{Cache, GameStorage, Origins, Sha1, server_key, sha1_hex};
@@ -65,6 +65,11 @@ pub struct Found {
     /// resources: a layer or haks made from the manifest would put them
     /// over the module being edited ([`crate::haks::without_module`]).
     pub includes_module: Option<bool>,
+    /// When the manifest came here, which a hak on disk is compared with
+    /// (newer on disk: the builder's, over the manifest): the game's
+    /// `created_at` for one from its storage, else when Moonglow's cache
+    /// kept it; `None` where neither says.
+    pub at: Option<SystemTime>,
 }
 
 impl Found {
@@ -91,6 +96,27 @@ pub fn includes_module(
         .or_else(|| game.and_then(|g| g.includes_module_contents(sha1)))
 }
 
+/// When the game registered a manifest (its `created_at`), where it says.
+fn registered(sha1: &Sha1, game: Option<&GameStorage>) -> Option<SystemTime> {
+    let m = game?.manifests().ok()?.into_iter().find(|m| m.sha1 == *sha1)?;
+    let secs = u64::try_from(m.created_at).ok().filter(|s| *s > 0)?;
+    Some(UNIX_EPOCH + Duration::from_secs(secs))
+}
+
+/// When a manifest found in `from` came here ([`Found::at`]).
+pub(crate) fn time_of(
+    sha1: &Sha1,
+    from: ManifestFrom,
+    cache: Option<&Cache>,
+    game: Option<&GameStorage>,
+) -> Option<SystemTime> {
+    let cached = || cache.and_then(|c| c.manifest_time(sha1));
+    match from {
+        ManifestFrom::GameStorage => registered(sha1, game).or_else(cached),
+        ManifestFrom::Cache | ManifestFrom::Server => cached().or_else(|| registered(sha1, game)),
+    }
+}
+
 /// A manifest of the cache or the game's storage by its SHA-1.
 fn here(
     sha1: &Sha1,
@@ -107,7 +133,8 @@ fn here(
         {
             let includes_module = includes_module(sha1, cache, game);
             let from = ManifestFrom::Cache;
-            return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module }));
+            let at = time_of(sha1, from, cache, game);
+            return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module, at }));
         }
     }
     if let Some(g) = game
@@ -115,7 +142,8 @@ fn here(
     {
         let includes_module = includes_module(sha1, cache, game);
         let from = ManifestFrom::GameStorage;
-        return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module }));
+        let at = time_of(sha1, from, cache, game);
+        return Ok(Some(Found { sha1: *sha1, entries, from, origins, includes_module, at }));
     }
     Ok(None)
 }

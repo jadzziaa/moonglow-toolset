@@ -430,6 +430,32 @@ fn offline_the_newest_manifest_here_is_used() {
     assert!(e.contains("not connected"), "{e}");
 }
 
+/// When a manifest came here ([`mg_nwsync::Found::at`]): the game's
+/// `created_at` for one read from its storage, the time Moonglow's cache
+/// kept it for one read from there; a use ([`Cache::touch`]) leaves that
+/// time as it was (it is what a hak on disk is compared with).
+#[test]
+fn a_manifest_s_time_is_when_it_came_here() {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    let dir = mg_testkit::scratch_dir("nwsync-manifest-time");
+    let content = Content::new();
+    let (sha, bytes) = content.manifest();
+    let g = game_storage(&dir.join("game"), &content, URL, 1_700_000_000, &[], true);
+    let f = find(URL, Wanted::Pinned(sha), None, Some(&g)).unwrap();
+    assert_eq!(f.from, ManifestFrom::GameStorage);
+    assert_eq!(f.at, Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)));
+    let cache = Cache::new(dir.join("cache"));
+    cache.put_manifest(&sha, "", &bytes).unwrap();
+    let kept = SystemTime::now() - Duration::from_secs(3600);
+    let file = dir.join("cache/manifests").join(sha1_hex(&sha));
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(kept).unwrap();
+    cache.touch(&sha);
+    assert_eq!(cache.manifest_time(&sha), Some(kept));
+    let f = find(URL, Wanted::Pinned(sha), Some(&cache), Some(&g)).unwrap();
+    assert_eq!((f.from, f.at), (ManifestFrom::Cache, Some(kept)));
+    assert!(cache.used_path(&sha).is_file());
+}
+
 /// The server's origins file is kept with its manifest and read back,
 /// and asked for where the game's storage had the manifest.
 #[test]

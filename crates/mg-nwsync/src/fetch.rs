@@ -184,7 +184,8 @@ pub fn resolve(
                 .map(|b| Origins::parse(&String::from_utf8_lossy(&b)));
             let includes_module = crate::source::includes_module(&wanted, Some(cache), game);
             let from = ManifestFrom::Server;
-            let found = Found { sha1: wanted, entries, from, origins, includes_module };
+            let at = crate::source::time_of(&wanted, from, Some(cache), game);
+            let found = Found { sha1: wanted, entries, from, origins, includes_module, at };
             Ok(Resolved { found, server_latest, warnings: Vec::new() })
         }
         Err(e) if matches!(settings.manifest, Wanted::Pinned(_)) => Err(e),
