@@ -16,6 +16,9 @@
 # The order is the quiet lock, then the display, then a GPU slot; nobody
 # upgrades. Taking the display shares the quiet lock first.
 #
+# The descriptors are fixed (17 the display, 18 and 19 the quiet gate and
+# lock), not named ({var}>file needs bash 4.1; macOS's /bin/bash is 3.2).
+#
 # The display: one
 # exclusive flock(2) on ${MOONGLOW_ORACLE:-~/.local/share/moonglow-oracle}/locks/display.lock,
 # held by every run that puts a window on the display or restarts it (the
@@ -115,8 +118,9 @@ mg_lock_quiet_shared() {
   wait=$(mg_lock_wait)
   mins=$(mg_lock_wait_words "$wait")
   mkdir -p "$dir" || { echo "cannot make $dir for the quiet lock" >&2; exit 2; }
-  exec {MG_QUIET_GATE_FD}>>"$dir/quiet.gate" || { echo "cannot open $dir/quiet.gate" >&2; exit 2; }
-  exec {MG_QUIET_LOCK_FD}>>"$dir/quiet.lock" || { echo "cannot open $dir/quiet.lock" >&2; exit 2; }
+  MG_QUIET_GATE_FD=18 MG_QUIET_LOCK_FD=19
+  exec 18>>"$dir/quiet.gate" || { echo "cannot open $dir/quiet.gate" >&2; exit 2; }
+  exec 19>>"$dir/quiet.lock" || { echo "cannot open $dir/quiet.lock" >&2; exit 2; }
   deadline=$(($(date +%s) + wait))
   # (Through the gate, shared; then the lock, shared; the gate given back.
   # Past the gate no quiet run holds the lock, but one just ending may
@@ -128,7 +132,7 @@ mg_lock_quiet_shared() {
     exit 2
   fi
   flock -u "$MG_QUIET_GATE_FD"
-  exec {MG_QUIET_GATE_FD}>&-
+  exec 18>&-
   export MOONGLOW_LOCKS_HELD="quiet${MOONGLOW_LOCKS_HELD:+,$MOONGLOW_LOCKS_HELD}"
 }
 
@@ -146,8 +150,9 @@ mg_lock_quiet() {
   wait=$(mg_lock_wait)
   mins=$(mg_lock_wait_words "$wait")
   mkdir -p "$dir" || { echo "cannot make $dir for the quiet lock" >&2; exit 2; }
-  exec {MG_QUIET_GATE_FD}>>"$dir/quiet.gate" || { echo "cannot open $dir/quiet.gate" >&2; exit 2; }
-  exec {MG_QUIET_LOCK_FD}>>"$dir/quiet.lock" || { echo "cannot open $dir/quiet.lock" >&2; exit 2; }
+  MG_QUIET_GATE_FD=18 MG_QUIET_LOCK_FD=19
+  exec 18>>"$dir/quiet.gate" || { echo "cannot open $dir/quiet.gate" >&2; exit 2; }
+  exec 19>>"$dir/quiet.lock" || { echo "cannot open $dir/quiet.lock" >&2; exit 2; }
   deadline=$(($(date +%s) + wait))
   if ! mg_flock_by "$MG_QUIET_GATE_FD" -x "$deadline" \
     'waiting for a quiet run to end: held by $(head -n 1 "$dir/quiet.lock" 2>/dev/null || true); up to $mins' ||
@@ -178,7 +183,8 @@ mg_lock_display() {
   if ((wait == 0 || wait >= 60)); then mins="$((wait / 60)) min"; else mins="$wait s"; fi
   mkdir -p "$dir" || { echo "cannot make $dir for the display lock" >&2; exit 2; }
   # (Appending: opening the file must not empty the holder's line.)
-  exec {MG_DISPLAY_LOCK_FD}>>"$file" || { echo "cannot open $file" >&2; exit 2; }
+  MG_DISPLAY_LOCK_FD=17
+  exec 17>>"$file" || { echo "cannot open $file" >&2; exit 2; }
   if ! flock -x -n "$MG_DISPLAY_LOCK_FD"; then
     now=$(date +%s)
     deadline=$((now + wait))

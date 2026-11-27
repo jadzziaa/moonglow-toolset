@@ -209,7 +209,9 @@ Viewer): the owner's window never waits.
 ## For an outside program
 
 **The quiet lock.** A program that needs the machine to itself (Moonglow
-Client's soak) holds it alone, as this shell does around its run (`"$@"`):
+Client's soak) holds it alone, as this shell does around its run (`"$@"`;
+bash 3.2 or later, and `flock(1)`, util-linux's on Linux, which macOS
+lacks by default):
 
 <!-- example: quiet-alone -->
 ```sh
