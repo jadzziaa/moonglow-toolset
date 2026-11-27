@@ -283,7 +283,7 @@ fn color_button_paste() {
     let mut h = Harness::builder().with_size(egui::vec2(420.0, 420.0)).wgpu().build_ui_state(
         |ui, rgb: &mut [u8; 3]| {
             mg_uikit::apply(ui.ctx(), theme());
-            mg_ui::color_button::edit_srgb(ui, rgb);
+            mg_ui::color_button::edit_srgb(ui, rgb).accessible_name("Color");
         },
         [158, 151, 211],
     );
@@ -7323,7 +7323,7 @@ fn tile_textures() {
         }
         h.run_steps(2);
         popup_item(&h, "Tile Properties").click();
-        h.run_steps(5);
+        settle(&mut h);
         // (The Right Dock's Tile Properties panel, as wide as the dock.)
         h.get_by_label_contains("Textures of ").click();
         h.run_steps(20);
@@ -9419,12 +9419,9 @@ fn armor_part_none() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
     shoot(&mut h, &dir, &format!("{shot}-appearance"));
-    let label = h.get_by_label("Left bicep").rect();
-    h.get_all_by_role(egui::accesskit::Role::ComboBox)
-        .find(|n| {
-            let r = n.rect();
-            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
-        })
+    // (The list is named by its label.)
+    h.get_all_by_label("Left bicep")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::ComboBox)
         .expect("the left bicep's list")
         .click();
     h.run_steps(3);
@@ -11108,13 +11105,8 @@ fn grouped_context_menus() {
     };
     // (A submenu opens with the pointer on it, as a builder's.)
     let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
-        // (The menu's: a popup is a layer of its own, with the fewest containers
-        // above it; the toolbars name some of the same words.)
-        let depth = |n: &egui_kittest::Node<'_>| {
-            std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
-        };
-        let all: Vec<_> = h.get_all_by_label(name).collect();
-        let at = all.into_iter().rev().min_by_key(depth).expect(name).rect().center();
+        // (The menu's: the toolbars name some of the same words.)
+        let at = popup_item(h, name).rect().center();
         h.hover_at(at);
         h.run_steps(4);
     };
@@ -14144,13 +14136,15 @@ fn w1_tree_rows_least() {
 /// area's shaders, a preview's model): an area keeps the window
 /// repainting, so not a settle.
 /// The item `name` of the open right-click menu (the header's toggle of
-/// the same name aside): the popup's, with the fewest containers above it.
+/// the same name aside): the last of those in a menu.
 fn popup_item<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    let depth = |n: &egui_kittest::Node<'_>| {
-        std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
+    // (In a menu: egui 0.37 hangs a menu under the widget it opened from,
+    // so not by its depth, and a toolbar names some of the same words.)
+    let in_menu = |n: &egui_kittest::Node<'_>| {
+        std::iter::successors(n.accesskit_node().parent(), |p| p.parent())
+            .any(|p| p.role() == egui::accesskit::Role::Menu)
     };
-    let all: Vec<_> = h.get_all_by_label(name).collect();
-    all.into_iter().rev().min_by_key(depth).unwrap_or_else(|| panic!("no menu item {name}"))
+    h.get_all_by_label(name).rfind(in_menu).unwrap_or_else(|| panic!("no menu item {name}"))
 }
 
 fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
@@ -17207,7 +17201,7 @@ fn menus_color_picker_at_a_larger_text() {
             ui.set_style(style.clone());
             let usual = ui.ctx().global_style();
             ui.ctx().set_global_style(style);
-            mg_ui::color_button::edit_srgb(ui, rgb);
+            mg_ui::color_button::edit_srgb(ui, rgb).accessible_name("Color");
             ui.ctx().set_global_style(usual);
         },
         [158, 151, 211],

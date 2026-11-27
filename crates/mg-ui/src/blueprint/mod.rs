@@ -2955,9 +2955,12 @@ pub(crate) fn section(
 
 /// The room from `ui`'s cursor to its right edge (in a grid's cell, to
 /// the page's right edge): what a row of fixed widths has before it runs
-/// past a column of pages side by side (M4's U10).
+/// past a column of pages side by side (M4's U10). At most to what is
+/// in sight: under egui 0.37 a window's scroll can lay its page out wider
+/// than the window shows (a blueprint window off the tree, its Sound set
+/// row run past its edge).
 pub(crate) fn room_right(ui: &Ui) -> f32 {
-    ui.max_rect().right() - ui.cursor().min.x
+    ui.max_rect().right().min(ui.clip_rect().right()) - ui.cursor().min.x
 }
 
 /// A list with what it gives beside it (a creature's spells to choose
