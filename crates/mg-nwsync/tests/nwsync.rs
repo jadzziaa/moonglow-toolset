@@ -497,6 +497,13 @@ fn the_layer_reads_from_the_game_then_the_cache() {
     cache.put(&sha1(sound), &store(b"short", MAGIC_NSYC)).unwrap();
     let e = rm.get(&key("pw_sound", ResType::WAV)).unwrap_err().to_string();
     assert!(e.contains("the manifest says"), "{e}");
+    assert!(cache.contains(&sha1(sound)));
+    // One cut off (a write a crash broke): taken away, for the next pull.
+    let packed = compress(sound, MAGIC_NSYC).unwrap();
+    cache.put(&sha1(sound), &packed[..packed.len() - 3]).unwrap();
+    let e = rm.get(&key("pw_sound", ResType::WAV)).unwrap_err().to_string();
+    assert!(e.contains("damaged") && e.contains("removed"), "{e}");
+    assert!(!cache.contains(&sha1(sound)));
 }
 
 /// The client with a server of its own on this computer: a file, a
@@ -847,6 +854,19 @@ fn a_manifest_used_from_the_game_s_storage_keeps_its_data() {
     let p = prune(&cache, None, &keep, true).unwrap();
     assert_eq!(p.data_left, None);
     assert!(p.notes.iter().any(|n| n.contains(&sha1_hex(&sha)[..8])), "{:?}", p.notes);
+    // The mark of one used before it, not kept, goes with a prune; the
+    // kept one's stays.
+    let before = sha1(b"a manifest used before");
+    cache.touch(&before);
+    let past = std::time::SystemTime::now() - Duration::from_secs(60);
+    let f = std::fs::File::options().write(true).open(cache.used_path(&before)).unwrap();
+    f.set_modified(past).unwrap();
+    drop(f);
+    let p = prune(&cache, Some(&g), &keep, false).unwrap();
+    assert_eq!((p.kept, p.removed), (vec![sha], vec![before]));
+    assert!(!cache.used_path(&before).exists());
+    assert!(cache.used_path(&sha).is_file());
+    assert_eq!(p.data_files, 0);
     // (Touching a cache that isn't there makes no folder.)
     let none = Cache::new(dir.join("no cache"));
     none.touch(&sha);
