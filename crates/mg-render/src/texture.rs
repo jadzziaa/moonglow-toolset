@@ -84,35 +84,29 @@ fn stored_level(tex: &Texture, level: usize) -> Option<Vec<u8>> {
     Some(rgba)
 }
 
-/// Halves an RGBA8 image (box filter; odd sizes clamp at the edge). A
-/// pixel's color counts by its alpha, so that what a texture keeps under
-/// its transparent parts (often a pale background) doesn't show as a rim
-/// round what is drawn, wider the smaller the level.
+/// Halves an RGBA8 image (box filter; odd sizes clamp at the edge): each
+/// channel the plain mean of the four pixels, a transparent pixel's color
+/// counted as an opaque one's. The game client makes an uncompressed
+/// texture's levels so: what a TGA keeps under its transparent parts
+/// shows at a soft edge seen from afar, wider the smaller the level
+/// (`batch9_soft_edge_levels` in `mg-corpus-tests`' `client_render`).
 fn half(data: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
     let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
     let mut out = vec![0u8; nw as usize * nh as usize * 4];
     for y in 0..nh {
         for x in 0..nw {
-            let (mut plain, mut weighed, mut alpha) = ([0u32; 3], [0u32; 3], 0u32);
+            let mut sum = [0u32; 4];
             for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                 let (sx, sy) = ((2 * x + dx).min(w - 1), (2 * y + dy).min(h - 1));
                 let i = (sy as usize * w as usize + sx as usize) * 4;
-                let a = u32::from(data[i + 3]);
-                for c in 0..3 {
-                    plain[c] += u32::from(data[i + c]);
-                    weighed[c] += u32::from(data[i + c]) * a;
+                for (c, v) in sum.iter_mut().zip(&data[i..i + 4]) {
+                    *c += u32::from(*v);
                 }
-                alpha += a;
             }
             let o = (y as usize * nw as usize + x as usize) * 4;
-            for c in 0..3 {
-                // (All of it transparent: the colors as they are.)
-                out[o + c] = match alpha {
-                    0 => ((plain[c] + 2) / 4) as u8,
-                    _ => ((weighed[c] + alpha / 2) / alpha) as u8,
-                };
+            for (d, c) in out[o..o + 4].iter_mut().zip(sum) {
+                *d = ((c + 2) / 4) as u8;
             }
-            out[o + 3] = ((alpha + 2) / 4) as u8;
         }
     }
     (out, nw, nh)
@@ -165,7 +159,8 @@ pub(crate) fn compress_read(tex: &Texture, mipmaps: bool, limit: Option<u32>) ->
     let format = if alpha { Format::Bc3 } else { Format::Bc1 };
     let image = mg_image::Rgba { width: w, height: h, data };
     let quick = mg_image::encode::Effort::Quick;
-    Some(mg_image::encode::compress_with(&image, format, mipmaps, false, quick))
+    // (Its levels plain means, as the client makes a TGA's: `half`.)
+    Some(mg_image::encode::compress_plain_levels(&image, format, mipmaps, false, quick))
 }
 
 impl GpuTexture {
@@ -660,21 +655,60 @@ mod tests {
         let data = [0, 0, 0, 0, 255, 255, 255, 255, 100, 100, 100, 100];
         let (out, w, h) = half(&data, 3, 1);
         assert_eq!((w, h), (1, 1));
-        // (Averaged over the pixels drawn; half of them are.)
-        assert_eq!((out[0], out[3]), (255, 128));
+        // (Each channel the plain mean of the four, clamped: two of each.)
+        assert_eq!((out[0], out[3]), (128, 128));
     }
 
     #[test]
-    fn halving_keeps_transparent_pixels_colors_out() {
-        // A green leaf beside a transparent pale background.
+    fn halving_counts_transparent_pixels_colors_as_the_client() {
+        // A green leaf beside a transparent pale background: the
+        // background's color shows, as in the client's levels of a TGA.
         let data = [20, 200, 20, 255, 230, 240, 255, 0];
         let (out, ..) = half(&data, 2, 1);
-        assert_eq!(out, [20, 200, 20, 128], "the leaf's color, half there");
+        assert_eq!(out, [125, 220, 138, 128]);
         // Nothing drawn at all: the colors as they are.
         let (out, ..) = half(&[10, 20, 30, 0, 30, 40, 50, 0], 2, 1);
         assert_eq!(out, [20, 30, 40, 0]);
         // Opaque pixels average as before.
         let (out, ..) = half(&[0, 0, 0, 255, 100, 200, 50, 255], 2, 1);
         assert_eq!(out, [50, 100, 25, 255]);
+    }
+
+    /// A texture read uncompressed, of a field of opaque white and
+    /// transparent green texels in turn: its smaller levels light green
+    /// of alpha a half, by either path (the levels made of RGBA under
+    /// `COMPRESSED_FROM`, compressed with them over it), as the client's.
+    #[test]
+    fn a_read_texture_s_levels_carry_its_transparent_texels_colors() {
+        let field = |side: u32| {
+            let data = (0..side * side)
+                .flat_map(|i| match (i % side + i / side) % 2 {
+                    0 => [255, 255, 255, 255],
+                    _ => [0, 255, 0, 0],
+                })
+                .collect();
+            mg_image::Rgba { width: side, height: side, data }.into_texture(true)
+        };
+        let small = field(16);
+        let mut levels = vec![(small.mips[0].clone(), 16, 16)];
+        while levels.last().unwrap().1 > 1 {
+            let (d, w, h) = levels.last().unwrap();
+            levels.push(half(d, *w, *h));
+        }
+        for (d, w, _) in &levels[1..] {
+            assert_eq!(&d[..4], &[128, 255, 128, 128], "{w} a side");
+        }
+        let large = compress_read(&field(64), true, None).expect("compressed as it is read");
+        assert_eq!(large.mips.len(), 7);
+        for level in 1..large.mips.len() {
+            let (w, h) = large.level_dims(level);
+            let p = mg_image::bc::decode(Format::Bc3, w, h, &large.mips[level]);
+            assert!(
+                p[0].abs_diff(128) <= 4 && p[1] >= 250 && p[2].abs_diff(128) <= 4,
+                "level {level}: {:?}",
+                &p[..4]
+            );
+            assert!(p[3].abs_diff(128) <= 2, "level {level}: {}", p[3]);
+        }
     }
 }

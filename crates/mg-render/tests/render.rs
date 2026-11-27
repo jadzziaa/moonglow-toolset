@@ -2392,6 +2392,69 @@ fn meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth() {
     }
 }
 
+/// Two models' meshes of mesh `alpha` under 1 are put in order by their
+/// instances' origins, not by where the meshes stand, as the client orders
+/// two dynamic placeables' (`batch9_see_through_statics` in
+/// `client_render.rs`, its `do` pairs): a red card 0.6 m west of a blue
+/// one and a metre nearer the eye, whose model's origin is 2 m behind its
+/// mesh (behind the blue card's origin), is drawn first, hiding the blue
+/// one where they overlap; its origin at its mesh, the blue is drawn
+/// first and the red laid over it.
+#[test]
+fn two_models_see_through_meshes_go_by_their_instances_origins() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("red", [255, 0, 0, 255]);
+    assets.solid("blue", [0, 0, 255, 255]);
+    let wall = colored_quad(&gpu, [0.5, 0.5, 0.5]);
+    let behind = Mat4::from_translation(Vec3::new(0.0, 3.0, 0.8))
+        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+        * Mat4::from_scale(Vec3::splat(8.0));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 0.8),
+        target: Vec3::new(0.0, 0.0, 0.8),
+        fov_y: 0.9,
+        near: 0.1,
+        far: 100.0,
+    };
+    let card = |bitmap, y: f32| {
+        let list = [Card { bitmap, alpha: 0.5, at: Vec3::new(0.0, y, 0.0), turn: 0.0 }];
+        Arc::new(GpuModel::new(&gpu, Arc::new(cards(&list))))
+    };
+    let (w, h) = (96u32, 96u32);
+    let dir = mg_testkit::output_dir("render");
+    for (offset, red_first) in [(2.0f32, true), (0.0, false)] {
+        // (The red card's mesh at y -0.5 whatever its origin; the blue's at
+        // 0.5, 0.6 m east.)
+        let red = Instance::new(
+            card("red", -offset),
+            Mat4::from_translation(Vec3::new(-0.3, offset - 0.5, 0.0)),
+        );
+        let blue =
+            Instance::new(card("blue", 0.0), Mat4::from_translation(Vec3::new(0.3, 0.5, 0.0)));
+        let scene = Scene {
+            instances: vec![Instance::new(wall.clone(), behind), blue, red],
+            area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+            ..Default::default()
+        };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let img = r.render_image(&gpu, &assets, &scene, &camera, w, h);
+        save(&img, &dir.join(format!("see_through_origins_{offset}.png")));
+        let at = |p: Vec3| {
+            let c = (camera.projection(w as f32 / h as f32) * camera.view()).project_point3(p);
+            img.pixel(((c.x + 1.0) * 0.5 * w as f32) as u32, ((1.0 - c.y) * 0.5 * h as f32) as u32)
+        };
+        // (Where they overlap, on the red card's plane; the red alone west.)
+        let overlap = at(Vec3::new(0.0, -0.5, 1.0));
+        let red_alone = at(Vec3::new(-0.9, -0.5, 1.0));
+        let same = (0..3).all(|i| overlap[i].abs_diff(red_alone[i]) <= 6);
+        assert_eq!(
+            same, red_first,
+            "origin {offset} m behind: overlap {overlap:?}, the red alone {red_alone:?}"
+        );
+    }
+}
+
 /// The pipelines of the game's programs a renderer made, kept as lines
 /// (`Renderer::game_pipelines_made`), are made by another before it draws
 /// (`Renderer::prepare_game_pipelines`, as a module opens with what its
@@ -9055,4 +9118,111 @@ fn skinned_mesh_queries_point_lights_at_its_posed_position() {
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     let img = r.render_image(&gpu, &NoAssets, &scene, &camera, 32, 32);
     assert!(img.pixel(16, 16)[0] > 40, "expected posed mesh to be lit: {:?}", img.pixel(16, 16));
+}
+
+/// A standing quad of `size` (half its side) at `at` whose texture spans
+/// it once (`quad`'s texture coordinates are all 0).
+fn textured_quad(gpu: &Gpu, texture: &str, at: Vec3, size: f32) -> Instance {
+    let mut model = quad();
+    if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+        m.textures[0] = Some(texture.into());
+        m.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    }
+    let model = Arc::new(GpuModel::new(gpu, Arc::new(model)));
+    let t = Mat4::from_translation(at)
+        * Mat4::from_rotation_x(90f32.to_radians())
+        * Mat4::from_scale(Vec3::splat(size));
+    Instance::new(model, t)
+}
+
+/// A texture read uncompressed (a TGA) whose transparent texels have a
+/// color of their own shows it from afar, as the game client draws it
+/// (`batch9_soft_edge_levels` in `mg-corpus-tests`' `client_render`): its
+/// smaller levels are plain means. A field of opaque white and
+/// transparent green texels in turn, seen small over black, is light green
+/// of alpha a half (where levels weighted by alpha made it gray), by both
+/// paths: 32 texels a side (levels made of RGBA) and 256 (compressed as it
+/// is read, where the device compresses). And a hard edge of opaque white
+/// beside transparent green, off the levels' boundaries, seen small: the
+/// level's texel across it is faint green, where it was gray.
+#[test]
+fn a_far_soft_edge_shows_its_transparent_texels_colors() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let field = |side: u32| {
+        let data = (0..side * side)
+            .flat_map(|i| match (i % side + i / side) % 2 {
+                0 => [255, 255, 255, 255],
+                _ => [0, 255, 0, 0],
+            })
+            .collect();
+        mg_image::Rgba { width: side, height: side, data }.into_texture(true)
+    };
+    assets.textures.insert("field32".into(), field(32));
+    assets.textures.insert("field256".into(), field(256));
+    // (A hard edge off the levels' boundaries: opaque white to texel 102
+    // of 256, transparent green after it.)
+    let edge = (0..256 * 256u32)
+        .flat_map(|i| if i % 256 < 102 { [255, 255, 255, 255] } else { [0, 255, 0, 0] })
+        .collect();
+    let edge = mg_image::Rgba { width: 256, height: 256, data: edge };
+    assets.textures.insert("edge256".into(), edge.into_texture(true));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![
+            textured_quad(&gpu, "field32", Vec3::new(-1.0, 0.0, 1.0), 0.25),
+            textured_quad(&gpu, "field256", Vec3::new(1.0, 0.0, 1.0), 0.25),
+            textured_quad(&gpu, "edge256", Vec3::new(0.0, 0.0, 0.3), 0.25),
+        ],
+        area: mg_render::AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let dir = mg_testkit::scratch_dir("render-far-soft-edge");
+    for shaders in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = shaders;
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 128, 128);
+        save(&img, &dir.join(format!("fields_{}.png", u8::from(shaders))));
+        // (Each quad half a metre, 7 pixels: the mean of its middle 3 × 3.)
+        for (name, cx) in [("field32", 49), ("field256", 79)] {
+            let mut sum = [0u32; 3];
+            for y in 63..66 {
+                for x in cx - 1..=cx + 1 {
+                    let p = img.pixel(x, y);
+                    for k in 0..3 {
+                        sum[k] += u32::from(p[k]);
+                    }
+                }
+            }
+            let [r, g, b] = sum.map(|v| v / 9);
+            assert!(
+                g > 60 && g > r + 30 && g > b + 30,
+                "{name}, Shaders {shaders}: light green over black, not gray: {:?}",
+                [r, g, b]
+            );
+        }
+        // (The edge, rows 72 to 79, from the quad's middle east: its
+        // level's texel across the edge is the green of the texels beyond
+        // it, faint, (27, 54, 27) over black, where weighted by alpha it was
+        // gray, (54, 54, 54); the green the most of any pixel's. West of the
+        // middle the texture's wrap brings the far side's green into the
+        // first column either way.)
+        let green = (72..80)
+            .flat_map(|y| (62..72).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let [r, g, b, _] = img.pixel(x, y).map(i32::from);
+                g - r.max(b)
+            })
+            .max()
+            .unwrap();
+        eprintln!("edge, Shaders {shaders}: green {green}");
+        assert!(green > 15, "the edge, Shaders {shaders}: its green beside it {green}");
+    }
 }

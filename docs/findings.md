@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T23:06:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:16Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2195,8 +2195,75 @@ another) is hidden behind them. A texture of alpha 128 on a mesh of
   model's order (`mg-render`'s `renderer.rs`, `GamePass::Ordered`;
   `meshes_of_alpha_under_one_are_drawn_in_model_order_writing_depth`,
   `a_mesh_of_alpha_under_one_hides_a_particle_behind_it`). Two models'
-  such meshes, as the client orders them, aren't read.
+  such meshes: the next finding.
 - **Wiki:** missing.
+
+### Two placeables' see-through meshes: dynamic ones by their origins, static ones not by distance
+
+Two dynamic placeables' meshes of mesh `alpha` under 1 are drawn
+farthest first by where their instances' origins stand from the eye,
+not their meshes: a card whose mesh stands 2 m before its model's
+origin, nearer the eye than another card but its origin farther, is
+drawn first and hides the other where they overlap. Static placeables'
+such meshes are not put in order by either: of two cards (red and
+blue, `alpha 0.5`) the same color is drawn first in every static pair
+of a scene, whichever is nearer; the red in all ten pairs of
+`batch9_see_through_statics`, the blue in all eight of
+`batch8d_see_through_two_models`. Sharing a texture or a model with a
+dynamic placeable changes nothing, nor where the dynamic sharers stand,
+nor which is listed first in the area. Not told apart: a fixed order of
+the two textures (or the buckets static geometry is drawn in: "Static
+geometry is drawn in buckets"), or an order of each texture's static
+meshes together by a place they share; in both batches each texture's
+cards stand with the same mean place.
+
+- **Checked:** game client, `client_render`'s
+  `batch9_see_through_statics` (2026-11-26: dynamic and static pairs,
+  the nearer card's mesh before its origin, a texture shared with a
+  dynamic placeable of another model, models shared with dynamic
+  placeables standing either way round) and `batch8d_see_through_two_models`
+  run again the same day. Its first reading (2026-11-25) had static
+  pairs of textures of their own drawn farthest first: its windows, put
+  where the fitted camera puts the overlap, read the client's picture a
+  few pixels off; the pairs are now read by the pixels of both colors
+  over each pair's box (`batch9::mixed_pixels`), and the pictures were
+  looked at.
+- **Moonglow:** dynamic placeables as the client (`mg-render`'s
+  `renderer.rs`, `instance_depth`;
+  `two_models_see_through_meshes_go_by_their_instances_origins`). Static
+  ones are put in order as dynamic ones, by their origins: half of the
+  static pairs differ from the client (open in the [deferred
+  list](deferred.md), "See-through meshes").
+- **Wiki:** missing.
+
+### The client makes an uncompressed texture's levels by plain means
+
+The client makes the smaller levels of a texture it reads uncompressed
+(a TGA) as plain means of the texels above them, a transparent texel's
+color counted as an opaque one's: what a TGA keeps under its
+transparent parts shows where the texture is seen small. A field of
+opaque white and transparent green texels in turn (a one-texel
+checker) on a card blended by the texture's alpha is light green over
+the ground near (its levels 2 and 3, counted from 0) and far (its level 5),
+(124, 184, 119) and (111, 163, 107), where levels weighted by alpha
+would be white of alpha a half. A compressed DDS's levels are its own,
+as stored.
+
+- **Checked:** game client, `client_render`'s `batch9_soft_edge_levels`
+  (2026-11-26: 32-bit TGAs of 512 texels, no TXI, on standing cards
+  of `alpha 1`, 2.4 m near and 0.5 m far).
+- **Moonglow:** as the client since 2026-11-26, by both of its paths: the
+  levels made of RGBA (`mg-render`'s `texture.rs`, `half`) and a texture
+  compressed as it is read (`mg_image::encode::compress_plain_levels`):
+  (125, 184, 119) and (111, 160, 107) beside the client's pictures
+  (`a_read_texture_s_levels_carry_its_transparent_texels_colors`,
+  `plain_levels_count_transparent_texels_colors`,
+  `a_far_soft_edge_shows_its_transparent_texels_colors`). Before, both
+  weighted the colors by alpha, and the fields were gray-white. A
+  texture written to a file (`mg texture convert`) keeps its levels
+  weighted by alpha, which the client then draws as stored.
+- **Wiki:** missing: "DDS" says BioWare used TGAs for interface
+  pictures, which don't mipmap; nothing on how a TGA's levels are made.
 
 ### The client's clock starts from the machine's
 

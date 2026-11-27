@@ -1,0 +1,448 @@
+//! The deferred list's "See-through meshes" entry, its last two items (the
+//! ninth client batch, 2026-11-26): how the client makes the smaller
+//! levels of an uncompressed texture with soft edges, and how it orders
+//! static placeables' see-through meshes against each other. Each test
+//! writes the client's picture (and Moonglow's beside it) to its scratch
+//! directory and prints what it measured; what was seen is in its comment.
+//!
+//! Needs the game and the off-screen display; run by hand, one client at a
+//! time:
+//! `DISPLAY=$D cargo test -p mg-corpus-tests --release --test client_render batch9 -- --ignored --nocapture --test-threads 1`.
+
+use std::borrow::Cow;
+
+use super::batch8d::{as_refs, project, reference_camera, solid, window};
+use super::programs::{Quad, model};
+use super::readings::{INVISIBLE, Reading, placeables_with};
+use super::*;
+
+/// A 32-bit TGA of `w` × `h` texels, `f(x, y)` each (RGBA; rows stored
+/// bottom first, so y 0 is the texture's v 0).
+pub(super) fn tga32(w: u16, h: u16, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let [wl, wh] = w.to_le_bytes();
+    let [hl, hh] = h.to_le_bytes();
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, wl, wh, hl, hh, 32, 8];
+    for y in 0..u32::from(h) {
+        for x in 0..u32::from(w) {
+            let [r, g, b, a] = f(x, y);
+            t.extend([b, g, r, a]);
+        }
+    }
+    t
+}
+
+// ---------------------------------------------------------------------------
+// The smaller levels of an uncompressed texture.
+
+/// The side of [`batch9_soft_edge_levels`]' textures, texels: over
+/// Moonglow's `COMPRESSED_FROM`, so that its levels are made by the
+/// encoder's `halve` where the device compresses, by `half` where not.
+const LEVELS_SIDE: u16 = 512;
+
+/// The transparent texels' color: green, which neither the opaque white
+/// nor the ground has.
+const UNDER: [u8; 3] = [0, 255, 0];
+
+/// The soft edge: opaque white to u 0.4, its alpha falling to 0 by u 0.6,
+/// transparent green from there.
+fn edge_texel(x: u32, _y: u32) -> [u8; 4] {
+    let u = (x as f32 + 0.5) / f32::from(LEVELS_SIDE);
+    let a = ((0.6 - u) / 0.2).clamp(0.0, 1.0);
+    if a > 0.0 {
+        [255, 255, 255, (a * 255.0).round() as u8]
+    } else {
+        [UNDER[0], UNDER[1], UNDER[2], 0]
+    }
+}
+
+/// A field of texels opaque white and transparent green in turn (a
+/// one-texel checker): averaged by alpha, its levels are white of alpha
+/// 0.5; averaged plainly, light green of alpha 0.5.
+fn field_texel(x: u32, y: u32) -> [u8; 4] {
+    if (x + y).is_multiple_of(2) { [255, 255, 255, 255] } else { [UNDER[0], UNDER[1], UNDER[2], 0] }
+}
+
+/// The cards of [`batch9_soft_edge_levels`]: name, texture, the middle of
+/// its foot (x, y) and its side, metres. Two of each texture: one near
+/// and large (its levels 2 and 3, counted from 0, read), one far and small (its
+/// level 5).
+const LEVEL_CARDS: [(&str, &str, [f32; 2], f32); 4] = [
+    ("near_edge", "mg9_edge", [16.6, 22.5], 2.4),
+    ("near_field", "mg9_field", [19.6, 22.5], 2.4),
+    ("far_edge", "mg9_edge", [21.5, 32.0], 0.5),
+    ("far_field", "mg9_field", [22.3, 32.0], 0.5),
+];
+
+/// How the client makes the smaller levels of an uncompressed texture
+/// (a 32-bit TGA, 512 texels a side, no TXI) whose transparent texels have
+/// a color of their own (green; the opaque ones white): whether a level's
+/// color is the plain mean of the four texels above it (the green bleeding
+/// into a soft edge seen from afar, a fringe) or the mean weighted by their
+/// alpha (the edge white as near), as Moonglow makes them. Two textures on
+/// standing cards (`alpha` 1, so the texture's alpha blends them): a soft
+/// edge (opaque white, its alpha falling to 0 over a fifth of the width,
+/// then transparent green) and a field of opaque white and transparent
+/// green texels in turn (a one-texel checker), each on a large near card
+/// and on a small far one (2.4 m at 2.5 m ahead of the player, 0.5 m at
+/// 12 m). The field tells it in one number: averaged by alpha, its
+/// levels are white of alpha 0.5; averaged plainly, light green
+/// (127, 255, 127) of alpha 0.5; without levels, a noise of the two.
+/// Printed: the mean color over each field, and across each edge.
+///
+/// Seen (2026-11-26, 89.8193.37): the client's levels are plain means.
+/// The near field is light green over the ground, (124, 184, 119), and
+/// the far one (111, 163, 107), where Moonglow's levels then, weighted by
+/// alpha, drew them gray-white, (186, 184, 181) and (144, 137, 132). The
+/// far edge seen from afar is as near, white falling to the ground over
+/// the ramp, without a rim of its own (its levels' green under alpha
+/// near 0). Moonglow since (`half`, `compress_plain_levels`): (125, 184,
+/// 119) and (111, 160, 107), the edges' profiles as the client's
+/// (`docs/findings.md`, "The client makes
+/// an uncompressed texture's levels by plain means").
+#[test]
+#[ignore]
+fn batch9_soft_edge_levels() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        ("mg9_edge.tga".into(), tga32(LEVELS_SIDE, LEVELS_SIDE, edge_texel)),
+        ("mg9_field.tga".into(), tga32(LEVELS_SIDE, LEVELS_SIDE, field_texel)),
+    ];
+    let quads: Vec<Quad> = LEVEL_CARDS
+        .iter()
+        .map(|(name, texture, [x, y], side)| Quad {
+            name: (*name).into(),
+            at: [*x - 20.0, *y - 20.0, 0.0],
+            corners: [
+                [-side / 2.0, 0.0, 0.0],
+                [side / 2.0, 0.0, 0.0],
+                [side / 2.0, 0.0, *side],
+                [-side / 2.0, 0.0, *side],
+            ],
+            bitmap: Cow::Borrowed(texture),
+            extra: "",
+            tverts: true,
+            colors: false,
+        })
+        .collect();
+    files.push(("mg9_levels.mdl".into(), model("mg9_levels", &quads).into_bytes()));
+    let (table, first) = placeables_with(&base, &[("mg9_levels", 0)]);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let light = Lighting { ambient: 0xFFFFFF, diffuse: 0x000000, main_light: 0, only_tile: None };
+    let mut r = Reading::new("batch9_soft_edge_levels", "tcn01", light, &as_refs(&files));
+    r.place(first, [20.0, 20.0, 0.0], 0.0, &[]);
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let camera = reference_camera();
+    // (The middle of an edge card's white, opaque part, where the picture
+    // shows it, against where the fitted camera puts it: the client's
+    // picture is a few pixels off, which at a far card's 15 pixels puts a
+    // window on the ground. The same shift is taken for the field beside
+    // it.)
+    let shift = |img: &Rgba, far: bool| -> (f32, f32) {
+        let (_, _, [x, y], side) = LEVEL_CARDS[if far { 2 } else { 0 }];
+        let p = |u: f32, v: f32| {
+            project(
+                &camera,
+                Vec3::new(x - side / 2.0 + u * side, y, v * side),
+                img.width,
+                img.height,
+            )
+        };
+        let ((x0, y1), (x1, y0)) = (p(0.0, 0.0), p(0.45, 1.0));
+        let (cx, cy) = p(0.2, 0.5);
+        let reach = 12.0 + (x1 - x0) * 0.5;
+        let (mut sum, mut n) = ((0.0, 0.0), 0.0);
+        for py in (y0 - reach) as i32..=(y1 + reach) as i32 {
+            for px in (x0 - reach) as i32..=(x1 + reach) as i32 {
+                let c = super::batch8d::pixel(img, px, py);
+                if c[..3].iter().all(|&v| v > 215) {
+                    sum = (sum.0 + px as f32, sum.1 + py as f32);
+                    n += 1.0;
+                }
+            }
+        }
+        if n == 0.0 { (0.0, 0.0) } else { (sum.0 / n - cx, sum.1 / n - cy) }
+    };
+    for (name, _, [x, y], side) in LEVEL_CARDS {
+        for (label, img) in &pictures {
+            let (dx, dy) = shift(img, name.starts_with("far"));
+            let at = |u: f32, v: f32| {
+                let (px, py) = project(
+                    &camera,
+                    Vec3::new(x - side / 2.0 + u * side, y, v * side),
+                    img.width,
+                    img.height,
+                );
+                (px + dx, py + dy)
+            };
+            let (cx, cy) = at(0.5, 0.5);
+            let (lx, _) = at(0.0, 0.5);
+            let (rx, _) = at(1.0, 0.5);
+            let px = rx - lx;
+            if name.ends_with("field") {
+                let r = ((px * 0.3) as i32).max(1);
+                let m = window(img, cx, cy, r);
+                eprintln!("{label:22} {name:10} ({px:5.1} px wide): mean {m:4.0?}");
+            } else {
+                let profile: Vec<String> = [0.3f32, 0.45, 0.5, 0.55, 0.6, 0.65, 0.75, 0.9]
+                    .iter()
+                    .map(|u| {
+                        let (ux, uy) = at(*u, 0.5);
+                        let c = window(img, ux, uy, 0);
+                        format!("u {u:.2} {c:3.0?}")
+                    })
+                    .collect();
+                eprintln!("{label:22} {name:10} ({px:5.1} px wide): {}", profile.join("  "));
+            }
+        }
+    }
+    eprintln!("{}", dir.display());
+}
+
+/// The pixels within `rect` (left, top, right, bottom), widened by
+/// `margin` on each side, that have both red and blue in them (a card of
+/// one drawn over one of the other where they overlap: the farther drawn
+/// first, its color under the nearer's). Where the nearer was drawn first
+/// the overlap is its color alone, and there are none. (Counted over the
+/// pair's whole box rather than read at the projected overlap: the fitted
+/// camera is a few pixels off the client's, enough to put a small window
+/// outside a card.)
+pub(super) fn mixed_pixels(img: &Rgba, rect: [f32; 4], margin: f32) -> usize {
+    let (x0, y0) = ((rect[0] - margin).max(0.0) as u32, (rect[1] - margin).max(0.0) as u32);
+    let x1 = ((rect[2] + margin) as u32).min(img.width - 1);
+    let y1 = ((rect[3] + margin) as u32).min(img.height - 1);
+    (y0..=y1)
+        .flat_map(|y| (x0..=x1).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let [r, g, b, _] = img.pixel(x, y).map(i32::from);
+            r - g > 25 && b - g > 25 && (r - b).abs() < 45
+        })
+        .count()
+}
+
+/// The client's picture and Moonglow's two beside it.
+fn pictures(dir: &Path, client: &Rgba) -> Vec<(&'static str, Rgba)> {
+    save_png(client, &dir.join("client_picture.png"));
+    vec![
+        ("client", client.clone()),
+        ("moonglow (own shader)", common::read_png(&dir.join("moonglow.png"))),
+        ("moonglow (game's)", common::read_png(&dir.join("moonglow_on.png"))),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Static placeables' see-through meshes in order.
+
+/// A set of [`batch9_see_through_statics`]: its code (in the models' and
+/// textures' names), whether its placeables are static, the texture
+/// names' set (another's, to share them), and whether the nearer card's
+/// mesh stands 2 m before its model's origin (the origin then farther
+/// than the farther card's).
+struct Set {
+    code: &'static str,
+    statics: u8,
+    textures: &'static str,
+    /// The models' set (another's, to place its models).
+    models: &'static str,
+    offset: bool,
+}
+
+/// The sets: controls (dynamic and static, models and textures of their
+/// own); the same with the nearer card's mesh before its origin; static
+/// models whose textures a dynamic set's models (`td`) name as well; and
+/// two pairs of sets of the same models placed static and dynamic
+/// (`c1`/`c1d`, `c2`/`c2d`), whose dynamic pair stands one way round (the
+/// red nearer for `c1d`, the blue for `c2d`).
+const SETS: [Set; 10] = [
+    Set { code: "dc", statics: 0, textures: "dc", models: "dc", offset: false },
+    Set { code: "do", statics: 0, textures: "do", models: "do", offset: true },
+    Set { code: "sc", statics: 1, textures: "sc", models: "sc", offset: false },
+    Set { code: "so", statics: 1, textures: "so", models: "so", offset: true },
+    Set { code: "ts", statics: 1, textures: "ts", models: "ts", offset: false },
+    Set { code: "td", statics: 0, textures: "ts", models: "td", offset: false },
+    Set { code: "c1", statics: 1, textures: "c1", models: "c1", offset: false },
+    Set { code: "c2", statics: 1, textures: "c2", models: "c2", offset: false },
+    Set { code: "c1d", statics: 0, textures: "c1", models: "c1", offset: false },
+    Set { code: "c2d", statics: 0, textures: "c2", models: "c2", offset: false },
+];
+
+/// The pairs of [`batch9_see_through_statics`]: the set, the model (its
+/// code: `c2d` places `c2`'s models dynamic), the nearer color and the
+/// nearer card's mesh's place (x, y); the farther's is 0.5 m east and
+/// north.
+const ORDER_PAIRS: [(&str, &str, char, [f32; 2]); 17] = [
+    ("dc", "dc", 'R', [14.0, 23.0]),
+    ("dc", "dc", 'B', [16.4, 23.0]),
+    ("do", "do", 'R', [18.8, 23.0]),
+    ("do", "do", 'B', [21.2, 23.0]),
+    ("c1d", "c1", 'R', [23.6, 23.0]),
+    ("c2d", "c2", 'B', [26.0, 23.0]),
+    ("sc", "sc", 'R', [14.0, 27.0]),
+    ("sc", "sc", 'B', [16.4, 27.0]),
+    ("so", "so", 'R', [18.8, 27.0]),
+    ("so", "so", 'B', [21.2, 27.0]),
+    ("ts", "ts", 'R', [23.6, 27.0]),
+    ("ts", "ts", 'B', [26.0, 27.0]),
+    ("c1", "c1", 'R', [14.0, 31.0]),
+    ("c1", "c1", 'B', [16.4, 31.0]),
+    ("c2", "c2", 'R', [18.8, 31.0]),
+    ("c2", "c2", 'B', [21.2, 31.0]),
+    ("td", "td", 'R', [23.6, 31.0]),
+];
+
+/// The nearer card's mesh's place before its model's origin, metres (y).
+const ORIGIN_BEHIND: f32 = 2.0;
+
+/// A card's model name: the set's code, the color and, in an offset
+/// set, `o` where its mesh stands before its origin.
+fn card_model(code: &str, color: char, offset: bool) -> String {
+    format!("mg9{code}_{}{}", color.to_ascii_lowercase(), if offset { "o" } else { "" })
+}
+
+/// How the client orders static placeables' see-through meshes (each a
+/// card of `alpha 0.5`, 1 m square, red or blue, standing facing the eye;
+/// the nearer card of a pair 0.5 m nearer and 0.5 m west of the farther,
+/// the red listed first): `batch8d_see_through_two_models` was first read
+/// as static placeables whose models dynamic ones use as well not drawn
+/// farthest first, where dynamic ones and static ones of models and
+/// textures of their own were (a reading this batch corrected). It tells
+/// apart:
+///
+/// - the instance's origin against its mesh's place (`do`, `so`: the
+///   nearer card's mesh 2 m before its model's origin, so that by the
+///   origins it is the farther), for dynamic and static placeables;
+/// - a texture shared (`ts`: static models naming the textures that
+///   dynamic placeables of other models, `td`, name) against a model
+///   shared (`c1`, `c2`: static placeables of the models that dynamic ones
+///   use too);
+/// - whether a shared model's static placeables take the order of its
+///   dynamic ones (`c1d` stands with the red nearer, `c2d` with the blue).
+///
+/// Where the cards overlap the color is the nearer's alone (the farther
+/// drawn after it and hidden by its depth: "nearer first") or has the
+/// farther's in it ("farther first"): the pixels of both colors are counted
+/// over the pair's box, put by the meshes' places ([`mixed_pixels`]).
+///
+/// Seen (2026-11-26, 89.8193.37): dynamic placeables go by their
+/// instances' origins, not their meshes' places: the `do` pairs drawn
+/// nearer first, the nearer card's origin the farther (as Moonglow); the
+/// other dynamic pairs farthest first. Static placeables are not put in
+/// order by either: the red drawn first in all ten static pairs (`sc`,
+/// `so`, `ts`, `c1`, `c2`, whichever was nearer), sharing a texture or
+/// a model with a dynamic placeable or not, whichever way the dynamic
+/// sharers stood (`batch8d_see_through_two_models`, read again: the blue
+/// first in all eight of its static pairs). Moonglow puts static ones in
+/// order by their origins, and differs in the five pairs with the red
+/// nearer. Not told apart by the batch: a fixed order of the two
+/// textures (or their buckets), or an order by a texture's (bucket's)
+/// static meshes together: each texture's cards stand with the same mean
+/// place in both batches.
+#[test]
+#[ignore]
+fn batch9_see_through_statics() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut rows: Vec<(String, u8)> = Vec::new();
+    for set in &SETS {
+        // (`c1d` and `c2d` place `c1`'s and `c2`'s models: no models or
+        // textures of their own.)
+        let own_models = set.models == set.code;
+        for (color, rgba) in [('R', [255, 0, 0, 255]), ('B', [0, 0, 255, 255])] {
+            let texture = format!("mg9{}_{}", set.textures, color.to_ascii_lowercase());
+            if set.textures == set.code {
+                files.push((format!("{texture}.tga"), solid(rgba)));
+            }
+            let variants: &[bool] = if set.offset { &[false, true] } else { &[false] };
+            for &offset in variants {
+                let name = card_model(set.models, color, offset);
+                if own_models {
+                    let quad = Quad {
+                        name: "card".into(),
+                        at: [0.0, if offset { -ORIGIN_BEHIND } else { 0.0 }, 0.0],
+                        corners: [
+                            [-0.5, 0.0, 0.0],
+                            [0.5, 0.0, 0.0],
+                            [0.5, 0.0, 1.0],
+                            [-0.5, 0.0, 1.0],
+                        ],
+                        bitmap: Cow::Owned(texture.clone()),
+                        extra: "  alpha 0.5\n",
+                        tverts: true,
+                        colors: false,
+                    };
+                    files.push((format!("{name}.mdl"), model(&name, &[quad]).into_bytes()));
+                }
+                rows.push((name, set.statics));
+            }
+        }
+    }
+    let list: Vec<(&str, u8)> = rows.iter().map(|(m, s)| (m.as_str(), *s)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let appearance = |name: &str, statics: u8| -> u32 {
+        first + rows.iter().position(|(m, s)| m == name && *s == statics).unwrap() as u32
+    };
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("batch9_see_through_statics", "tcn01", light, &as_refs(&files));
+    for (set_code, models, near, at) in ORDER_PAIRS {
+        let set = SETS.iter().find(|s| s.code == set_code).unwrap();
+        let statics = set.statics;
+        for color in ['R', 'B'] {
+            let nearer = color == near;
+            let offset = set.offset && nearer;
+            let mesh = if nearer { at } else { [at[0] + 0.5, at[1] + 0.5] };
+            let origin = [mesh[0], mesh[1] + if offset { ORIGIN_BEHIND } else { 0.0 }];
+            r.place(
+                appearance(&card_model(models, color, offset), statics),
+                [origin[0], origin[1], 0.0],
+                0.0,
+                &[("Static", Value::Byte(statics))],
+            );
+        }
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let camera = reference_camera();
+    for (set_code, _, near, at) in ORDER_PAIRS {
+        let set = SETS.iter().find(|s| s.code == set_code).unwrap();
+        let far_at = [at[0] + 0.5, at[1] + 0.5];
+        let rect = |at: [f32; 2], img: &Rgba| {
+            let pts = [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)].map(|(dx, z)| {
+                project(&camera, Vec3::new(at[0] + dx, at[1], z), img.width, img.height)
+            });
+            let xs = pts.map(|p| p.0);
+            let ys = pts.map(|p| p.1);
+            [
+                xs.iter().copied().fold(f32::MAX, f32::min),
+                ys.iter().copied().fold(f32::MAX, f32::min),
+                xs.iter().copied().fold(f32::MIN, f32::max),
+                ys.iter().copied().fold(f32::MIN, f32::max),
+            ]
+        };
+        for (side, img) in &pictures {
+            let (n, f) = (rect(at, img), rect(far_at, img));
+            let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
+            let mixed = mixed_pixels(img, both, 6.0);
+            // (The client's pairs count 0 or over 280; Moonglow's own edges
+            // up to 30.)
+            let farther_first = mixed > 100;
+            let first = match (farther_first, near) {
+                (false, c) => c,
+                (true, 'R') => 'B',
+                (true, _) => 'R',
+            };
+            let verdict = if farther_first { "farther first" } else { "nearer first" };
+            eprintln!(
+                "{side:22} {set_code:3} {} offset {:5} nearer {near}: {mixed:4} pixels of both \
+                 colors: {verdict} ({first} first)",
+                if set.statics == 1 { "static " } else { "dynamic" },
+                set.offset,
+            );
+        }
+    }
+    eprintln!("{}", dir.display());
+}
