@@ -1891,6 +1891,7 @@ fn a_synced_manifest_waits_for_the_game_data_to_be_free() {
     frames_until(&mut h, "synced", |h| h.state().nwsync_content.synced.is_some());
     assert!(h.state().game_changes_waiting(), "the new manifest waits for the game data");
     assert_eq!(sha_in(&h), Some(m1_sha), "not yet");
+    let load_orders = h.state().load_orders();
     let said = h.state().log.entries.iter().any(|(_, m)| m.starts_with("The game data is still"));
     assert!(said, "the log says it waits");
 
@@ -1900,6 +1901,7 @@ fn a_synced_manifest_waits_for_the_game_data_to_be_free() {
     });
     frames_until(&mut h, "looked", |h| !h.state().nwsync_content.running());
     assert_eq!(sha_in(&h), Some(sha1(&m2)), "the newer manifest in the game data");
+    assert!(h.state().load_orders() > load_orders, "the load order said to have changed");
     let game = h.state().game.as_ref().unwrap();
     assert_eq!(game.resman.get(&k_new).unwrap().into_owned(), new);
 }
@@ -1951,15 +1953,15 @@ fn a_sync_left_by_a_module_closed_ends_before_another_starts() {
 /// How long the NWSync layer of a persistent world's manifest takes to be
 /// put into the game data (`mount`, which a Sync's end and the module's
 /// opening run on the window's thread): 220,000 resources, as the one
-/// measured (218,936), from Moonglow's cache. Run by hand, in release:
+/// measured (218,936), read from Moonglow's cache, and from the game's
+/// storage (the manifest registered as a player's game has it). Run by
+/// hand, in release:
 /// `cargo test -p mg-ui --release --test app -- --ignored nwsync_mount_is_timed --nocapture`.
 #[test]
 #[ignore]
 fn nwsync_mount_is_timed() {
     use mg_core::sha1::sha1;
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("ui-nwsync-mount-timed");
-    let user = user_folder(&dir, &["hak"]);
     let types = [ResType::TWODA, ResType::MDL, ResType::TGA, ResType::DDS, ResType::NCS];
     let entries: Vec<_> = (0..220_000u32)
         .map(|i| {
@@ -1968,31 +1970,60 @@ fn nwsync_mount_is_timed() {
         })
         .collect();
     let manifest = mg_nwsync::manifest::write(&entries);
-    let cache = mg_nwsync::Cache::new(dir.join("cache"));
-    cache.put_manifest(&sha1(&manifest), "", &manifest).unwrap();
-    cache.set_latest(NWSYNC_URL, &sha1(&manifest)).unwrap();
-    let settings = mg_nwsync::Settings {
-        url: NWSYNC_URL.into(),
-        manifest: mg_nwsync::Wanted::Latest,
-        cache: Some(dir.join("cache")),
-    };
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut game = shared_game_data(&root, Some(user));
-    let on_disk = mg_module::nwsync_content::OnDisk::default();
-    let mut times = Vec::new();
-    for _ in 0..5 {
-        let started = std::time::Instant::now();
-        let m = mg_module::nwsync_content::mount(
-            &mut game.resman,
-            &install,
-            &settings,
-            &on_disk,
-            &mut Vec::new(),
-        );
-        times.push(started.elapsed());
-        assert_eq!(m.layer.as_ref().map(|l| l.resources).unwrap(), 220_000);
+    for from_storage in [false, true] {
+        let dir = mg_testkit::scratch_dir(&format!("ui-nwsync-mount-timed-{from_storage}"));
+        let user = user_folder(&dir, &["hak"]);
+        if from_storage {
+            mg_nwsync::fixtures::write_storage(
+                &user.join("nwsync"),
+                &[mg_nwsync::fixtures::Registered {
+                    sha1: sha1(&manifest),
+                    origin_url: NWSYNC_URL.into(),
+                    created_at: 1,
+                    last_used_at: 1,
+                    // (The manifest's own bytes are what is read; the
+                    // fixture writes its resources' rows one at a time.)
+                    resources: Vec::new(),
+                    cached: Some(manifest.clone()),
+                }],
+                &[Vec::new()],
+            );
+        } else {
+            let cache = mg_nwsync::Cache::new(dir.join("cache"));
+            cache.put_manifest(&sha1(&manifest), "", &manifest).unwrap();
+            cache.set_latest(NWSYNC_URL, &sha1(&manifest)).unwrap();
+        }
+        let settings = mg_nwsync::Settings {
+            url: NWSYNC_URL.into(),
+            manifest: mg_nwsync::Wanted::Latest,
+            cache: Some(dir.join("cache")),
+        };
+        let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+        let mut game = shared_game_data(&root, Some(user));
+        let on_disk = mg_module::nwsync_content::OnDisk::default();
+        let mut times = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let m = mg_module::nwsync_content::mount(
+                &mut game.resman,
+                &install,
+                &settings,
+                &on_disk,
+                &mut Vec::new(),
+            );
+            times.push(started.elapsed());
+            let l = m.layer.as_ref().unwrap();
+            assert_eq!(l.resources, 220_000);
+            let from = if from_storage {
+                mg_nwsync::ManifestFrom::GameStorage
+            } else {
+                mg_nwsync::ManifestFrom::Cache
+            };
+            assert_eq!(l.from, from);
+        }
+        let what = if from_storage { "the game's storage" } else { "the cache" };
+        println!("mount of 220,000 resources ({} bytes) from {what}: {times:.0?}", manifest.len());
     }
-    println!("mount of 220,000 resources ({} bytes): {times:.0?}", manifest.len());
 }
 
 /// Opens Build › NWSync Content… without waiting for anything.

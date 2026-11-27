@@ -8468,6 +8468,11 @@ impl Moonglow {
         if waits.layers || waits.changed {
             self.game_data_changed();
         }
+        // (The browser's and the views' load order is another: a Sync's
+        // newer manifest, another module's haks.)
+        if waits.layers {
+            self.load_order_changed();
+        }
         self.log.info(format!("The game data is free again: {} updated", waits.said()));
     }
 
@@ -8529,6 +8534,12 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn game_changes_waiting(&self) -> bool {
         self.game_waits.any()
+    }
+
+    /// How many times the load order has changed (for the tests).
+    #[doc(hidden)]
+    pub fn load_orders(&self) -> u64 {
+        self.load_order
     }
 
     /// Whether something other than the window reads the game data (a job,

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:44:42Z }
 ---
 
 # Build, verify and test
@@ -440,8 +440,8 @@ in its cache folder, made again from your own at every test:
   writes land in your own folder, as in any Test Module (and as in
   Aurora's). Folders are symbolic links (junctions on Windows where
   Moonglow can't make a symbolic link); files are symbolic links on
-  Linux and macOS, and hard links on Windows, else copies (another
-  drive). A file's link or copy is made again at every test, so a copy
+  Linux and macOS, and hard links on Windows, else symbolic links,
+  else copies (another drive, without the right to make links). A file's link or copy is made again at every test, so a copy
   follows your file; but what the game saves into a copy is not kept.
 - **`hak` and `tlk` are folders of `test-user`'s own**, holding links
   to this module's haks and talk table: those written from the manifest,
