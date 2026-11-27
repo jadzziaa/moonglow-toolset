@@ -597,13 +597,6 @@ Nothing open.
     written for each draw (its own, its lights', its bones' and the
     frame's values in one) and bound at the draw's own offset, instancing
     off for it: M, for a program not seen. (M)
-  - **Pictures drawn once wait for the pipelines** (a gallery's or
-    palette's thumbnails, a hovered row's preview: drawn once and kept,
-    they can't take the fallback): the first ones a session needs block
-    the UI thread for the worker's time (28–113 ms for area092's pairs).
-    `frames_at_144` with the default on (nothing over the budget by its
-    median) shows the Gallery's worst frames while scrolling at 10 and 49
-    ms; not yet compared with the switch off. (S)
   - The tests that compare pictures of the area view and the model
     viewer choose the switch off; only the switch tests and TDoD's wind
     test draw the game's shaders through the window. (S)
