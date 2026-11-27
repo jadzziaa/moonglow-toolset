@@ -8,7 +8,7 @@ use glam::{Mat4, Vec3};
 use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
 use mg_render::{
     AreaLight, BoxCopy, BoxStroke, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, LineCopy,
-    LineShape, NoAssets, Renderer, Scene, Targets,
+    LineShape, NoAssets, PointLight, Renderer, Scene, Targets,
 };
 
 fn gpu() -> Option<Gpu> {
@@ -973,6 +973,109 @@ fn environment_maps_reflect() {
             !mg_testkit::corpus_required(),
             "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
         );
+    }
+}
+
+/// An ambient-only light (a player's vision light, `fx_light_clr`'s
+/// `Low_Light_Vision`: 0.3 0.3 0.4, radius 11, 2.65 m up) lights a mesh
+/// that reflects wholly in a dark area (ambient 0x080808, no diffuse)
+/// several times brighter, and as much from below as from above (no N·L),
+/// where a light of the same color that isn't ambient only lights it from
+/// above alone; Moonglow's shader as the game's (Shaders off and on). The
+/// client draws such a box's top 23.7 25.9 37.2 with the player's light
+/// and 4.0 4.0 4.3 without (`the_player_s_light_lights_a_dark_scene` in
+/// `client_render`).
+#[test]
+fn an_ambient_only_light_lights_a_reflecting_mesh_from_either_side() {
+    let Some(gpu) = gpu() else { return };
+    let root = mg_testkit::nwn_root();
+    if root.is_none() {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
+    }
+    let game = root.map(|root| {
+        mg_testkit::shared_resman(&mg_resman::GameInstall::new(&root, None, "en")).unwrap()
+    });
+    // White, alpha 0: reflects wholly. The map: `chrome1`'s blue gray.
+    let own = || {
+        let mut own = TestAssets::default();
+        own.solid("mirror", [255, 255, 255, 0]);
+        own.solid("envblue", [178, 195, 211, 255]);
+        own
+    };
+    let alone = own();
+    let with_game = game.as_ref().map(|game| WithGameShaders { own: own(), game });
+    let mut m = quad();
+    let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+    mesh.textures[0] = Some("mirror".into());
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+    let instance =
+        Instance { env_map: Some("envblue".into()), ..Instance::new(model, Mat4::IDENTITY) };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -2.0, 3.0),
+        target: Vec3::ZERO,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let dark = AreaLight {
+        ambient: Vec3::splat((8.0f32 / 255.0).powf(2.2)),
+        diffuse: Vec3::ZERO,
+        direction: Vec3::Z,
+    };
+    let light = |z: f32, ambient_only: bool| {
+        PointLight::new(Vec3::new(0.0, 0.64, z), Vec3::new(0.3, 0.3, 0.4), 11.0, ambient_only, 3)
+    };
+    let cases = [
+        ("none", None),
+        ("above", Some(light(2.65, true))),
+        ("below", Some(light(-2.65, true))),
+        ("lit above", Some(light(2.65, false))),
+        ("lit below", Some(light(-2.65, false))),
+    ];
+    let mut shots = Vec::new();
+    for game_shaders in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game_shaders;
+        if game_shaders && game.is_none() {
+            break;
+        }
+        let mut row = Vec::new();
+        for (name, l) in &cases {
+            let scene = Scene {
+                instances: vec![instance.clone()],
+                lights: l.iter().copied().collect(),
+                area: dark,
+                ..Default::default()
+            };
+            let img = match &with_game {
+                Some(assets) => r.render_image(&gpu, assets, &scene, &camera, 64, 64),
+                None => r.render_image(&gpu, &alone, &scene, &camera, 64, 64),
+            };
+            if game_shaders {
+                assert_eq!(r.game_shader_failures(), &[]);
+            }
+            let p = img.pixel(32, 32);
+            eprintln!("Shaders {}: {name} {p:?}", if game_shaders { "on" } else { "off" });
+            row.push(p);
+        }
+        let [none, above, below, lit_above, lit_below] = row[..] else { unreachable!() };
+        assert!(above[2] >= none[2].max(1) * 4, "lit several times: {none:?} {above:?}");
+        assert!(above[2] > above[0] + 4, "in the light's blue: {above:?}");
+        for c in 0..3 {
+            assert!(above[c].abs_diff(below[c]) <= 1, "either side: {above:?} {below:?}");
+        }
+        assert!(lit_above[2] > lit_below[2] + 8, "N·L: {lit_above:?} {lit_below:?}");
+        shots.push(row);
+    }
+    if let [off, on] = &shots[..] {
+        for (a, b) in off.iter().zip(on) {
+            for c in 0..3 {
+                assert!(a[c].abs_diff(b[c]) <= 2, "Shaders off {a:?}, on {b:?}");
+            }
+        }
     }
 }
 

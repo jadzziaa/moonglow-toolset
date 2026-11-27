@@ -226,6 +226,41 @@ pub(super) fn moonglow_beside_as(
     Some(off_and_on(&gpu, game, &scene, &camera, size, Some(client), dir, name))
 }
 
+/// The light the readings' player carries in a dim area, which the client
+/// draws and Moonglow's area view, placing no player, has nothing of: for
+/// Moonglow's side of a reading whose player is seen. The player of
+/// `+TestNewModule` (the first pregenerated character, an elf) carries
+/// `fx_light_clr`'s `Low_Light_Vision` (progfx.2da row 330): ambient only
+/// (no N·L), color 0.3 0.3 0.4, radius 11 (`lightColor` read in the client
+/// as lin 0.0697 0.0697 0.133, `.a` −484: 22 m squared), 0.64 m ahead of
+/// the player along its facing (`facing`, degrees; 90 as it enters) and
+/// 2.65 m up. The client puts it out when the area's ambient and diffuse
+/// gray levels (0 to 255) add up to 128 or more (read: ambient 0x7C alone
+/// and 0x60 with diffuse 0x1C lit, 0x80 alone and 0x60 with 0x20 not,
+/// 0x08 with 0x74 lit and with 0x78 not; with colored light the
+/// brightest channel is taken here, not read); an invisible player
+/// (`VFX_DUR_CUTSCENE_INVISIBILITY`) carries none. Read with
+/// `chrome_reflection`'s `MG_CHROME_PAINT=lights`, `light0`, `light0a`
+/// and `light0world` (2026-11-26, 89.8193.37).
+pub(super) fn player_light(
+    pc: Vec3,
+    facing: f32,
+    light: &Lighting,
+) -> Option<mg_render::PointLight> {
+    let level = |c: u32| (c >> 16 & 0xFF).max(c >> 8 & 0xFF).max(c & 0xFF);
+    if level(light.ambient) + level(light.diffuse) >= 0x80 {
+        return None;
+    }
+    let ahead = Vec3::new(facing.to_radians().cos(), facing.to_radians().sin(), 0.0);
+    Some(mg_render::PointLight::new(
+        pc + ahead * 0.64 + Vec3::Z * 2.65,
+        Vec3::new(0.3, 0.3, 0.4),
+        11.0,
+        true,
+        3,
+    ))
+}
+
 /// The entry script of [`Reading::shoot_beside`]: the player's place
 /// written to the log, for Moonglow's camera.
 pub(super) fn logged(body: &str) -> String {
