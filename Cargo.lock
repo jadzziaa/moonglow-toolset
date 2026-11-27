@@ -3046,6 +3046,7 @@ version = "0.0.0"
 dependencies = [
  "mg-core",
  "mg-testkit",
+ "rustix 1.1.5",
 ]
 
 [[package]]

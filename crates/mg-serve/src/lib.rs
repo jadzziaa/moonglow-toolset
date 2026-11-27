@@ -71,7 +71,7 @@ pub struct Options {
     pub dm_password: Option<String>,
     pub admin_password: Option<String>,
     /// The server's console on pipes (`-interactive`): what it prints is
-    /// read with [`Server::console`], and [`Server::say`] types into it.
+    /// read with [`Server::lines`], and [`Server::say`] types into it.
     /// Otherwise it runs with `-quiet`.
     pub console: bool,
     /// More of the environment (NWNX's settings, say).
@@ -87,6 +87,11 @@ pub struct Options {
     /// itself (with `exit`, [`Server::stop`]). Only for a caller that
     /// catches Ctrl+C: one that doesn't would leave the server running.
     pub own_group: bool,
+    /// Killed when the thread that starts it ends, on Linux
+    /// ([`die_with_parent`]): for a caller that starts it from a thread
+    /// living as long as the server should (Test Module's local run), so
+    /// that it dies with the caller however the caller ends.
+    pub die_with_parent: bool,
 }
 
 /// What a server started with [`Options::clean_env`] keeps of the
@@ -117,6 +122,38 @@ fn kept(name: &std::ffi::OsStr) -> bool {
     let name = name.to_string_lossy();
     KEPT_VARIABLES.iter().any(|k| k.eq_ignore_ascii_case(&name)) || name.starts_with("LC_")
 }
+
+/// Has the program `command` starts killed (`SIGKILL`) when the thread
+/// that started it ends, however it ends (a crash, a kill of the whole
+/// process): Linux's parent-death signal (`PR_SET_PDEATHSIG`). It is the
+/// starting *thread*'s death that counts, not the process's: the program
+/// is to be started from a thread that lives as long as the program
+/// should. Nothing on another system.
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+pub fn die_with_parent(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    let parent = rustix::process::getpid();
+    // SAFETY: the closure runs in the child between fork and exec, where
+    // only async-signal-safe calls are allowed: it makes two system calls
+    // (prctl, getppid) and allocates nothing.
+    unsafe {
+        command.pre_exec(move || {
+            let kill = Some(rustix::process::Signal::KILL);
+            rustix::process::set_parent_process_death_signal(kill)?;
+            // (The parent gone before the signal was asked for: the child
+            // was given to another, and no signal will come.)
+            if rustix::process::getppid() != Some(parent) {
+                return Err(io::Error::other("the program's parent ended as it started"));
+            }
+            Ok(())
+        });
+    }
+}
+
+/// [`die_with_parent`] off Linux: nothing.
+#[cfg(not(target_os = "linux"))]
+pub fn die_with_parent(_command: &mut Command) {}
 
 /// Whether a line the server printed says its module is loaded: the one
 /// reading of it that `mg serve`, Test Module and [`Server::wait_ready`]
@@ -256,6 +293,9 @@ impl Server {
         // (With a console, its errors too: the loader says there why a
         // preloaded library was not loaded.)
         command.stdin(pipe(o.console)).stdout(pipe(o.console)).stderr(pipe(o.console));
+        if o.die_with_parent {
+            die_with_parent(&mut command);
+        }
         if o.own_group {
             #[cfg(unix)]
             std::os::unix::process::CommandExt::process_group(&mut command, 0);
@@ -640,5 +680,109 @@ mod tests {
     fn passwords_not_given_are_made_up_and_differ() {
         assert_ne!(secret(5121, 1), secret(5121, 1));
         assert!(secret(5121, 1).len() > 12);
+    }
+
+    /// Whether a process is gone (or ended, not yet reaped).
+    #[cfg(target_os = "linux")]
+    fn gone(pid: u32) -> bool {
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Err(_) => true,
+            Ok(stat) => stat.rsplit_once(") ").is_some_and(|(_, rest)| rest.starts_with('Z')),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn within(seconds: u64, done: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(seconds);
+        while Instant::now() < deadline {
+            if done() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        done()
+    }
+
+    /// Started with [`die_with_parent`] from a thread that then ends, a
+    /// program is killed: the parent-death signal is the thread's (so a
+    /// local run starts its server from the thread that lives as long).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_program_dies_with_the_thread_that_started_it() {
+        let (send, receive) = channel();
+        std::thread::spawn(move || {
+            let mut c = Command::new("sleep");
+            c.arg("60");
+            die_with_parent(&mut c);
+            send.send(c.spawn().unwrap()).unwrap();
+        })
+        .join()
+        .unwrap();
+        let mut child = receive.recv().unwrap();
+        let ended = within(10, || gone(child.id()));
+        let _ = child.kill();
+        let status = child.wait().unwrap();
+        assert!(ended, "the program outlived the thread that started it");
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(status.signal(), Some(9), "{status:?}");
+    }
+
+    /// What `the_program_dies_with_its_process` runs in a process of its
+    /// own: a `sleep` started (with [`die_with_parent`], unless
+    /// `MG_DIE_PLAIN` is set), its pid written to `MG_DIE_OUT`, then
+    /// waiting to be killed.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore]
+    fn die_with_parent_helper() {
+        let Some(out) = std::env::var_os("MG_DIE_OUT") else { return };
+        let mut c = Command::new("sleep");
+        c.arg("60");
+        if std::env::var_os("MG_DIE_PLAIN").is_none() {
+            die_with_parent(&mut c);
+        }
+        let child = c.spawn().unwrap();
+        std::fs::write(&out, child.id().to_string()).unwrap();
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    /// The process that started a program killed outright (`kill -9`, as a
+    /// crash or a session's end would): the program is killed with it.
+    /// Without [`die_with_parent`] it would live on (the check shows the
+    /// test can fail).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_program_dies_with_its_process() {
+        let dir = mg_testkit::scratch_dir("serve-die-with-parent");
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |plain: bool| -> u32 {
+            let out = dir.join(if plain { "plain.pid" } else { "dies.pid" });
+            let _ = std::fs::remove_file(&out);
+            let mut helper = Command::new(std::env::current_exe().unwrap());
+            helper.args(["--exact", "tests::die_with_parent_helper", "--ignored", "--nocapture"]);
+            helper.env("MG_DIE_OUT", &out).stdout(Stdio::null()).stderr(Stdio::null());
+            if plain {
+                helper.env("MG_DIE_PLAIN", "1");
+            }
+            let mut helper = helper.spawn().unwrap();
+            assert!(within(30, || std::fs::read_to_string(&out).is_ok_and(|t| !t.is_empty())));
+            let pid: u32 = std::fs::read_to_string(&out).unwrap().trim().parse().unwrap();
+            helper.kill().unwrap();
+            helper.wait().unwrap();
+            pid
+        };
+        let pid = run(false);
+        assert!(within(10, || gone(pid)), "the program outlived its process");
+        // Without it: alive still, and then stopped here (the pid is the
+        // one the helper started, checked by its command line).
+        let pid = run(true);
+        std::thread::sleep(Duration::from_millis(500));
+        let alive = !gone(pid);
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        if cmdline.starts_with(b"sleep\0") {
+            let target = rustix::process::Pid::from_raw(pid as i32).unwrap();
+            let _ = rustix::process::kill_process(target, rustix::process::Signal::KILL);
+        }
+        assert!(alive, "without the signal the program lives on");
     }
 }

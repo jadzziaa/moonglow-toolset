@@ -2145,12 +2145,24 @@ pub(crate) fn open_module(path: &Path) -> std::result::Result<Module, mg_module:
             path.display(),
             folder.display()
         );
-        let mut said = OPENED.lock().unwrap_or_else(|e| e.into_inner());
-        if !said.contains(&note) {
-            said.push(note);
-        }
+        said_of_opened(note);
     }
     Ok(m)
+}
+
+/// A note of a module opened, said once with the output however often
+/// it is opened ([`OPENED`]).
+pub(crate) fn said_of_opened(note: String) {
+    let mut said = OPENED.lock().unwrap_or_else(|e| e.into_inner());
+    if !said.contains(&note) {
+        said.push(note);
+    }
+}
+
+/// Whether [`said_of_opened`] has this note (the tests').
+#[cfg(test)]
+pub(crate) fn opened_notes() -> Vec<String> {
+    OPENED.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// A file's extension, lower case.

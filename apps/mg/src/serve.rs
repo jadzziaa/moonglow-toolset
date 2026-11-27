@@ -258,7 +258,14 @@ pub(crate) fn prepare(
             eprintln!("{}", crate::nwsync_read::hak_progress(&p));
         }
     };
-    mg_module::server_dir::prepare(gi, module, dir, project, &said, no_nwsync)
+    let (name, notes) = mg_module::server_dir::prepare(gi, module, dir, project, &said, no_nwsync)?;
+    // (The note of a module folder beside the .mod is the module's, as
+    // `open_module` says it: once with the output, not at every restart
+    // of `--restart-on-change` or `mg watch --serve`.)
+    let (beside, notes): (Vec<String>, Vec<String>) =
+        notes.into_iter().partition(|n| n.contains("has its module folder beside it"));
+    beside.into_iter().for_each(crate::said_of_opened);
+    Ok((name, notes))
 }
 
 /// What a module's file or folder looks like, to see it change.
@@ -414,23 +421,45 @@ fn drain_console(
     }
 }
 
-/// The server's environment: NWNX's (`nwnx`: its core preloaded, its
-/// plugins' folder, the project's environment file), then the `--env`
-/// files' lines (which win), and `--preload`'s library: preloaded beside
-/// NWNX's core, unless it is that core; another NWNX's core is refused.
-fn server_env(
-    nwnx: Option<&mg_module::nwnx::Nwnx>,
-    env_files: &[PathBuf],
-    preload: Option<&Path>,
-    linux: bool,
-) -> Result<Vec<(std::ffi::OsString, std::ffi::OsString)>> {
-    let mut env = nwnx.map(mg_module::nwnx::Nwnx::server_env).unwrap_or_default();
-    for file in env_files {
+/// The `--env` files' lines, in their order.
+fn env_lines(files: &[PathBuf]) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for file in files {
         let text = std::fs::read_to_string(file).with_context(|| file.display().to_string())?;
         let read =
             mg_serve::env_file(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-        env.extend(read.into_iter().map(|(k, v)| (k.into(), v.into())));
+        out.extend(read);
     }
+    Ok(out)
+}
+
+/// The server's environment as a run starts it ([`server_env`]).
+#[derive(Debug, Default, PartialEq)]
+struct ServerEnv {
+    vars: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+    /// NWNX's core is preloaded (the project's, or one of `--preload` or
+    /// an `--env` line's `LD_PRELOAD`): what the server says of NWNX is
+    /// checked ([`Heard`]).
+    nwnx: bool,
+}
+
+/// The server's environment: NWNX's (`nwnx`: its core preloaded, its
+/// plugins' folder, the project's environment file and `more`, the
+/// `--env` files' lines, which [`mg_module::nwnx::resolve_with`] checked
+/// with it), or `more` alone without NWNX; then `--preload`'s library:
+/// preloaded beside NWNX's core, unless it is that core; another NWNX's
+/// core is refused. One `LD_PRELOAD`, the last given.
+fn server_env(
+    nwnx: Option<&mg_module::nwnx::Nwnx>,
+    more: &[(String, String)],
+    preload: Option<&Path>,
+    linux: bool,
+) -> Result<ServerEnv> {
+    use mg_module::nwnx::CORE_FILE;
+    let mut env = match nwnx {
+        Some(n) => n.server_env(),
+        None => more.iter().map(|(k, v)| (k.into(), v.into())).collect(),
+    };
     if let Some(preload) = preload {
         if !linux {
             bail!("--preload is the Linux loader's LD_PRELOAD");
@@ -440,7 +469,7 @@ fn server_env(
         let core = nwnx.map(|n| std::fs::canonicalize(&n.core).unwrap_or(n.core.clone()));
         match core {
             Some(core) if core == preload => {}
-            Some(core) if preload.file_name().is_some_and(|n| n == "NWNX_Core.so") => bail!(
+            Some(core) if preload.file_name().is_some_and(|n| n == CORE_FILE) => bail!(
                 "--preload {} is another NWNX than the project's ({}): pass --no-nwnx to \
                  preload it alone, or --nwnx with its folder",
                 preload.display(),
@@ -457,7 +486,18 @@ fn server_env(
             None => env.push(("LD_PRELOAD".into(), preload.into())),
         }
     }
-    Ok(env)
+    // (The last LD_PRELOAD is the one the server gets: kept alone, in the
+    // first one's place.)
+    if let Some(last) = env.iter().rposition(|(k, _)| k == "LD_PRELOAD") {
+        let value = env[last].1.clone();
+        env.retain(|(k, _)| k != "LD_PRELOAD");
+        env.insert(0, ("LD_PRELOAD".into(), value));
+    }
+    let nwnx = env.iter().filter(|(k, _)| k == "LD_PRELOAD").any(|(_, v)| {
+        let v = v.to_string_lossy();
+        v.split([':', ' ']).any(|l| Path::new(l).file_name().is_some_and(|n| n == CORE_FILE))
+    });
+    Ok(ServerEnv { vars: env, nwnx })
 }
 
 /// The project file of the module a run serves (`original`: the
@@ -518,7 +558,9 @@ pub(crate) fn serve(
         // NWNX, by the project and the options, checked against the copy's
         // scripts; its notes said again only where they changed.
         let served = mg_module::Module::open(&dir.join("modules").join(format!("{name}.mod")));
-        let resolved = mg_module::nwnx::resolve(
+        // (The --env files' lines checked with the project's.)
+        let more = env_lines(&c.env)?;
+        let resolved = mg_module::nwnx::resolve_with(
             &project_file,
             &mg_module::nwnx::Options {
                 choice: c.nwnx.clone(),
@@ -526,6 +568,7 @@ pub(crate) fn serve(
                 live: c.live,
                 ..Default::default()
             },
+            &more,
         );
         let lines: Vec<String> = resolved.notes.iter().map(|n| n.line()).collect();
         if lines != said_nwnx {
@@ -539,7 +582,7 @@ pub(crate) fn serve(
         }
         let nwnx = resolved.nwnx;
         let env =
-            server_env(nwnx.as_ref(), &c.env, c.preload.as_deref(), cfg!(target_os = "linux"))?;
+            server_env(nwnx.as_ref(), &more, c.preload.as_deref(), cfg!(target_os = "linux"))?;
         let seen = signature(&c.module);
         let serving = Serving::start();
         let mut server = mg_serve::Server::start(&mg_serve::Options {
@@ -553,12 +596,15 @@ pub(crate) fn serve(
             dm_password: passwords.dm_password.clone(),
             admin_password: passwords.admin_password.clone(),
             console: true,
-            env,
-            // (With NWNX, nothing of the builder's own environment: a
-            // webhook's address of theirs would post from a test.)
-            clean_env: nwnx.is_some() || c.preload.is_some(),
+            env: env.vars,
+            // (Nothing of the builder's own environment, NWNX or not: a
+            // shell's LD_PRELOAD of NWNX would load it unchecked, and a
+            // webhook's address of theirs would post from a test. What
+            // the server is to have is given: the project's, --env's.)
+            clean_env: true,
             args: c.args.iter().map(Into::into).collect(),
             own_group: caught,
+            die_with_parent: false,
         })?;
         port = Some(server.port);
         passwords = Passwords {
@@ -566,7 +612,7 @@ pub(crate) fn serve(
             dm_password: Some(server.dm_password.clone()),
             admin_password: Some(server.admin_password.clone()),
         };
-        let mut heard = Heard::new(nwnx.is_some() || c.preload.is_some());
+        let mut heard = Heard::new(env.nwnx);
         let mut log = mg_serve::Tail::new(server.log_path());
         let mut engine = mg_serve::Tail::new(server.engine_log_path());
         // (Not the two the engine says at every start.)
@@ -1477,5 +1523,242 @@ mod tests {
         bm.set_info(&binfo).unwrap();
         bm.save_as(&ModuleLocation::Folder(bad_dir.clone())).unwrap();
         assert!(prepare(&gi, &bad_dir, &dir.join("server_bad"), None, false, false).is_err());
+    }
+
+    /// A library the loader can preload into a shell: a copy of the C
+    /// library's `libdl` (a stub in glibc 2.34 and later), named `name`.
+    #[cfg(target_os = "linux")]
+    fn a_real_library(dir: &Path, name: &str) -> Option<PathBuf> {
+        let found =
+            ["/usr/lib/libdl.so.2", "/lib/x86_64-linux-gnu/libdl.so.2", "/usr/lib64/libdl.so.2"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|p| p.is_file())?;
+        std::fs::create_dir_all(dir).unwrap();
+        let to = dir.join(name);
+        std::fs::copy(found, &to).unwrap();
+        Some(to)
+    }
+
+    /// A fake NWNX home: `Binaries/` with `NWNX_Core.so` and `plugins`
+    /// (empty files), and a project folder using it with `env` as its
+    /// environment file; resolved with `more` (`--env`'s lines).
+    fn fake_nwnx(
+        dir: &Path,
+        plugins: &[&str],
+        env: &str,
+        more: &[(String, String)],
+    ) -> mg_module::nwnx::Resolved {
+        let bin = dir.join("nwnx/Binaries");
+        std::fs::create_dir_all(&bin).unwrap();
+        for p in std::iter::once("Core").chain(plugins.iter().copied()) {
+            std::fs::write(bin.join(format!("NWNX_{p}.so")), b"").unwrap();
+        }
+        let root = dir.join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        let home = dir.join("nwnx").display().to_string().replace('\\', "/");
+        let team = format!("[nwnx]\nuse = true\nhome = \"{home}\"\nenv = \"nwnx.env\"\n");
+        std::fs::write(root.join("moonglow.toml"), team).unwrap();
+        std::fs::write(root.join("nwnx.env"), env).unwrap();
+        let project = mg_module::project_file::ProjectFile::read(&root);
+        let o = mg_module::nwnx::Options { linux: true, ..Default::default() };
+        mg_module::nwnx::resolve_with(&project, &o, more)
+    }
+
+    fn lines(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    fn texts(env: &ServerEnv) -> Vec<(String, String)> {
+        (env.vars.iter())
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+            .collect()
+    }
+
+    /// The server's environment with NWNX: its core and plugins' folder,
+    /// the project's file's lines, then --env's (which win: last); and
+    /// --env's alone without NWNX.
+    #[test]
+    fn nwnx_s_environment_then_the_env_files() {
+        let dir = mg_testkit::scratch_dir("mg-serve-env-order");
+        let more = lines(&[("NWNX_CORE_LOG_LEVEL", "7"), ("MY_SETTING", "x")]);
+        let r = fake_nwnx(&dir, &["Util"], "NWNX_CORE_LOG_LEVEL=6\nNWNX_UTIL_SKIP=n\n", &more);
+        let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+        let env = server_env(Some(&n), &more, None, true).unwrap();
+        let bin = dir.join("nwnx/Binaries");
+        let want = lines(&[
+            ("LD_PRELOAD", &bin.join("NWNX_Core.so").display().to_string()),
+            ("NWNX_CORE_LOAD_PATH", &bin.display().to_string()),
+            ("NWNX_CORE_LOG_LEVEL", "6"),
+            ("NWNX_UTIL_SKIP", "n"),
+            ("NWNX_CORE_LOG_LEVEL", "7"),
+            ("MY_SETTING", "x"),
+        ]);
+        assert_eq!(texts(&env), want);
+        assert!(env.nwnx);
+        let env = server_env(None, &more, None, true).unwrap();
+        assert_eq!(texts(&env), more);
+        assert!(!env.nwnx);
+    }
+
+    /// --preload: another library alone without NWNX (and no NWNX check);
+    /// an NWNX_Core.so of --preload's, or of an --env LD_PRELOAD, is NWNX;
+    /// with the project's NWNX, its own core once, another library beside
+    /// it, another NWNX's core refused; not off Linux.
+    #[test]
+    fn preloads_and_what_is_nwnx() {
+        let dir = mg_testkit::scratch_dir("mg-serve-preload");
+        let r = fake_nwnx(&dir, &[], "", &[]);
+        let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
+        let lib = dir.join("lib/libjemalloc.so");
+        let other = dir.join("other/Binaries/NWNX_Core.so");
+        for f in [&lib, &other] {
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, b"").unwrap();
+        }
+        let (lib, other) = (lib.canonicalize().unwrap(), other.canonicalize().unwrap());
+        let core = n.core.canonicalize().unwrap();
+        let preloaded = |e: &ServerEnv| -> Vec<String> {
+            texts(e).into_iter().filter(|(k, _)| k == "LD_PRELOAD").map(|(_, v)| v).collect()
+        };
+        // Without NWNX (--no-nwnx, or none): the library alone, no NWNX.
+        let e = server_env(None, &[], Some(&lib), true).unwrap();
+        assert_eq!(preloaded(&e), [lib.display().to_string()]);
+        assert!(!e.nwnx, "another library is not NWNX");
+        // An NWNX core given so: NWNX, checked.
+        assert!(server_env(None, &[], Some(&other), true).unwrap().nwnx);
+        let given = lines(&[("LD_PRELOAD", &other.display().to_string())]);
+        assert!(server_env(None, &given, None, true).unwrap().nwnx);
+        // With the project's: its core once; another library beside it.
+        let e = server_env(Some(&n), &[], Some(&n.core), true).unwrap();
+        assert_eq!(preloaded(&e), [n.core.display().to_string()]);
+        assert!(e.nwnx);
+        let e = server_env(Some(&n), &[], Some(&lib), true).unwrap();
+        assert_eq!(preloaded(&e), [format!("{}:{}", core.display(), lib.display())]);
+        assert!(e.nwnx);
+        let e = server_env(Some(&n), &[], Some(&other), true).unwrap_err().to_string();
+        assert!(e.contains("is another NWNX than the project's"), "{e}");
+        assert!(server_env(None, &[], Some(&lib), false).is_err(), "LD_PRELOAD is Linux's");
+    }
+
+    /// What the server says of NWNX is held to it only with NWNX: a module
+    /// loaded without "Starting NWNX" stops a run with NWNX, not one
+    /// without; another library the loader refused is a warning.
+    #[test]
+    fn nwnx_s_checks_only_with_nwnx() {
+        let line = |l: &str| mg_serve::Line { text: l.to_string(), stderr: false };
+        let refused = "ERROR: ld.so: object '/usr/lib/libjemalloc.so' from LD_PRELOAD cannot be \
+                       preloaded (wrong ELF class): ignored.";
+        let mut without = Heard::new(false);
+        let mut said = Vec::new();
+        for l in [refused, "Server: Module loaded"] {
+            said.extend(console_events(line(l), &mut without));
+        }
+        assert!(!without.nwnx_failed, "{said:?}");
+        let warned = said.iter().any(|e| matches!(e, Event::Note(n) if n.starts_with("warning: ")));
+        assert!(warned, "{said:?}");
+        let mut with = Heard::new(true);
+        console_events(line("Server: Module loaded"), &mut with);
+        assert!(with.nwnx_failed, "NWNX asked for and never heard of");
+    }
+
+    /// A served module, end to end with a stand-in server (a shell script
+    /// that writes down its environment): nothing of the caller's own
+    /// environment reaches it but the kept variables, NWNX or not; --env's
+    /// lines do; `--no-nwnx --preload` of another library loads it and the
+    /// run goes on (no "ran without NWNX").
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_served_module_gets_what_it_is_given_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = mg_testkit::scratch_dir("mg-serve-clean-env");
+        let Some(lib) = a_real_library(&dir.join("lib"), "libextra.so") else { return };
+        let root = dir.join("root");
+        let server = root.join("bin/linux-x86/nwserver-linux");
+        std::fs::create_dir_all(server.parent().unwrap()).unwrap();
+        let env_out = dir.join("env.txt");
+        let script = format!(
+            "#!/bin/sh\nenv > '{}'\necho 'Server: Module loaded'\n\
+             while read line; do [ \"$line\" = exit ] && exit 0; done\n",
+            env_out.display()
+        );
+        std::fs::write(&server, script).unwrap();
+        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let user = dir.join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        let gi = GameInstall::new(&root, Some(user), "en");
+        let module = dir.join("m.mod");
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+        let env_file = dir.join("given.env");
+        std::fs::write(&env_file, "MG_GIVEN=yes\n").unwrap();
+        // (A variable of this process's that is not kept, if it has one:
+        // cargo gives a test its CARGO_* ones.)
+        let own = std::env::vars().map(|(k, _)| k).find(|k| {
+            let kept = mg_serve::KEPT_VARIABLES.iter().any(|v| v.eq_ignore_ascii_case(k));
+            !kept
+                && !k.starts_with("LC_")
+                && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+        let run = |preload: Option<PathBuf>| {
+            let c = Config {
+                module: module.clone(),
+                dir: Some(dir.join("server")),
+                env: vec![env_file.clone()],
+                preload,
+                nwnx: mg_module::nwnx::Choice::Off,
+                ..Default::default()
+            };
+            let mut said = Vec::new();
+            let end = serve(&gi, &c, &mut |e| {
+                said.push(e.clone());
+                match e {
+                    Event::Ready { .. } => Flow::Stop,
+                    _ => Flow::Continue,
+                }
+            })
+            .unwrap();
+            (end, said, std::fs::read_to_string(&env_out).unwrap())
+        };
+        // Without NWNX or a preload: clean all the same.
+        let (end, said, got) = run(None);
+        assert_eq!(end, End::Stopped, "{said:?}");
+        assert!(got.lines().any(|l| l == "MG_GIVEN=yes"), "{got}");
+        if let Some(own) = &own {
+            assert!(!got.lines().any(|l| l.starts_with(&format!("{own}="))), "{own} passed: {got}");
+        }
+        // --no-nwnx --preload of another library: loaded, no NWNX check.
+        let (end, said, got) = run(Some(lib.clone()));
+        assert_eq!(end, End::Stopped, "{said:?}");
+        let preload = format!("LD_PRELOAD={}", lib.canonicalize().unwrap().display());
+        assert!(got.lines().any(|l| l == preload), "{got}");
+        assert!(
+            !said.iter().any(|e| matches!(e, Event::Note(n) if n.contains("NWNX"))),
+            "{said:?}"
+        );
+    }
+
+    /// The note of a module folder beside the .mod: once in a process,
+    /// with the output (as `open_module` says it), not at each start.
+    #[test]
+    fn the_folder_beside_the_mod_is_said_once() {
+        let dir = mg_testkit::scratch_dir("mg-serve-beside-once");
+        // (No game install needed: the module names no hak or talk table.)
+        let gi = GameInstall::new(&dir.join("root"), Some(dir.join("user")), "en");
+        let module = dir.join("beside.mod");
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
+        m.save_as(&ModuleLocation::Folder(dir.join("beside"))).unwrap();
+        let server = dir.join("server");
+        for _ in 0..2 {
+            let (_, notes) = prepare(&gi, &module, &server, None, false, false).unwrap();
+            assert!(!notes.iter().any(|n| n.contains("beside it")), "{notes:?}");
+        }
+        let once = crate::opened_notes()
+            .into_iter()
+            .filter(|n| n.contains(&*module.display().to_string()));
+        assert_eq!(once.count(), 1);
     }
 }
