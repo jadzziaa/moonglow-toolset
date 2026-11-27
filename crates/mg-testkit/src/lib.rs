@@ -13,12 +13,14 @@ pub mod erf;
 #[cfg(feature = "hlsl")]
 pub mod hlsl;
 pub mod joined;
+#[cfg(all(test, unix))]
+mod quiet_tests;
 pub mod signing;
 
 /// The GPU hold and the places tests take turns at: their own crate,
 /// [`mg_testkit_gpu`], for a client that wants them without the rest of
 /// the test kit; one crate, so one set of places by either path.
-pub use mg_testkit_gpu::{gpu, places};
+pub use mg_testkit_gpu::{gpu, places, quiet};
 
 use std::collections::BTreeMap;
 use std::env;
@@ -30,6 +32,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// else each Steam library, then GOG's). This kept a shorter list of its
 /// own, and tests skipped on an install the toolset found.
 pub fn nwn_root() -> Option<PathBuf> {
+    // (A corpus test is an ordinary heavy run: it shares the machine's
+    // quiet lock for the rest of the process, docs/locks.md.)
+    quiet::share();
     mg_resman::GameInstall::find_root()
 }
 

@@ -93,6 +93,9 @@ fn take(wanted: usize) {
         // (What it held is given back while it waits for more, so that two
         // tests waiting to be alone do not wait for each other.)
         *held = None;
+        // (The quiet lock first, shared for the rest of the process: the
+        // order is the quiet lock, the display, a GPU slot.)
+        crate::quiet::share();
         let taken = GPU.take(wanted, places());
         // (After the places: a test of this process never waits for a slot
         // of the machine while others of it wait for its place.)

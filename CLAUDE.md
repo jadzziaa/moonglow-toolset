@@ -109,6 +109,12 @@ wait for it. A wait is on stderr (`MOONGLOW_LOCK_WAIT=SECONDS`, 0 refuses).
 Take the lock first, then start or check the display inside the hold
 (`headless.sh start` there gives `DISPLAY`): never read `DISPLAY` before
 the hold, since the holder before you may restart the display.
+A run that measures time (frames, a soak) holds the machine's quiet lock
+alone, `tools/locks.sh hold quiet -- CMD...`, and the ordinary heavy runs
+wait for it: test binaries share it themselves (their first GPU or display
+hold, `mg_testkit::nwn_root`), a heavy run by hand shares it with
+`tools/locks.sh share quiet -- CMD...`. The order is the quiet lock, the
+display, a GPU slot.
 Reading the client's own code (`nm`, `objdump` on the unstripped
 `nwmain-linux`) is a last resort, by the owner's word: only once its
 pictures, patched includes, scripts, shims and runs made to tell the

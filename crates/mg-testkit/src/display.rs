@@ -60,13 +60,17 @@ pub fn held_by_ancestor() -> bool {
 }
 
 /// Tells a script about to be started that the display is held (by this
-/// process, or by its ancestor): `MOONGLOW_LOCKS_HELD` with `display` in it.
+/// process, or by its ancestor): `MOONGLOW_LOCKS_HELD` with `display` in it,
+/// and `quiet`, which a display holder shares first
+/// (`mg_testkit::quiet`).
 pub fn held_by_us(command: &mut Command) -> &mut Command {
     let mut held: Vec<String> = std::env::var("MOONGLOW_LOCKS_HELD")
         .map(|v| v.split(',').map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
         .unwrap_or_default();
-    if !held.iter().any(|l| l == "display") {
-        held.push("display".into());
+    for lock in ["quiet", "display"] {
+        if !held.iter().any(|l| l == lock) {
+            held.push(lock.into());
+        }
     }
     command.env("MOONGLOW_LOCKS_HELD", held.join(","))
 }
@@ -191,6 +195,9 @@ pub fn try_hold() -> Result<(), String> {
              mg_testkit::gpu::hold() (a test that holds a GPU place and waits for the display \
              can wait for a run that waits for a GPU slot)"
         );
+        // (The quiet lock first, shared for the rest of the process: the
+        // order is the quiet lock, the display, a GPU slot.)
+        mg_testkit_gpu::quiet::share();
         *held = Some(if held_by_ancestor() {
             Ok(None)
         } else {
@@ -381,6 +388,7 @@ mod tests {
             c.args(["hold", "display", "--"])
                 .args(argv)
                 .env("MOONGLOW_ORACLE", &oracle)
+                .env("XDG_STATE_HOME", &oracle)
                 .env("MOONGLOW_LOCK_WAIT", wait)
                 .env_remove("MOONGLOW_LOCKS_HELD");
             if let Some(held) = held {
@@ -432,7 +440,7 @@ mod tests {
         let _ = holder.kill();
         let _ = holder.wait();
         let seen = run("5", None, &["bash", "-c", "echo $MOONGLOW_LOCKS_HELD"]).output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&seen.stdout).trim(), "display");
+        assert_eq!(String::from_utf8_lossy(&seen.stdout).trim(), "display,quiet");
         // The module held it: the script is refused.
         let lock =
             take_in(&oracle.join("locks"), Duration::ZERO, Duration::from_secs(1), &mut |_| {})
@@ -460,6 +468,7 @@ mod tests {
             c.arg("-c")
                 .arg(format!(". '{}'; {body}", script.display()))
                 .env("MOONGLOW_ORACLE", &oracle)
+                .env("XDG_STATE_HOME", &oracle)
                 .env("MOONGLOW_LOCK_WAIT", "5")
                 .env_remove("MOONGLOW_LOCKS_HELD");
             if let Some(held) = held {
@@ -556,6 +565,7 @@ mod tests {
             let mut c = Command::new(tools.join("aurora/headless.sh"));
             c.arg(what)
                 .env("MOONGLOW_ORACLE", &oracle)
+                .env("XDG_STATE_HOME", &oracle)
                 .env("MOONGLOW_LOCK_WAIT", wait)
                 .env("PATH", &path)
                 .env_remove("MOONGLOW_LOCKS_HELD");
@@ -574,6 +584,7 @@ mod tests {
         let free = Command::new(tools.join("locks.sh"))
             .args(["hold", "display", "--", "true"])
             .env("MOONGLOW_ORACLE", &oracle)
+            .env("XDG_STATE_HOME", &oracle)
             .env("MOONGLOW_LOCK_WAIT", "0")
             .env_remove("MOONGLOW_LOCKS_HELD")
             .output()
