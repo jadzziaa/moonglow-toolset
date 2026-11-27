@@ -993,10 +993,13 @@ impl<'a> Reader<'a> {
                 // (Not echoed with an @ in it: `user:pass@host` without
                 // its https://.)
                 let text = if text.contains('@') { "…".to_string() } else { text };
+                // (A whole path names a drive on Windows: `file:///srv/x`
+                // is no folder there.)
+                let folder = if cfg!(windows) { "file:///D:/nwsync" } else { "file:///srv/nwsync" };
                 let message = format!(
                     "source \"{text}\" is to be the NWSync server's address, as nwserver's \
                      -nwsyncurl: \"https://nwsync.example.org\", or a repository folder: \
-                     \"file:///srv/nwsync\", or \"../nwsync\" from the project's folder"
+                     \"{folder}\", or \"../nwsync\" from the project's folder"
                 );
                 self.warn(entry.1.span().start, message);
                 None
@@ -3428,8 +3431,22 @@ keeper_variable = "tdod_store"
             p.nwsync_settings().unwrap().url,
             mg_nwsync::folder_url(Path::new(&whole.replace("\\\\", "\\")))
         );
-        let p = read("[nwsync]\nsource = \"file:///srv/nwsync\"\n");
-        assert!(p.warnings.is_empty() && p.nwsync_settings().is_some(), "{:?}", p.warnings);
+        // A file:// URL with a whole path: on Windows one with a drive
+        // (`file:///srv/nwsync` names none there, and is refused).
+        let (url, folder) = if cfg!(windows) {
+            ("file:///D:/nwsync", "D:\\nwsync")
+        } else {
+            ("file:///srv/nwsync", "/srv/nwsync")
+        };
+        let p = read(&format!("[nwsync]\nsource = \"{url}\"\n"));
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        let at = mg_nwsync::local_folder(&p.nwsync_settings().unwrap().url).unwrap();
+        assert_eq!(at, Path::new(folder));
+        if cfg!(windows) {
+            let p = read("[nwsync]\nsource = \"file:///srv/nwsync\"\n");
+            assert!(p.nwsync_settings().is_none());
+            assert!(p.warnings[0].contains("file:///D:/nwsync"), "{:?}", p.warnings);
+        }
         let p = read("[nwsync]\nsource = \"../repo\"\n");
         assert!(p.nwsync_settings().is_none());
         assert!(p.warnings[0].contains("repository folder"), "{:?}", p.warnings);
