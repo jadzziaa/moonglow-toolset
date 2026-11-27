@@ -69,9 +69,19 @@ pub fn write_metadata(dir: &Path, manifest: &Sha1, includes_module_contents: Opt
 /// Writes a storage into `dir`: the manifests registered, and the shards
 /// (`shards[0]` is `nwsyncdata_0.sqlite3`), each with its data as stored
 /// (SHA-1, bytes).
+///
+/// The folder must hold no storage yet: one left there (on Windows, by a
+/// removal that failed on a file a `GameStorage` still has open) is said,
+/// not written over.
 pub fn write_storage(dir: &Path, manifests: &[Registered], shards: &[Vec<(Sha1, Vec<u8>)>]) {
+    let meta_path = dir.join(crate::game::META);
+    assert!(
+        !meta_path.exists(),
+        "{}: a storage is already there (still open, so not removed?)",
+        meta_path.display()
+    );
     std::fs::create_dir_all(dir).unwrap();
-    let meta = Connection::open(dir.join(crate::game::META)).unwrap();
+    let meta = Connection::open(&meta_path).unwrap();
     meta.execute_batch(META_SCHEMA).unwrap();
     for m in manifests {
         let hex = sha1_hex(&m.sha1);
