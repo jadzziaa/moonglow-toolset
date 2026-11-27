@@ -808,6 +808,9 @@ mod tests {
 
         // Every listed hak on disk: nothing to write, and the data need
         // not be here.
+        // The storage is written again: the reader on the old one is
+        // closed first, or Windows keeps its files (open) and the folder.
+        drop(game);
         registered_without_data(&dir, &resources);
         std::fs::remove_dir_all(dir.join("cache")).unwrap();
         let game = GameStorage::open(&dir.join("user/nwsync")).unwrap().unwrap();
