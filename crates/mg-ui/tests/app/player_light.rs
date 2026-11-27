@@ -334,3 +334,47 @@ fn with_the_game_s_shaders_the_start_location_is_lit_too() {
     let (far_was, far_now) = (level(&h, area, &off, FAR), level(&h, area, &on, FAR));
     assert!((far_now - far_was).abs() < 1.0, "beyond its reach: {far_was:.1} to {far_now:.1}");
 }
+
+/// While Adjust Location tries the start location out at another place
+/// and bearing, the light goes there; Cancel puts it back where the start
+/// location is, which Cancel leaves as it was.
+#[test]
+fn the_light_follows_adjust_location_and_cancel_puts_it_back() {
+    let Some((mut h, area)) = lit_harness("player-light-adjust", DARK, DARK) else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().show_start = true;
+    switch(&mut h, true);
+    // Its menu (a right click on its ring): Adjust Location, for it.
+    let ring = screen(&h, area, START - Vec3::X);
+    h.hover_at(ring);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: ring,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let adjust = h.state().adjust.clone().expect("the window");
+    assert!(adjust.start, "for the start location");
+    // X to 25 and the bearing to 90 (west), not yet applied.
+    let mut a = adjust;
+    (a.position.x, a.bearing, a.changed) = (25.0, 90.0, [true, false, false, true]);
+    h.state_mut().adjust = Some(a);
+    settle(&mut h);
+    let tried = h.state().area_views[&area].player_drawn().expect("drawn");
+    assert!((tried.0.x - 25.0).abs() < 1e-3 && (tried.0.y - START.y).abs() < 1e-3, "{tried:?}");
+    assert!((tried.1.cos() + 1.0).abs() < 1e-3, "facing west: {tried:?}");
+    // Cancel: back at the start location, which is as it was.
+    h.get_by_label("Cancel").click();
+    settle(&mut h);
+    assert!(h.state().adjust.is_none(), "the window closed");
+    let back = h.state().area_views[&area].player_drawn().expect("drawn");
+    assert!(back.0.truncate().distance(START.truncate()) < 1e-3, "back: {back:?}");
+    assert!((back.1 - std::f32::consts::FRAC_PI_2).abs() < 1e-3, "facing north: {back:?}");
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let x = h.state_mut().ws.as_mut().unwrap().doc(&ifo).unwrap().root.float("Mod_Entry_X");
+    assert_eq!(x, Some(START.x), "the start location unchanged");
+}

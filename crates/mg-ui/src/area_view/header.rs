@@ -953,7 +953,7 @@ const LIGHTS_TIP: &str =
 /// shadows are the creatures', as in the game.)
 const LIGHTS_OFF_TIP: &str = "Check Creature shadows first: creatures cast these";
 const PLAYER_LIGHT_TIP: &str =
-    "Light the start location in a dim area as the game lights the player, in every area view";
+    "Light the start location as the game lights the player in a dim area";
 const ANIMATIONS_TIP: &str =
     "Play placed objects' animations, in every area view. Off, they hold still.";
 const GRASS_TIP: &str = "Draw the tileset's and the area's own grass, in every area view";
