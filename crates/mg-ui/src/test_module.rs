@@ -8,6 +8,9 @@ use mg_module::links::{link_dir, link_file};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod local;
+pub use local::{Character, Join, LocalPlan, LocalRun, Progress};
+
 /// The game client of the install at `root`, for this platform.
 pub fn client_binary(root: &Path) -> Option<PathBuf> {
     let rel = if cfg!(target_os = "linux") {
@@ -67,6 +70,36 @@ pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool, steam
     }
     let how = if choose { "+LoadNewModule" } else { "+TestNewModule" };
     c.arg("-userdirectory").arg(user_dir).arg(how).arg(module);
+    steam_env(&mut c, client, steam);
+    c
+}
+
+/// The command that has the game join a server (Test Module's local
+/// server, [`LocalRun`]): the client, from its own folder, on `user_dir`,
+/// `+connect ADDRESS +password PASSWORD` (the game's documented
+/// arguments), Steam as [`command`] has it.
+///
+/// A minimal one: Interface's branch `test-module-ui` has its own of the
+/// same signature, which replaces or merges with this one.
+pub fn join_command(
+    client: &Path,
+    user_dir: &Path,
+    address: &str,
+    password: &str,
+    steam: bool,
+) -> Command {
+    let mut c = Command::new(client);
+    if let Some(dir) = client.parent() {
+        c.current_dir(dir);
+    }
+    c.arg("-userdirectory").arg(user_dir);
+    c.args(["+connect", address, "+password", password]);
+    steam_env(&mut c, client, steam);
+    c
+}
+
+/// What a Steam copy of the game is told of Steam ([`command`]).
+fn steam_env(c: &mut Command, client: &Path, steam: bool) {
     // A Steam copy told which game it is reaches Steam when Steam is
     // running and is expected to load what Steam brings it (the Workshop
     // items subscribed to: overrides of the game's textures, materials),
@@ -93,7 +126,6 @@ pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool, steam
             }
         }
     }
-    c
 }
 
 /// The log's line for a test of a Steam copy of the game, which says
@@ -669,6 +701,25 @@ mod tests {
         let other = Path::new("/game/bin/linux-x86/nwmain-linux");
         assert_eq!(command(other, &dir, "My Module", false, false).get_envs().count(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The game joins a server with its documented arguments, Steam told
+    /// as for a test of its own.
+    #[test]
+    fn the_game_joins_a_server_by_address_and_password() {
+        let steam =
+            Path::new("/lib/steamapps/common/Neverwinter Nights/bin/linux-x86/nwmain-linux");
+        let user = Path::new("/home/me/nwn");
+        let c = join_command(steam, user, "127.0.0.1:5121", "pw", false);
+        let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(
+            args,
+            ["-userdirectory", "/home/me/nwn", "+connect", "127.0.0.1:5121", "+password", "pw"]
+        );
+        assert_eq!(c.get_current_dir(), steam.parent());
+        let removed = c.get_envs().filter(|(_, v)| v.is_none()).count();
+        assert_eq!(removed, 2, "not started through Steam");
+        assert_eq!(join_command(steam, user, "a", "b", true).get_envs().count(), 2);
     }
 
     /// What a test of a Steam copy is told: through Steam (Read Steam

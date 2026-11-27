@@ -394,7 +394,13 @@ impl Moonglow {
     /// worked in: [`crate::nwsync_content_view`]).
     pub(crate) fn job_shown(&self) -> Option<JobShown> {
         let Some(job) = self.job.as_ref() else {
-            return self.nwsync_content.shown();
+            // (Test Module's local server, under way.)
+            let local = self.local_run.as_ref().map(|(_, status)| JobShown {
+                title: "Test Module".into(),
+                steps: None,
+                note: status.clone(),
+            });
+            return self.nwsync_content.shown().or(local);
         };
         let p = &job.progress;
         let (done, total) = (p.done.load(Ordering::Relaxed), p.total.load(Ordering::Relaxed));

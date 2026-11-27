@@ -1005,6 +1005,11 @@ pub struct Moonglow {
     /// Build › NWSync Content, and the module's NWSync content as it was
     /// put into the game data.
     pub nwsync_content: nwsync_content_view::NwSyncContent,
+    /// Test Module on a local server with NWNX, under way
+    /// ([`test_module::LocalRun`]), and what the status bar says of it.
+    pub(crate) local_run: Option<(test_module::LocalRun, String)>,
+    /// The Log said once that NWNX runs on Linux servers only.
+    pub(crate) nwnx_linux_said: bool,
     /// Tilesets open in the tileset editor.
     pub tilesets: Vec<tileset_view::TilesetDoc>,
     pub(crate) next_tileset: u32,
@@ -1910,6 +1915,8 @@ impl Moonglow {
             attach: None,
             publish: None,
             nwsync_content: Default::default(),
+            local_run: None,
+            nwnx_linux_said: false,
             tilesets: Vec::new(),
             next_tileset: 0,
             tileset_ask: None,
@@ -2296,6 +2303,7 @@ impl Moonglow {
             talk.game = self.game.as_deref().map(GameData::codepage);
         }
         self.trace_frame(ui);
+        self.poll_local_run(&ui.ctx().clone());
         // (Pressed by the window it was for, in the frame it was asked.)
         self.escape_cancel = None;
         // (A docked tab's Escape, seen as the last frame drew the editor
@@ -7272,6 +7280,13 @@ impl Moonglow {
     /// Whether the game started for the last test is still running, said
     /// in the log if so: no other test starts meanwhile.
     fn game_still_running(&mut self) -> bool {
+        if self.local_run.as_ref().is_some_and(|(run, _)| !run.ended()) {
+            self.log.warn(
+                "Test Module: the local server of the last test is still running: close the game, \
+                 then test again",
+            );
+            return true;
+        }
         let running = test_module::game_running();
         if running {
             self.log.warn(
@@ -7866,6 +7881,10 @@ impl Moonglow {
         // (Through Steam where Moonglow reads the Workshop too: the test
         // and the views show the same content.)
         let steam = self.settings.test_through_steam();
+        // (A project that uses NWNX: served by a local server with it.)
+        if self.test_on_local_server(client, user, name, steam) {
+            return;
+        }
         match test_module::command(client, user, name, choose, steam).spawn() {
             Ok(game) => {
                 test_module::let_game_run(game);
@@ -7877,6 +7896,130 @@ impl Moonglow {
                 self.minimize_requested = self.settings.minimize_on_test;
             }
             Err(e) => self.log.error(format!("Test Module: {}: {e}", client.display())),
+        }
+    }
+
+    /// Test Module for a project whose `[nwnx]` uses NWNX, on Linux: the
+    /// module served by a private server with NWNX in a folder of
+    /// Moonglow's ([`test_module::LocalRun`]), and the game joining it at
+    /// the character list once the module is loaded. Whether it was taken
+    /// this way (or stopped by an error, said in the Log); `false`: the
+    /// game tests the module itself, as without NWNX.
+    fn test_on_local_server(
+        &mut self,
+        client: &std::path::Path,
+        user: &std::path::Path,
+        name: &str,
+        steam: bool,
+    ) -> bool {
+        use mg_module::nwnx;
+        let Some(ws) = self.ws.as_ref() else { return false };
+        let project = &ws.module.project_file;
+        if project.nwnx.use_nwnx != Some(true) {
+            return false;
+        }
+        let resolved = nwnx::resolve(
+            project,
+            &nwnx::Options { module: Some(&ws.module), live: true, ..Default::default() },
+        );
+        let root = ws.module.location.as_ref().and_then(|l| {
+            mg_module::project_file::ProjectFile::root_of(l).map(std::path::Path::to_path_buf)
+        });
+        for n in &resolved.notes {
+            let text = format!("Test Module: {}", text::capitalized(&n.text));
+            match n.level {
+                nwnx::Level::Error => self.log.error(text),
+                nwnx::Level::Warning if n.text == nwnx::LINUX_ONLY => {
+                    if !std::mem::replace(&mut self.nwnx_linux_said, true) {
+                        self.log.warn(text);
+                    }
+                }
+                nwnx::Level::Warning => self.log.warn(text),
+                nwnx::Level::Info => self.log.info(text),
+            }
+        }
+        if resolved.failed() {
+            self.log.error("Test Module: the game was not started (NWNX, see above)");
+            return true;
+        }
+        let Some(nwnx) = resolved.nwnx else { return false };
+        let Some(install) = self.install.clone() else { return false };
+        let Some(server) = mg_serve::server_binary(install.root.as_path()) else {
+            self.log.error(format!("Test Module: {}", mg_serve::no_server(install.root.as_path())));
+            return true;
+        };
+        let modules = install.user_folder("modules").unwrap_or_else(|| user.join("modules"));
+        let module = [modules.join(format!("{name}.mod")), modules.join(name)]
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| modules.join(format!("{name}.mod")));
+        let Some(dir) = test_module::local::server_dir(name) else {
+            self.log.error("Test Module: no cache folder for the local server");
+            return true;
+        };
+        let prepare = test_module::local::prepare_module(install, module, root, dir.clone());
+        let join = test_module::Join::CharacterList;
+        let mut plan = test_module::LocalPlan::new(server, dir, prepare, join);
+        plan.nwnx = Some(nwnx);
+        plan.cdkey = Some(user.join("cdkey.ini")).filter(|p| p.is_file());
+        let game = test_module::join_command(client, user, &plan.address(), &plan.password, steam);
+        self.log.info(format!(
+            "Test Module: {name} on a local server with NWNX ({}), the game joining it",
+            plan.address()
+        ));
+        let run = test_module::LocalRun::start(plan, game);
+        self.local_run = Some((run, "Preparing the local server".into()));
+        true
+    }
+
+    /// What Test Module's local server said since the last frame, in the
+    /// Log, and what the status bar says of it.
+    fn poll_local_run(&mut self, ctx: &egui::Context) {
+        let Some((run, status)) = self.local_run.as_mut() else { return };
+        let mut lines = Vec::new();
+        for p in run.poll() {
+            use test_module::Progress;
+            match p {
+                Progress::Preparing => *status = "Preparing the local server".into(),
+                Progress::Starting { port } => {
+                    *status = format!("Starting the local server (port {port})");
+                }
+                Progress::Loaded { seconds } => {
+                    *status = "The module is loaded".into();
+                    lines.push((Level::Info, format!("module loaded in {seconds:.1} s")));
+                }
+                Progress::Joining => {
+                    *status = "The game is joining the local server".into();
+                    lines.push((Level::Info, "the game is joining".into()));
+                }
+                Progress::Log(line) => {
+                    let (level, text) = if let Some(t) = line.strip_prefix("error: ") {
+                        (Level::Error, t.to_string())
+                    } else if let Some(t) = line.strip_prefix("warning: ") {
+                        (Level::Warning, t.to_string())
+                    } else {
+                        (Level::Info, line)
+                    };
+                    lines.push((level, text));
+                }
+                Progress::Ended { how, failed } => {
+                    lines.push((if failed { Level::Error } else { Level::Info }, how));
+                }
+            }
+        }
+        let ended = run.ended();
+        if ended {
+            self.local_run = None;
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+        for (level, line) in lines {
+            let line = format!("Test Module: {line}");
+            match level {
+                Level::Info => self.log.info(line),
+                Level::Warning => self.log.warn(line),
+                Level::Error => self.log.error(line),
+            }
         }
     }
 
