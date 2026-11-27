@@ -6507,8 +6507,7 @@ impl Moonglow {
             }
             let in_layers = |hak: bool| {
                 game.resman.layers().iter().any(|l| {
-                    let is_hak = l.priority == mg_resman::priority::HAK
-                        || l.priority == mg_resman::priority::HAK_USER;
+                    let is_hak = mg_resman::priority::is_hak(l.priority);
                     let below = l.priority < mg_resman::priority::MODULE;
                     (if hak { is_hak } else { below }) && l.container.contains(key)
                 })

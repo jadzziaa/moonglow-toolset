@@ -561,10 +561,10 @@ pub fn own_entries(module: &Module, kind: BlueprintKind) -> Vec<(ResRef, Palette
 /// The blueprints of `kind` in the module's haks, as the game reads them
 /// (the highest hak that has one), but those the module has itself.
 fn hak_blueprints(module: &Module, game: &GameData, kind: BlueprintKind) -> Vec<(ResRef, Gff)> {
-    use mg_resman::priority::{HAK, HAK_USER};
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for layer in game.resman.layers().iter().filter(|l| matches!(l.priority, HAK | HAK_USER)) {
+    let haks = game.resman.layers().iter().filter(|l| mg_resman::priority::is_hak(l.priority));
+    for layer in haks {
         let mut keys: Vec<_> =
             layer.container.keys().filter(|k| k.restype == kind.restype()).collect();
         keys.sort();

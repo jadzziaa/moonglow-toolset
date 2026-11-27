@@ -491,8 +491,9 @@ pub(crate) fn haks(cli: &Cli, s: &Source, a: &HakArgs) -> Result<Output> {
         .fold((0usize, 0u64), |(n, b), h| (n + 1, b + h.bytes));
     let took = started.elapsed().as_secs_f64();
     out.note(format!(
-        "{} haks ({}), {written} written now ({}), in {took:.1} s{}",
+        "{} {} ({}), {written} written now ({}), in {took:.1} s{}",
         files.haks.len(),
+        if files.haks.len() == 1 { "hak" } else { "haks" },
         megabytes(files.haks.iter().map(|h| h.bytes).sum()),
         megabytes(bytes),
         match &a.out {

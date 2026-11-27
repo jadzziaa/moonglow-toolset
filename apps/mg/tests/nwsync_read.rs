@@ -273,21 +273,18 @@ fn another_source_a_link_in_the_out_folder_and_what_a_prune_passed_over() {
     let notes = j["notes"].to_string();
     assert!(notes.contains("[nwsync] manifest 01234567") && notes.contains("not taken"), "{j}");
 
+    let victim = dir.join("victim");
+    std::fs::write(&victim, b"not to be written").unwrap();
+    std::fs::create_dir_all(out.join("hak")).unwrap();
     #[cfg(unix)]
-    {
-        let victim = dir.join("victim");
-        std::fs::write(&victim, b"not to be written").unwrap();
-        std::fs::create_dir_all(out.join("hak")).unwrap();
-        std::os::unix::fs::symlink(&victim, out.join("hak/pw_one.hak")).unwrap();
-        let args =
-            ["--no-user-dir", "nwsync-haks", f, "--source", &other, "--cache", c, "--out", o];
-        let (ok, j) = crate::mg_json(&args);
-        assert!(ok, "{j}");
-        assert_eq!(std::fs::read(&victim).unwrap(), b"not to be written");
-        let placed = out.join("hak/pw_one.hak");
-        assert!(!std::fs::symlink_metadata(&placed).unwrap().file_type().is_symlink());
-        assert!(mg_erf::Erf::read(&std::fs::read(&placed).unwrap()).is_ok());
-    }
+    std::os::unix::fs::symlink(&victim, out.join("hak/pw_one.hak")).unwrap();
+    let args = ["--no-user-dir", "nwsync-haks", f, "--source", &other, "--cache", c, "--out", o];
+    let (ok, j) = crate::mg_json(&args);
+    assert!(ok, "{j}");
+    assert_eq!(std::fs::read(&victim).unwrap(), b"not to be written");
+    let placed = out.join("hak/pw_one.hak");
+    assert!(!std::fs::symlink_metadata(&placed).unwrap().file_type().is_symlink());
+    assert!(mg_erf::Erf::read(&std::fs::read(&placed).unwrap()).is_ok());
 
     // A server's latest whose manifest isn't here: passed over, and said.
     std::fs::write(

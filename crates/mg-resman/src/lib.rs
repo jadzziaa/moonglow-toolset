@@ -127,6 +127,11 @@ pub mod priority {
     /// hak under the manifest). The builder's newer work shows over the
     /// content the server published; an older hak stays under it.
     pub const HAK_OVER_NWSYNC: u32 = 41;
+    /// Whether a layer of this priority is a hak's: the install's, the
+    /// user's, or one moved over the NWSync layer.
+    pub fn is_hak(priority: u32) -> bool {
+        matches!(priority, HAK | HAK_USER | HAK_OVER_NWSYNC)
+    }
     pub const NWSYNC: u32 = 40;
     /// Haks found in the user's `hak/` directory.
     pub const HAK_USER: u32 = 31;

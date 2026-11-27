@@ -421,6 +421,7 @@ impl HakFiles {
             }
         };
         let written = match now {
+            0 if self.haks.is_empty() => "nothing to write".to_string(),
             0 => "all written before".to_string(),
             n => format!(
                 "{n} written now ({:.1} GB in {:.0} s), the others written before",
@@ -601,7 +602,41 @@ impl crate::Module {
             let names = self.haks().map_err(|e| e.to_string())?;
             let tlk = self.custom_tlk().map_err(|e| e.to_string())?;
             let on_disk = self.nwsync_on_disk(install);
-            write_haks(&settings, game.as_ref(), &names, tlk.as_deref(), &on_disk, o)
+            let mut files =
+                write_haks(&settings, game.as_ref(), &names, tlk.as_deref(), &on_disk, o)?;
+            // (A newer table of the project's own, kept as JSON: made, as
+            // the game reads no JSON, into the cache beside the haks.)
+            if let (Some(name), Some(p), Some(cache)) =
+                (&files.newer_tlk, &self.project, cache_of(&settings))
+            {
+                let language = mg_core::Language::from_short_code(&install.language);
+                let made = |table: &str| -> Result<Option<(String, PathBuf)>, String> {
+                    let tables = p.talk_tables(table).map_err(|e| e.to_string())?;
+                    let Some(t) = crate::nasher::in_language(tables, language) else {
+                        return Ok(None);
+                    };
+                    let bytes = t.tlk.to_bytes_as_nwn_tlk().map_err(|e| e.to_string())?;
+                    let sha = mg_core::sha1::sha1(&bytes);
+                    let path = cache.file_path(&sha, "tlk");
+                    if !path.is_file() {
+                        let dir = path.parent().unwrap_or(cache.root());
+                        let part = dir.join(format!(".{}.part", mg_nwsync::sha1_hex(&sha)));
+                        (std::fs::create_dir_all(dir))
+                            .and_then(|()| std::fs::write(&part, &bytes))
+                            .and_then(|()| std::fs::rename(&part, &path))
+                            .map_err(|e| format!("{}: {e}", path.display()))?;
+                    }
+                    let file = format!("{}.tlk", table.to_lowercase());
+                    let index = Index { haks: Vec::new(), files: vec![(file.clone(), sha)] };
+                    let _ = cache.put_written(&files.manifest, index);
+                    Ok(Some((file, path)))
+                };
+                if let Some(male) = made(name)? {
+                    files.tlk_f = made(&crate::talk::feminine(name))?;
+                    files.tlk = Some(male);
+                }
+            }
+            Ok(files)
         })())
     }
 
@@ -820,6 +855,42 @@ mod tests {
         assert_eq!(resources_of(&f, "two"), ["b.2da"]);
         assert!(f.summary().starts_with("1 hak from NWSync manifest"), "{}", f.summary());
         assert_eq!(f.notes(), ["hak one on disk is newer than the NWSync manifest: used over it"]);
+    }
+
+    /// A project's own talk table, kept as JSON and newer than the
+    /// manifest: [`crate::Module::write_nwsync_haks`] (Test Module's,
+    /// `mg nwsync-haks`'s) makes it into the cache in place of the
+    /// manifest's, the game reading no JSON.
+    #[test]
+    fn a_projects_newer_talk_table_is_made_for_the_game() {
+        let dir = mg_testkit::scratch_dir("nwsync-content-project-tlk");
+        let (_, settings, _) = content(&dir, &TABLES, CAME, None);
+        let mut m = crate::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mine".to_vec()));
+        m.set_info(&info).unwrap();
+        let project = dir.join("project");
+        let at = crate::ModuleLocation::Project { root: project.clone(), target: "default".into() };
+        m.save_as(&at).unwrap();
+        let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+        cfg.push_str("\n[target]\nname = \"tlk\"\nfile = \"mine.tlk\"\n  [target.sources]\n  include = \"src/tlk/*.json\"\n");
+        std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+        std::fs::create_dir_all(project.join("src/tlk")).unwrap();
+        let json = r#"{"language":0,"entries":[{"id":0,"text":"Ours"}]}"#;
+        std::fs::write(project.join("src/tlk/mine.tlk.json"), json).unwrap();
+        let mut m = crate::Module::open(&project).unwrap();
+        m.project_file.nwsync_source = Some(settings.url.clone());
+        m.project_file.nwsync_cache = settings.cache.clone();
+        let gi = GameInstall::new(dir.join("game"), Some(dir.join("user")), "en");
+        let f = m.write_nwsync_haks(&gi, &WriteOptions::default()).unwrap().unwrap();
+        assert_eq!(f.newer_tlk.as_deref(), Some("mine"));
+        let (name, path) = f.tlk.as_ref().unwrap();
+        assert_eq!(name, "mine.tlk");
+        assert_eq!(
+            mg_tlk::Tlk::read(&std::fs::read(path).unwrap()).unwrap().entries[0].text,
+            b"Ours"
+        );
+        assert!(f.tlk_f.is_none());
     }
 
     /// The manifest's registration in a storage that holds none of its

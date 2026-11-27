@@ -1284,6 +1284,13 @@ File › Project. What is left:
   (one of 16.6 GB) waits on a machine that has downloaded it all
   (`mg nwsync-haks MODULE --out DIR` says what it wrote and how long it
   took). (S, waits on a machine with the content)
+- **`mg serve --real-user-dir` on Windows without symbolic links:** in
+  the player's own folder Moonglow places a hak or talk table from
+  NWSync as a symbolic link, else a copy; a copy is a file of the
+  player's to the next run, which then refuses to replace it (never
+  replacing the player's files comes first). Checked on Linux; on
+  Windows without the right to make links it waits on a run there.
+  (S, needs a Windows machine)
 - **`mg serve` and `development/`:** the server's own folder gets the
   module's haks and talk table, not the player's `development` folder, so
   work in progress there is in Test Module's game but not in `mg serve`'s

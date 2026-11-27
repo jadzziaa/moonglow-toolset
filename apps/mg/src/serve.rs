@@ -425,7 +425,6 @@ pub(crate) fn prepare(
     let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
     // (Read before the copy is saved: the copy is a module of its own.)
     let nwsync = m.project_file.nwsync_settings();
-    let module_keys: std::collections::HashSet<ResKey> = m.keys().copied().collect();
     // A talk table the project keeps as JSON, made into the table as
     // nasher packs it (the game's language's, where it keeps one a
     // language): the server finds no other.
@@ -489,6 +488,8 @@ pub(crate) fn prepare(
     // haks as the game finds them, the project's own talk tables (else
     // the `tlk` folders').
     let own_paths = (own_tlk.iter().chain(&own_fem_tlk)).map(|t| t.path.clone()).collect();
+    // (After the compile: its scripts compiled now are the module's own.)
+    let module_keys: std::collections::HashSet<ResKey> = m.keys().copied().collect();
     let on_disk = mg_module::nwsync_content::OnDisk::of(
         gi,
         &haks,
@@ -577,7 +578,16 @@ pub(crate) fn prepare(
             let fem = mg_module::talk::feminine(&tlk);
             match (from_manifest, synced_fem) {
                 (true, Some(path)) => place_tlk(&fem, Some(path), None, false)?,
-                (true, None) => {}
+                // (None from where the table comes: one an earlier run put
+                // there goes, never a file of the player's.)
+                (true, None) => {
+                    if let Some(file) = mg_resman::named_file(&fem, "tlk") {
+                        let to = dir.join("tlk").join(file);
+                        if !(players && is_regular_file(&to)) {
+                            let _ = std::fs::remove_file(&to);
+                        }
+                    }
+                }
                 (false, _) => place_tlk(&fem, None, own_fem_tlk, false)?,
             }
         }
@@ -1191,6 +1201,9 @@ mod tests {
         let (_, notes) = prepare(&gi, &folder, &server, None, false, false).unwrap();
         assert!(notes.iter().any(|n| n.starts_with("1 hak from NWSync manifest")), "{notes:?}");
         let hak = std::fs::read(server.join("hak/synced_hak.hak")).unwrap();
+        // (Hard linked from the cache: no link to it that a prune breaks.)
+        let placed = std::fs::symlink_metadata(server.join("hak/synced_hak.hak")).unwrap();
+        assert!(!placed.file_type().is_symlink());
         let erf = mg_erf::Erf::read(&hak).unwrap();
         assert_eq!(&*erf.get(&k_table.resref, k_table.restype).unwrap().unwrap(), &table[..]);
         assert_eq!(

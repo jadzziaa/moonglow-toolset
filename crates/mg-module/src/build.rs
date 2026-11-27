@@ -589,15 +589,11 @@ pub fn compiled_dir() -> Option<std::path::PathBuf> {
 /// install's own folders don't).
 pub fn user_content(l: &mg_resman::Layer) -> bool {
     use mg_resman::priority as p;
-    matches!(
-        l.priority,
-        p::HAK
-            | p::HAK_USER
-            | p::OVERRIDE
-            | p::DEVELOPMENT
-            | p::DEVELOPMENT_USER
-            | p::PORTRAITS_USER
-    )
+    p::is_hak(l.priority)
+        || matches!(
+            l.priority,
+            p::OVERRIDE | p::DEVELOPMENT | p::DEVELOPMENT_USER | p::PORTRAITS_USER
+        )
 }
 
 /// A module's path as both the window and `mg` know it, however it was
