@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:15:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -717,10 +717,16 @@ Nothing open.
   had static pairs of textures of their own drawn farthest first, read
   the client's pictures a few pixels off), whether they share a texture
   or a model with dynamic placeables or not, whichever is listed first.
-  The batch doesn't tell a fixed order of the two textures (or of static
-  geometry's buckets) from an order of each texture's meshes together by
-  a place they share (each texture's cards stand with the same mean
-  place in both). Moonglow puts static ones in order by their origins,
+  Which texture goes first is not read: `batch9_static_order`
+  (2026-11-26; one texture's cards untied by a lone card, the list
+  varied, the names swapped) ruled out a fixed order by model or
+  texture name, the texture listed first, the texture listed last, the
+  number of each texture's cards and their mean place (a lone red card
+  far behind turned one set to the red first and left another, listed
+  the other way, the blue). Not separated: where a set stands from the
+  eye (sets alike but for their listing stood apart), and the tiles a
+  set's cards stand on (a static placeable is merged into its tile; one
+  set straddled x 20, the second row y 30). Moonglow puts static ones in order by their origins,
   and half the static pairs differ ([the findings](findings.md), "Two
   placeables' see-through meshes"). Each see-through mesh of alpha 1
   costs two draws. On macOS the solid part's discarded fragments wrote

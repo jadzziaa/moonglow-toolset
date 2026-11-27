@@ -446,3 +446,234 @@ fn batch9_see_through_statics() {
     }
     eprintln!("{}", dir.display());
 }
+
+// ---------------------------------------------------------------------------
+// What decides which static see-through mesh is drawn first.
+
+/// A set of [`batch9_static_order`]: its code; the red card's and the blue
+/// card's model and texture names (a set's own); the lone card (its color
+/// and how far north of the pairs, metres; south when negative), if any;
+/// whether the lone card is placed first in the area's list (else last);
+/// whether each pair lists its blue card first (else its red); the place
+/// of the set (its first pair's nearer card, x and y).
+struct OrderSet {
+    code: &'static str,
+    red: (&'static str, &'static str),
+    blue: (&'static str, &'static str),
+    lone: Option<(char, f32)>,
+    lone_first: bool,
+    blue_listed_first: bool,
+    at: [f32; 2],
+}
+
+/// The sets of [`batch9_static_order`]. Each has two pairs (the red nearer
+/// in the first, the blue in the second, 2.2 m east), so that a texture's
+/// cards tie in their mean place but for a lone card.
+const ORDER_SETS: [OrderSet; 7] = [
+    // Row 1 (y 23).
+    OrderSet {
+        code: "u4",
+        red: ("mg9u4_r", "mg9u4_r"),
+        blue: ("mg9u4_b", "mg9u4_b"),
+        lone: Some(('R', -2.5)),
+        lone_first: false,
+        blue_listed_first: false,
+        at: [13.0, 23.0],
+    },
+    OrderSet {
+        code: "u1",
+        red: ("mg9u1_r", "mg9u1_r"),
+        blue: ("mg9u1_b", "mg9u1_b"),
+        lone: Some(('R', 4.0)),
+        lone_first: false,
+        blue_listed_first: false,
+        at: [17.5, 23.0],
+    },
+    OrderSet {
+        code: "u3",
+        red: ("mg9u3_r", "mg9u3_r"),
+        blue: ("mg9u3_b", "mg9u3_b"),
+        lone: Some(('R', 4.0)),
+        lone_first: false,
+        blue_listed_first: true,
+        at: [22.0, 23.0],
+    },
+    // Row 2 (y 29.5).
+    OrderSet {
+        code: "c",
+        red: ("mg9oc_r", "mg9oc_r"),
+        blue: ("mg9oc_b", "mg9oc_b"),
+        lone: None,
+        lone_first: false,
+        blue_listed_first: false,
+        at: [12.5, 29.5],
+    },
+    OrderSet {
+        code: "u2",
+        red: ("mg9u2_r", "mg9u2_r"),
+        blue: ("mg9u2_b", "mg9u2_b"),
+        lone: Some(('B', 4.0)),
+        lone_first: true,
+        blue_listed_first: false,
+        at: [16.7, 29.5],
+    },
+    // (The names swapped: the red card's model and texture named `_b`.)
+    OrderSet {
+        code: "n",
+        red: ("mg9nn_b", "mg9nn_b"),
+        blue: ("mg9nn_r", "mg9nn_r"),
+        lone: Some(('R', 4.0)),
+        lone_first: false,
+        blue_listed_first: false,
+        at: [20.9, 29.5],
+    },
+    // (The textures swapped between the models: the red card's model
+    // named `_r`, its texture `_b`.)
+    OrderSet {
+        code: "x",
+        red: ("mg9xs_r", "mg9xs_b"),
+        blue: ("mg9xs_b", "mg9xs_r"),
+        lone: None,
+        lone_first: false,
+        blue_listed_first: false,
+        at: [25.1, 29.5],
+    },
+];
+
+/// Which card of each pair the client draws first, where nothing but the
+/// order of each texture's static meshes decides it (each a card of
+/// `alpha 0.5`, 1 m square, static, of its set's own models and textures;
+/// the nearer card of a pair 0.5 m nearer and 0.5 m west of the other).
+/// [`batch9_see_through_statics`] read that two static placeables are not
+/// put in order by distance, the same texture first in every pair of a
+/// scene; its layouts tied each texture's cards in their mean place, so a
+/// fixed order and an order of each texture's meshes together were not
+/// told apart. Here a lone card of one texture, standing apart from the
+/// pairs, unties them, and the area's list is varied:
+///
+/// | set | lone card     | listed           | first listed | last listed | mean place |
+/// |-----|---------------|------------------|--------------|-------------|------------|
+/// | c   | none          | R B, R B         | R            | B           | tie        |
+/// | u1  | red, far      | R B, R B, lone   | R            | R           | R farther  |
+/// | u3  | red, far      | B R, B R, lone   | B            | R           | R farther  |
+/// | u2  | blue, far     | lone, R B, R B   | B            | B           | B farther  |
+/// | u4  | red, near     | R B, R B, lone   | R            | R           | R nearer   |
+/// | n   | red, far      | as u1, the red named `_b` and the blue `_r`             |
+/// | x   | none          | as c, the red card's model `_r` with the texture `_b`   |
+///
+/// The columns are what each reading predicts drawn first: the texture
+/// first in the area's list, the texture listed last (its last card) last
+/// drawn, or the farther texture by its cards' mean place (or nearest, or
+/// farthest card). `n` and `x` tell an order by name (model or texture)
+/// from the list's.
+///
+/// Seen (2026-11-26, 89.8193.37): the texture drawn first in both pairs
+/// of each set (`x`, beside the tree, read in its first pair only): `c`
+/// blue, `u1` red, `u3` blue, `u2` red, `u4` red, `n` red (as `u1`,
+/// whose names it swaps), `x` red. None of the columns predicts it: `c`
+/// rules out the first listed and the names (blue, `_b`, first; but `n`
+/// red, its red named `_b`), `u1` the last listed undrawn, `u3` the
+/// mean, farthest card and last listed (its red farther and last, the
+/// blue first), `u4` the nearest card. Not separated: where a set stands
+/// from the eye (`u1` and `u3`, alike but for their listing, stand
+/// 4.5 m apart, either side of the camera), and the tiles its cards
+/// stand on (`u1` straddles x 20, the second row y 30). Moonglow (by the
+/// origins) differs in half the pairs.
+#[test]
+#[ignore]
+fn batch9_static_order() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut rows: Vec<String> = Vec::new();
+    for set in &ORDER_SETS {
+        for ((model_name, texture), rgba) in
+            [(set.red, [255, 0, 0, 255]), (set.blue, [0, 0, 255, 255])]
+        {
+            files.push((format!("{texture}.tga"), solid(rgba)));
+            let quad = Quad {
+                name: "card".into(),
+                at: [0.0, 0.0, 0.0],
+                corners: [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 1.0], [-0.5, 0.0, 1.0]],
+                bitmap: Cow::Owned(texture.to_string()),
+                extra: "  alpha 0.5\n",
+                tverts: true,
+                colors: false,
+            };
+            files.push((format!("{model_name}.mdl"), model(model_name, &[quad]).into_bytes()));
+            rows.push(model_name.to_string());
+        }
+    }
+    let list: Vec<(&str, u8)> = rows.iter().map(|m| (m.as_str(), 1)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let appearance =
+        |name: &str| -> u32 { first + rows.iter().position(|m| m == name).unwrap() as u32 };
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("batch9_static_order", "tcn01", light, &as_refs(&files));
+    // Each set's pairs: the nearer color and the nearer card's place.
+    let pairs = |set: &OrderSet| [('R', set.at), ('B', [set.at[0] + 2.2, set.at[1]])];
+    let model_of = |set: &OrderSet, color: char| if color == 'R' { set.red.0 } else { set.blue.0 };
+    let static_field = [("Static", Value::Byte(1))];
+    for set in &ORDER_SETS {
+        let lone_at = |north: f32| [set.at[0] + 1.35, set.at[1] + north];
+        if let (Some((color, north)), true) = (set.lone, set.lone_first) {
+            let [x, y] = lone_at(north);
+            r.place(appearance(model_of(set, color)), [x, y, 0.0], 0.0, &static_field);
+        }
+        for (near, at) in pairs(set) {
+            let order = if set.blue_listed_first { ['B', 'R'] } else { ['R', 'B'] };
+            for color in order {
+                let [x, y] = if color == near { at } else { [at[0] + 0.5, at[1] + 0.5] };
+                r.place(appearance(model_of(set, color)), [x, y, 0.0], 0.0, &static_field);
+            }
+        }
+        if let (Some((color, north)), false) = (set.lone, set.lone_first) {
+            let [x, y] = lone_at(north);
+            r.place(appearance(model_of(set, color)), [x, y, 0.0], 0.0, &static_field);
+        }
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let camera = reference_camera();
+    for set in &ORDER_SETS {
+        for (side, img) in &pictures {
+            let firsts: Vec<String> = pairs(set)
+                .iter()
+                .map(|(near, at)| {
+                    let rect = |at: [f32; 2]| {
+                        let pts =
+                            [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)].map(|(dx, z)| {
+                                project(
+                                    &camera,
+                                    Vec3::new(at[0] + dx, at[1], z),
+                                    img.width,
+                                    img.height,
+                                )
+                            });
+                        let xs = pts.map(|p| p.0);
+                        let ys = pts.map(|p| p.1);
+                        [
+                            xs.iter().copied().fold(f32::MAX, f32::min),
+                            ys.iter().copied().fold(f32::MAX, f32::min),
+                            xs.iter().copied().fold(f32::MIN, f32::max),
+                            ys.iter().copied().fold(f32::MIN, f32::max),
+                        ]
+                    };
+                    let (n, f) = (rect(*at), rect([at[0] + 0.5, at[1] + 0.5]));
+                    let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
+                    let mixed = mixed_pixels(img, both, 6.0);
+                    let first = match (mixed > 100, *near) {
+                        (false, c) => c,
+                        (true, 'R') => 'B',
+                        (true, _) => 'R',
+                    };
+                    format!("nearer {near}: {mixed:4} mixed, {first} first")
+                })
+                .collect();
+            eprintln!("{side:22} set {:3} {}", set.code, firsts.join(" | "));
+        }
+    }
+    eprintln!("{}", dir.display());
+}

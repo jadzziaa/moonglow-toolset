@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:08:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T00:15:18Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2211,18 +2211,28 @@ of a scene, whichever is nearer; the red in all ten pairs of
 `batch9_see_through_statics`, the blue in all eight of
 `batch8d_see_through_two_models`. Sharing a texture or a model with a
 dynamic placeable changes nothing, nor where the dynamic sharers stand,
-nor which is listed first in the area. Not told apart: a fixed order of
-the two textures (or the buckets static geometry is drawn in: "Static
-geometry is drawn in buckets"), or an order of each texture's static
-meshes together by a place they share; in both batches each texture's
-cards stand with the same mean place.
+nor which is listed first in the area. Which texture goes first was
+read again with each texture's cards untied (`batch9_static_order`:
+seven sets of two pairs, a lone card of one texture standing apart in
+five, the area's list varied, the names swapped): within each set one
+texture goes first in both its pairs, but which follows none of a fixed
+order by model or texture name (the set whose red card is named `_b`
+drew the red first, as the set it copies), the texture listed first in
+the area (two pairs listed red first, then blue: the blue first), the
+texture listed last, the number of each texture's cards, or their mean
+place (a lone red card far behind: the red first in one set, the blue
+in another listed blue first in each pair). Not separated: where a set
+stands from the eye (the sets that differ only in their listing stood
+4.5 m apart), and the tiles its cards stand on (a static placeable is
+merged into its tile; one set straddled x 20, the second row y 30).
 
 - **Checked:** game client, `client_render`'s
   `batch9_see_through_statics` (2026-11-26: dynamic and static pairs,
   the nearer card's mesh before its origin, a texture shared with a
   dynamic placeable of another model, models shared with dynamic
   placeables standing either way round) and `batch8d_see_through_two_models`
-  run again the same day. Its first reading (2026-11-25) had static
+  run again the same day, and `batch9_static_order` (2026-11-26: the
+  set beside the tree, `x`, read in one pair only). Its first reading (2026-11-25) had static
   pairs of textures of their own drawn farthest first: its windows, put
   where the fitted camera puts the overlap, read the client's picture a
   few pixels off; the pairs are now read by the pixels of both colors
