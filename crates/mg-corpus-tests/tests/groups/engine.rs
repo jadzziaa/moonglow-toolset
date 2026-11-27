@@ -67,6 +67,8 @@ mod engine_locked;
 mod engine_modules;
 #[path = "../engine_new_module.rs"]
 mod engine_new_module;
+#[path = "../engine_nwsync_haks.rs"]
+mod engine_nwsync_haks;
 #[path = "../engine_object_by_tag.rs"]
 mod engine_object_by_tag;
 #[path = "../engine_placeable_walkmesh.rs"]

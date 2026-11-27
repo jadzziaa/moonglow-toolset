@@ -1281,6 +1281,48 @@ File › Project. What is left:
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 
+## NWSync content read
+
+- **Test Module's user folder on Windows without links:** Test Module
+  gives the game a user folder of Moonglow's that links the player's
+  (`test_module::content_user_dir`): symbolic links, else junctions for
+  folders and hard links, else copies, for files, each file's made again
+  at every test. Its tests (`a_content_user_directory`,
+  `a_content_user_directory_follows_the_player_s_files`) run on every
+  system CI runs; a game started on it on Windows and macOS, with a
+  module of NWSync content, waits on a run there. (S, needs a Windows
+  machine and a Mac)
+- **Haks written from NWSync, end to end:** written and read back from
+  made-up storage and manifests in the tests; a whole persistent world's
+  (one of 16.6 GB) waits on a machine that has downloaded it all
+  (`mg nwsync-haks MODULE --out DIR` says what it wrote and how long it
+  took). (S, waits on a machine with the content)
+- **`mg serve --real-user-dir` on Windows without symbolic links:** in
+  the player's own folder Moonglow places a hak or talk table from
+  NWSync as a symbolic link, else a copy; a copy is a file of the
+  player's to the next run, which then refuses to replace it (never
+  replacing the player's files comes first). Checked on Linux; on
+  Windows without the right to make links it waits on a run there.
+  (S, needs a Windows machine)
+- **`mg serve` and `development/`:** the server's own folder gets the
+  module's haks and talk table, not the player's `development` folder, so
+  work in progress there is in Test Module's game but not in `mg serve`'s
+  server. (S, waits on the owner's decision)
+- **Checked against a real game's NWSync storage:** the reader follows
+  the client's schema (`fixtures`), and was checked against a made-up
+  storage alone; a run of `mg nwsync-status` on a machine whose game
+  has joined the server waits on one. (S, waits on a machine with the
+  game's storage)
+- **A look or a clean-up of the NWSync window can't be stopped:** a
+  module closed while one runs leaves it to end on its thread (what it
+  makes thrown away, nothing else started meanwhile: `NwSyncContent`'s
+  `left`); a clean-up's removal goes on with the closed module's kept
+  manifests while the next module's are put in (the newest each server
+  named and what changed within the hour are kept whatever the module).
+  Stopping them takes a stop in `mg_nwsync::survey` and
+  `mg_nwsync::prune`, beyond what the review's batch for the window
+  was asked (mg-ui). (S, beyond what was asked; the review of PR #53)
+
 ## Questions asked, unanswered
 
 Each waits on its reporter: with no word by 2026-11-12 (a month from
@@ -1291,6 +1333,19 @@ log. None waits now.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A builder's own haks over the NWSync manifest when newer** (the
+  owner's word, 2026-11-27, "newer local wins"; was "A builder's own
+  haks under the manifest" of PR #53's review): a hak of the module's
+  list on disk, or its custom talk table (the project's own or the
+  `tlk` folder's), whose file is newer than the manifest came here (the
+  game's `created_at`, else when Moonglow's cache kept it), is read over
+  the NWSync layer (`priority::HAK_OVER_NWSYNC`, 41) and taken from disk
+  by `mg serve`, `mg test`, `mg nwsync-haks` and Test Module, and said;
+  an older one stays under it, as in the game. Without an origins file
+  the manifest is spread over the haks not on disk only. The rule lives
+  in `mg_module::nwsync_content` (`OnDisk`, `mount`, `write_haks`).
+  ([Build, verify and test](manual/09-build-and-test.md#nwsync-content-instead-of-haks))
 
 - **An include's own `main`: Moonglow's entry point kept, and warned
   of** (the owner's word, 2026-11-26, "Compile: 1 (keep, warn)"; closing

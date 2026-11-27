@@ -376,6 +376,28 @@ fn rows_the_table_lacks_are_pending_and_drawn_as_the_build_will_add_them() {
     assert_eq!(rows_held(&Rows { from: 2, to: 9 }, &table, &rows), [4]);
 }
 
+/// The pending rows are drawn over a placeables.2da from the module's
+/// NWSync content, and from a hak read over it (newer than the manifest),
+/// as over a hak's: their layer is above both.
+#[test]
+fn pending_rows_sit_over_nwsync_content_and_a_hak_over_it() {
+    let rows = RowsFile {
+        rows: vec![BakedRow { row: 3, copy_of: 0, model: "mgbk_0001".into(), label: "x".into() }],
+    };
+    for (label, at) in [("nwsync:x", priority::NWSYNC), ("hak:newer", priority::HAK_OVER_NWSYNC)] {
+        let mut rm = game(&[]);
+        let mut c = MemContainer::new();
+        c.insert(crate::lights::placeables_key(), TABLE.as_bytes().to_vec());
+        rm.add(at, label, LayerClass::Erf, c);
+        assert!(layer_pending(&mut rm, Codepage::default(), Some(&rows)));
+        let key = crate::lights::placeables_key();
+        assert_eq!(rm.origin(&key), Some(PENDING_LABEL), "over {label}");
+        assert_eq!(table_under(&rm, Codepage::default()).unwrap().1, label);
+        let read = TwoDa::parse(&rm.get(&key).unwrap(), Codepage::default()).unwrap();
+        assert_eq!(read.get(3, "ModelName"), Some("mgbk_0001"), "over {label}");
+    }
+}
+
 #[test]
 fn rows_and_models_no_placeable_uses_are_found_and_tidied() {
     let dir = mg_testkit::scratch_dir("bake-unused");

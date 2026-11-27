@@ -844,6 +844,7 @@ fn is_custom(layer: &Layer) -> bool {
         priority::OVERRIDE
             | priority::MODULE
             | priority::HAK_USER
+            | priority::HAK_OVER_NWSYNC
             | priority::NWSYNC
             | priority::DEVELOPMENT
             | priority::DEVELOPMENT_USER

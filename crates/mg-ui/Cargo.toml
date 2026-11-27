@@ -26,6 +26,7 @@ jiff.workspace = true
 png.workspace = true
 mg-gff.workspace = true
 mg-mdl.workspace = true
+mg-nwsync = { workspace = true, features = ["http"] }
 mg-module.workspace = true
 mg-nui.workspace = true
 mg-plugin.workspace = true
@@ -57,6 +58,7 @@ rustix.workspace = true
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-erf.workspace = true
+mg-nwsync = { workspace = true, features = ["fixtures", "http"] }
 mg-testkit.workspace = true
 # (The UI tests' releases, from a server of their own on 127.0.0.1,
 # through the app's client.)

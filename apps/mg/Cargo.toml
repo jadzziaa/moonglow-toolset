@@ -28,6 +28,7 @@ mg-key.workspace = true
 mg-mdl.workspace = true
 mg-module.workspace = true
 mg-nui.workspace = true
+mg-nwsync = { workspace = true, features = ["http"] }
 mg-plugin.workspace = true
 mg-preview = { workspace = true, features = ["usage"] }
 mg-render = { workspace = true, optional = true }
@@ -54,6 +55,7 @@ nui-preview = ["dep:mg-ui", "dep:mg-render"]
 
 [dev-dependencies]
 fastrand.workspace = true
+mg-nwsync = { workspace = true, features = ["fixtures"] }
 mg-testkit.workspace = true
 
 [lints]

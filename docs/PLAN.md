@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:23:22Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -140,6 +140,7 @@ in this list (test code may also use `mg-testkit` and `mg-testkit-gpu`). All of 
 | `mg-ssf` | soundsets |
 | `mg-audio` | what a sound file holds, told from its bytes or its first bytes, and where the game plays it (`role`: the names music, ambient sounds and other sounds are looked for under and the forms played there, for the window's log and Verify); decoded for playback (the default feature `decode`, Symphonia, which mg-module leaves off): MP3 (its first frame found behind `BMU V1.0`, ID3v2 tags or junk, bare or inside a WAVE), IMA ADPCM and PCM WAVE; what is refused is named |
 | `mg-resman` | layered resolution in the engine's order, DDS/TGA rule, install detection |
+| `mg-nwsync` | NWSync content read: manifests (`NSYM`) and origins files, the game's NWSync storage (its SQLite files, read only, bundled SQLite), Moonglow's own cache, a manifest as a resman layer at `priority::NWSYNC`, the download of what is missing (the requests, ureq, are the feature `http`), haks written from a manifest for what can't read NWSync (`haks`), and the cache pruned (`prune`) |
 | `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
 | `mg-shader` | the game's own shaders (`.shd`): a program assembled as the engine does it (preamble, `#include` splicing through the load order), compiled by glslang (built in), its combined samplers split and locations given on the SPIR-V, read into a validated naga module with its uniforms, textures and varyings by name, a program's uniforms checked against the std430 layout OpenGL reads (`layout`, `split_uniforms`); errors at their file and line ([the shaders proposal](shaders-proposal.md), M0) |
 | `mg-mdl` | MDL binary and ASCII, read and written; the model compiler, the linter and the outline; WOK/PWK/DWK walkmeshes |
@@ -344,6 +345,8 @@ list holds what each left undone.
 | Remappable keys | Tools › Options › Keyboard: every command of the menus, kept by command id | `crates/mg-ui/src/keys.rs`, `crates/mg-ui/src/commands.rs` |
 | Automation | `--json` on every `mg` command, `mg find`, `mg info`, `mg set`, `mg apply`; plugins (`mg-plugin`, experimental) | `apps/mg/tests/json.rs`, `crates/mg-plugin/tests/` |
 | NWSync publishing | Build › Publish to NWSync…, `mg nwsync` | `nwsync.rs` |
+| NWSync content read (a module's haks from its server, without the hak files) | `[nwsync] source`, Build › NWSync Content…, `mg nwsync-status`, `mg nwsync-pull` | `crates/mg-nwsync/tests/nwsync.rs`, `a_module_s_nwsync_content_over_its_haks`, `apps/mg/tests/nwsync_read.rs` |
+| Haks written from NWSync content (tests, a server's folder) and the cache pruned | Test Module, `mg serve`, `mg test`, `mg nwsync-haks`, Clean Up Cache…, `mg nwsync-cache-prune` | `crates/mg-nwsync/src/haks.rs`, `crates/mg-nwsync/tests/nwsync.rs`, `haks_from_nwsync_are_written_for_the_server`, `a_module_s_haks_are_written_from_its_nwsync_content`, `nwsync_haks_for_test_module_and_the_cache_cleaned_up`, `a_content_user_directory` |
 | Tileset authoring | Tools › Tilesets, `mg tileset-palette` | `tileset_authoring.rs` |
 
 Built since, outside this list (see the manual's

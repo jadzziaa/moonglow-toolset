@@ -42,6 +42,35 @@ fn module_with_game() -> Option<H> {
     Some(harness(app, 1280.0, 720.0))
 }
 
+/// The sample module as a folder whose project names an NWSync server,
+/// with an empty game, its cache in the scratch folder, and a server that
+/// has nothing (a Sync fails to find its manifest).
+fn module_with_nwsync() -> Option<H> {
+    let dir = mg_testkit::scratch_dir(&super::scratch("u27-module-nwsync"));
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    let (game, user) = (dir.join("game"), dir.join("user"));
+    for d in [&game, &user] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    app.install = Some(mg_resman::GameInstall::new(game, Some(user), "en"));
+    app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), tlk)));
+    let folder = dir.join("module");
+    Module::open(&sample_module(&dir))
+        .unwrap()
+        .save_as(&ModuleLocation::Folder(folder.clone()))
+        .unwrap();
+    let project = "[nwsync]\nsource = \"https://nwsync.example.org\"\n";
+    std::fs::write(folder.join("moonglow.toml"), project).unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let own = format!("[nwsync]\ncache = '{}'\n", dir.join("cache").display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    app.nwsync_content.fetch = Some(mg_nwsync::fetch::from_fn(|_| Ok(None)));
+    app.open_module(&folder);
+    Some(harness(app, 1280.0, 720.0))
+}
+
 /// A module with an area open (the game's).
 fn area() -> Option<H> {
     area_ui_harness(&super::scratch("u27-module-area")).map(|(h, _)| h)
@@ -315,6 +344,13 @@ pub(crate) fn openers() -> Vec<Opener> {
             let error = h.state().publish.as_ref().and_then(|p| p.error.as_deref());
             super::is_shown(h, "Publish to NWSync")
                 && error == Some("Choose the repository folder.")
+        }),
+        Opener::new("nwsync_content_view.rs:window#1", "NWSync Content", module_with_nwsync, |h| {
+            h.state_mut().nwsync_content.open = true
+        })
+        .enter_does("syncs, here finding no manifest on the server, in it", |h| {
+            let c = &h.state().nwsync_content;
+            super::is_shown(h, "NWSync Content") && !c.running() && c.error.is_some()
         }),
         Opener::new("updates.rs:window#1", "Check for Updates", module, |h| {
             let updates = &mut h.state_mut().updates;

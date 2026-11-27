@@ -694,6 +694,21 @@ pub struct ProjectFile {
     pub commands: Vec<ProjectCommand>,
     /// `[nwsync] upload`, the builder's own file's over the team's.
     pub nwsync_upload: Option<UploadCommand>,
+    /// `[nwsync] source`: the NWSync server the module's haks' content is
+    /// read from (`https://nwsync.example.org`), the builder's own file's
+    /// over the team's ([`ProjectFile::nwsync_settings`]); `source = ""`
+    /// in the builder's own file turns the team's off for them.
+    pub nwsync_source: Option<String>,
+    /// `[nwsync] manifest`: which of its manifests (`"latest"`, the
+    /// default, or one's SHA-1), the builder's own file's over the team's.
+    pub nwsync_manifest: Option<mg_nwsync::Wanted>,
+    /// `[nwsync] cache`: where Moonglow keeps what it downloads, where not
+    /// its own cache folder; the builder's own file's alone.
+    pub nwsync_cache: Option<PathBuf>,
+    /// `[nwsync] keep`: how many manifests last used a prune of the cache
+    /// keeps besides the module's own (`mg nwsync-cache-prune`), the
+    /// builder's own file's over the team's.
+    pub nwsync_keep: Option<usize>,
     /// The team's described variables (`variables.toml` beside the
     /// team's file): none without it.
     pub variables: crate::var_desc::Variables,
@@ -940,6 +955,48 @@ impl<'a> Reader<'a> {
         Some(c)
     }
 
+    /// `[nwsync] source`: an HTTP or HTTPS address, without the
+    /// trailing `/`. In the builder's own file (`own`), `""` is
+    /// `Some(None)`: the team's server turned off for this builder.
+    fn nwsync_source(&mut self, entry: Entry, own: bool) -> Option<Option<String>> {
+        let url = self.text(entry)?.trim().trim_end_matches('/').to_string();
+        if own && url.is_empty() {
+            return Some(None);
+        }
+        let scheme = url.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
+        match scheme.as_deref() {
+            Some("http" | "https") if url.len() > "https://".len() => Some(Some(url)),
+            _ => {
+                let message = format!(
+                    "source \"{url}\" is to be the NWSync server's address, as nwserver's \
+                     -nwsyncurl: \"https://nwsync.example.org\""
+                );
+                self.warn(entry.1.span().start, message);
+                None
+            }
+        }
+    }
+
+    /// `[nwsync] manifest`: `"latest"`, or a manifest's SHA-1.
+    fn nwsync_manifest(&mut self, entry: Entry) -> Option<mg_nwsync::Wanted> {
+        let text = self.text(entry)?;
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("latest") {
+            return Some(mg_nwsync::Wanted::Latest);
+        }
+        match mg_nwsync::parse_sha1(text) {
+            Some(sha) => Some(mg_nwsync::Wanted::Pinned(sha)),
+            None => {
+                let message = format!(
+                    "manifest \"{text}\" is to be \"latest\" or a manifest's SHA-1 (40 hexadecimal \
+                     digits)"
+                );
+                self.warn(entry.1.span().start, message);
+                None
+            }
+        }
+    }
+
     /// `[nwsync] upload`: its text, or a table of `run` (or `windows` and
     /// `unix`, each for its systems) and `input`.
     fn upload(&mut self, (_, value): Entry, own: bool) -> Option<UploadCommand> {
@@ -1005,6 +1062,16 @@ impl ProjectFile {
     /// The builder's own file, for a project's root.
     pub fn user_path(root: &Path) -> PathBuf {
         root.join(USER_DIR).join(USER_FILE)
+    }
+
+    /// Where the module's content comes from, where `[nwsync] source`
+    /// names a server ([`crate::nwsync_content`]).
+    pub fn nwsync_settings(&self) -> Option<mg_nwsync::Settings> {
+        Some(mg_nwsync::Settings {
+            url: self.nwsync_source.clone()?,
+            manifest: self.nwsync_manifest.unwrap_or(mg_nwsync::Wanted::Latest),
+            cache: self.nwsync_cache.clone(),
+        })
     }
 
     /// Reads a project's files from its root (neither there: as without
@@ -1171,9 +1238,9 @@ impl ProjectFile {
             let (key, _) = entry;
             let section = key.get_ref().as_ref();
             // (A .mod's folder holds other modules: what is a checkout's,
-            // and the builder's own file, are a project folder's.)
-            if beside && matches!(section, "claims" | "commands" | "nwsync" | "plugins" | "builder")
-            {
+            // and the builder's own file, are a project folder's. Its
+            // `[nwsync]` server is read, but not what runs a command.)
+            if beside && matches!(section, "claims" | "commands" | "plugins" | "builder") {
                 r.warn(
                     key.span().start,
                     format!(
@@ -1409,9 +1476,67 @@ impl ProjectFile {
                 ("nwsync", _) => {
                     for e in r.section(entry) {
                         match e.0.get_ref().as_ref() {
+                            "upload" if beside => r.warn(
+                                e.0.span().start,
+                                "upload is not read beside a module kept in one file (.mod): it \
+                                 is a module folder's or a nasher project's",
+                            ),
                             "upload" => {
                                 if let Some(c) = r.upload(e, own) {
                                     self.nwsync_upload = Some(c);
+                                }
+                            }
+                            "source" => {
+                                if let Some(url) = r.nwsync_source(e, own) {
+                                    self.nwsync_source = url;
+                                }
+                            }
+                            "manifest" => {
+                                if let Some(m) = r.nwsync_manifest(e) {
+                                    self.nwsync_manifest = Some(m);
+                                }
+                            }
+                            // (A folder Moonglow writes gigabytes into: the
+                            // builder's to choose, never a checkout's.)
+                            "cache" if beside => r.warn(
+                                e.0.span().start,
+                                "cache is read from a builder's own file alone, which a module \
+                                 kept in one file (.mod) has none of: Moonglow's own cache is \
+                                 used",
+                            ),
+                            "cache" if !own => r.warn(
+                                e.0.span().start,
+                                "cache is read from your own file alone (.moonglow/user.toml): \
+                                 it is where Moonglow writes what it downloads",
+                            ),
+                            "keep" => match e.1.get_ref() {
+                                DeValue::Integer(i) if i.radix() == 10 => {
+                                    match i.as_str().parse::<usize>() {
+                                        Ok(n) => self.nwsync_keep = Some(n),
+                                        Err(_) => r.warn(
+                                            e.1.span().start,
+                                            "keep is to be a number of manifests, 0 or more",
+                                        ),
+                                    }
+                                }
+                                _ => r.warn(
+                                    e.1.span().start,
+                                    "keep is to be a number of manifests, 0 or more",
+                                ),
+                            },
+                            "cache" => {
+                                let text = r.text(e).map(|t| t.trim().to_string());
+                                match text.filter(|t| !t.is_empty()).map(PathBuf::from) {
+                                    Some(dir) if dir.is_absolute() => self.nwsync_cache = Some(dir),
+                                    Some(dir) => r.warn(
+                                        e.1.span().start,
+                                        format!(
+                                            "cache \"{}\" is to be a whole path (from a drive or \
+                                             /)",
+                                            dir.display()
+                                        ),
+                                    ),
+                                    None => {}
                                 }
                             }
                             _ => r.unknown(section, e),
@@ -2911,6 +3036,70 @@ keeper_variable = "tdod_store"
         }
     }
 
+    /// `[nwsync] source` and `manifest`: the server the module's content
+    /// is read from and which manifest, the builder's own over the
+    /// team's; `cache` from the builder's own file alone, a whole path;
+    /// what isn't one is said and left out. Publishing's `upload` beside
+    /// them is read as before.
+    #[test]
+    fn the_nwsync_source_is_read() {
+        let p = read(
+            "[nwsync]\nsource = \"https://nwsync.example.org/\"\nupload = \"rsync -a {part} \
+             h:/srv/\"\n",
+        );
+        assert_eq!(p.warnings, Vec::<String>::new());
+        let s = p.nwsync_settings().unwrap();
+        assert_eq!(s.url, "https://nwsync.example.org");
+        assert_eq!((s.manifest, s.cache), (mg_nwsync::Wanted::Latest, None));
+        assert!(p.nwsync_upload.is_some());
+        assert!(read("[nwsync]\nupload = \"x\"\n").nwsync_settings().is_none());
+
+        let sha = "bc5dbfcd38fe370d93205d940f5f2458456e1de0";
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nsource = \"https://a.example\"\n", false);
+        let big = if cfg!(windows) { "D:/big/nwsync" } else { "/big/nwsync" };
+        let own = format!("[nwsync]\nmanifest = \"{sha}\"\ncache = \"{big}\"\n");
+        p.apply("user.toml", &own, true);
+        assert_eq!(p.warnings, Vec::<String>::new());
+        let s = p.nwsync_settings().unwrap();
+        assert_eq!(s.url, "https://a.example");
+        assert_eq!(s.manifest, mg_nwsync::Wanted::Pinned(mg_nwsync::parse_sha1(sha).unwrap()));
+        assert_eq!(s.cache.as_deref(), Some(Path::new(big)));
+
+        // `source = ""` in the builder's own file: the team's server off
+        // for them, without a warning; in the team's file, a warning.
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nsource = \"https://a.example\"\n", false);
+        p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert!(p.nwsync_settings().is_none());
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nsource = \"\"\n", false);
+        assert!(p.nwsync_settings().is_none());
+        assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+
+        let p = read(
+            "[nwsync]\nsource = \"nwsync.example.org\"\nmanifest = \"newest\"\ncache = \"/x\"\n",
+        );
+        assert!(p.nwsync_settings().is_none());
+        assert_eq!(p.nwsync_manifest, None);
+        assert_eq!(p.nwsync_cache, None);
+        assert_eq!(p.warnings.len(), 3, "{:?}", p.warnings);
+        assert!(p.warnings[0].contains("-nwsyncurl"), "{:?}", p.warnings);
+        assert!(p.warnings[1].contains("\"latest\" or a manifest's SHA-1"));
+        assert!(p.warnings[2].contains("your own file alone"));
+        let mut p = ProjectFile::default();
+        p.apply("user.toml", "[nwsync]\ncache = \"relative/dir\"\n", true);
+        assert!(p.nwsync_cache.is_none() && p.warnings[0].contains("whole path"));
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nkeep = 5\n", false);
+        p.apply("user.toml", "[nwsync]\nkeep = 1\n", true);
+        assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 0));
+        p.apply("user.toml", "[nwsync]\nkeep = -1\n", true);
+        p.apply("user.toml", "[nwsync]\nkeep = \"two\"\n", true);
+        assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 2));
+    }
+
     /// `[nwsync] upload`: text, or a table for each system and `input`;
     /// the builder's own file's wins over the team's; a module kept in
     /// one file doesn't read it (a checkout's program).
@@ -2953,7 +3142,40 @@ keeper_variable = "tdod_store"
         std::fs::write(dir.join("krezk.moonglow.toml"), "[nwsync]\nupload = \"x\"\n").unwrap();
         let p = ProjectFile::read_at(&Place::beside(&module).unwrap());
         assert!(p.nwsync_upload.is_none());
-        assert!(p.warnings[0].contains("[nwsync] is not read beside a module"), "{:?}", p.warnings);
+        assert!(p.warnings[0].contains("upload is not read beside a module"), "{:?}", p.warnings);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Beside a `.mod` (`NAME.moonglow.toml`), `[nwsync]` names the
+    /// server its content is read from, which manifest and how many a
+    /// prune keeps; its `cache` is a builder's own file's, which a `.mod`
+    /// has none of (Moonglow's own cache is used), and `upload` runs a
+    /// command, a project's: both said and left out.
+    #[test]
+    fn a_mod_reads_its_nwsync_server_beside_it() {
+        let dir = mg_testkit::scratch_dir("mg-pf-nwsync-mod");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("krezk.mod");
+        crate::Module::new().save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        std::fs::write(
+            dir.join("krezk.moonglow.toml"),
+            format!(
+                "[nwsync]\nsource = \"https://nwsync.example.org\"\nmanifest = \"{sha}\"\n\
+                 keep = 2\ncache = \"/big/nwsync\"\nupload = \"rsync {{part}} x:/y\"\n"
+            ),
+        )
+        .unwrap();
+        let m = crate::Module::open(&path).unwrap();
+        let p = &m.project_file;
+        let s = p.nwsync_settings().unwrap();
+        assert_eq!(s.url, "https://nwsync.example.org");
+        assert_eq!(s.manifest, mg_nwsync::Wanted::Pinned(mg_nwsync::parse_sha1(sha).unwrap()));
+        assert_eq!((s.cache, p.nwsync_keep), (None, Some(2)));
+        assert!(p.nwsync_upload.is_none());
+        assert_eq!(p.warnings.len(), 2, "{:?}", p.warnings);
+        assert!(p.warnings[0].starts_with("krezk.moonglow.toml:5: cache is read from"));
+        assert!(p.warnings[1].starts_with("krezk.moonglow.toml:6: upload is not read"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

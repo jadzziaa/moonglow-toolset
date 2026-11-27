@@ -78,6 +78,7 @@ pub mod nui_render {
         Area, Element, Error, Layout, Look, Options, Picture, Window, layout, render,
     };
 }
+pub mod nwsync_content_view;
 pub mod nwsync_view;
 mod options;
 mod outliner;
@@ -1001,6 +1002,9 @@ pub struct Moonglow {
     pub attach: Option<module_props::AttachDraft>,
     /// Build › Publish to NWSync.
     pub publish: Option<nwsync_view::Publish>,
+    /// Build › NWSync Content, and the module's NWSync content as it was
+    /// put into the game data.
+    pub nwsync_content: nwsync_content_view::NwSyncContent,
     /// Tilesets open in the tileset editor.
     pub tilesets: Vec<tileset_view::TilesetDoc>,
     pub(crate) next_tileset: u32,
@@ -1905,6 +1909,7 @@ impl Moonglow {
             suggested_hak: None,
             attach: None,
             publish: None,
+            nwsync_content: Default::default(),
             tilesets: Vec::new(),
             next_tileset: 0,
             tileset_ask: None,
@@ -2813,6 +2818,7 @@ impl Moonglow {
         module_props::attach_window(self, ui.ctx());
         talk_typed::window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
+        nwsync_content_view::window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
@@ -4979,17 +4985,32 @@ impl Moonglow {
             self.game.as_ref().map_or(0, |g| Arc::strong_count(g) - 1),
             if self.install.is_some() { "known" } else { "none" },
         ));
+        // (The last module's NWSync content forgotten, a Sync of it called
+        // off, whether the layers are made now or once the game data is
+        // free: `layer_open_module` replaces only what was mounted.)
+        self.nwsync_content.module_closed();
         // (Something still reading the game data: the haks are layered
         // once it is free, and the log says so meanwhile.)
         if self.game_free_for(|w| w.layers = true)
             && let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install)
         {
-            let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+            let mg_module::Stacked { missing, wrong, nwsync } = m.stack(&mut game.resman, gi);
             for h in missing {
                 self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
             }
             if let Some(e) = wrong {
                 self.log.error(format!("Could not open the module's haks: {e}"));
+            }
+            // (The NWSync server the project names: its content over the
+            // haks, from what is here; Build › NWSync Content downloads.)
+            if let Some(n) = nwsync {
+                if let Some(line) = n.summary() {
+                    self.log.info(line);
+                }
+                for w in n.warnings() {
+                    self.log.warn(format!("NWSync content: {w}"));
+                }
+                self.nwsync_content.mounted = Some(n);
             }
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
@@ -5569,10 +5590,11 @@ impl Moonglow {
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
         self.search_kept = Default::default();
+        self.nwsync_content.module_closed();
         if self.game_free_for(|w| w.layers = true)
             && let Some(game) = exclusive(&mut self.game)
         {
-            remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
+            remove_layers(&mut game.resman, is_module_layer);
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
@@ -6488,8 +6510,7 @@ impl Moonglow {
             }
             let in_layers = |hak: bool| {
                 game.resman.layers().iter().any(|l| {
-                    let is_hak = l.priority == mg_resman::priority::HAK
-                        || l.priority == mg_resman::priority::HAK_USER;
+                    let is_hak = mg_resman::priority::is_hak(l.priority);
                     let below = l.priority < mg_resman::priority::MODULE;
                     (if hak { is_hak } else { below }) && l.container.contains(key)
                 })
@@ -7337,7 +7358,7 @@ impl Moonglow {
                 return;
             }
             self.log.info(format!("Installed {}", dest.display()));
-            self.launch_test(&client, user, &name, choose);
+            self.test_with_content(&client, user, &name, choose);
             return;
         }
         let Some(path) = self.module_path() else {
@@ -7357,7 +7378,7 @@ impl Moonglow {
         {
             return;
         }
-        self.launch_test(&client, user, &name, choose);
+        self.test_with_content(&client, user, &name, choose);
     }
 
     /// Test From Here: the module as it is now, not saved, written to the
@@ -7394,7 +7415,7 @@ impl Moonglow {
                     at[1],
                     dest.display()
                 ));
-                self.launch_test(&client, &user, test_module::FROM_HERE, choose);
+                self.test_with_content(&client, &user, test_module::FROM_HERE, choose);
             }
             Err(e) => self.log.error(format!("Test From Here: {e}")),
         }
@@ -7770,6 +7791,69 @@ impl Moonglow {
         self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
+    }
+
+    /// Starts the game for a test ([`Moonglow::launch_test`]). For a
+    /// module whose project names an NWSync server, the game can't read
+    /// that content on a module of its own: the haks the server hands out
+    /// are written from it first (a job: the first time, gigabytes; then
+    /// only a hak a newer manifest changed), and the game is given a user
+    /// directory of Moonglow's that is the player's own but for its hak
+    /// and talk table folders ([`test_module::content_user_dir`]).
+    fn test_with_content(
+        &mut self,
+        client: &std::path::Path,
+        user: &std::path::Path,
+        name: &str,
+        choose: bool,
+    ) {
+        let uses =
+            (self.ws.as_ref()).is_some_and(|ws| ws.module.project_file.nwsync_settings().is_some());
+        let Some(install) = self.install.clone().filter(|_| uses) else {
+            self.launch_test(client, user, name, choose);
+            return;
+        };
+        let Some(dir) =
+            mg_module::build::cache_dir().map(|d| d.join(test_module::CONTENT_USER_DIR))
+        else {
+            self.log.error("Test Module: no cache folder to write the module's NWSync haks into");
+            return;
+        };
+        let (client, real, name) = (client.to_path_buf(), user.to_path_buf(), name.to_string());
+        self.start_job(
+            test_module::WRITE_TITLE,
+            move |ctx| -> Result<(std::path::PathBuf, String), String> {
+                let progress = |p: mg_nwsync::haks::Progress| {
+                    ctx.progress.step((p.bytes >> 20) as usize, (p.of_bytes >> 20) as usize);
+                    ctx.progress.say(format!(
+                        "writing haks: {} of {}, {} of {} MB",
+                        p.haks,
+                        p.of_haks,
+                        p.bytes >> 20,
+                        p.of_bytes >> 20
+                    ));
+                };
+                let stop = || ctx.progress.cancelled();
+                let o = mg_module::nwsync_content::WriteOptions {
+                    progress: &progress,
+                    stop: &stop,
+                    ..Default::default()
+                };
+                let said = test_module::with_content(&ctx.module, &install, &real, &dir, &o)?;
+                Ok((dir, said))
+            },
+            move |app, made| match made {
+                Ok((dir, said)) => {
+                    // (What was written, then each file on disk used over
+                    // the manifest: an entry each.)
+                    for line in said.lines() {
+                        app.log.info(format!("Test Module: {line}"));
+                    }
+                    app.launch_test(&client, &dir, &name, choose);
+                }
+                Err(e) => app.log.error(format!("Test Module: the module's NWSync content: {e}")),
+            },
+        );
     }
 
     fn launch_test(
@@ -8384,6 +8468,11 @@ impl Moonglow {
         if waits.layers || waits.changed {
             self.game_data_changed();
         }
+        // (The browser's and the views' load order is another: a Sync's
+        // newer manifest, another module's haks.)
+        if waits.layers {
+            self.load_order_changed();
+        }
         self.log.info(format!("The game data is free again: {} updated", waits.said()));
     }
 
@@ -8393,19 +8482,34 @@ impl Moonglow {
     /// must be free.
     fn layer_open_module(&mut self) {
         let Some(game) = exclusive(&mut self.game) else { return };
-        remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
+        remove_layers(&mut game.resman, is_module_layer);
+        // (What was mounted replaced, nothing else of the NWSync window:
+        // this is reached after edits and before jobs that read the game,
+        // and a Sync under way goes on. Closing or opening a module
+        // forgets the rest, `NwSyncContent::module_closed`.)
+        self.nwsync_content.mounted = None;
         let mut layered = Vec::new();
         match (&mut self.ws, &self.install) {
             (Some(ws), Some(gi)) => {
                 // (Module Properties' hak list as it is now, unsaved
                 // changes included.)
                 let _ = ws.flush();
-                let (missing, wrong) = ws.module.stack_onto(&mut game.resman, gi);
+                let mg_module::Stacked { missing, wrong, nwsync } =
+                    ws.module.stack(&mut game.resman, gi);
                 for h in missing {
                     self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
                 }
                 if let Some(e) = wrong {
                     self.log.error(format!("Could not open the module's haks: {e}"));
+                }
+                if let Some(n) = nwsync {
+                    if let Some(line) = n.summary() {
+                        self.log.info(line);
+                    }
+                    for w in n.warnings() {
+                        self.log.warn(format!("NWSync content: {w}"));
+                    }
+                    self.nwsync_content.mounted = Some(n);
                 }
                 layered = ws.module.haks().unwrap_or_default();
             }
@@ -8430,6 +8534,12 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn game_changes_waiting(&self) -> bool {
         self.game_waits.any()
+    }
+
+    /// How many times the load order has changed (for the tests).
+    #[doc(hidden)]
+    pub fn load_orders(&self) -> u64 {
+        self.load_order
     }
 
     /// Whether something other than the window reads the game data (a job,
@@ -8509,6 +8619,13 @@ fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String
 /// `ResMan::add_haks` labels them).
 fn is_hak_layer(layer: &mg_resman::Layer) -> bool {
     layer.label.starts_with("hak:")
+}
+
+/// A layer the open module put in: its own, its haks', its NWSync content's.
+fn is_module_layer(layer: &mg_resman::Layer) -> bool {
+    layer.priority == priority::MODULE
+        || is_hak_layer(layer)
+        || mg_module::nwsync_content::is_nwsync_layer(layer)
 }
 
 /// Takes the layers `gone` says out of the load order.

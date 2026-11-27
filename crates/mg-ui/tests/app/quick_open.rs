@@ -207,6 +207,26 @@ fn the_command_palette_s_key_and_menu_row_look_among_the_commands() {
     assert!(h.state().quick_open.shown().0.iter().all(|r| !r.ends_with(".nss")));
 }
 
+/// Build's NWSync Content… is found as the menus' other commands are (by
+/// its name, and by its menu's), and runs from the field: its window
+/// opens (saying, for a module whose project names no NWSync server, how
+/// to name one).
+#[test]
+fn nwsync_content_is_found_and_runs() {
+    let (mut h, _) = quick_harness("nwsync-content", 1400.0);
+    command_palette(&mut h, "nwsync content");
+    assert_eq!(quick_open_rows(&h).first().map(String::as_str), Some("NWSync Content…"));
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    quick_open(&mut h, "content build");
+    let rows = quick_open_rows(&h);
+    assert!(rows.iter().any(|r| r == "NWSync Content…"), "{rows:?}");
+    quick_open_row(&h, "NWSync Content…").click();
+    settle(&mut h);
+    assert!(h.state().nwsync_content.open, "its window");
+    h.get_by_label_contains("names no NWSync server");
+}
+
 /// Escape closes it and gives the keys back to the field that had them:
 /// typing goes on there.
 #[test]

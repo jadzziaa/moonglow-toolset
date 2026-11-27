@@ -13,6 +13,7 @@ mod edits;
 mod lsp;
 mod merge;
 mod nui;
+mod nwsync_read;
 mod plugins;
 mod search;
 mod serve;
@@ -373,6 +374,10 @@ enum Cmd {
         /// Allow --dir to be your own NWN folder.
         #[arg(long)]
         real_user_dir: bool,
+        /// Take the module's haks and talk table from disk, as though its
+        /// project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// The port (default: a free one).
         #[arg(long)]
         port: Option<u16>,
@@ -449,6 +454,10 @@ enum Cmd {
         /// The server's user directory (default: a scratch one).
         #[arg(long)]
         dir: Option<PathBuf>,
+        /// Take the module's haks and talk table from disk, as though its
+        /// project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// A file of NAME=value lines for the server's environment.
         #[arg(long)]
         env: Vec<PathBuf>,
@@ -717,6 +726,10 @@ enum Cmd {
         /// Run the module in the server too, as `mg serve` does.
         #[arg(long)]
         serve: bool,
+        /// With --serve or --test: the haks and talk table from disk, as
+        /// though the project named no NWSync server ([nwsync] source).
+        #[arg(long)]
+        no_nwsync: bool,
         /// With --serve: the server's user directory (default: a scratch
         /// one).
         #[arg(long)]
@@ -1322,6 +1335,71 @@ enum Cmd {
         /// takes a manifest away before the data it names).
         #[arg(long, value_name = "COMMAND")]
         upload: Option<String>,
+    },
+    /// Say what of a module's NWSync content is here: the manifest of the
+    /// server its project names ([nwsync] source), where it was found, and
+    /// how many of its data files the game's NWSync storage has (read
+    /// only), how many Moonglow's cache has and how many neither. Asks
+    /// no server unless --online.
+    NwsyncStatus {
+        #[command(flatten)]
+        source: nwsync_read::Source,
+        /// Ask the server for its latest manifest first (and download it,
+        /// not its data).
+        #[arg(long)]
+        online: bool,
+    },
+    /// Download a module's NWSync content: the server's latest manifest
+    /// (or the one pinned) and the data files neither the game's NWSync
+    /// storage nor Moonglow's cache has, into the cache (never into the
+    /// game's storage), each checked against its SHA-1. What was
+    /// downloaded stays: run it again to go on. Offline, the newest
+    /// manifest here is used, with a warning.
+    NwsyncPull {
+        #[command(flatten)]
+        source: nwsync_read::Source,
+        /// How many data files are downloaded at once.
+        #[arg(long, default_value_t = mg_nwsync::fetch::JOBS)]
+        jobs: usize,
+        /// At most this many data files (a sample, to try a server).
+        #[arg(long, value_name = "N")]
+        sample: Option<usize>,
+    },
+    /// Write a module's haks (and talk table) from its NWSync content, as
+    /// mg serve does for its server: those the server hands out, from the
+    /// game's NWSync storage and Moonglow's cache (mg nwsync-pull first
+    /// for what neither has), each hak as the manifest's origins file
+    /// names its resources, or the resources spread over the module's
+    /// haks where the server publishes none. Kept in the cache: a hak
+    /// written before is not written again. With --out, put in DIR/hak
+    /// and DIR/tlk (hard links where they can be, else copies), for a
+    /// server of your own.
+    NwsyncHaks {
+        #[command(flatten)]
+        source: nwsync_read::Source,
+        /// Put the haks in DIR/hak and the talk table in DIR/tlk (a
+        /// server's user directory, or any folder; not your own NWN
+        /// folder).
+        #[arg(long, value_name = "DIR")]
+        out: Option<PathBuf>,
+        /// Every hak the origins file names, not only the module's.
+        #[arg(long)]
+        all: bool,
+        /// Copies in --out, not hard links.
+        #[arg(long)]
+        copy: bool,
+        /// How many haks are written at once.
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
+    },
+    /// Take out of Moonglow's NWSync cache what no manifest kept needs:
+    /// data files, written haks, manifests. Kept: the module's manifest
+    /// (where a module is given), the newest each server named, and the
+    /// last used (--keep). The game's NWSync storage is never touched.
+    /// (Not mg nwsync-prune, which prunes a server's repository.)
+    NwsyncCachePrune {
+        #[command(flatten)]
+        args: nwsync_read::PruneArgs,
     },
     /// Import an ERF, or loose files and folders, into a module and save
     /// it. What an ERF was made from (stamped by Moonglow's export) is
@@ -2300,7 +2378,7 @@ fn model_info(
     Ok(out)
 }
 
-fn install(cli: &Cli) -> Result<GameInstall> {
+pub(crate) fn install(cli: &Cli) -> Result<GameInstall> {
     let mut gi = match &cli.root {
         Some(r) => GameInstall::new(r, None, "en"),
         None => {
@@ -3054,6 +3132,7 @@ fn run(cli: &Cli) -> Result<Output> {
             module,
             dir,
             real_user_dir,
+            no_nwsync,
             port,
             public,
             name,
@@ -3082,6 +3161,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 stdin: true,
                 args: server_args.clone(),
                 project: None,
+                progress: !cli.json,
+                no_nwsync: *no_nwsync,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -3133,6 +3214,7 @@ fn run(cli: &Cli) -> Result<Output> {
             log,
             include,
             dir,
+            no_nwsync,
             env,
             preload,
             server_args,
@@ -3156,12 +3238,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     env: env.clone(),
                     preload: preload.clone(),
                     args: server_args.clone(),
+                    progress: !cli.json,
+                    no_nwsync: *no_nwsync,
                     ..Default::default()
                 },
             };
             let resman = |m: &Module, notes: &mut Vec<String>| {
                 let mut out = Output::default();
-                let rm = module_resman(&gi, m, &mut out)?;
+                let rm = module_resman_as(&gi, m, &mut out, !*no_nwsync)?;
                 notes.append(&mut out.notes);
                 Ok(rm)
             };
@@ -3951,6 +4035,13 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Find { palette_group: Some(_), .. } => cmd_find_palette(cli)?,
         Cmd::Find { .. } => cmd_find(cli)?,
         Cmd::Nwsync { .. } => cmd_nwsync(cli)?,
+        Cmd::NwsyncStatus { source, online } => nwsync_read::status(cli, source, *online)?,
+        Cmd::NwsyncPull { source, jobs, sample } => nwsync_read::pull(cli, source, *jobs, *sample)?,
+        Cmd::NwsyncHaks { source, out, all, copy, jobs } => {
+            let a = nwsync_read::HakArgs { out: out.clone(), all: *all, copy: *copy, jobs: *jobs };
+            nwsync_read::haks(cli, source, &a)?
+        }
+        Cmd::NwsyncCachePrune { args } => nwsync_read::cache_prune(cli, args)?,
         Cmd::NwsyncPrune { repository, min_age, dry_run, upload } => {
             let p = mg_module::nwsync::prune(repository, *min_age, *dry_run)
                 .map_err(anyhow::Error::msg)?;
@@ -4230,6 +4321,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         r#mod,
         ndb,
         serve,
+        no_nwsync,
         dir,
         port,
         passwords,
@@ -4265,7 +4357,7 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
     let say = |v: serde_json::Value, lines: Vec<String>| serve::say(cli.json, &v, &lines);
     let resman = |m: &Module| -> Result<ResMan> {
         let mut notes = Output::default();
-        let mut rm = module_resman(&gi, m, &mut notes)?;
+        let mut rm = module_resman_as(&gi, m, &mut notes, !*no_nwsync)?;
         for note in notes.notes {
             say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
         }
@@ -4308,11 +4400,15 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
             own_driver: false,
             settle: 0.0,
             timeout: 120.0,
-            serve: serve::Config { name: "Moonglow test run".into(), ..Default::default() },
+            serve: serve::Config {
+                name: "Moonglow test run".into(),
+                no_nwsync: *no_nwsync,
+                ..Default::default()
+            },
         };
         let resman = |m: &Module, notes: &mut Vec<String>| {
             let mut out = Output::default();
-            let rm = module_resman(&gi, m, &mut out)?;
+            let rm = module_resman_as(&gi, m, &mut out, !*no_nwsync)?;
             notes.append(&mut out.notes);
             Ok(rm)
         };
@@ -4374,6 +4470,8 @@ fn cmd_watch(cli: &Cli) -> Result<Output> {
         args: server_args.clone(),
         // (The project's own talk table, made for the server.)
         project: Some(project.clone()),
+        progress: !cli.json,
+        no_nwsync: *no_nwsync,
         ..Default::default()
     };
     let mut wrong: Option<anyhow::Error> = None;
@@ -5584,6 +5682,22 @@ pub(crate) fn said(
 }
 
 /// The resman for a module: the game, the module's haks and the module.
+/// [`module_resman`], without the module's NWSync content where `nwsync`
+/// is false (`--no-nwsync`: as its server does, the haks from disk).
+fn module_resman_as(
+    gi: &GameInstall,
+    m: &Module,
+    out: &mut Output,
+    nwsync: bool,
+) -> Result<ResMan> {
+    if nwsync || m.project_file.nwsync_source.is_none() {
+        return module_resman(gi, m, out);
+    }
+    let mut without = m.clone();
+    without.project_file.nwsync_source = None;
+    module_resman(gi, &without, out)
+}
+
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     // (A module whose hak list can't be read, or a hak that can't be

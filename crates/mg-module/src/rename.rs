@@ -290,9 +290,8 @@ impl HakCell {
 /// haks' order. `resman` is the module's game data (its haks among its
 /// layers, `hak:NAME`).
 pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
-    let haks = resman.layers().iter().enumerate().filter(|(_, l)| {
-        matches!(l.priority, mg_resman::priority::HAK | mg_resman::priority::HAK_USER)
-    });
+    let haks =
+        resman.layers().iter().enumerate().filter(|(_, l)| mg_resman::priority::is_hak(l.priority));
     let mut tables: Vec<&str> = crate::doctor::STRREF_COLUMNS.iter().map(|(t, _)| *t).collect();
     tables.dedup();
     let mut out = Vec::new();
@@ -326,9 +325,8 @@ pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
 /// they are the cells that still name it. `resman` is the module's game
 /// data (its haks among its layers, `hak:NAME`).
 pub fn hak_scripts(resman: &ResMan, script: ResRef) -> Vec<HakCell> {
-    let haks = resman.layers().iter().enumerate().filter(|(_, l)| {
-        matches!(l.priority, mg_resman::priority::HAK | mg_resman::priority::HAK_USER)
-    });
+    let haks =
+        resman.layers().iter().enumerate().filter(|(_, l)| mg_resman::priority::is_hak(l.priority));
     let mut tables: Vec<&str> = crate::doctor::SCRIPT_COLUMNS.iter().map(|(t, _)| *t).collect();
     tables.dedup();
     let name = script.to_string();

@@ -4,7 +4,7 @@
 //! Layout: magic, header version (3), algorithm (0 none, 1 zlib, 2 zstd),
 //! uncompressed size, then per algorithm: raw bytes; or a version word (1)
 //! and a zlib stream; or a version word (1), a dictionary id (0) and a zstd
-//! frame.
+//! frame. All three are read; what is written is zstd or raw bytes.
 
 use std::io::Read;
 
@@ -24,12 +24,14 @@ pub enum CompressedBufError {
     BadMagic { expected: String, found: String },
     #[error("unsupported compressed buffer header version {0}")]
     BadVersion(u32),
-    #[error("unsupported compression algorithm {0} (zstd and uncompressed are supported)")]
+    #[error("unsupported compression algorithm {0} (zstd, zlib and uncompressed are supported)")]
     UnsupportedAlgorithm(u32),
     #[error("zstd dictionaries are not supported")]
     Dictionary,
     #[error("zstd data is corrupt: {0}")]
     Zstd(String),
+    #[error("zlib data is corrupt: {0}")]
+    Zlib(String),
     #[error(
         "the header says {size} bytes, more than a compressed buffer of {compressed} is read to \
          ({limit})"
@@ -60,6 +62,27 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
     }
     let out = match algorithm {
         0 => r.bytes(size)?.to_vec(),
+        // (A zlib stream, header and checksum: what neverwinter.nim writes
+        // with `-d:zlib`, and the older data files of NWSync servers are.)
+        1 => {
+            let v = r.u32()?;
+            if v != 1 {
+                return Err(CompressedBufError::BadVersion(v));
+            }
+            let stream = r.bytes(r.remaining())?;
+            // (As zstd's below: no more than a stream of this length may
+            // copy out, and no more read than the header says.)
+            let limit = max_size(stream.len());
+            if size > limit {
+                return Err(CompressedBufError::TooLarge { size, compressed: stream.len(), limit });
+            }
+            let mut out = Vec::with_capacity(size.min(stream.len().saturating_mul(64)));
+            flate2::read::ZlibDecoder::new(stream)
+                .take(size as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| CompressedBufError::Zlib(e.to_string()))?;
+            out
+        }
         2 => {
             let v = r.u32()?;
             if v != 1 {
@@ -247,6 +270,67 @@ mod tests {
         }
         assert!(sizes.windows(2).all(|w| w[1] <= w[0]), "{sizes:?}");
         assert_eq!(compress_at(&data, MAGIC_NSYC, 99), compress_at(&data, MAGIC_NSYC, 22));
+    }
+
+    /// `data` in a zlib stream under the header, as neverwinter.nim
+    /// writes algorithm 1.
+    fn zlib(data: &[u8], size: u32) -> Vec<u8> {
+        use mg_core::bin::WriteLe;
+        use std::io::Write;
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(data).unwrap();
+        let stream = z.finish().unwrap();
+        let mut buf = Vec::new();
+        buf.put_bytes(b"NSYC");
+        buf.put_u32(3);
+        buf.put_u32(1);
+        buf.put_u32(size);
+        buf.put_u32(1);
+        buf.put_bytes(&stream);
+        buf
+    }
+
+    /// A zlib stream reads back; a cut one, one under another version
+    /// word, one shorter or longer than its header says and one that
+    /// claims past all proportion are errors.
+    #[test]
+    fn zlib_streams_are_read() {
+        let data: Vec<u8> = (0..20_000u32).flat_map(|i| (i % 251).to_le_bytes()).collect();
+        let buf = zlib(&data, data.len() as u32);
+        assert_eq!(buf[16..18], [1, 0]);
+        // (The stream's own header: deflate, a 32 KB window.)
+        assert_eq!(buf[20], 0x78);
+        assert_eq!(decompress(&buf, MAGIC_NSYC).unwrap(), data);
+        assert_eq!(decompress(&zlib(b"", 0), MAGIC_NSYC).unwrap(), b"");
+        // (Cut anywhere, header or stream: an error.)
+        for n in 0..buf.len() {
+            assert!(decompress(&buf[..n], MAGIC_NSYC).is_err(), "cut at {n}");
+        }
+        let mut version = buf.clone();
+        version[16] = 2;
+        assert_eq!(decompress(&version, MAGIC_NSYC), Err(CompressedBufError::BadVersion(2)));
+        let small = zlib(&data, 100);
+        assert!(matches!(
+            decompress(&small, MAGIC_NSYC),
+            Err(CompressedBufError::SizeMismatch { expected: 100, actual: 101 })
+        ));
+        let big = zlib(&data, data.len() as u32 + 1);
+        assert!(matches!(
+            decompress(&big, MAGIC_NSYC),
+            Err(CompressedBufError::SizeMismatch { .. })
+        ));
+        let bomb = zlib(&vec![0; 1 << 20], u32::MAX);
+        assert!(matches!(decompress(&bomb, MAGIC_NSYC), Err(CompressedBufError::TooLarge { .. })));
+        let mut corrupt = buf.clone();
+        corrupt[30] ^= 0xff;
+        assert!(decompress(&corrupt, MAGIC_NSYC).is_err());
+        // (An algorithm past zstd's is still refused.)
+        let mut other = buf;
+        other[8] = 3;
+        assert_eq!(
+            decompress(&other, MAGIC_NSYC),
+            Err(CompressedBufError::UnsupportedAlgorithm(3))
+        );
     }
 
     #[test]

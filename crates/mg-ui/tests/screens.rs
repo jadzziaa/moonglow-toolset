@@ -11,6 +11,10 @@
 
 use std::sync::Arc;
 
+// (Moonglow's cache folder the tests' own, set before `main`.)
+#[path = "support/own_cache.rs"]
+mod own_cache;
+
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use mg_core::ResType;
@@ -524,6 +528,154 @@ fn window_bar_maximize_and_an_older_hak() {
     h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(mg_ui::Tab::ModuleProperties));
     h.run_steps(8);
     shoot(&mut h, &dir, "window-bar-restore");
+}
+
+/// Build › NWSync Content…: a module folder whose project names an
+/// NWSync server, the game's storage holding its manifest and the first
+/// of its 61 data files, and one of its three haks on disk, newer than the
+/// manifest: as it opens (`nwsync-content`), a Sync through a slow
+/// server of the test's canceled (`nwsync-content-canceled`), a Sync
+/// under way (`nwsync-content-syncing`), after (`nwsync-content-synced`),
+/// and Clean Up Cache's dry run (`nwsync-content-clean-up`).
+#[test]
+#[ignore]
+fn nwsync_content_window() {
+    use mg_core::sha1::sha1;
+    mg_testkit::gpu::hold();
+    // (Moonglow's cache folder the tests' own, never the user's.)
+    assert_eq!(mg_module::build::cache_dir(), Some(own_cache::dir()));
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-nwsync-content");
+    let _ = std::fs::remove_dir_all(dir.join("user"));
+    let _ = std::fs::remove_dir_all(dir.join("cache"));
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    // (A hak of the builder's, newer than the manifest: used over it.)
+    let mut vfx = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = b"2DA V2.0\n\n   Label\n0  mine\n".to_vec();
+    vfx.add(mg_core::ResRef::from_str("mg_vfx").unwrap(), ResType::TWODA, table).unwrap();
+    std::fs::write(user.join("hak/pw_vfx.hak"), vfx.to_bytes().unwrap()).unwrap();
+    let data: Vec<Vec<u8>> = (0..61)
+        .map(|i| format!("2DA V2.0\n\n   Label\n0  row{i}\n").repeat(400).into_bytes())
+        .collect();
+    let entries: Vec<_> = data
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let k = mg_resman::ResKey::parse(&format!("mg_t{i}"), ResType::TWODA).unwrap();
+            (k, sha1(d), d.len() as u32)
+        })
+        .collect();
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let url = "https://nwsync.example.org";
+    mg_nwsync::fixtures::write_storage(
+        &user.join("nwsync"),
+        &[mg_nwsync::fixtures::Registered {
+            sha1: sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(sha1(&data[0]), data[0].clone())]],
+    );
+    let folder = dir.join("module");
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let haks: Vec<String> = ["pw_parts", "pw_vfx", "pw_2da"].map(String::from).to_vec();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &haks));
+    m.set_info(&info).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let own = format!("[nwsync]\ncache = '{}'\n", dir.join("cache").display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    // (A data file no manifest needs, two days old: Clean Up's to remove.)
+    let cache = mg_nwsync::Cache::new(dir.join("cache"));
+    let orphan = vec![7u8; 3 << 20];
+    cache.put(&sha1(&orphan), &orphan).unwrap();
+    let two_days = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(cache.data_path(&sha1(&orphan)))
+        .and_then(|f| f.set_modified(two_days))
+        .unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let hex = mg_nwsync::sha1_hex(&sha1(&manifest));
+    let served = data.clone();
+    app.nwsync_content.fetch = Some(mg_nwsync::fetch::from_fn(move |u: &str| {
+        if u.ends_with("/latest") {
+            return Ok(Some(hex.clone().into_bytes()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        Ok(served
+            .iter()
+            .find(|d| u.ends_with(&mg_nwsync::sha1_hex(&sha1(d))))
+            .map(|d| mg_erf::compressedbuf::compress(d, *b"NSYC").unwrap()))
+    }));
+    app.open_module(&folder);
+    app.palette_dock = false;
+    app.background_jobs = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("NWSync Content…").click();
+    let deadline = std::time::Duration::from_secs(60);
+    // (Until the window's thread is done and its result taken.)
+    let wait = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().nwsync_content.running() {
+            assert!(started.elapsed() < deadline, "the window's thread never ended");
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(2);
+    };
+    // (Until the window's bar says at least `least` data files are done.)
+    let downloaded = |h: &mut Harness<'_, Moonglow>, least: usize| {
+        let started = std::time::Instant::now();
+        loop {
+            h.run_steps(1);
+            let done = h
+                .query_by(|n| n.label().is_some_and(|l| l.contains(" data files, ")))
+                .and_then(|n| n.accesskit_node().label())
+                .and_then(|l| l.split(' ').next().and_then(|n| n.parse::<usize>().ok()));
+            if done.is_some_and(|n| n >= least) {
+                return;
+            }
+            assert!(started.elapsed() < deadline, "never {least} downloaded: {done:?}");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content");
+    h.get_by_label("Sync").click();
+    downloaded(&mut h, 8);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    wait(&mut h);
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content-canceled");
+    h.get_by_label("Sync").click();
+    downloaded(&mut h, 12);
+    shoot(&mut h, &dir, "nwsync-content-syncing");
+    wait(&mut h);
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content-synced");
+    h.get_by_label("Clean Up Cache…").click();
+    h.run_steps(1);
+    wait(&mut h);
+    shoot(&mut h, &dir, "nwsync-content-clean-up");
+    eprintln!("{}", dir.join("nwsync-content-synced.png").display());
 }
 
 /// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
