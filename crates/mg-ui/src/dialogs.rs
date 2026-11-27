@@ -55,6 +55,9 @@ pub enum FileKind {
     TalkLines { json: bool },
     /// The keys chosen in Options › Keyboard, as a file: `.json`.
     Keys,
+    /// A character to test with (Options › Test Module's quick start):
+    /// `.bic`.
+    Character,
 }
 
 impl FileKind {
@@ -99,6 +102,7 @@ impl FileKind {
             (FileKind::TalkLines { .. }, true) => "Export Lines",
             (FileKind::Keys, false) => "Import Keys",
             (FileKind::Keys, true) => "Export Keys",
+            (FileKind::Character, _) => "Choose a Character",
         }
     }
 
@@ -138,6 +142,7 @@ impl FileKind {
             (FileKind::TalkLines { json: false }, _) => Some(("CSV", &["csv"])),
             (FileKind::TalkLines { json: true }, _) => Some(("JSON", &["json"])),
             (FileKind::Keys, _) => Some(("Key sets", &["json"])),
+            (FileKind::Character, _) => Some(("Characters", &["bic"])),
         }
     }
 }

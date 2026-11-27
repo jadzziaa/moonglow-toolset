@@ -127,6 +127,44 @@ pub fn join_command(
 }
 
 /// The player's own characters, for the quick start's character: each
+/// How the game joins Test Module's local server: with `chosen`, the
+/// project's character, where Options › Test Module's quick start is `on`
+/// and the file is there, else at the character list; and what the Log
+/// says of it (with the quick start on).
+pub fn quick_start_join(on: bool, chosen: Option<&Path>) -> (Join, Option<(crate::Level, String)>) {
+    use crate::Level;
+    if !on {
+        return (Join::CharacterList, None);
+    }
+    let said = match chosen {
+        Some(bic) if bic.is_file() => {
+            let text = format!(
+                "Test Module: joining with {} (confirm it once on the character list)",
+                bic.display()
+            );
+            return (
+                Join::QuickStart(Character::Bic(bic.to_path_buf())),
+                Some((Level::Info, text)),
+            );
+        }
+        Some(bic) => (
+            Level::Warning,
+            format!(
+                "Test Module: the quick start's character {} is gone: the game shows your own \
+                 characters",
+                bic.display()
+            ),
+        ),
+        None => (
+            Level::Info,
+            "Test Module: no character chosen for the quick start (Options › Test Module): the \
+             game shows your own characters"
+                .into(),
+        ),
+    };
+    (Join::CharacterList, Some(said))
+}
+
 /// `.bic` of the user folder's `localvault` (read, never written) with the
 /// name it carries (first and last, in English), else its file's name;
 /// in the order of their names.
@@ -586,6 +624,28 @@ mod tests {
                 ("Mirela".into(), "bard.BIC".into()),
             ] as [(String, String); 3]
         );
+    }
+
+    /// The quick start's join: off, the list and nothing said; on, the
+    /// character where its file is, else the list, said so.
+    #[test]
+    fn the_quick_start_joins_with_the_chosen_character() {
+        use crate::Level;
+        let dir = mg_testkit::scratch_dir("ui-quick-start-join");
+        let bic = dir.join("hero.bic");
+        std::fs::write(&bic, b"BIC V3.2").unwrap();
+        assert_eq!(quick_start_join(false, Some(&bic)), (Join::CharacterList, None));
+        let (join, said) = quick_start_join(true, Some(&bic));
+        assert_eq!(join, Join::QuickStart(Character::Bic(bic.clone())));
+        let (level, text) = said.unwrap();
+        assert!(level == Level::Info && text.contains("confirm it once"), "{text}");
+        let gone = dir.join("gone.bic");
+        let (join, said) = quick_start_join(true, Some(&gone));
+        assert_eq!(join, Join::CharacterList);
+        assert_eq!(said.unwrap().0, Level::Warning);
+        let (join, said) = quick_start_join(true, None);
+        assert_eq!(join, Join::CharacterList);
+        assert!(said.unwrap().1.contains("no character chosen"));
     }
 
     /// The game joining a test's server: its user directory, `+connect`,

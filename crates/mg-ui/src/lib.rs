@@ -6037,6 +6037,13 @@ impl Moonglow {
                 let mut draft = OptionsDraft::from_settings(&self.settings);
                 // (Looked for once: it reads Steam's library files.)
                 draft.detected = GameInstall::detect();
+                // (Test Module's quick start: the open project's character.)
+                draft.test_project = self.test_project_key();
+                draft.test_character = (draft.test_project.as_ref())
+                    .and_then(|k| self.settings.test_characters.get(k).cloned());
+                if let Some(user) = self.install.as_ref().and_then(|i| i.user_dir.clone()) {
+                    draft.local_characters = test_module::local_characters(&user);
+                }
                 // The plugins' commands take keys like the rest.
                 let commands = self.plugin_commands_cached();
                 plugins::register_keys(&mut draft.keymap, &commands);
@@ -8028,7 +8035,7 @@ impl Moonglow {
             return true;
         };
         let prepare = test_module::local::prepare_module(install, module, root, dir.clone());
-        let join = test_module::Join::CharacterList;
+        let join = self.quick_start_join();
         let mut plan = test_module::LocalPlan::new(server, dir, prepare, join);
         plan.nwnx = Some(nwnx);
         plan.cdkey = Some(user.join("cdkey.ini")).filter(|p| p.is_file());
@@ -8040,6 +8047,32 @@ impl Moonglow {
         let run = test_module::LocalRun::start(plan, game);
         self.local_run = Some((run, "Preparing the local server".into()));
         true
+    }
+
+    /// The open project's key in `Settings::test_characters`: its folder
+    /// (where its `moonglow.toml` is), else the module's own path.
+    fn test_project_key(&self) -> Option<std::path::PathBuf> {
+        let location = self.ws.as_ref()?.module.location.as_ref()?;
+        Some(
+            mg_module::project_file::ProjectFile::root_of(location)
+                .unwrap_or_else(|| location.path())
+                .to_path_buf(),
+        )
+    }
+
+    /// How the game joins Test Module's local server
+    /// ([`test_module::quick_start_join`]), said in the Log.
+    fn quick_start_join(&mut self) -> test_module::Join {
+        let key = self.test_project_key();
+        let chosen = key.and_then(|k| self.settings.test_characters.get(&k).cloned());
+        let (join, said) =
+            test_module::quick_start_join(self.settings.test_quick_start, chosen.as_deref());
+        match said {
+            Some((Level::Warning, text)) => self.log.warn(text),
+            Some((_, text)) => self.log.info(text),
+            None => {}
+        }
+        join
     }
 
     /// Whether Test Module's local server runs (its run not over).

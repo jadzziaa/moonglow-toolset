@@ -666,6 +666,93 @@ fn the_test_module_page_sets_a_command_of_ones_own() {
     assert!(saved.contains("test_starts:Command"), "{saved}");
 }
 
+/// Options › Test Module's quick start: the open project's character
+/// chosen from the local vault (by the name it carries) or from a file,
+/// kept by OK for that project alone, and offered first the next time.
+#[test]
+fn the_quick_start_keeps_a_character_for_the_project() {
+    use mg_core::lang::{Gender, Language};
+    let dir = mg_testkit::scratch_dir("ui-quick-start-character");
+    let (root, user) = (dir.join("root"), dir.join("user"));
+    let vault = user.join("localvault");
+    for d in [&root, &vault, &user.join("modules")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let mut g = mg_gff::Gff::new(*b"BIC ");
+    let name = |t: &str| {
+        mg_gff::Value::LocString(mg_core::locstring::LocString::from_text(
+            Language::ENGLISH,
+            Gender::Male,
+            t,
+        ))
+    };
+    g.root.set("FirstName", name("Anya"));
+    g.root.set("LastName", name("Vorn"));
+    std::fs::write(vault.join("anya.bic"), g.to_bytes().unwrap()).unwrap();
+    let other = dir.join("elsewhere/hero.bic");
+    std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+    std::fs::write(&other, b"BIC V3.2").unwrap();
+    let file = user.join("modules/My Module.mod");
+    std::fs::copy(sample_module(&dir), &file).unwrap();
+    let dialogs = NoDialogs { open: vec![other.clone()], ..Default::default() };
+    let mut app = game_app_with(&root, Some(user.clone()), dialogs);
+    app.settings.no_last_area = true;
+    app.open_module(&file);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let open_page = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(h);
+        page_row(h, "Test Module").click();
+        settle(h);
+    };
+    let open_box = |h: &mut Harness<'_, Moonglow>| {
+        let r = h.get_all_by_role(egui::accesskit::Role::ComboBox);
+        let boxes: Vec<_> =
+            r.filter(|n| n.accesskit_node().label().as_deref() == Some("Character")).collect();
+        assert_eq!(boxes.len(), 1, "the Character box");
+        boxes[0].click();
+        settle(h);
+    };
+    let ok = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Options header").get_by_label("OK").click();
+        settle(h);
+    };
+    open_page(&mut h);
+    let disabled = |h: &Harness<'_, Moonglow>| {
+        let r = h.get_all_by_role(egui::accesskit::Role::ComboBox);
+        r.filter(|n| n.accesskit_node().label().as_deref() == Some("Character"))
+            .all(|n| n.accesskit_node().is_disabled())
+    };
+    assert!(disabled(&h), "only with the quick start on");
+    h.get_by_label("Join with a chosen character").click();
+    settle(&mut h);
+    assert!(!disabled(&h), "the quick start on");
+    // The vault's character, by its name.
+    open_box(&mut h);
+    h.get_by_label("Anya Vorn").click();
+    settle(&mut h);
+    ok(&mut h);
+    let s = &h.state().settings;
+    assert!(s.test_quick_start);
+    assert_eq!(s.test_characters.get(&file), Some(&vault.join("anya.bic")), "{s:?}");
+    // A file of its own, offered first the next time.
+    open_page(&mut h);
+    open_box(&mut h);
+    h.get_by_label("Choose a File…").click();
+    settle(&mut h);
+    ok(&mut h);
+    assert_eq!(h.state().settings.test_characters.get(&file), Some(&other));
+    assert_eq!(h.state().settings.test_characters.len(), 1, "this project's alone");
+    open_page(&mut h);
+    open_box(&mut h);
+    let rows: Vec<_> = ["hero.bic", "Anya Vorn", "Choose a File…"]
+        .iter()
+        .map(|n| h.get_all_by_label(n).last().expect(n).rect().top())
+        .collect();
+    assert!(rows.windows(2).all(|w| w[0] < w[1]), "the last chosen first: {rows:?}");
+}
+
 /// One switch for the Workshop and the test (the owner's ruling of
 /// 2026-11-22): General's Testing has no Steam row of its own any more,
 /// and Folders' Read Steam Workshop content, ticked and set by OK, has a
