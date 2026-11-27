@@ -41,9 +41,15 @@ pub use cache::{Cache, server_key};
 pub use container::{LABEL_PREFIX, NwSyncContainer, label};
 pub use game::{GameManifest, GameStorage};
 pub use origins::{Origin, Origins};
-pub use source::{Found, ManifestFrom, Settings, Survey, Wanted, find, includes_module, survey};
+pub use source::{
+    Found, ManifestFrom, Settings, Survey, Wanted, find, includes_module, survey, survey_until,
+};
 
 use mg_erf::compressedbuf::{MAGIC_NSYC, decompress};
+
+/// What a look ([`survey_until`]) or a pull stopped before its end says
+/// (a clean-up stopped says it in [`prune::Pruned::stopped`]).
+pub const CANCELED: &str = "canceled";
 
 /// A SHA-1 digest: a resource's (of its uncompressed bytes), or a
 /// manifest's (of its file).

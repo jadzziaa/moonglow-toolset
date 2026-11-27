@@ -230,10 +230,26 @@ pub fn survey(
     game: Option<&GameStorage>,
     cache: Option<&Cache>,
 ) -> Result<Survey, String> {
+    survey_until(entries, game, cache, &|| false)
+}
+
+/// [`survey`], stopping before the next file of the cache it looks at
+/// once `stop` says so (the window's Cancel, the module closed): then the
+/// error is [`crate::CANCELED`]. It changes nothing, so a look stopped
+/// leaves everything as it was.
+pub fn survey_until(
+    entries: &[Entry],
+    game: Option<&GameStorage>,
+    cache: Option<&Cache>,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Result<Survey, String> {
     let mut files: HashMap<Sha1, u32> = HashMap::new();
     for (_, sha, size) in entries {
         let s = files.entry(*sha).or_insert(0);
         *s = (*s).max(*size);
+    }
+    if stop() {
+        return Err(crate::CANCELED.into());
     }
     let in_storage = match game {
         Some(g) => g.hashes()?,
@@ -253,7 +269,11 @@ pub fn survey(
                     .chunks(chunk)
                     .map(|part| {
                         s.spawn(move || {
-                            part.iter().filter(|(sha, _)| !c.contains(sha)).copied().collect()
+                            (part.iter())
+                                .take_while(|_| !stop())
+                                .filter(|(sha, _)| !c.contains(sha))
+                                .copied()
+                                .collect()
                         })
                     })
                     .collect();
@@ -262,6 +282,10 @@ pub fn survey(
         }
         None => rest.clone(),
     };
+    // (A part stopped short counted less as missing: none of it is said.)
+    if stop() {
+        return Err(crate::CANCELED.into());
+    }
     Ok(Survey {
         resources: entries.len(),
         data_files: files.len(),

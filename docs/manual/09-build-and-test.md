@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T07:44:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T08:44:26Z }
 ---
 
 # Build, verify and test
@@ -470,6 +470,13 @@ for copies; `--jobs N`, 4 at once).
 manifest needs (data files, written haks, older manifests and their
 files) and removes it when you say **Remove** (the Status Bar shows
 either while it runs); **Keep Everything** leaves the cache as it is.
+**Cancel** stops either before the next file, and so does closing the
+module (the look at what is here as the window opens, and a Sync, stop
+the same way). A clean-up stopped leaves the cache whole: it takes away
+the manifests it doesn't keep before their haks and data, so every
+manifest still in the cache has all it had, and what was left goes with
+the next clean-up; the window and the log say what it removed by then.
+A look for what would go that was stopped offers nothing to remove.
 Kept: the module's
 manifest (and the one pinned), the newest each server named, and the
 three last used (`[nwsync] keep` in the project file changes the

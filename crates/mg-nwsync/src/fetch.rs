@@ -14,7 +14,7 @@ use std::time::Duration;
 use crate::manifest::{self, Entry};
 use crate::{
     Cache, Found, GameStorage, ManifestFrom, Origins, Settings, Sha1, Survey, Wanted, find,
-    parse_sha1, sha1_hex, survey, unpack_checked,
+    parse_sha1, sha1_hex, survey_until, unpack_checked,
 };
 
 /// The most of a manifest that is read (a large persistent world's, 220,000 resources, is
@@ -349,7 +349,8 @@ pub enum Step {
 
 /// The manifest of `settings` resolved ([`resolve`]) and the data files
 /// neither the game's storage nor the cache has downloaded into the
-/// cache ([`download`]).
+/// cache ([`download`]). Stopped while it looks, the error is
+/// [`crate::CANCELED`]; while it downloads, [`Downloaded::stopped`].
 pub fn pull(
     fetch: &dyn Fetch,
     settings: &Settings,
@@ -362,7 +363,7 @@ pub fn pull(
     step(Step::Asking);
     let resolved = resolve(fetch, settings, cache, game)?;
     step(Step::Looking);
-    let before = survey(&resolved.found.entries, game, Some(cache))?;
+    let before = survey_until(&resolved.found.entries, game, Some(cache), stop)?;
     let progress = |p: Progress| step(Step::Downloading(p));
     let downloaded = if before.missing.is_empty() || stop() {
         Downloaded { stopped: stop(), ..Default::default() }

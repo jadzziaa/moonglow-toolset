@@ -20,6 +20,11 @@
 //! the module's manifest, the newest each server named, and the last used
 //! (`[nwsync] keep`, 3). The Status Bar shows a clean-up too, as it shows
 //! a Sync.
+//!
+//! A look, a Sync and a clean-up each stop at Cancel, and when the module
+//! closes, before their next file ([`mg_nwsync::survey_until`],
+//! [`mg_nwsync::prune::prune_until`]): a clean-up stopped leaves the cache
+//! whole, and what it had found to remove by then is not offered.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,10 +77,10 @@ pub struct NwSyncContent {
     pub pruned: Option<String>,
     pub error: Option<String>,
     run: Option<Arc<Run>>,
-    /// A thread of the module before, still under way as it closed: a
-    /// Sync stops before its next data file, a look or a clean-up runs to
-    /// its end. What it makes is thrown away, and nothing else starts
-    /// until it has ended (`running`).
+    /// A thread of the module before, still under way as it closed: told
+    /// to stop, it stops before its next file (a Sync's data file, a
+    /// look's or a clean-up's file of the cache). What it makes is thrown
+    /// away, and nothing else starts until it has ended (`running`).
     left: Option<Arc<Run>>,
     /// The requests (the tests' own; none: HTTP, `fetch::Client`).
     pub fetch: Option<Arc<dyn Fetch>>,
@@ -109,14 +114,16 @@ impl NwSyncContent {
     /// knows them), and what it is doing (where its Cancel is, in the tip).
     pub(crate) fn shown(&self) -> Option<crate::jobs::JobShown> {
         let run = self.run.as_ref().or(self.left.as_ref())?;
+        let canceling = run.cancel.load(Ordering::Relaxed);
         if let Some(dry_run) = run.cleaning {
-            let note = if dry_run {
-                "Finding what no kept manifest needs"
-            } else {
-                "Removing what no kept manifest needs"
+            let note = match (canceling, dry_run) {
+                (true, _) => "Canceling",
+                (false, true) => "Finding what no kept manifest needs",
+                (false, false) => "Removing what no kept manifest needs",
             };
             let title = CLEAN_TITLE.to_string();
-            return Some(crate::jobs::JobShown { title, steps: None, note: note.to_string() });
+            let note = format!("{note}\nCancel it in Build › NWSync Content…");
+            return Some(crate::jobs::JobShown { title, steps: None, note });
         }
         if !run.syncing {
             return None;
@@ -132,16 +139,15 @@ impl NwSyncContent {
                 format!("{} of {}", megabytes(p.bytes), megabytes(p.of_bytes)),
             ),
         };
-        let doing =
-            if run.cancel.load(Ordering::Relaxed) { "Canceling".to_string() } else { doing };
+        let doing = if canceling { "Canceling".to_string() } else { doing };
         let note = format!("{doing}\nCancel it in Build › NWSync Content…");
         Some(crate::jobs::JobShown { title: SYNC_TITLE.to_string(), steps, note })
     }
 
     /// The module closed (or another opened): its content forgotten, a
-    /// download under way called off (what it downloaded stays in the
-    /// cache). A thread still under way is not waited for: kept as
-    /// `left` until it ends, what it makes thrown away.
+    /// look, download or clean-up under way called off (what it downloaded
+    /// stays in the cache). A thread still under way is not waited for:
+    /// kept as `left` until it stops, what it makes thrown away.
     pub(crate) fn module_closed(&mut self) {
         let left = self.run.take().or_else(|| self.left.take());
         if let Some(r) = &left {
@@ -187,14 +193,20 @@ fn look(app: &mut Moonglow, ctx: Option<&egui::Context>) {
     if app.nwsync_content.running() {
         return;
     }
-    start(app, Run::default(), move |_| Made::Looked(survey_of(&settings, &install)), ctx);
+    start(app, Run::default(), move |run| look_work(run, &settings, &install), ctx);
 }
 
-fn survey_of(settings: &Settings, install: &GameInstall) -> Result<Survey, String> {
-    let game = mg_module::nwsync_content::game_storage(install)?;
-    let cache = mg_module::nwsync_content::cache_of(settings);
-    let found = mg_nwsync::find(&settings.url, settings.manifest, cache.as_ref(), game.as_ref())?;
-    mg_nwsync::survey(&found.entries, game.as_ref(), cache.as_ref())
+/// A look's thread: how much of the manifest's data is here, until the
+/// run is told to stop.
+fn look_work(run: &Run, settings: &Settings, install: &GameInstall) -> Made {
+    Made::Looked((|| {
+        let game = mg_module::nwsync_content::game_storage(install)?;
+        let cache = mg_module::nwsync_content::cache_of(settings);
+        let found =
+            mg_nwsync::find(&settings.url, settings.manifest, cache.as_ref(), game.as_ref())?;
+        let stop = || run.cancel.load(Ordering::Relaxed);
+        mg_nwsync::survey_until(&found.entries, game.as_ref(), cache.as_ref(), &stop)
+    })())
 }
 
 /// Starts a Sync: the server's manifest, and the data missing.
@@ -271,14 +283,25 @@ pub(crate) fn prune(app: &mut Moonglow, dry_run: bool, ctx: Option<&egui::Contex
     start(
         app,
         Run { cleaning: Some(dry_run), ..Default::default() },
-        move |_| {
-            Made::Pruned((|| {
-                let game = mg_module::nwsync_content::game_storage(&install)?;
-                mg_nwsync::prune::prune(&cache, game.as_ref(), &keep, dry_run)
-            })())
-        },
+        move |run| prune_work(run, &cache, &install, &keep, dry_run),
         ctx,
     );
+}
+
+/// A clean-up's thread (its dry run, or the removal), until the run is
+/// told to stop.
+fn prune_work(
+    run: &Run,
+    cache: &mg_nwsync::Cache,
+    install: &GameInstall,
+    keep: &Keep,
+    dry_run: bool,
+) -> Made {
+    Made::Pruned((|| {
+        let game = mg_module::nwsync_content::game_storage(install)?;
+        let stop = || run.cancel.load(Ordering::Relaxed);
+        mg_nwsync::prune::prune_until(cache, game.as_ref(), keep, dry_run, &stop)
+    })())
 }
 
 /// What a clean-up removed, or would.
@@ -317,11 +340,17 @@ pub(crate) fn poll(app: &mut Moonglow) {
     let Some(run) = &app.nwsync_content.run else { return };
     let Some(made) = run.done.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     app.nwsync_content.run = None;
+    let canceled = |e: &str| e == mg_nwsync::CANCELED;
     match made {
         Made::Looked(Ok(s)) => app.nwsync_content.survey = Some(s),
+        // (Stopped: nothing said of it, as nothing was looked at.)
+        Made::Looked(Err(e)) if canceled(&e) => app.nwsync_content.survey = None,
         Made::Looked(Err(e)) => {
             app.nwsync_content.survey = None;
             app.nwsync_content.error = Some(e);
+        }
+        Made::Synced(Err(e)) if canceled(&e) => {
+            app.nwsync_content.synced = Some("Canceled before any data was downloaded".into());
         }
         Made::Synced(Err(e)) => {
             app.log.error(format!("NWSync content: {e}"));
@@ -331,6 +360,19 @@ pub(crate) fn poll(app: &mut Moonglow) {
         Made::Pruned(Err(e)) => {
             app.nwsync_content.prune = None;
             app.nwsync_content.error = Some(e);
+        }
+        // (A dry run stopped: what it found by then is not what a clean-up
+        // would remove, so it is not offered.)
+        Made::Pruned(Ok(p)) if p.stopped && p.dry_run => {
+            app.nwsync_content.prune = None;
+            app.nwsync_content.pruned = Some("Clean-up canceled: nothing was removed".into());
+        }
+        Made::Pruned(Ok(p)) if p.stopped => {
+            let line = format!("Clean-up canceled: removed {}", pruned_line(&p));
+            app.log.info(format!("NWSync content: cache clean-up canceled: {}", pruned_line(&p)));
+            app.nwsync_content.pruned = Some(line);
+            app.nwsync_content.prune = None;
+            look(app, None);
         }
         Made::Pruned(Ok(p)) if p.dry_run => {
             if let Some(why) = &p.data_left {
@@ -581,7 +623,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             let mut foot = crate::widgets::Foot::new()
                 .main("Sync", !c.running())
                 .tip("Download the server's latest manifest and the data not here");
-            if c.syncing() {
+            if c.run.is_some() {
                 foot = foot.button("Cancel", true);
             }
             let foot = foot
@@ -654,6 +696,58 @@ mod tests {
         // (Nothing missing yet counted: under way, not 0 of 0.)
         let none = fetch::Progress::default();
         assert_eq!(at(true, Some(Step::Downloading(none))).unwrap().1, None);
+    }
+
+    /// A cache of a manifest no clean-up keeps, its data file and the
+    /// manifest's settings.
+    fn a_cache_to_clean(name: &str) -> (mg_nwsync::Cache, Settings, mg_nwsync::Sha1) {
+        let dir = mg_testkit::scratch_dir(name);
+        let cache = mg_nwsync::Cache::new(dir.join("cache"));
+        let data = b"a model of a head".to_vec();
+        let key = mg_resman::ResKey::parse("pw_head", mg_core::ResType::MDL).unwrap();
+        let sha = mg_core::sha1::sha1(&data);
+        let bytes = mg_nwsync::manifest::write(&[(key, sha, data.len() as u32)]);
+        let manifest = mg_core::sha1::sha1(&bytes);
+        cache.put_manifest(&manifest, "", &bytes).unwrap();
+        cache.put(&sha, &mg_erf::compressedbuf::store(&data, *b"NSYC")).unwrap();
+        let settings = Settings {
+            url: "https://nwsync.example.org".into(),
+            manifest: mg_nwsync::Wanted::Pinned(manifest),
+            cache: Some(cache.root().to_path_buf()),
+        };
+        (cache, settings, sha)
+    }
+
+    /// Told to stop (Cancel, the module closed), a clean-up stops before
+    /// it removes anything and says so, its dry run too; a look stops and
+    /// says so. Not told, the clean-up removes what no manifest kept needs.
+    #[test]
+    fn a_look_and_a_clean_up_stop_when_told() {
+        let install = GameInstall::new("/nowhere", None, "en");
+        let keep = Keep { recent: 0, min_age: std::time::Duration::ZERO, ..Default::default() };
+        let (cache, settings, sha) = a_cache_to_clean("nwsync-ui-prune-stopped");
+        let told = Run { cancel: AtomicBool::new(true), ..Default::default() };
+        for dry_run in [true, false] {
+            let Made::Pruned(Ok(p)) = prune_work(&told, &cache, &install, &keep, dry_run) else {
+                panic!("not a clean-up");
+            };
+            assert!(p.stopped && p.bytes() == 0, "{p:?}");
+            assert!(cache.contains(&sha));
+        }
+        let Made::Looked(Err(e)) = look_work(&told, &settings, &install) else {
+            panic!("a look not stopped");
+        };
+        assert_eq!(e, mg_nwsync::CANCELED);
+        let Made::Looked(Ok(s)) = look_work(&Run::default(), &settings, &install) else {
+            panic!("no look");
+        };
+        assert!(s.complete());
+        let Made::Pruned(Ok(p)) = prune_work(&Run::default(), &cache, &install, &keep, false)
+        else {
+            panic!("not a clean-up");
+        };
+        assert!(!p.stopped && p.data_files == 1, "{p:?}");
+        assert!(!cache.contains(&sha));
     }
 
     /// A clean-up of the cache under way shows in the Status Bar too, its

@@ -324,7 +324,8 @@ fn a_pull_downloads_what_is_missing_alone() {
 
 /// A data file that isn't what its name says, or that the server doesn't
 /// have, is given up and said, the rest kept; a sample (`most`) asks for
-/// that many; Cancel stops before the next.
+/// that many; Cancel stops before the next (or before the look at what is
+/// here is done).
 #[test]
 fn bad_and_missing_data_is_given_up_and_said() {
     let dir = mg_testkit::scratch_dir("nwsync-bad-data");
@@ -381,8 +382,9 @@ fn bad_and_missing_data_is_given_up_and_said() {
         &|_| {},
         &|| true,
     )
-    .unwrap();
-    assert!(stopped.downloaded.stopped);
+    .unwrap_err();
+    // (Stopped as it looked at what is here: nothing downloaded.)
+    assert_eq!(stopped, mg_nwsync::CANCELED);
     assert_eq!(server.data_asked(), 2);
 }
 
@@ -790,6 +792,131 @@ fn the_cache_is_pruned_of_what_no_kept_manifest_needs() {
     assert!(p.data_left.is_some());
     assert_eq!(p.data_files, 0);
     assert!(cache.contains(&texture(0)));
+}
+
+/// A cache of three manifests (each with a texture of its own, the rest
+/// shared, a hak written for each), the first named by its server; the
+/// last used kept, with `Keep { recent: 1 }`.
+fn three_manifests(dir: &Path) -> (Cache, Vec<(Sha1, Content)>) {
+    use mg_nwsync::haks::{self, Index, Store};
+    let cache = Cache::new(dir.join("cache"));
+    let store = Store { game: None, cache: &cache };
+    let mut manifests = Vec::new();
+    for n in 0..3 {
+        let mut c = Content::new();
+        c.resources[3].1 = format!("texture {n} ").repeat(30).into_bytes();
+        let (sha, bytes) = c.manifest();
+        cache.put_manifest(&sha, "", &bytes).unwrap();
+        cache.put_manifest(&sha, "origin", b"Erf:one.hak\n").unwrap();
+        for (_, data) in &c.resources {
+            cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+        }
+        let plan = haks::from_origins(&origins_of(), &c.entries(), &["two".into()]).unwrap();
+        haks::write_all(&plan, store, 1, &|_| {}, &|| false).unwrap();
+        let index = Index { haks: vec![("two".into(), plan.haks[0].key())], files: vec![] };
+        cache.put_written(&sha, index).unwrap();
+        cache.touch(&sha);
+        manifests.push((sha, c));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    cache.set_latest(URL, &manifests[0].0).unwrap();
+    (cache, manifests)
+}
+
+/// Every file of a folder, by its path in it.
+fn tree(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            if e.file_type().unwrap().is_dir() {
+                dirs.push(e.path());
+            } else {
+                out.push(e.path().strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A clean-up stopped after each of its checks in turn (the window's
+/// Cancel, the module closed): every manifest still in the cache has all
+/// its data and its written haks, the kept ones survey complete, and a
+/// clean-up run after it leaves what one run to its end leaves. Stopped
+/// before it began, nothing goes, a dry run's too.
+#[test]
+fn a_clean_up_stopped_anywhere_leaves_the_cache_whole() {
+    use mg_nwsync::prune::{Keep, prune, prune_until};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let keep = Keep { recent: 1, min_age: std::time::Duration::ZERO, ..Default::default() };
+    let dir = mg_testkit::scratch_dir("nwsync-prune-stopped");
+
+    // To the end, its checks counted.
+    let (cache, _) = three_manifests(&dir.join("whole"));
+    let before = tree(cache.root());
+    let checks = AtomicUsize::new(0);
+    let p = prune_until(&cache, None, &keep, false, &|| {
+        checks.fetch_add(1, Ordering::Relaxed);
+        false
+    })
+    .unwrap();
+    assert!(!p.stopped && p.removed.len() == 1 && p.data_files == 1, "{p:?}");
+    let end = tree(cache.root());
+    let checks = checks.into_inner();
+    assert!(checks > 10, "{checks}");
+
+    for k in 0..=checks {
+        for dry_run in [true, false] {
+            let at = dir.join(format!("at-{k}-{dry_run}"));
+            let (cache, manifests) = three_manifests(&at);
+            let asked = AtomicUsize::new(0);
+            let stop = || asked.fetch_add(1, Ordering::Relaxed) >= k;
+            let p = prune_until(&cache, None, &keep, dry_run, &stop).unwrap();
+            assert_eq!(p.stopped, k < checks, "stopped after {k}");
+            if dry_run || k == 0 {
+                assert_eq!(tree(cache.root()), before, "stopped after {k}, dry run {dry_run}");
+            }
+            if k == 0 {
+                assert_eq!(p.bytes(), 0, "stopped before it began, dry run {dry_run}: {p:?}");
+            }
+            if dry_run {
+                continue;
+            }
+            for (sha, c) in &manifests {
+                if cache.manifest(sha, "").is_none() {
+                    continue;
+                }
+                let s = survey(&c.entries(), None, Some(&cache)).unwrap();
+                assert!(s.complete(), "stopped after {k}: manifest {} lacks data", sha1_hex(sha));
+                for (_, key) in &cache.written(sha).haks {
+                    assert!(cache.hak_path(key).is_file(), "stopped after {k}");
+                }
+            }
+            for sha in [manifests[0].0, manifests[2].0] {
+                assert!(cache.manifest(&sha, "").is_some(), "stopped after {k}");
+            }
+            prune(&cache, None, &keep, false).unwrap();
+            assert_eq!(tree(cache.root()), end, "stopped after {k}, then pruned again");
+        }
+    }
+}
+
+/// A look stopped: the error says so, and nothing is counted.
+#[test]
+fn a_look_stops() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = mg_testkit::scratch_dir("nwsync-survey-stopped");
+    let (cache, manifests) = three_manifests(&dir);
+    let entries = manifests[0].1.entries();
+    let e = mg_nwsync::survey_until(&entries, None, Some(&cache), &|| true).unwrap_err();
+    assert_eq!(e, mg_nwsync::CANCELED);
+    let asked = AtomicUsize::new(0);
+    let later = || asked.fetch_add(1, Ordering::Relaxed) >= 2;
+    let e = mg_nwsync::survey_until(&entries, None, Some(&cache), &later).unwrap_err();
+    assert_eq!(e, mg_nwsync::CANCELED);
+    let s = mg_nwsync::survey_until(&entries, None, Some(&cache), &|| false).unwrap();
+    assert!(s.complete() && s.in_cache == s.data_files, "{s:?}");
 }
 
 /// The server names a manifest it then doesn't give: `latest/` is not
