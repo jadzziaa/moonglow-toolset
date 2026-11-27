@@ -521,6 +521,7 @@ impl Moonglow {
         let input = Input {
             selection,
             settings: Some(self.plugin_settings(&plugin)),
+            nwsync: self.plugin_nwsync(),
             ..Input::new(module, self.game.clone())
         };
         let stop = Arc::new(AtomicBool::new(false));

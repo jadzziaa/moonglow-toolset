@@ -699,6 +699,10 @@ pub struct ProjectFile {
     /// over the team's ([`ProjectFile::nwsync_settings`]); `source = ""`
     /// in the builder's own file turns the team's off for them.
     pub nwsync_source: Option<String>,
+    /// The team's `[nwsync] source` that `source = ""` in the builder's
+    /// own file turned off for them (then `nwsync_source` is none); none
+    /// where it names no server or nothing turned it off.
+    pub nwsync_off: Option<String>,
     /// `[nwsync] manifest`: which of its manifests (`"latest"`, the
     /// default, or one's SHA-1), the builder's own file's over the team's.
     pub nwsync_manifest: Option<mg_nwsync::Wanted>,
@@ -1630,6 +1634,13 @@ impl ProjectFile {
                             "source" => {
                                 let base = self.place.as_ref().map(|p| p.root.clone());
                                 if let Some(url) = r.nwsync_source(e, own, base.as_deref()) {
+                                    // (Turned off: the team's server, said
+                                    // so; a server named again: on.)
+                                    self.nwsync_off = match &url {
+                                        None => (self.nwsync_source.clone())
+                                            .or_else(|| self.nwsync_off.take()),
+                                        Some(_) => None,
+                                    };
                                     sign_in.source = url.clone();
                                     self.nwsync_source = url;
                                 }
@@ -3219,9 +3230,16 @@ keeper_variable = "tdod_store"
         p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
         assert_eq!(p.warnings, Vec::<String>::new());
         assert!(p.nwsync_settings().is_none());
+        // (What was turned off is kept, for the plugin API's status.)
+        assert_eq!(p.nwsync_off.as_deref(), Some("https://a.example"));
+        // `""` with no team server turns nothing off.
+        let mut p = ProjectFile::default();
+        p.apply("user.toml", "[nwsync]\nsource = \"\"\n", true);
+        assert_eq!((p.nwsync_source.as_deref(), p.nwsync_off.as_deref()), (None, None));
         let mut p = ProjectFile::default();
         p.apply("moonglow.toml", "[nwsync]\nsource = \"\"\n", false);
         assert!(p.nwsync_settings().is_none());
+        assert_eq!(p.nwsync_off, None);
         assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
 
         let p = read(

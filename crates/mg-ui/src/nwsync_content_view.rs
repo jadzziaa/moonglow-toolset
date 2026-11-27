@@ -112,6 +112,11 @@ impl NwSyncContent {
         self.run.as_ref().is_some_and(|r| r.syncing)
     }
 
+    /// Whether a clean-up of the cache (or its dry run) is under way.
+    pub fn cleaning(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| r.cleaning.is_some())
+    }
+
     /// A Sync or a clean-up under way as the Status Bar shows a job: its
     /// title; a Sync's data files downloaded of those missing (once it
     /// knows them), and what it is doing (where its Cancel is, in the tip).
@@ -167,6 +172,25 @@ impl NwSyncContent {
 /// The module's NWSync settings, where its project names a server.
 fn settings(app: &Moonglow) -> Option<Settings> {
     app.ws.as_ref()?.module.project_file.nwsync_settings()
+}
+
+impl Moonglow {
+    /// What a plugin's job is told of the module's NWSync content
+    /// (`mg.nwsync.status()`, API 0.11), copied as it begins: the
+    /// manifest put into the game data, how much of its data was here when
+    /// last looked, a Sync or a clean-up under way. None where the
+    /// project names no source.
+    pub(crate) fn plugin_nwsync(&self) -> Option<mg_module::nwsync_content::State> {
+        use mg_module::nwsync_content::{State, SurveyCounts};
+        let settings = settings(self)?;
+        let c = &self.nwsync_content;
+        let survey = c.survey.as_ref().map(SurveyCounts::from);
+        Some(State {
+            syncing: c.syncing(),
+            cleaning: c.cleaning(),
+            ..State::of(&settings.url, c.mounted.as_ref(), survey)
+        })
+    }
 }
 
 /// Starts `work` on a thread of its own; its result is taken at a later

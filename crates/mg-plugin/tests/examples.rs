@@ -715,6 +715,63 @@ fn creature_report_names_the_classes() {
     );
 }
 
+/// The example of `mg.nwsync` in the reference runs as it is: on a
+/// module with no NWSync source, one whose builder turned it off, one
+/// with no manifest here yet, and one with its content in the game data
+/// (a hak newer on disk, data not downloaded, a Sync under way).
+#[test]
+fn the_nwsync_example_runs() {
+    use mg_module::nwsync_content::{State, SurveyCounts};
+    let reference = std::fs::read_to_string(docs().join("manual/17-plugin-api.md")).unwrap();
+    let section = reference.split("### `mg.nwsync`").nth(1).unwrap();
+    let code = section.split("```lua\n").nth(1).unwrap().split("```").next().unwrap();
+    let url = "https://nwsync.example.org";
+    let with = |team: &str, own: Option<&str>, known: Option<State>| {
+        let root = mg_testkit::scratch_dir("plugin-nwsync-example");
+        std::fs::write(root.join("moonglow.toml"), team).unwrap();
+        if let Some(own) = own {
+            std::fs::create_dir_all(root.join(".moonglow")).unwrap();
+            std::fs::write(root.join(".moonglow/.gitignore"), "*\n").unwrap();
+            std::fs::write(root.join(".moonglow/user.toml"), own).unwrap();
+        }
+        let mut m = module();
+        m.project_file = mg_module::project_file::ProjectFile::read(&root);
+        let host = Rc::new(TestHost::default());
+        let input = Input { nwsync: known, ..input(&m) };
+        mg_plugin::run_console(code, input, host.clone()).unwrap();
+        host.log_texts()
+    };
+    let team = format!("[nwsync]\nsource = \"{url}\"\n");
+    assert_eq!(with("", None, None), ["The module's haks don't come from NWSync"]);
+    assert_eq!(
+        with(&team, Some("[nwsync]\nsource = \"\"\n"), None),
+        [format!("NWSync is turned off for you: {url}")]
+    );
+    assert_eq!(
+        with(&team, None, None),
+        [format!("No manifest of {url} is here yet: sync it in Build › NWSync Content")]
+    );
+    let known = State {
+        source: url.into(),
+        manifest: Some("89abcdef".repeat(5)),
+        from: Some("cache"),
+        resources: Some(1200),
+        newer_on_disk: vec!["castle.hak".into()],
+        survey: Some(SurveyCounts { missing: 7, ..Default::default() }),
+        syncing: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        with(&team, None, Some(known)),
+        [
+            "Manifest 89abcdef, 1200 resources, from cache",
+            "castle.hak on disk is newer than the manifest: used over it",
+            "7 data files are not downloaded yet",
+            "A Sync is under way",
+        ]
+    );
+}
+
 /// The reference lists every name of the API, as the code builds it.
 #[test]
 fn the_reference_names_the_whole_api() {

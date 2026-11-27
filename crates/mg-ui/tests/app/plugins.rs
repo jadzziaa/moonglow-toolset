@@ -3019,3 +3019,78 @@ fn a_second_plugin_run_waits_for_the_protected_area_answer_and_quit_rolls_back()
     h.run_steps(3);
     assert!(!first.exists(), "Quit rolls back the held run's hak");
 }
+
+/// API 0.11: `mg.nwsync.status()` run in the window (the console, as a
+/// command runs): the module's NWSync source, the manifest the window put
+/// into the game data, the data its NWSync Content window found missing,
+/// and a Sync under way as the job began; once the Sync is done, the next
+/// job sees it done. The sign-in in the builder's own file is never in it.
+#[test]
+fn a_plugin_reads_the_nwsync_status_in_the_window() {
+    use crate::modules::{NWSYNC_URL, frames_until, held_server, nwsync_module, nwsync_window};
+    use mg_core::sha1::sha1;
+    const TOKEN: &str = "t0ken-of-the-window-test";
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-plugin-nwsync-status");
+    let here = b"2DA V2.0\n\n   Label\n0  here\n".to_vec();
+    let away = b"2DA V2.0\n\n   Label\n0  downloaded\n".to_vec();
+    let m1 = [
+        (ResKey::parse("mg_here", ResType::TWODA).unwrap(), here),
+        (ResKey::parse("mg_away", ResType::TWODA).unwrap(), away.clone()),
+    ];
+    let (folder, user, _cache) = nwsync_module(&dir, &m1, 1);
+    let own = folder.join(".moonglow/user.toml");
+    let mut text = std::fs::read_to_string(&own).unwrap();
+    text.push_str(&format!("token = \"{TOKEN}\"\nhost = \"nwsync.example.org\"\n"));
+    std::fs::write(&own, text).unwrap();
+    std::fs::write(folder.join(".moonglow/.gitignore"), "*\n").unwrap();
+    let entries: Vec<_> = m1.iter().map(|(k, d)| (*k, sha1(d), d.len() as u32)).collect();
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let sha = mg_nwsync::sha1_hex(&sha1(&manifest));
+    let mut app = game_app(&root, Some(user));
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    app.nwsync_content.fetch = Some(held_server(manifest, vec![away], held));
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let console = |h: &mut Harness<'_, Moonglow>, code: &str| -> String {
+        h.state_mut().plugins.console = code.into();
+        h.state_mut().run_console();
+        frames_until(h, "the console ran", |h| {
+            !h.state().busy() && !h.state().plugins.console_output.is_empty()
+        });
+        let out = &h.state().plugins.console_output;
+        out.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n")
+    };
+    const LINE: &str = "local s = mg.nwsync.status()\n\
+        local missing = s.survey and s.survey.missing or \"?\"\n\
+        return `{s.source} {s.manifest} {s.from} {s.resources} missing={missing} \
+        syncing={s.syncing} signed_in={s.signed_in}`";
+    // Before the window has looked: the manifest put in, its survey not.
+    let said = console(&mut h, LINE);
+    assert_eq!(
+        said,
+        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=? syncing=false signed_in=true\"")
+    );
+
+    nwsync_window(&mut h);
+    h.get_by_label("Sync").click();
+    frames_until(&mut h, "syncing", |h| h.state().nwsync_content.syncing());
+    let said = console(&mut h, LINE);
+    assert_eq!(
+        said,
+        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=1 syncing=true signed_in=true\"")
+    );
+    let whole = console(&mut h, "return mg.nwsync.status()");
+    assert!(whole.contains("syncing") && whole.contains(NWSYNC_URL), "{whole}");
+    assert!(!whole.contains(TOKEN), "{whole}");
+
+    go.send(()).unwrap();
+    frames_until(&mut h, "synced", |h| h.state().nwsync_content.synced.is_some());
+    frames_until(&mut h, "looked", |h| !h.state().nwsync_content.running());
+    let said = console(&mut h, LINE);
+    assert_eq!(
+        said,
+        format!("\"{NWSYNC_URL} {sha} game_storage 2 missing=0 syncing=false signed_in=true\"")
+    );
+}

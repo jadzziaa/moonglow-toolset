@@ -274,13 +274,9 @@ fn status_with(cli: &Cli, settings: Settings, said: Vec<String>, online: bool) -
     Ok(out)
 }
 
+/// (The plugin API's `mg.nwsync.status()` names it with the same word.)
 fn from_word(from: mg_nwsync::ManifestFrom) -> &'static str {
-    match from {
-        mg_nwsync::ManifestFrom::Server => "server",
-        mg_nwsync::ManifestFrom::Folder => "folder",
-        mg_nwsync::ManifestFrom::Cache => "cache",
-        mg_nwsync::ManifestFrom::GameStorage => "game_storage",
-    }
+    from.word()
 }
 
 /// `mg nwsync-pull`.

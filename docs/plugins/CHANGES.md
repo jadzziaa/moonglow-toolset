@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:12:13Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,31 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.11
+
+In Moonglow 5.5.0. Only an addition: a plugin written for 0.10 or
+before runs as it is, and has nothing to change. A plugin that uses
+what is new says `api = "0.11"`.
+
+- **`mg.nwsync.status()`**, so that a team's plugin can tell whether
+  the module's haks come from an NWSync server and in what state that
+  content is: nil where the project names no source; else a table of
+  the source (never the sign-in, only `signed_in`), whether your own
+  file turns it off (`off`), the manifest in the game data (`manifest`,
+  `from`, `arrived`, `resources`), the haks it holds and those found
+  nowhere (`haks`, `by_origins`, `haks_missing`), your files on disk
+  newer than it (`newer_on_disk`), how much of its data is here as last
+  looked (`survey`, as `mg nwsync-status --json` names it), and a Sync
+  or a clean-up of the cache under way (`syncing`, `cleaning`). It is
+  what the window already knows: nothing is read or downloaded.
+
+  ```lua
+  local s = mg.nwsync.status()
+  if s and s.survey and s.survey.missing > 0 then
+    ctx.log:warn(`{s.survey.missing} data files are not downloaded yet`)
+  end
+  ```
 
 ## 0.10
 

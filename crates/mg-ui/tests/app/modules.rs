@@ -1712,7 +1712,7 @@ fn the_tests_keep_moonglow_s_cache_in_their_own_folder() {
 /// A module folder whose project names an NWSync server, the game's
 /// storage holding manifest `m1` (whose resources are `m1`'s), and the
 /// cache in `dir`. The module's folder, the user folder and the cache.
-fn nwsync_module(
+pub(crate) fn nwsync_module(
     dir: &std::path::Path,
     m1: &[(ResKey, Vec<u8>)],
     in_game: usize,
@@ -1747,11 +1747,11 @@ fn nwsync_module(
     (folder, user, cache)
 }
 
-const NWSYNC_URL: &str = "https://nwsync.example.org";
+pub(crate) const NWSYNC_URL: &str = "https://nwsync.example.org";
 
 /// A server of the test's: `latest` names `manifest`, served with
 /// `data`; a data file's answer waits for `held` (the test lets it go).
-fn held_server(
+pub(crate) fn held_server(
     manifest: Vec<u8>,
     data: Vec<Vec<u8>>,
     held: std::sync::mpsc::Receiver<()>,
@@ -1787,7 +1787,7 @@ fn held_server_saying(
 }
 
 /// Waits (a deadline that fails) until `done` says so, a frame at a time.
-fn frames_until(
+pub(crate) fn frames_until(
     h: &mut Harness<'_, Moonglow>,
     what: &str,
     done: impl Fn(&Harness<'_, Moonglow>) -> bool,
@@ -1802,7 +1802,7 @@ fn frames_until(
 }
 
 /// Opens Build › NWSync Content… and waits for its look.
-fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
+pub(crate) fn nwsync_window(h: &mut Harness<'_, Moonglow>) {
     h.get_by_label("Build").click();
     h.run();
     h.get_by_label("NWSync Content…").click();

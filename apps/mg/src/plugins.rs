@@ -29,22 +29,34 @@ pub(crate) fn plugins_in(dir: &Path) -> Vec<Result<Plugin, PluginError>> {
     }
 }
 
+/// What a plugin is told of the module's NWSync content
+/// (`mg.nwsync.status()`): the manifest put into its game data, as the
+/// window has it. No look at how much of its data is here, and nothing
+/// under way: `mg` runs no Sync beside a plugin.
+pub(crate) type NwSyncState = Option<mg_module::nwsync_content::State>;
+
 /// The game's data as a plugin reads it: the module's haks and the module
-/// layered in, its talk table. `None` (with a note) without a game.
+/// layered in, its talk table. `None` (with a note) without a game. And
+/// what became of the module's NWSync content as it was put together.
 pub(crate) fn game_for(
     gi: Option<&GameInstall>,
     m: &Module,
     out: &mut Output,
-) -> Option<Arc<GameData>> {
+) -> (Option<Arc<GameData>>, NwSyncState) {
     let Some(gi) = gi else {
         out.note("no game install found: a plugin's game data is empty (--root, or NWN_ROOT)");
-        return None;
+        return (None, None);
     };
-    match crate::game_data_in(gi, m, out) {
-        Ok(game) => Some(Arc::new(game)),
+    let found = m.game_data(gi).map_err(anyhow::Error::from).and_then(|found| {
+        let nwsync = (found.nwsync.as_ref())
+            .map(|n| mg_module::nwsync_content::State::of(&n.settings.url, Some(n), None));
+        crate::said(found, out).map(|game| (game, nwsync))
+    });
+    match found {
+        Ok((game, nwsync)) => (Some(Arc::new(game)), nwsync),
         Err(e) => {
             out.note(format!("warning: the game data could not be read: {e:#}"));
-            None
+            (None, None)
         }
     }
 }
@@ -1024,7 +1036,7 @@ pub(crate) fn run(
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
     let m = crate::open_module(module)?;
     let mut notes = Output::default();
-    let game = game_for(gi, &m, &mut notes);
+    let (game, nwsync) = game_for(gi, &m, &mut notes);
     // (The edits are shown in the module's own letters, as the plugin
     // wrote them.)
     let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |g| g.text_codepage());
@@ -1062,6 +1074,7 @@ pub(crate) fn run(
     let input = Input {
         selection: what.selection.clone(),
         settings: Some(settings),
+        nwsync,
         ..Input::new(m.clone(), game)
     };
     let outcome = match &what.changed {
@@ -1337,7 +1350,7 @@ pub(crate) fn export(
     };
     let m = crate::open_module(module)?;
     let mut notes = Output::default();
-    let game = game_for(gi, &m, &mut notes);
+    let (game, nwsync) = game_for(gi, &m, &mut notes);
     let host = Rc::new(job.host()?);
     let selection = job.selection()?;
     named_there(&m, game.as_deref(), &selection)?;
@@ -1353,7 +1366,8 @@ pub(crate) fn export(
         }
     }
     let settings = settings_for(&plugin, &m, &job.setting, &mut notes)?;
-    let input = Input { selection, settings: Some(settings), ..Input::new(m.clone(), game) };
+    let input =
+        Input { selection, settings: Some(settings), nwsync, ..Input::new(m.clone(), game) };
     if decl.folder && !job.dry_run {
         std::fs::create_dir_all(to).with_context(|| format!("{}", to.display()))?;
     }
@@ -1490,7 +1504,7 @@ pub(crate) fn findings(
     if plugins.is_empty() {
         return Ok(all);
     }
-    let game = game_for(Some(gi), m, &mut Output::default());
+    let (game, nwsync) = game_for(Some(gi), m, &mut Output::default());
     {
         for plugin in plugins {
             let settings = settings_for(&plugin, m, &[], out)?;
@@ -1501,6 +1515,7 @@ pub(crate) fn findings(
                 let host = Rc::new(CliHost::default());
                 let input = Input {
                     settings: Some(settings.clone()),
+                    nwsync: nwsync.clone(),
                     ..Input::new(m.clone(), game.clone())
                 };
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
@@ -1523,6 +1538,7 @@ pub(crate) fn findings(
 pub(crate) struct SaveGuard {
     plugins: Vec<(Plugin, mg_plugin::Settings)>,
     game: Option<Arc<GameData>>,
+    nwsync: NwSyncState,
     /// A warning stops the save too (`--strict`).
     strict: bool,
 }
@@ -1551,8 +1567,8 @@ pub(crate) fn save_guard(
         let settings = settings_for(&p, m, &[], out)?;
         with.push((p, settings));
     }
-    let game = game_for(gi, m, &mut Output::default());
-    Ok(Some(SaveGuard { plugins: with, game, strict: false }))
+    let (game, nwsync) = game_for(gi, m, &mut Output::default());
+    Ok(Some(SaveGuard { plugins: with, game, nwsync, strict: false }))
 }
 
 impl SaveGuard {
@@ -1586,6 +1602,7 @@ impl SaveGuard {
                 let input = Input {
                     settings: Some(settings.clone()),
                     budget: kind.at_once().then_some(mg_plugin::EVENT_BUDGET),
+                    nwsync: self.nwsync.clone(),
                     ..Input::new(now.clone(), self.game.clone())
                 };
                 match mg_plugin::run_event(plugin, &e.id, &event, input, host.clone()) {

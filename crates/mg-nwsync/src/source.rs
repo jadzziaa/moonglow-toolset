@@ -57,6 +57,18 @@ impl ManifestFrom {
             ManifestFrom::GameStorage => "the game's NWSync storage",
         }
     }
+
+    /// As `mg nwsync-status --json` and the plugin API's
+    /// `mg.nwsync.status()` name it: `"server"`, `"folder"`, `"cache"`,
+    /// `"game_storage"`.
+    pub fn word(self) -> &'static str {
+        match self {
+            ManifestFrom::Server => "server",
+            ManifestFrom::Folder => "folder",
+            ManifestFrom::Cache => "cache",
+            ManifestFrom::GameStorage => "game_storage",
+        }
+    }
 }
 
 /// A manifest found.

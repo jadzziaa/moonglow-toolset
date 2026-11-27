@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T09:35:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T10:12:13Z }
 ---
 
 # Build, verify and test
@@ -407,6 +407,12 @@ window (`--online` asks the server for its latest manifest first), and
 `mg nwsync-pull MODULE` downloads (`--sample N` downloads N data files
 alone, to try a server); both take `--source URL` for a server the
 project doesn't name.
+
+A plugin reads the same state with `mg.nwsync.status()` (since plugin
+API 0.11; [the plugin API](17-plugin-api.md#mgnwsync)): the source,
+the manifest in the game data, the haks it holds, your files newer than
+it, the data not downloaded yet (as the NWSync Content window last
+looked) and a Sync under way, never the sign-in.
 
 ### A private server
 
