@@ -363,3 +363,54 @@ fn the_player_s_own_folder_is_refused_before_anything_is_written() {
     assert!(!out.status.success() && text.contains("is your own NWN folder"), "{text}");
     assert_eq!(listing(&user), before, "after mg watch");
 }
+
+/// NWNX preloaded by hand, as The Domains of Dread runs it (`--env` with
+/// its settings and `--preload` of the core, no `[nwnx]` in the project):
+/// NWNX is on for the checks too, so scripts that call it are not said to
+/// call an NWNX that is off, and the builds are compared. Without the
+/// preload it is off, and said so. (Linux, with the local NWNX build.)
+#[cfg(target_os = "linux")]
+#[test]
+fn a_preloaded_nwnx_core_is_nwnx_on() {
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let home = std::env::var_os("MOONGLOW_NWNX_HOME").map(std::path::PathBuf::from).or_else(|| {
+        std::env::var_os("HOME").map(|h| Path::new(&h).join(".local/opt/nwnx/current"))
+    });
+    let Some(home) = home.filter(|h| h.join("Binaries/NWNX_Core.so").is_file()) else {
+        assert!(!mg_testkit::corpus_required(), "MOONGLOW_REQUIRE_CORPUS: no NWNX build");
+        eprintln!("skipped: no NWNX build (MOONGLOW_NWNX_HOME)");
+        return;
+    };
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-test-preloaded-nwnx");
+    let (user, tests) = (dir.join("user"), dir.join("tests"));
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&tests).unwrap();
+    let calls = "#include \"mg_test\"\nvoid main()\n{\n    NWNXCall(\"NWNX_Util\", \
+                 \"GetCurrentScriptName\");\n    Pass(\"called\");\n}\n";
+    std::fs::write(tests.join("test_nwnx.nss"), calls).unwrap();
+    let bin = home.join("Binaries");
+    let env = dir.join("nwnx.env");
+    let settings =
+        format!("NWNX_CORE_SKIP_ALL=y\nNWNX_UTIL_SKIP=n\nNWNX_CORE_LOAD_PATH={}\n", bin.display());
+    std::fs::write(&env, settings).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let core = bin.join("NWNX_Core.so");
+    let (c, t, e) = (chess.to_str().unwrap(), tests.to_str().unwrap(), env.to_str().unwrap());
+    let served = dir.join("served");
+    let common = [c, "--tests", t, "--dir", served.to_str().unwrap(), "--env", e];
+    let preloaded = [&common[..], &["--preload", core.to_str().unwrap()][..]].concat();
+    let (ok, r) = mg(&root, &user, &preloaded);
+    let said = r.to_string();
+    assert!(ok && r["passed"] == 1, "{r}");
+    assert!(!said.contains("which is off"), "{said}");
+    assert!(said.contains("NWNX 8193.") && said.contains("on server build"), "{said}");
+    // No preload: NWNX is off, and the script that calls it is said.
+    let (_, r) = mg(&root, &user, &common);
+    let said = r.to_string();
+    assert!(said.contains("1 script call NWNX, which is off"), "{said}");
+}

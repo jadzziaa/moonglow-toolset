@@ -207,6 +207,15 @@ impl Resolved {
 /// The file of NWNX's core, in its `Binaries` folder.
 pub const CORE_FILE: &str = "NWNX_Core.so";
 
+/// The home of the NWNX whose core this is, where the core is in its
+/// home's `Binaries` (as NWNX is built and installed): a core preloaded by
+/// hand (`--preload`, an `LD_PRELOAD` line) is that NWNX.
+pub fn home_of_core(core: &Path) -> Option<PathBuf> {
+    let bin = core.parent()?;
+    let named = core.file_name()? == CORE_FILE && bin.file_name()? == "Binaries";
+    named.then(|| bin.parent().map(Path::to_path_buf)).flatten()
+}
+
 /// What a run of a module says once, whatever the system: NWNX runs on
 /// Linux servers only.
 pub const LINUX_ONLY: &str =

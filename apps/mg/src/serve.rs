@@ -502,6 +502,19 @@ fn server_env(
     Ok(ServerEnv { vars: env, nwnx: nwnx.is_some() || core_in })
 }
 
+/// NWNX's core preloaded by hand: `--preload`'s, else the last of the
+/// `--env` lines' `LD_PRELOAD`s that names one.
+fn preloaded_core(preload: Option<&Path>, more: &[(String, String)]) -> Option<PathBuf> {
+    use mg_module::nwnx::CORE_FILE;
+    let core = |p: &Path| p.file_name().is_some_and(|n| n == CORE_FILE);
+    if let Some(p) = preload.filter(|p| core(p)) {
+        return Some(std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+    }
+    let (_, value) = more.iter().rev().find(|(k, _)| k == "LD_PRELOAD")?;
+    let found = value.split([':', ' ']).map(Path::new).find(|p| core(p))?;
+    Some(std::path::absolute(found).unwrap_or_else(|_| found.to_path_buf()))
+}
+
 /// The project file of the module a run serves (`original`: the
 /// `.mod`, folder or nasher project the builder named).
 fn project_file_of(original: &Path) -> mg_module::project_file::ProjectFile {
@@ -562,16 +575,31 @@ pub(crate) fn serve(
         let served = mg_module::Module::open(&dir.join("modules").join(format!("{name}.mod")));
         // (The --env files' lines checked with the project's.)
         let more = env_lines(&c.env)?;
-        let resolved = mg_module::nwnx::resolve_with(
-            &project_file,
-            &mg_module::nwnx::Options {
-                choice: c.nwnx.clone(),
+        let resolve = |choice: mg_module::nwnx::Choice| {
+            let o = mg_module::nwnx::Options {
+                choice,
                 module: served.as_ref().ok(),
                 live: c.live,
                 ..Default::default()
-            },
-            &more,
-        );
+            };
+            mg_module::nwnx::resolve_with(&project_file, &o, &more)
+        };
+        let mut resolved = resolve(c.nwnx.clone());
+        // NWNX's core preloaded by hand where the project gives none: that
+        // NWNX, checked as `--nwnx` with its folder would be.
+        if c.nwnx == mg_module::nwnx::Choice::Project
+            && resolved.nwnx.is_none()
+            && !resolved.failed()
+            && cfg!(target_os = "linux")
+            && let Some(core) = preloaded_core(c.preload.as_deref(), &more)
+        {
+            match mg_module::nwnx::home_of_core(&core) {
+                Some(home) => resolved = resolve(mg_module::nwnx::Choice::Home(home)),
+                // (Not where NWNX keeps it: run, but not checked; and not
+                // said to be off.)
+                None => resolved.notes.retain(|n| !n.text.contains("which is off")),
+            }
+        }
         let lines: Vec<String> = resolved.notes.iter().map(|n| n.line()).collect();
         if lines != said_nwnx {
             for n in resolved.notes.iter().filter(|n| n.level != mg_module::nwnx::Level::Error) {

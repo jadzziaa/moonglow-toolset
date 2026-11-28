@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T23:09:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-28T06:03:22Z }
 ---
 
 # Command-line tools
@@ -475,7 +475,12 @@ home = "~/.local/opt/nwnx/current"   # Binaries/ and NWScript/
   another NWNX's core is refused (pass `--no-nwnx` to preload it
   alone). With `--no-nwnx` (or no NWNX), a preloaded library is only
   that: NWNX's checks are made where an `NWNX_Core.so` is preloaded,
-  the project's or one you give.
+  the project's or one you give. A project with no NWNX of its own
+  and an `NWNX_Core.so` given with `--preload` (or an `--env`
+  `LD_PRELOAD` line) in an NWNX's `Binaries` folder runs that NWNX as
+  `--nwnx` with its folder does: its scripts, plugins and build are
+  checked with NWNX on (`--env FILE --preload ~/nwnx/Binaries/NWNX_Core.so`
+  is the same as `--env FILE --nwnx ~/nwnx`).
 - **Checked before the start** (an error stops it, a warning doesn't):
   the home, `NWNX_Core.so`, and the env file must be there, and every
   plugin the env file or `--env` switches on (`NWNX_<PLUGIN>_SKIP=n`) must have its
