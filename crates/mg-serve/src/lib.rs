@@ -92,6 +92,27 @@ pub struct Options {
     /// living as long as the server should (Test Module's local run), so
     /// that it dies with the caller however the caller ends.
     pub die_with_parent: bool,
+    /// A test's: how long this server's errors' reader waits before each
+    /// line (a reader behind, as on a machine under load).
+    #[cfg(test)]
+    pub errors_lag: Duration,
+}
+
+/// Starts `command`, again a few times while its program is "busy"
+/// (`ETXTBSY`): a program file just written, as tests write their stand-in
+/// servers, stays open for writing in a child another thread is forking
+/// until that child's `exec` closes it.
+fn spawn(command: &mut Command) -> io::Result<Child> {
+    let mut tries = 0;
+    loop {
+        match command.spawn() {
+            Err(e) if e.kind() == io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            started => return started,
+        }
+    }
 }
 
 /// What a server started with [`Options::clean_env`] keeps of the
@@ -208,15 +229,12 @@ impl Heard {
     }
 }
 
-/// How long the reader of a server's errors waits before each line it
-/// gives: a test's stand-in for a machine under load.
-#[cfg(test)]
-static ERRORS_LAG_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 /// Reads a pipe's lines into `send` on a thread of its own, until it
 /// closes (so the server never blocks on a full pipe). A [`MARK`] that
 /// came in the middle of a line is taken out and the line kept whole.
-fn read_lines(pipe: impl Read + Send + 'static, stderr: bool, send: Sender<Heard>) {
+/// (`lag`: a wait before each line, a test's stand-in for a reader
+/// behind on a machine under load.)
+fn read_lines(pipe: impl Read + Send + 'static, stderr: bool, lag: Duration, send: Sender<Heard>) {
     std::thread::spawn(move || {
         let mut begun: Vec<u8> = Vec::new();
         let line = |begun: &mut Vec<u8>, rest: &[u8]| {
@@ -233,10 +251,8 @@ fn read_lines(pipe: impl Read + Send + 'static, stderr: bool, send: Sender<Heard
                 }
                 None => line(&mut begun, &piece),
             };
-            #[cfg(test)]
-            if stderr && matches!(heard, Heard::Line(_)) {
-                let lag = ERRORS_LAG_MS.load(Ordering::SeqCst);
-                std::thread::sleep(Duration::from_millis(lag));
+            if !lag.is_zero() && matches!(heard, Heard::Line(_)) {
+                std::thread::sleep(lag);
             }
             if send.send(heard).is_err() {
                 return;
@@ -409,14 +425,19 @@ impl Server {
                 );
             }
         }
-        let mut child = command.spawn()?;
+        let mut child = spawn(&mut command)?;
         // (The child's copies of the writing ends go with the command, so
         // a pipe closes once the server and Moonglow's copy have.)
         drop(command);
         let lines = o.console.then(|| {
             let (send, receive) = channel();
             for (read, stderr) in readers.into_iter().zip([false, true]) {
-                read_lines(read, stderr, send.clone());
+                // (Only a test's errors are held back.)
+                #[cfg(test)]
+                let lag = if stderr { o.errors_lag } else { Duration::ZERO };
+                #[cfg(not(test))]
+                let lag = Duration::ZERO;
+                read_lines(read, stderr, lag, send.clone());
             }
             receive
         });
@@ -710,7 +731,7 @@ mod tests {
     fn a_mark_is_no_line_and_breaks_none() {
         let (read, mut write) = io::pipe().unwrap();
         let (send, heard) = channel();
-        read_lines(read, true, send);
+        read_lines(read, true, Duration::ZERO, send);
         let mark = [MARK, b"\n"].concat();
         write.write_all(b"half").unwrap();
         write.write_all(&mark).unwrap();
@@ -847,10 +868,12 @@ mod tests {
         // the time it returns, however far behind that pipe's reader is:
         // here, half a second, as on a machine under load.)
         let errors = "ERROR: ld.so: no\\n";
-        ERRORS_LAG_MS.store(500, Ordering::SeqCst);
         for run in 0..3 {
-            let mut s =
-                Server::start(&fake(&dir.join(format!("a{run}")), said, errors, 5)).unwrap();
+            let o = Options {
+                errors_lag: Duration::from_millis(500),
+                ..fake(&dir.join(format!("a{run}")), said, errors, 5)
+            };
+            let mut s = Server::start(&o).unwrap();
             let took = s.wait_ready(Duration::from_secs(20), &never).unwrap();
             assert!(took < Duration::from_secs(20));
             let lines = s.lines();
@@ -860,7 +883,6 @@ mod tests {
             assert!(lines.iter().any(|l| l.stderr && l.text == "ERROR: ld.so: no"), "{lines:?}");
             assert!(!texts.iter().any(|t| t.contains("mg-serve caught up")), "{texts:?}");
         }
-        ERRORS_LAG_MS.store(0, Ordering::SeqCst);
         // Ended before it loaded.
         let mut s = Server::start(&fake(&dir.join("b"), "one\\ntwo\\n", "", 0)).unwrap();
         match s.wait_ready(Duration::from_secs(20), &never) {
