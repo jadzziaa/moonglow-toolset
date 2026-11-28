@@ -6,7 +6,10 @@
 //! built from plain values ([`values`]: what a game client has of an area,
 //! with no files); [`AreaScene`] loads the models and builds the renderer's
 //! scene from it at a moment of the day, and follows its objects as they
-//! are added, moved and taken out ([`AreaScene::update_objects`]).
+//! are added, moved and taken out ([`AreaScene::update_objects`]), and its
+//! tiles as a server sets them anew ([`AreaModel::set_tiles`], then
+//! [`AreaScene::update_tiles`] and [`walk::Ground::update_tiles`]: only
+//! those tiles loaded again).
 //!
 //! The editing half (undoable edits, painting, Resize, Change Tileset,
 //! the tileset's palette) is the default feature `edit`, with the editor's
@@ -442,6 +445,98 @@ fn named_node(model: &mg_mdl::Model, resref: &str, suffix: &str, light: bool) ->
     })
 }
 
+/// Tile `index` of a grid `width` tiles wide settled from its values
+/// `t`, as [`AreaModel::from_values`] settles it: its model from the
+/// tileset (none for a tile the tileset has not, or a hole in it), its
+/// place (`step`: the tileset's height step), its turn modulo 4, its
+/// height within 1024 steps and its replacement texture
+/// (`replacements`: replacetexture.2da).
+fn settle_tile(
+    index: usize,
+    t: &values::Tile,
+    width: u32,
+    step: f32,
+    tileset: Option<&Tileset>,
+    replacements: Option<&mg_2da::TwoDa>,
+) -> AreaTile {
+    let id = t.id;
+    let model = tileset.and_then(|s| {
+        let tile = usize::try_from(id).ok().and_then(|i| s.tiles.get(i));
+        // (A hole in the tileset: nothing, as in the game.)
+        tile.filter(|t| !t.is_hole()).map(|t| t.model.to_ascii_lowercase())
+    });
+    let (column, row) = (index as u32 % width.max(1), index as u32 / width.max(1));
+    let tile_height = t.height.clamp(-1024, 1024);
+    AreaTile {
+        index,
+        column,
+        row,
+        id,
+        model,
+        height: tile_height,
+        orientation: t.orientation % 4,
+        main_lights: t.main_lights,
+        source_lights: t.source_lights.map(|s| s.map_or(0, std::num::NonZeroU8::get)),
+        anim_loops: t.anim_loops,
+        replace_texture: replacements.and_then(|table| {
+            let row = usize::try_from(t.replace_texture?).ok()?;
+            Some(table.get(row, "TEXTURENAME")?.to_ascii_lowercase())
+        }),
+        position: Vec3::new(
+            (column as f32 + 0.5) * TILE_SIZE,
+            (row as f32 + 0.5) * TILE_SIZE,
+            tile_height as f32 * step,
+        ),
+    }
+}
+
+/// What [`AreaModel::problems`] says of `tiles` (with their tileset):
+/// how many are not in it, and the holes in it they name.
+fn tile_problems(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<String> {
+    let Some(set) = tileset else { return Vec::new() };
+    let mut unknown = 0;
+    let mut holes = Vec::new();
+    for t in tiles {
+        match usize::try_from(t.id).ok().and_then(|i| set.tiles.get(i)) {
+            None => unknown += 1,
+            Some(tile) if tile.is_hole() && !holes.contains(&t.id) => holes.push(t.id),
+            Some(_) => {}
+        }
+    }
+    let mut problems = Vec::new();
+    if unknown > 0 {
+        problems.push(format!("{unknown} tiles are not in the tileset"));
+    }
+    if !holes.is_empty() {
+        holes.sort_unstable();
+        let named: Vec<String> = holes.iter().map(|t| format!("tile {t}")).collect();
+        problems.push(format!(
+            "the tileset names no model for {} (its section or Model= is missing)",
+            named.join(", ")
+        ));
+    }
+    problems
+}
+
+/// The tile border of `tiles` (an area `size` tiles, of the tileset
+/// `tileset` named `name`, `step` its height step): [`border::border`]
+/// with the tileset's edge table; none without the tileset or its table.
+fn tiles_border(
+    game: &GameData,
+    tileset: Option<&Tileset>,
+    name: Option<ResRef>,
+    tiles: &[AreaTile],
+    size: (u32, u32),
+    step: f32,
+) -> Vec<border::BorderTile> {
+    match (tileset, name) {
+        (Some(set), Some(name)) => (game.table(&border::edge_table(&name.to_string())))
+            .map(|t| border::border(set, &border::edge_rows(&t), tiles, size, step))
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 /// The door hooks of `tiles` (with the tileset they are from), each
 /// where [`mg_tiles::door_hooks`] puts it.
 fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
@@ -687,63 +782,11 @@ impl AreaModel {
                 area.tiles.len()
             ));
         }
-        let mut unknown = 0;
-        let mut holes = Vec::new();
         let replacements = game.table("replacetexture").ok();
-        let tiles: Vec<AreaTile> = area
-            .tiles
-            .iter()
-            .take(count)
-            .enumerate()
-            .map(|(index, t)| {
-                let id = t.id;
-                let model = tileset.and_then(|s| {
-                    let tile = usize::try_from(id).ok().and_then(|i| s.tiles.get(i));
-                    if tile.is_none() {
-                        unknown += 1;
-                    }
-                    // (A hole in the tileset: nothing, as in the game.)
-                    if tile.is_some_and(mg_set::Tile::is_hole) && !holes.contains(&id) {
-                        holes.push(id);
-                    }
-                    tile.filter(|t| !t.is_hole()).map(|t| t.model.to_ascii_lowercase())
-                });
-                let (column, row) = (index as u32 % width.max(1), index as u32 / width.max(1));
-                let tile_height = t.height.clamp(-1024, 1024);
-                AreaTile {
-                    index,
-                    column,
-                    row,
-                    id,
-                    model,
-                    height: tile_height,
-                    orientation: t.orientation % 4,
-                    main_lights: t.main_lights,
-                    source_lights: t.source_lights.map(|s| s.map_or(0, std::num::NonZeroU8::get)),
-                    anim_loops: t.anim_loops,
-                    replace_texture: replacements.as_ref().and_then(|table| {
-                        let row = usize::try_from(t.replace_texture?).ok()?;
-                        Some(table.get(row, "TEXTURENAME")?.to_ascii_lowercase())
-                    }),
-                    position: Vec3::new(
-                        (column as f32 + 0.5) * TILE_SIZE,
-                        (row as f32 + 0.5) * TILE_SIZE,
-                        tile_height as f32 * step,
-                    ),
-                }
-            })
+        let tiles: Vec<AreaTile> = (area.tiles.iter().take(count).enumerate())
+            .map(|(index, t)| settle_tile(index, t, width, step, tileset, replacements.as_deref()))
             .collect();
-        if unknown > 0 {
-            problems.push(format!("{unknown} tiles are not in the tileset"));
-        }
-        if !holes.is_empty() {
-            holes.sort_unstable();
-            let named: Vec<String> = holes.iter().map(|t| format!("tile {t}")).collect();
-            problems.push(format!(
-                "the tileset names no model for {} (its section or Model= is missing)",
-                named.join(", ")
-            ));
-        }
+        problems.extend(tile_problems(&tiles, tileset));
         let tileset_ref = area.tileset.filter(|r| !r.is_empty());
         if tileset.is_none() {
             problems.push(match tileset_ref {
@@ -752,12 +795,7 @@ impl AreaModel {
             });
         }
         let hooks = tiles_hooks(&tiles, tileset);
-        let border = match (tileset, tileset_ref) {
-            (Some(set), Some(name)) => (game.table(&border::edge_table(&name.to_string())))
-                .map(|t| border::border(set, &border::edge_rows(&t), &tiles, (width, height), step))
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        };
+        let border = tiles_border(game, tileset, tileset_ref, &tiles, (width, height), step);
         let mut counts = [0usize; ObjectKind::ALL.len()];
         let objects = (area.objects.into_iter())
             .map(|o| {
@@ -779,6 +817,61 @@ impl AreaModel {
             border,
             problems,
         }
+    }
+
+    /// Sets tiles of the grid anew from values, each `(index, tile)` (what
+    /// a server's `SetTile` changes at run time: a tile's id, turn and
+    /// height), with the tileset the area was built with (`None` when it
+    /// is missing): each settled as [`AreaModel::from_values`] settles one,
+    /// and the door hooks, the tile border and what [`AreaModel::problems`]
+    /// says of the tiles following them. An index past the grid is left
+    /// out; of an index given twice, the last tile is taken. The model is
+    /// then the one `from_values` builds of the area's values with these
+    /// tiles.
+    ///
+    /// Returns the indexes of the tiles that changed, in order, each once:
+    /// what [`AreaScene::update_tiles`] and
+    /// [`walk::Ground::update_tiles`] take, so that only those are loaded
+    /// again. A tile set as it was is not among them.
+    pub fn set_tiles(
+        &mut self,
+        game: &GameData,
+        tileset: Option<&Tileset>,
+        tiles: &[(usize, values::Tile)],
+    ) -> Vec<usize> {
+        let replacements = game.table("replacetexture").ok();
+        let had = tile_problems(&self.tiles, tileset);
+        let mut changed = Vec::new();
+        for (index, t) in tiles {
+            let (width, step) = (self.width, self.height_step);
+            let Some(slot) = self.tiles.get_mut(*index) else { continue };
+            let tile = settle_tile(*index, t, width, step, tileset, replacements.as_deref());
+            if *slot != tile {
+                *slot = tile;
+                changed.push(*index);
+            }
+        }
+        changed.sort_unstable();
+        changed.dedup();
+        if changed.is_empty() {
+            return changed;
+        }
+        // (The tiles' problems, where `from_values` puts them: after what
+        // it says of the tile list's length, before the tileset's.)
+        let now = tile_problems(&self.tiles, tileset);
+        let (at, gone) = match had.first().and_then(|p| self.problems.iter().position(|q| q == p)) {
+            Some(i) => (i, had.len().min(self.problems.len() - i)),
+            None => {
+                let listed = self.problems.first().is_some_and(|p| p.starts_with("Tile_List"));
+                (usize::from(listed), 0)
+            }
+        };
+        self.problems.splice(at..at + gone, now);
+        self.hooks = tiles_hooks(&self.tiles, tileset);
+        let size = (self.width, self.height);
+        self.border =
+            tiles_border(game, tileset, self.tileset, &self.tiles, size, self.height_step);
+        changed
     }
 
     /// The door hook nearest to `p` (in the ground plane) within `reach`

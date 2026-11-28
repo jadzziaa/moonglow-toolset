@@ -76,9 +76,13 @@ endnode\nendmodelgeom {name}\ndonemodel {name}\n"
 /// what is read from it.
 fn game() -> (GameData, Arc<AtomicUsize>) {
     let mut c = MemContainer::new();
-    for (name, size) in
-        [("tst_tile", 10.0), ("tst_box", 1.0), ("tst_pole", 0.5), ("tst_crate", 2.0)]
-    {
+    for (name, size) in [
+        ("tst_tile", 10.0),
+        ("tst_tile2", 10.0),
+        ("tst_box", 1.0),
+        ("tst_pole", 0.5),
+        ("tst_crate", 2.0),
+    ] {
         c.insert(ResKey::parse(name, ResType::MDL).unwrap(), square(name, size).into_bytes());
     }
     let reads = Arc::new(AtomicUsize::new(0));
@@ -214,6 +218,160 @@ fn objects_move_come_and_go_as_in_a_scene_built_afresh() {
     loaded.update_objects(&gpu, &game, &area, &[]);
     read("objects shown anew", before, 0);
     as_fresh(&gpu, &game, &loaded, &area, "taken out of the model alone");
+}
+
+/// A tileset of three tiles: 0 of `tst_tile`, 1 of `tst_tile2` with a
+/// door hook 5 m east of its middle, 2 a hole (no model); a height step of
+/// 5 m.
+fn tileset() -> mg_set::Tileset {
+    let text = "[GENERAL]\nName=TST01\nInterior=0\nTransition=5\nDisplayName=-1\n\
+Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
+[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0\n\
+[TILES]\nCount=3\n\
+[TILE0]\nModel=tst_tile\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE1]\nModel=TST_Tile2\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\nDoors=1\n\
+[TILE1DOOR0]\nType=1\nX=5\nY=0\nZ=0\nOrientation=90\n\
+[TILE2]\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[GROUPS]\nCount=0\n";
+    mg_set::Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap()
+}
+
+/// An area's values `size` tiles square of the tileset's tile 0, each
+/// turned by its index, with `objects`.
+fn tiled(size: u32, objects: Vec<Object>) -> Area {
+    let tiles = (0..size * size).map(|i| Tile { orientation: (i % 4) as u8, ..Tile::new(0) });
+    Area {
+        tileset: mg_core::ResRef::from_str("tst01").ok(),
+        width: size,
+        height: size,
+        tiles: tiles.collect(),
+        objects,
+        ..Area::default()
+    }
+}
+
+/// Tiles set anew in the model (`AreaModel::set_tiles`) make the model
+/// `from_values` makes of the values with those tiles: each tile, the door
+/// hooks and the problems with the tiles; and only the tiles that changed
+/// are said to have.
+#[test]
+fn tiles_set_anew_make_the_model_from_values_makes() {
+    let (game, _) = game();
+    let set = tileset();
+    let mut values = tiled(4, Vec::new());
+    let mut model = AreaModel::from_values(&game, values.clone(), Some(&set));
+    assert!(model.hooks.is_empty() && model.problems.is_empty(), "{:?}", model.problems);
+    let mut step =
+        |model: &mut AreaModel, what: &str, tiles: &[(usize, Tile)], expected: &[usize]| {
+            for &(i, t) in tiles {
+                if let Some(slot) = values.tiles.get_mut(i) {
+                    *slot = t;
+                }
+            }
+            let changed = model.set_tiles(&game, Some(&set), tiles);
+            assert_eq!(changed, expected, "{what}: the tiles that changed");
+            let fresh = AreaModel::from_values(&game, values.clone(), Some(&set));
+            assert_eq!(*model, fresh, "{what}: not as from_values makes it");
+        };
+    let t = |id: i64, orientation: u8, height: i32| Tile { orientation, height, ..Tile::new(id) };
+    step(&mut model, "turned alone", &[(5, t(0, 3, 0))], &[5]);
+    step(&mut model, "raised alone", &[(5, t(0, 3, 2))], &[5]);
+    step(&mut model, "set as it was", &[(5, t(0, 3, 2))], &[]);
+    step(&mut model, "another model, with a door hook", &[(6, t(1, 1, 0))], &[6]);
+    assert_eq!(model.hooks.len(), 1);
+    assert_eq!(model.tiles[6].model.as_deref(), Some("tst_tile2"));
+    step(
+        &mut model,
+        "two at once, given out of order",
+        &[(9, t(1, 0, 1)), (2, t(1, 2, -1))],
+        &[2, 9],
+    );
+    step(&mut model, "a tile the tileset has not", &[(1, t(99, 0, 0))], &[1]);
+    assert_eq!(model.problems, ["1 tiles are not in the tileset"]);
+    step(&mut model, "a hole", &[(3, t(2, 0, 0))], &[3]);
+    assert_eq!(model.problems.len(), 2);
+    step(&mut model, "both set back", &[(1, t(0, 1, 0)), (3, t(0, 3, 0))], &[1, 3]);
+    assert!(model.problems.is_empty());
+    step(&mut model, "one index twice: the last", &[(4, t(1, 0, 0)), (4, t(0, 1, 0))], &[4]);
+    step(&mut model, "its lights alone", &[(4, Tile { main_lights: [3, 4], ..t(0, 1, 0) })], &[4]);
+    // (Past the grid: left out.)
+    assert_eq!(model.set_tiles(&game, Some(&set), &[(16, t(1, 0, 0))]), Vec::<usize>::new());
+    assert_eq!(model, AreaModel::from_values(&game, values.clone(), Some(&set)));
+    // A tile list of another length than the size says: its problem kept first.
+    let mut short = tiled(4, Vec::new());
+    short.tiles.truncate(15);
+    let mut model = AreaModel::from_values(&game, short.clone(), Some(&set));
+    model.set_tiles(&game, Some(&set), &[(0, t(99, 0, 0))]);
+    short.tiles[0] = t(99, 0, 0);
+    assert_eq!(model, AreaModel::from_values(&game, short, Some(&set)));
+}
+
+/// A tile set anew in the scene (`AreaScene::update_tiles`): the scene
+/// built afresh of the same area, with only a model no tile had read and
+/// built, the other tiles' and the objects' models kept, and a model no
+/// tile has any more let go.
+#[test]
+fn tiles_set_anew_load_only_what_is_new() {
+    let (game, reads) = game();
+    let Some(gpu) = gpu() else { return };
+    let set = tileset();
+    let p = |x: f32, y: f32| Vec3::new(x, y, 0.0);
+    let objects = vec![
+        Object::new(ObjectKind::Placeable, p(12.0, 7.0), 0.5, model("tst_box")),
+        Object::new(ObjectKind::Creature, p(22.0, 31.0), 1.0, model("tst_pole")),
+    ];
+    let mut area = AreaModel::from_values(&game, tiled(4, objects), Some(&set));
+    let mut loaded = AreaScene::new(&gpu, &game, &area);
+    let scene = |loaded: &AreaScene, area: &AreaModel| loaded.scene(area, &view(area));
+    // Each instance's model (its address), the tiles' by tile.
+    let models = |loaded: &AreaScene, area: &AreaModel| -> Vec<usize> {
+        let s = scene(loaded, area);
+        s.instances.iter().map(|i| Arc::as_ptr(&i.model) as usize).collect()
+    };
+    let at_first = models(&loaded, &area);
+    assert_eq!(at_first.len(), 18, "16 tiles and 2 objects");
+    let t = |id: i64, orientation: u8, height: i32| Tile { orientation, height, ..Tile::new(id) };
+    let set_tiles = |loaded: &mut AreaScene, area: &mut AreaModel, tiles: &[(usize, Tile)]| {
+        let before = reads.load(Ordering::Relaxed);
+        let changed = area.set_tiles(&game, Some(&set), tiles);
+        loaded.update_tiles(&gpu, &game, area, &changed);
+        reads.load(Ordering::Relaxed) - before
+    };
+
+    // Another model, turned and raised: it alone is read; the other tiles
+    // and the objects draw the models they drew.
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]), 1, "tst_tile2 read once");
+    as_fresh(&gpu, &game, &loaded, &area, "a tile set to another model");
+    let now = models(&loaded, &area);
+    let kept = |a: &[usize], b: &[usize], but: &[usize]| {
+        (0..a.len()).filter(|i| !but.contains(i)).all(|i| a[i] == b[i])
+    };
+    assert!(kept(&at_first, &now, &[5]), "the other tiles and the objects kept");
+    assert_ne!(now[5], at_first[5]);
+    let raised = scene(&loaded, &area).instances[5].transform.w_axis;
+    assert_eq!(raised.z, 5.0, "a step up");
+
+    // A second tile of that model, and one turned alone: nothing read.
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(6, t(1, 0, 0)), (7, t(0, 2, 0))]), 0);
+    as_fresh(&gpu, &game, &loaded, &area, "a model in use, and a turn");
+    let then = models(&loaded, &area);
+    assert_eq!(then[6], now[5], "the model shared");
+    assert_eq!(then[7], at_first[7], "a turned tile keeps its model");
+
+    // A hole and a tile the tileset has not: nothing drawn there.
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(0, t(2, 0, 0)), (1, t(99, 0, 0))]), 0);
+    as_fresh(&gpu, &game, &loaded, &area, "a hole and an unknown tile");
+    assert_eq!(models(&loaded, &area).len(), 16);
+
+    // Every tile of tst_tile2 set back: its model let go, and read again
+    // when a tile has it again.
+    let back = [(0, t(0, 0, 0)), (1, t(0, 1, 0)), (5, t(0, 1, 0)), (6, t(0, 2, 0))];
+    assert_eq!(set_tiles(&mut loaded, &mut area, &back), 0);
+    as_fresh(&gpu, &game, &loaded, &area, "set back");
+    assert_eq!(loaded.usage().tile_models, 1, "tst_tile2 let go");
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]), 1, "read again");
+    as_fresh(&gpu, &game, &loaded, &area, "set again");
+    assert!(kept(&at_first, &models(&loaded, &area), &[5, 7]), "the rest kept throughout");
 }
 
 /// Times a frame's scene and the updates of one creature on an area of a
