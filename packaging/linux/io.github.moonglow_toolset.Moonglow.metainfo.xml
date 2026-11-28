@@ -45,6 +45,22 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.5.0" date="2026-11-28">
+      <description>
+        <p>A module's haks read from its NWSync server instead of hak
+        files, NWNX in the servers Moonglow runs, Test Module running a
+        command of your own or joining with a chosen character, plugin
+        API 0.11 with mg.nwsync.status(), the area view's Player's
+        light, and mg merge-gff keeping the conversation lines two
+        builders added.</p>
+        <p>Add Category takes a free palette ID, selection boxes, see-through
+        surfaces, cut-outs and light shadows are drawn as the game client
+        draws them, the module's Save writes its haks as jobs, servers
+        started by mg get a clean environment and a link to the
+        development folder, and the interface moves to egui 0.37. See the
+        release notes.</p>
+      </description>
+    </release>
     <release version="5.4.0" date="2026-11-26">
       <description>
         <p>Plugin seeds for repeatable terrain (API 0.10), Compile All's
