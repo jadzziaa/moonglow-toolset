@@ -187,6 +187,9 @@ fn step(
     assert_eq!(scene.missing, fresh.missing, "{what}: missing");
     for (view, before) in views(model).iter().zip(&before) {
         let (now, then) = (scene.scene(model, view), fresh.scene(&fresh_model, view));
+        let grass_kept =
+            kept_models(&now, model, &changed).iter().filter(|(k, _)| k.ends_with("true")).count();
+        assert!(grass_kept > 0, "{what}: the grass kept is among what is compared");
         assert_eq!(drawn(&now), drawn(&then), "{what}: the instances");
         assert!(now.instances.iter().any(|i| i.grass), "{what}: grass grows");
         assert_eq!(now.lights, then.lights, "{what}: the lights");

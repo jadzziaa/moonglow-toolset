@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use glam::Vec3;
 use mg_area::values::{Area, Look, Object, Tile};
+use mg_area::walk::Ground;
 use mg_area::{AreaModel, AreaObject, AreaScene, ObjectKind, View};
 use mg_core::ResType;
 use mg_preview::Preview;
@@ -331,16 +332,26 @@ fn tiles_set_anew_load_only_what_is_new() {
     let at_first = models(&loaded, &area);
     assert_eq!(at_first.len(), 18, "16 tiles and 2 objects");
     let t = |id: i64, orientation: u8, height: i32| Tile { orientation, height, ..Tile::new(id) };
-    let set_tiles = |loaded: &mut AreaScene, area: &mut AreaModel, tiles: &[(usize, Tile)]| {
+    // (The ground's walkmeshes, for height and picking: without a WOK, a
+    // tile's is read from its model, one read a model.)
+    let mut ground = Ground::new(&game, &area);
+    // What the scene and the ground read to follow the tiles set.
+    let mut set_tiles = |loaded: &mut AreaScene, area: &mut AreaModel, tiles: &[(usize, Tile)]| {
         let before = reads.load(Ordering::Relaxed);
         let changed = area.set_tiles(&game, Some(&set), tiles);
         loaded.update_tiles(&gpu, &game, area, &changed);
-        reads.load(Ordering::Relaxed) - before
+        let scene = reads.load(Ordering::Relaxed) - before;
+        ground.update_tiles(&game, area, &changed);
+        (scene, reads.load(Ordering::Relaxed) - before - scene)
     };
 
     // Another model, turned and raised: it alone is read; the other tiles
     // and the objects draw the models they drew.
-    assert_eq!(set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]), 1, "tst_tile2 read once");
+    assert_eq!(
+        set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]),
+        (1, 1),
+        "tst_tile2 read once"
+    );
     as_fresh(&gpu, &game, &loaded, &area, "a tile set to another model");
     let now = models(&loaded, &area);
     let kept = |a: &[usize], b: &[usize], but: &[usize]| {
@@ -352,24 +363,24 @@ fn tiles_set_anew_load_only_what_is_new() {
     assert_eq!(raised.z, 5.0, "a step up");
 
     // A second tile of that model, and one turned alone: nothing read.
-    assert_eq!(set_tiles(&mut loaded, &mut area, &[(6, t(1, 0, 0)), (7, t(0, 2, 0))]), 0);
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(6, t(1, 0, 0)), (7, t(0, 2, 0))]), (0, 0));
     as_fresh(&gpu, &game, &loaded, &area, "a model in use, and a turn");
     let then = models(&loaded, &area);
     assert_eq!(then[6], now[5], "the model shared");
     assert_eq!(then[7], at_first[7], "a turned tile keeps its model");
 
     // A hole and a tile the tileset has not: nothing drawn there.
-    assert_eq!(set_tiles(&mut loaded, &mut area, &[(0, t(2, 0, 0)), (1, t(99, 0, 0))]), 0);
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(0, t(2, 0, 0)), (1, t(99, 0, 0))]), (0, 0));
     as_fresh(&gpu, &game, &loaded, &area, "a hole and an unknown tile");
     assert_eq!(models(&loaded, &area).len(), 16);
 
     // Every tile of tst_tile2 set back: its model let go, and read again
     // when a tile has it again.
     let back = [(0, t(0, 0, 0)), (1, t(0, 1, 0)), (5, t(0, 1, 0)), (6, t(0, 2, 0))];
-    assert_eq!(set_tiles(&mut loaded, &mut area, &back), 0);
+    assert_eq!(set_tiles(&mut loaded, &mut area, &back), (0, 0));
     as_fresh(&gpu, &game, &loaded, &area, "set back");
     assert_eq!(loaded.usage().tile_models, 1, "tst_tile2 let go");
-    assert_eq!(set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]), 1, "read again");
+    assert_eq!(set_tiles(&mut loaded, &mut area, &[(5, t(1, 1, 1))]), (1, 1), "read again");
     as_fresh(&gpu, &game, &loaded, &area, "set again");
     assert!(kept(&at_first, &models(&loaded, &area), &[5, 7]), "the rest kept throughout");
 }
