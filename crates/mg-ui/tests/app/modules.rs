@@ -3564,6 +3564,14 @@ fn test_module_runs_a_command_of_the_builders_own() {
     assert!(
         log.iter().any(|(_, m)| *m == format!("Test Module: waiting for the server at {address}"))
     );
+    // (The stand-in game, `true`, ends at once, but is known as running
+    // until its wait is over: the next test would be refused meanwhile, as
+    // with a game still open. CI push 18 caught it so.)
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while mg_ui::test_module::game_running() {
+        assert!(Instant::now() < deadline, "the stand-in game never ended");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     // The next test stops it first.
     let from = h.state().log.entries.len();
     h.state_mut().settings.test_joins = false;

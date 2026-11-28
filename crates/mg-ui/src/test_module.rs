@@ -252,7 +252,9 @@ pub(crate) fn let_game_run(mut child: std::process::Child) {
 /// Whether a game Moonglow started for a test is still running. A second
 /// test would write the test module under it (Test From Here writes it
 /// anew each time), and the game then reports a corrupt module.
-pub(crate) fn game_running() -> bool {
+/// (Public for the UI tests: a stand-in game that ends at once is known
+/// until its wait is over.)
+pub fn game_running() -> bool {
     !GAMES.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
 }
 
