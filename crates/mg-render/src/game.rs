@@ -182,9 +182,13 @@ pub(crate) enum Key {
     ModuleDay,
     ModuleMonth,
     ModuleYear,
-    /// `scriptableVec1` to `scriptableVec16` (0 to 15), which a script
-    /// sets for a player (`SetShaderUniformVec`): the scene's
-    /// ([`crate::scene::Environment::scriptable`]).
+    /// `scriptableFloat1` to `scriptableFloat16` (0 to 15), which a
+    /// script sets for a player (`SetShaderUniformFloat`): the scene's
+    /// ([`crate::scene::Environment::script`]).
+    ScriptableFloat(usize),
+    /// `scriptableInt1` to `scriptableInt16` (`SetShaderUniformInt`).
+    ScriptableInt(usize),
+    /// `scriptableVec1` to `scriptableVec16` (`SetShaderUniformVec`).
     ScriptableVec(usize),
     // The camera, and the player at its focus.
     CameraPosition,
@@ -286,10 +290,7 @@ pub(crate) fn key(name: &str) -> Key {
             Some(n) if n.parse::<u8>().is_ok_and(|n| n <= 15) => {
                 TextureBound(n.parse().unwrap_or_default())
             }
-            _ => match name.strip_prefix("scriptableVec").and_then(|n| n.parse::<usize>().ok()) {
-                Some(n @ 1..=16) => ScriptableVec(n - 1),
-                _ => Param(name.to_string()),
-            },
+            _ => scriptable(name).unwrap_or_else(|| Param(name.to_string())),
         },
     }
 }
@@ -628,7 +629,9 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         ModuleDay => Val::I(f.environment.clock.day as i32),
         ModuleMonth => Val::I(f.environment.clock.month as i32),
         ModuleYear => Val::I(f.environment.clock.year as i32),
-        ScriptableVec(n) => Val::V(f.environment.scriptable[*n]),
+        ScriptableFloat(n) => Val::F(f.environment.script.float(*n)),
+        ScriptableInt(n) => Val::I(f.environment.script.int(*n)),
+        ScriptableVec(n) => Val::V(f.environment.script.vec(*n)),
         CameraPosition => Val::V(v3(f.eye, 0.0)),
         CameraFocus => Val::V(v3(f.target, 0.0)),
         CameraPitch => Val::F(f.derived.pitch),
@@ -866,6 +869,23 @@ pub(crate) fn unit(name: &str) -> Unit {
     }
 }
 
+/// The script uniform `name` is (`scriptableFloat1`, `scriptableInt1`,
+/// `scriptableVec1` to their 16th, as the game's `inc_scriptable`
+/// declares them), if it is one.
+fn scriptable(name: &str) -> Option<Key> {
+    let rest = name.strip_prefix("scriptable")?;
+    let (kind, n): (fn(usize) -> Key, &str) = if let Some(n) = rest.strip_prefix("Float") {
+        (Key::ScriptableFloat, n)
+    } else if let Some(n) = rest.strip_prefix("Int") {
+        (Key::ScriptableInt, n)
+    } else {
+        (Key::ScriptableVec, rest.strip_prefix("Vec")?)
+    };
+    // (No sign or leading zero: `scriptableFloat01` is no uniform of the game's.)
+    let n: usize = n.parse().ok().filter(|_| !n.starts_with(['0', '+']))?;
+    (1..=crate::scene::SCRIPT_UNIFORMS).contains(&n).then(|| kind(n - 1))
+}
+
 /// Which of a program's parts a uniform goes to
 /// ([`Program::split_uniforms`]): the draw's own (its transforms and
 /// material, an MTR's parameters), its lights' (shared by the draws the
@@ -897,9 +917,9 @@ pub fn part(m: &Member) -> Part {
 /// The engine's uniforms the contract leaves zero (`staticLighting`, as
 /// Moonglow has no baked light, and as the client has it for every mesh
 /// at fragment lighting; the target, keyhole and wind sources' values,
-/// and the scriptable floats and ints: [`Key::ScriptableVec`] alone has a
-/// source): the same for every draw, so the frame's, not looked
-/// up as an MTR's parameter for each.
+/// and a `scriptable…` name past the game's 16, which [`scriptable`]
+/// leaves out): the same for every draw, so the frame's, not looked up as
+/// an MTR's parameter for each.
 fn unfilled(name: &str) -> bool {
     matches!(
         name,
@@ -3524,6 +3544,40 @@ pub(crate) fn program_pair(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    /// The game's script uniforms by `inc_scriptable`'s names, 1 to 16 the
+    /// places 0 to 15, written once a frame; other names alike are an
+    /// MTR's parameters, or zero as the frame's.
+    #[test]
+    fn the_script_uniforms_are_keyed_by_inc_scriptable_s_names() {
+        use super::Key;
+        let k = |n: &str| super::key(n);
+        assert_eq!(k("scriptableFloat1"), Key::ScriptableFloat(0));
+        assert_eq!(k("scriptableFloat16"), Key::ScriptableFloat(15));
+        assert_eq!(k("scriptableInt1"), Key::ScriptableInt(0));
+        assert_eq!(k("scriptableInt9"), Key::ScriptableInt(8));
+        assert_eq!(k("scriptableVec1"), Key::ScriptableVec(0));
+        assert_eq!(k("scriptableVec16"), Key::ScriptableVec(15));
+        for not in ["scriptableFloat0", "scriptableFloat17", "scriptableInt01", "scriptableVec+2"]
+            .into_iter()
+            .chain(["scriptableVec", "scriptableBool1", "scriptablefloat1"])
+        {
+            assert_eq!(k(not), Key::Param(not.to_string()), "{not}");
+            assert!(super::unfilled(not), "{not}: zero, the frame's");
+        }
+        for name in ["scriptableFloat3", "scriptableInt3", "scriptableVec3"] {
+            let m = mg_shader::Member {
+                name: name.into(),
+                offset: 0,
+                ty: mg_shader::ValueType::Float,
+                count: None,
+                stride: 4,
+                size: 4,
+                members: Vec::new(),
+            };
+            assert_eq!(super::part(&m), mg_shader::Part::Frame, "{name}");
+        }
+    }
 
     /// The quick hasher spreads keys that differ in their high bits alone
     /// over a table's buckets (which go by the low bits): the meshes'

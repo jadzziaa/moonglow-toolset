@@ -123,6 +123,15 @@ pub struct View {
     /// view's Player's Light, at the start location. `None`: no player's
     /// light, as the editor has no player.
     pub player: Option<(Vec3, f32)>,
+    /// The script uniforms the game's shaders read
+    /// ([`mg_render::ScriptUniforms`]: what `SetShaderUniformFloat`,
+    /// `SetShaderUniformInt` and `SetShaderUniformVec` set for the player
+    /// who sees the area). `Some`: these, as a client has them from its
+    /// server (messages 56.1 to 56.3), and nothing else (a module that
+    /// tints its wallpaper sends that itself). `None`: the editor's, as no
+    /// server sends any: zero but for the wallpaper's tint the area's GIT
+    /// gives (`tdod_wallpaper`, `scriptableVec1`: `mg_rules::tint`).
+    pub script_uniforms: Option<mg_render::ScriptUniforms>,
 }
 
 impl View {
@@ -144,6 +153,7 @@ impl View {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         }
     }
 
@@ -409,6 +419,30 @@ fn hidden_tiles(tiles: usize, hidden: &[usize]) -> Vec<bool> {
     mask
 }
 
+/// A tile's model `name`, read by `models`, given its animations and put
+/// on the GPU. (A model that is read and then breaks what builds it is left
+/// out, as a missing one is: the toolset carries on.) `None`: it broke;
+/// `Some(None)`: not found, or not readable.
+fn build_tile(gpu: &Gpu, models: &Models<'_>, name: &str) -> Option<Option<Loaded>> {
+    let load = |name: &str| models.load(name);
+    mg_render::guard::guarded(name, || {
+        let model = load(name)?;
+        let anims = anim::animations_scaled(&model, &load);
+        Some(Loaded::new(name, Arc::new(GpuModel::new(gpu, model)), anims))
+    })
+}
+
+/// The tiles of `area` that grow grass (`grass`, by tile), where they
+/// stand and their grass's sphere, as [`crate::grass_chosen`] takes them.
+fn grown(area: &AreaModel, grass: &[Option<Arc<TileGrass>>]) -> Vec<Grown> {
+    (area.tiles.iter().zip(grass).enumerate())
+        .filter_map(|(i, (t, g))| {
+            let g = g.as_ref()?;
+            Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
+        })
+        .collect()
+}
+
 /// The most objects a list is taken to have, for [`object_place`].
 const OBJECT_PLACES: usize = 1 << 24;
 
@@ -588,7 +622,15 @@ impl AreaScene {
     /// read that nothing drawn is made of; and says what is missing of
     /// what `area` has now.
     fn settle(&mut self, area: &AreaModel) {
-        let mut gone = self.object_cache.sweep();
+        let gone = self.object_cache.sweep();
+        self.settle_tiles(area, gone);
+    }
+
+    /// [`AreaScene::settle`]'s tiles' half (the looks of objects left as
+    /// they are; `gone`: where the looks let go were): lets go of the
+    /// tiles' models, walkmeshes, grass and chunk models nothing of `area`
+    /// has any more, and says what is missing.
+    fn settle_tiles(&mut self, area: &AreaModel, mut gone: Vec<usize>) {
         let active_tiles: std::collections::HashSet<&str> =
             area.tiles.iter().filter_map(|t| t.model.as_deref()).collect();
         let loaded_tiles: std::collections::HashSet<&str> = active_tiles
@@ -694,37 +736,10 @@ impl AreaScene {
             })
         };
         let loaded = |name: &str| built(name).flatten();
-        let tile_cache = &mut self.tile_cache;
-        let broken = &mut self.broken;
-        self.tiles = area
-            .tiles
-            .iter()
-            .map(|t| {
-                let name = t.model.as_ref()?;
-                tile_cache
-                    .entry(name.clone())
-                    .or_insert_with(|| {
-                        let b = built(name);
-                        if b.is_none() {
-                            broken.insert(name.clone());
-                        }
-                        b.flatten().map(Arc::new)
-                    })
-                    .clone()
-            })
+        self.tiles = (area.tiles.iter())
+            .map(|t| self.tile_model(gpu, models, t.model.as_deref()?))
             .collect();
-        // The tile border's (a model not found or broken is left out, and
-        // not counted among the area's missing ones: the area names none).
-        self.border = area
-            .border
-            .iter()
-            .map(|b| {
-                tile_cache
-                    .entry(b.model.clone())
-                    .or_insert_with(|| built(&b.model).flatten().map(Arc::new))
-                    .clone()
-            })
-            .collect();
+        self.load_border(gpu, area, models);
         // Objects that look the same share their models.
         let object_cache = &mut self.object_cache;
         (self.objects, self.object_missing) =
@@ -734,6 +749,112 @@ impl AreaScene {
             self.flame = Some(loaded("fx_flame01"));
         }
         self.load_chunks(gpu, models);
+    }
+
+    /// A tile's model `name` as it is drawn: built (read, given its
+    /// animations, put on the GPU) unless the scene has it already. `None`
+    /// where it is not found, not readable or broke what builds it (noted
+    /// in [`AreaScene::broken`]).
+    fn tile_model(&mut self, gpu: &Gpu, models: &Models<'_>, name: &str) -> Option<Arc<Loaded>> {
+        if let Some(loaded) = self.tile_cache.get(name) {
+            return loaded.clone();
+        }
+        let built = build_tile(gpu, models, name);
+        if built.is_none() {
+            self.broken.insert(name.to_owned());
+        }
+        let loaded = built.flatten().map(Arc::new);
+        self.tile_cache.insert(name.to_owned(), loaded.clone());
+        loaded
+    }
+
+    /// The tile border's models ([`AreaModel::border`]), each built once.
+    /// (A model not found or broken is left out, and not counted among the
+    /// area's missing ones: the area names none.)
+    fn load_border(&mut self, gpu: &Gpu, area: &AreaModel, models: &Models<'_>) {
+        let tile_cache = &mut self.tile_cache;
+        self.border = (area.border.iter())
+            .map(|b| {
+                tile_cache
+                    .entry(b.model.clone())
+                    .or_insert_with(|| build_tile(gpu, models, &b.model).flatten().map(Arc::new))
+                    .clone()
+            })
+            .collect();
+    }
+
+    /// Follows `area` after the tiles at `at` (their indexes) were set
+    /// anew, as a server's `SetTile` sets them (another tile of the
+    /// tileset, turned or raised: [`AreaModel::set_tiles`] sets them and
+    /// says which changed). Only those tiles are shown anew:
+    ///
+    /// - **models**: a model no tile had is read and built; one another
+    ///   tile (or the tile border) has is shared, with nothing read. The
+    ///   other tiles keep theirs, and the scene keeps what it has loaded
+    ///   (objects' looks, the sky, chunk models, read models); a model no
+    ///   tile has any more is let go.
+    /// - **grass**: those tiles' grown again, for what grows now
+    ///   ([`AreaScene::grass_grown`]); a far chunk of grass with one of them
+    ///   in it is put together again when it is next seen
+    ///   ([`AreaScene::grow_grass`]).
+    /// - **the tile border**, which follows the edge tiles' heights, and
+    ///   the source lights' flame, if a tile now has one.
+    /// - **lights**: nothing to load. A tile's lights (its main and source
+    ///   lights, its lights' nodes) and the scene's list of lights are made
+    ///   with each scene ([`AreaScene::scene`]) from the tile as it is now.
+    ///
+    /// The scene is then as [`AreaScene::new`] makes it of `area`. The
+    /// ground's walkmeshes, for height and picking, are the
+    /// [`crate::walk::Ground`]'s: [`crate::walk::Ground::update_tiles`]
+    /// follows the same tiles. An area of another size than the one shown,
+    /// and a change beyond its tiles (lighting, the sky, objects), are
+    /// [`AreaScene::update`]'s.
+    ///
+    /// ```no_run
+    /// # fn f(gpu: &mg_render::Gpu, game: &mg_rules::GameData, set: &mg_set::Tileset,
+    /// #      area: &mut mg_area::AreaModel, scene: &mut mg_area::AreaScene,
+    /// #      ground: &mut mg_area::walk::Ground) {
+    /// use mg_area::values::Tile;
+    /// // A server set tile 216 to the tileset's tile 12, a quarter turn, one step up.
+    /// let set_tile = Tile { orientation: 1, height: 1, ..Tile::new(12) };
+    /// let changed = area.set_tiles(game, Some(set), &[(216, set_tile)]);
+    /// scene.update_tiles(gpu, game, area, &changed);
+    /// ground.update_tiles(game, area, &changed);
+    /// # }
+    /// ```
+    pub fn update_tiles(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel, at: &[usize]) {
+        let count = area.tiles.len();
+        if self.tiles.len() != count || self.tile_grass.len() != count {
+            self.update(gpu, game, area);
+            return;
+        }
+        let at: Vec<usize> = at.iter().copied().filter(|&i| i < count).collect();
+        let models = self.models(game);
+        for &i in &at {
+            self.tiles[i] = (area.tiles[i].model.as_deref())
+                .and_then(|name| self.tile_model(gpu, &models, name));
+        }
+        self.load_border(gpu, area, &models);
+        let flames = at.iter().any(|&i| area.tiles[i].source_lights.iter().any(|&s| s > 0));
+        if flames && self.flame.is_none() {
+            self.flame = Some(build_tile(gpu, &models, "fx_flame01").flatten());
+        }
+        // (The chunk models the emitters of these tiles, the border and the
+        // flame throw; the other tiles' are loaded.)
+        let tiles = (at.iter().filter_map(|&i| self.tiles[i].as_ref()))
+            .chain(self.border.iter().flatten())
+            .map(|l| &l.gpu);
+        let names = self.chunks_of(tiles.chain(self.flame.iter().flatten().map(|l| &l.gpu)));
+        self.load_chunk_models(gpu, &models, names);
+        self.keep(models);
+        let growing = self.grass_for.clone();
+        for &i in &at {
+            self.tile_grass[i] = self.grow_tile(gpu, game, &area.tiles[i], &growing);
+        }
+        self.grown_tiles = grown(area, &self.tile_grass);
+        self.grass_gen = self.grass_gen.wrapping_add(1);
+        *self.grass_sight_cache.borrow_mut() = None;
+        self.settle_tiles(area, Vec::new());
     }
 
     /// Loads the models the chunk emitters of the tiles' and objects'
@@ -865,39 +986,37 @@ impl AreaScene {
                 worker.reset();
             }
         }
-        let (grass, walkmeshes) = (&mut self.grass_cache, &mut self.walkmesh_cache);
-        self.tile_grass = area
-            .tiles
-            .iter()
-            .map(|t| {
-                let name = t.model.as_ref().filter(|_| !growing.is_empty())?;
-                let variant = crate::grass::variant(t.column, t.row);
-                grass
-                    .entry((name.clone(), variant))
-                    .or_insert_with(|| {
-                        let walk = walkmeshes
-                            .entry(name.clone())
-                            .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new));
-                        let faces = &walk.as_ref()?.faces;
-                        let model = crate::grass::tufts(name, variant, faces, growing)?;
-                        let densities = crate::grass::densities(&model, faces, growing);
-                        Some(Arc::new(TileGrass::new(gpu, model, densities)))
-                    })
-                    .clone()
-            })
-            .collect();
-        self.grown_tiles = area
-            .tiles
-            .iter()
-            .zip(&self.tile_grass)
-            .enumerate()
-            .filter_map(|(i, (t, g))| {
-                let g = g.as_ref()?;
-                Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
-            })
-            .collect();
+        self.tile_grass =
+            (area.tiles.iter()).map(|t| self.grow_tile(gpu, game, t, growing)).collect();
+        self.grown_tiles = grown(area, &self.tile_grass);
         self.grass_gen = self.grass_gen.wrapping_add(1);
         *self.grass_sight_cache.borrow_mut() = None;
+    }
+
+    /// The grass `tile` grows of `growing`: made once for each model (and
+    /// its variant, [`crate::grass::variant`]), its walkmesh read once.
+    fn grow_tile(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        tile: &AreaTile,
+        growing: &[(u32, GrassLook)],
+    ) -> Option<Arc<TileGrass>> {
+        let name = tile.model.as_ref().filter(|_| !growing.is_empty())?;
+        let variant = crate::grass::variant(tile.column, tile.row);
+        let walkmeshes = &mut self.walkmesh_cache;
+        self.grass_cache
+            .entry((name.clone(), variant))
+            .or_insert_with(|| {
+                let walk = walkmeshes
+                    .entry(name.clone())
+                    .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new));
+                let faces = &walk.as_ref()?.faces;
+                let model = crate::grass::tufts(name, variant, faces, growing)?;
+                let densities = crate::grass::densities(&model, faces, growing);
+                Some(Arc::new(TileGrass::new(gpu, model, densities)))
+            })
+            .clone()
     }
 
     /// What grows that the grass shown was made for.
@@ -919,13 +1038,7 @@ impl AreaScene {
         let draws = if area.tiles.len() == self.tile_grass.len() {
             crate::grass_chosen(&self.grown_tiles, sight)
         } else {
-            let grown: Vec<Grown> = (area.tiles.iter().zip(&self.tile_grass).enumerate())
-                .filter_map(|(i, (t, g))| {
-                    let g = g.as_ref()?;
-                    Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
-                })
-                .collect();
-            crate::grass_chosen(&grown, sight)
+            crate::grass_chosen(&grown(area, &self.tile_grass), sight)
         };
         *cache = Some((self.grass_gen, *sight, draws.clone()));
         draws
@@ -1737,7 +1850,7 @@ impl AreaScene {
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,
-            environment: environment(l),
+            environment: environment(l, view.script_uniforms),
             shadows: view.shadows_of(l),
             light_shadows: view.light_shadows_of(l),
         }
@@ -1932,12 +2045,21 @@ fn shown(
 }
 
 /// What the game's shaders read of the area: its flags and wind, and
-/// the wallpaper's tint its script sets (strength 0 without one, as it
-/// sets for an area without its local).
-pub(crate) fn environment(l: &Lighting) -> mg_render::Environment {
+/// the script uniforms: `script` where a view gives them
+/// ([`View::script_uniforms`]), else the wallpaper's tint its script sets
+/// (strength 0 without one, as it sets for an area without its local).
+pub(crate) fn environment(
+    l: &Lighting,
+    script: Option<mg_render::ScriptUniforms>,
+) -> mg_render::Environment {
     let mut e = mg_render::Environment::from_are(l.flags, l.wind_power);
-    if let Some(c) = l.wallpaper {
-        e.scriptable[mg_rules::tint::WALLPAPER_UNIFORM] = mg_rules::tint::uniform(c);
+    match script {
+        Some(script) => e.script = script,
+        None => {
+            if let Some(c) = l.wallpaper {
+                e.script.set_vec(mg_rules::tint::WALLPAPER_UNIFORM, mg_rules::tint::uniform(c));
+            }
+        }
     }
     e
 }
@@ -2206,6 +2328,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
@@ -2337,6 +2460,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -2407,6 +2531,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         assert!(both.light_shadows_of(&l).is_some());
         let lights_alone = View { creature_shadows: false, ..both };

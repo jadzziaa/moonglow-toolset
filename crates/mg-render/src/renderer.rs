@@ -158,7 +158,7 @@ struct TextureEntry {
     /// TXI's `alphamean` is below 1 (that decides, where given).
     cut: bool,
     /// Its alpha mean as the client takes it ([`client_alpha_mean`]):
-    /// static placeables' see-through meshes are drawn by it.
+    /// tiles' and static placeables' see-through meshes are drawn by it.
     alpha_mean: f32,
     blending: Blending,
     env: Option<String>,
@@ -502,15 +502,19 @@ struct Draw<'a> {
 const UNORDERED: u16 = u16::MAX;
 
 /// The order among themselves of the meshes of mesh `alpha` under 1
-/// drawn in one part (`ordered`), as the client draws them: a static
-/// placeable's (`Some`, its texture's alpha mean) before the dynamic
-/// ones', by the mean, the highest first; the client draws its static
-/// geometry's meshes by texture (`Scene::AddPartsToDrawBuckets` walks
-/// `meshbuckets` in `AurTextureGetOrdering`'s order, the textures sorted
-/// by alpha mean, the highest first) into the draw buckets before the
-/// sorted dynamic objects' (`batch9_static_alpha_mean` in
-/// `client_render.rs`). Those of one mean, and the dynamic ones, keep the
-/// depth's order (the client leaves textures of one mean to `std::sort`
+/// drawn in one part (`ordered`), as the client draws them: a tile's or a
+/// static placeable's (`Some`, its texture's alpha mean) before the
+/// dynamic ones', by the mean, the highest first, whichever tile or
+/// placeable holds it; the client draws its static geometry's meshes by
+/// texture (`Scene::AddPartsToDrawBuckets` walks `meshbuckets` in
+/// `AurTextureGetOrdering`'s order, the textures sorted by alpha mean,
+/// the highest first) into the draw buckets before the sorted dynamic
+/// objects' (`batch9_static_alpha_mean` and
+/// `batch9_static_tile_alpha_mean` in `client_render.rs`). Those of one
+/// mean, and the dynamic ones, keep the depth's order (an ordered draw
+/// is never a receiver's solid part, and the framebuffer's readers are a
+/// rank of their own, so none is moved across the copy; the client
+/// leaves textures of one mean to `std::sort`
 /// over its whole static texture list, an order Moonglow can't know).
 /// Only these draws are put in this order, in the places the depth gave
 /// them ([`in_client_order`]): how the client orders them against other
@@ -3318,13 +3322,13 @@ impl Renderer {
                         && surface.blending != Blending::Punchthrough;
                     let sort_depth =
                         if ordered { instance_depth } else { -view.transform_point3(centre).z };
-                    // (A static placeable's by its texture's alpha mean,
-                    // before the dynamic ones'. Tiles' are in the client's
-                    // static buckets too, untried there: theirs keep the
-                    // depth's order.)
+                    // (A tile's or a static placeable's by its texture's
+                    // alpha mean, before the dynamic ones': both are in the
+                    // client's static buckets, `batch9_static_alpha_mean`
+                    // and `batch9_static_tile_alpha_mean`.)
                     let order = see_through_order(
                         ordered,
-                        (inst.receives_shadows && !inst.tile).then_some(surface.alpha_mean),
+                        (inst.receives_shadows || inst.tile).then_some(surface.alpha_mean),
                     );
                     // A mesh solid of its own in an instance drawn see-through
                     // (a tile or a blueprint about to be placed): its depth is

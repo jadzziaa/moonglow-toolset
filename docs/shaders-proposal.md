@@ -1303,7 +1303,8 @@ starting point. By group:
 | Time: `worldtimerTimeOfDay`, `sceneCurrentFrame`, `module*` | a clock of the view's | real milliseconds and frames (measured in M1, notes §B.4) |
 | Area: `areaFlags`, `areaGlobalWind`, `areaWeather*`, `bboxMin/Max` | the ARE | wind drives the sway shaders |
 | Camera and player: `camera*`, `player*`, `keyhole*` | the editor camera; the player at its focus, keyholing off | the editor has no player |
-| Wind sources, targeting, `scriptable*` | zero | no in-editor source |
+| Wind sources, targeting | zero | no in-editor source |
+| `scriptableFloat1..16`, `scriptableInt1..16`, `scriptableVec1..16` | `Environment::script` (`ScriptUniforms`; a client's from its server through `mg_area::View::script_uniforms`) | zero in the editor but the wallpaper's `scriptableVec1` (added 2026-11-27) |
 | An MTR's `parameter` lines (`fSwaySpeed`…) | the MTR, by name | the same fill path covers them |
 | Samplers `texUnit0..15`, `texUnitEnv`, `texUnitEnvCube`, `texUnitNoise` | the slots as now, by name | |
 | `texFBColor`, `texFBDepth`, post-processing | **out of 2.0** | one pass, no post; the material draws without its framebuffer read |

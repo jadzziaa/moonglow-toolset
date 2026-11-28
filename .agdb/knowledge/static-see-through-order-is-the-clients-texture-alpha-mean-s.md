@@ -20,6 +20,6 @@ author: augustaugur
 - Ties (all opaque textures, mean 1) are std::sort's order: not reproducible. That is why batch9_static_order/tiles found "one texture first in every pair, no rule".
 ## Moonglow
 - renderer.rs client_alpha_mean (TextureEntry/Surface.alpha_mean); see_through_order sets Draw.order (UNORDERED for all but ordered alpha<1 one-part draws); in_client_order permutes only those draws within each (rank, hint) run, in the slots the depth sort gave them. A first version put static ordered draws before every Blend draw via the sort key: that also reordered them against soft-texture first parts and water (unread in the client) - rejected; the render test's soft-card check fails with it.
-- Applies to receives_shadows && !tile instances. Ties and means within ~6e-5 keep origin depth. Tiles unchanged (untried in client). Within one static model, meshes also go by mean (confirmed: batch9_static_alpha_mean_in_a_model).
+- Applies to receives_shadows || tile instances (tiles since 2026-11-28, confirmed by batch9_static_tile_alpha_mean: 21 pairs). Ties and means within ~6e-5 keep origin depth. Within one static model, meshes also go by mean (confirmed: batch9_static_alpha_mean_in_a_model).
 ## Watch out
 - batch8d's solid() / mg_image::write_tga write 24-bit TGAs: alpha is dropped (mean 1). Use batch9::tga32 for alpha.

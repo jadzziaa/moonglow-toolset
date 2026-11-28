@@ -204,21 +204,16 @@ impl Ground {
         g
     }
 
-    /// Builds a [`GroundTile`] and folds its bounds/overhang status into the area summary.
-    fn place_tile(
-        i: usize,
-        width: u32,
-        walk: Arc<Walkmesh>,
-        to: Mat4,
-        area_bounds: &mut Option<(Vec3, Vec3)>,
-        overhangs: &mut Vec<usize>,
-    ) -> GroundTile {
+    /// Builds a [`GroundTile`]: tile `walk` placed by `to`.
+    fn place_tile(walk: Arc<Walkmesh>, to: Mat4) -> GroundTile {
         let inv = to.inverse();
         let (min, max) = world_aabb(walk.min, walk.max, to);
-        *area_bounds = Some(match *area_bounds {
-            Some((amin, amax)) => (amin.min(min), amax.max(max)),
-            None => (min, max),
-        });
+        GroundTile { walk, to, inv, min, max }
+    }
+
+    /// Whether tile `i` (of a grid `width` wide), its world box `min` to
+    /// `max`, reaches past its own cell (always so on a grid of no width).
+    fn overhangs(i: usize, width: u32, (min, max): (Vec3, Vec3)) -> bool {
         let in_cell = width > 0 && {
             let col = (i as u32 % width) as f32 * crate::TILE_SIZE;
             let row = (i as u32 / width) as f32 * crate::TILE_SIZE;
@@ -228,56 +223,85 @@ impl Ground {
                 && min.y >= row - eps
                 && max.y <= row + crate::TILE_SIZE + eps
         };
-        if !in_cell {
-            overhangs.push(i);
-        }
-        GroundTile { walk, to, inv, min, max }
+        !in_cell
     }
 
-    /// Follows `area` after an edit (reading walkmeshes not seen before).
-    pub fn update(&mut self, game: &GameData, area: &AreaModel) {
-        let cache = &mut self.cache;
+    /// The area's bounds and the tiles past their cells, of the tiles
+    /// placed (no walkmesh read).
+    fn settle_bounds(&mut self) {
         let mut area_bounds: Option<(Vec3, Vec3)> = None;
         let mut overhangs = Vec::new();
-        self.width = area.width;
-        self.tiles = area
-            .tiles
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let name = t.model.as_ref()?;
-                let walk = cache
-                    .entry(name.clone())
-                    .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new))
-                    .clone()?;
-                Some(Self::place_tile(
-                    i,
-                    area.width,
-                    walk,
-                    t.transform(),
-                    &mut area_bounds,
-                    &mut overhangs,
-                ))
-            })
-            .collect();
+        for (i, t) in self.tiles.iter().enumerate() {
+            let Some(t) = t else { continue };
+            area_bounds = Some(match area_bounds {
+                Some((amin, amax)) => (amin.min(t.min), amax.max(t.max)),
+                None => (t.min, t.max),
+            });
+            if Self::overhangs(i, self.width, (t.min, t.max)) {
+                overhangs.push(i);
+            }
+        }
         self.area_bounds = area_bounds;
         self.overhangs = overhangs;
-        let levels = &mut self.level_cache;
-        self.levels = area
-            .tiles
-            .iter()
-            .zip(&self.tiles)
-            .map(|(t, w)| {
-                let tile = w.as_ref()?;
-                let name = t.model.as_ref()?;
-                let level = *levels.entry(name.clone()).or_insert_with(|| tile.walk.level());
-                Some(level? + tile.to.transform_point3(Vec3::ZERO).z)
-            })
-            .collect();
+    }
+
+    /// Tile `i` of `area` placed, its walkmesh read unless it is kept,
+    /// and its level measured unless its model's is.
+    fn tile(
+        &mut self,
+        game: &GameData,
+        area: &AreaModel,
+        i: usize,
+    ) -> (Option<GroundTile>, Option<f32>) {
+        let Some(t) = area.tiles.get(i) else { return (None, None) };
+        let Some(name) = t.model.as_ref() else { return (None, None) };
+        let walk = self
+            .cache
+            .entry(name.clone())
+            .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new))
+            .clone();
+        let Some(walk) = walk else { return (None, None) };
+        let tile = Self::place_tile(walk, t.transform());
+        let level = *self.level_cache.entry(name.clone()).or_insert_with(|| tile.walk.level());
+        let level = level.map(|l| l + tile.to.transform_point3(Vec3::ZERO).z);
+        (Some(tile), level)
+    }
+
+    /// Lets go of the walkmeshes and levels of models no tile of `area`
+    /// has any more.
+    fn keep_used(&mut self, area: &AreaModel) {
         let active: std::collections::HashSet<&str> =
             area.tiles.iter().filter_map(|t| t.model.as_deref()).collect();
         self.cache.retain(|k, _| active.contains(k.as_str()));
         self.level_cache.retain(|k, _| active.contains(k.as_str()));
+    }
+
+    /// Follows `area` after an edit (reading walkmeshes not seen before).
+    pub fn update(&mut self, game: &GameData, area: &AreaModel) {
+        self.width = area.width;
+        (self.tiles, self.levels) = (0..area.tiles.len()).map(|i| self.tile(game, area, i)).unzip();
+        self.settle_bounds();
+        self.keep_used(area);
+    }
+
+    /// Follows `area` after the tiles at `at` (their indexes) were set
+    /// anew ([`AreaModel::set_tiles`]): those placed again, a model's
+    /// walkmesh read only if no tile had it, the other tiles kept as they
+    /// were. Height and picking ([`Ground::height`], [`Ground::hit`]) are
+    /// then as [`Ground::new`] makes them of `area`. An area of another
+    /// size than the one followed is followed whole ([`Ground::update`]).
+    pub fn update_tiles(&mut self, game: &GameData, area: &AreaModel, at: &[usize]) {
+        if self.tiles.len() != area.tiles.len() || self.width != area.width {
+            self.update(game, area);
+            return;
+        }
+        for &i in at {
+            if i < self.tiles.len() {
+                (self.tiles[i], self.levels[i]) = self.tile(game, area, i);
+            }
+        }
+        self.settle_bounds();
+        self.keep_used(area);
     }
 
     /// The tile index at a point, if it is inside the area.
@@ -720,25 +744,11 @@ mod tests {
     }
 
     fn ground_from(width: u32, raw: Vec<Option<(Arc<Walkmesh>, Mat4)>>) -> Ground {
-        let mut area_bounds: Option<(Vec3, Vec3)> = None;
-        let mut overhangs = Vec::new();
-        let tiles = raw
-            .into_iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let (walk, to) = entry?;
-                Some(Ground::place_tile(i, width, walk, to, &mut area_bounds, &mut overhangs))
-            })
-            .collect();
-        Ground {
-            tiles,
-            cache: HashMap::new(),
-            levels: Vec::new(),
-            level_cache: HashMap::new(),
-            width,
-            area_bounds,
-            overhangs,
-        }
+        let tiles =
+            raw.into_iter().map(|entry| entry.map(|(w, to)| Ground::place_tile(w, to))).collect();
+        let mut g = Ground { tiles, width, ..Ground::default() };
+        g.settle_bounds();
+        g
     }
 
     #[test]

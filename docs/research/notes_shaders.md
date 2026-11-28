@@ -313,6 +313,20 @@ Targeting overlay:
 
 Script-driven:
 - `scriptableFloat1..16`, `scriptableInt1..16`, `scriptableVec1..16` (per player; `inc_scriptable`)
+  - Read 2026-11-27 from the install: `inc_scriptable.shd` declares them as
+    loose uniforms (`uniform float scriptableFloat1;` … `uniform int
+    scriptableInt1;` … `uniform vec4 scriptableVec1;` …, 16 of each); no
+    base-game program includes it. `nwscript.nss`: `SetShaderUniformFloat`,
+    `SetShaderUniformInt` and `SetShaderUniformVec(oPlayer, nShader, …)`,
+    `SHADER_UNIFORM_1` = 0 … `SHADER_UNIFORM_16` = 15, so index 0 is the
+    uniform numbered 1; set per player, not kept over a rejoin. The server
+    sends them as messages 56.1 to 56.3 (Moonglow Client's E10 tap).
+    Moonglow: `mg_render::ScriptUniforms` in `Environment::script`, the
+    frame block's (`game.rs`, `Key::Scriptable*`); `mg_area::View::script_uniforms`
+    for a client. The client comparison is `script_uniforms_in_the_client`
+    (`client_render`, ignored; run 2026-11-28): each kind and both stages
+    read as set, index 15 is `scriptableVec16`, and a uniform no script set
+    reads zero in the client.
 
 ### B.5 Uniforms: post / framebuffer
 - `texFBColor`, `texFBDepth`

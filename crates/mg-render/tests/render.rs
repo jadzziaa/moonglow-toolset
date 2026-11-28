@@ -2695,10 +2695,11 @@ fn two_models_see_through_meshes_go_by_their_instances_origins() {
     }
 }
 
-/// Static placeables' see-through meshes (mesh `alpha` under 1) go by
-/// their textures' alpha means, the highest first, before the dynamic
-/// ones', whichever is nearer, as the client draws them
-/// (`batch9_static_alpha_mean` in `client_render.rs`); dynamic ones by
+/// Static placeables' and tiles' see-through meshes (mesh `alpha` under 1)
+/// go by their textures' alpha means, the highest first, before the
+/// dynamic ones', whichever is nearer, as the client draws them
+/// (`batch9_static_alpha_mean` and `batch9_static_tile_alpha_mean` in
+/// `client_render.rs`); dynamic ones by
 /// their origins, the farther first. Two cards, red and blue, one 1 m
 /// nearer the eye than the other and 0.6 m west: where the nearer is
 /// drawn first, it hides the farther where they overlap; drawn second, it
@@ -2755,10 +2756,13 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
         }
         assets
     };
-    let place = |model: &Arc<GpuModel>, nearer: bool, statics: bool| {
+    // (Held by a tile ('T'), a static placeable ('S') or a dynamic one
+    // ('D').)
+    let place = |model: &Arc<GpuModel>, nearer: bool, holder: char| {
         let at = if nearer { Vec3::new(-0.3, -0.5, 0.0) } else { Vec3::new(0.3, 0.5, 0.0) };
         Instance {
-            receives_shadows: statics,
+            receives_shadows: holder != 'D',
+            tile: holder == 'T',
             ..Instance::new(model.clone(), Mat4::from_translation(at))
         }
     };
@@ -2786,30 +2790,43 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
         ((0..3).all(|k| overlap[k].abs_diff(nearer_alone[k]) <= 6), overlap, nearer_alone)
     };
     // (The red texture's alpha mean (a TXI's `alphamean`) and the blue's,
-    // whether each is static (`None`: both in one model, static), the
-    // nearer color, and the color drawn first.)
+    // what holds each (`None`: both in one static model), the nearer
+    // color, and the color drawn first.)
     let cases = [
-        (0.9, 0.6, Some((true, true)), 'R', 'R'),
-        (0.9, 0.6, Some((true, true)), 'B', 'R'),
-        (0.6, 0.9, Some((true, true)), 'R', 'B'),
-        (0.6, 0.9, Some((true, true)), 'B', 'B'),
+        (0.9, 0.6, Some(('S', 'S')), 'R', 'R'),
+        (0.9, 0.6, Some(('S', 'S')), 'B', 'R'),
+        (0.6, 0.9, Some(('S', 'S')), 'R', 'B'),
+        (0.6, 0.9, Some(('S', 'S')), 'B', 'B'),
         // (Dynamic: the farther first, whatever the means.)
-        (0.9, 0.6, Some((false, false)), 'R', 'B'),
-        (0.9, 0.6, Some((false, false)), 'B', 'R'),
+        (0.9, 0.6, Some(('D', 'D')), 'R', 'B'),
+        (0.9, 0.6, Some(('D', 'D')), 'B', 'R'),
         // (Static before dynamic, whatever the means.)
-        (0.6, 0.9, Some((true, false)), 'B', 'R'),
-        (0.6, 0.9, Some((false, true)), 'R', 'B'),
+        (0.6, 0.9, Some(('S', 'D')), 'B', 'R'),
+        (0.6, 0.9, Some(('D', 'S')), 'R', 'B'),
         // (One static model's meshes: by the means too, not the model's
         // order, the red listed first.)
         (0.3, 0.9, None, 'R', 'B'),
         (0.9, 0.3, None, 'B', 'R'),
+        // (Tiles' meshes are in the static order too
+        // (`batch9_static_tile_alpha_mean`): against another tile's and a
+        // static placeable's by the means, before a dynamic one's.)
+        (0.9, 0.6, Some(('T', 'T')), 'B', 'R'),
+        (0.6, 0.9, Some(('T', 'T')), 'R', 'B'),
+        (0.9, 0.6, Some(('T', 'S')), 'B', 'R'),
+        (0.6, 0.9, Some(('S', 'T')), 'R', 'B'),
+        (0.9, 0.6, Some(('S', 'T')), 'B', 'R'),
+        (0.6, 0.9, Some(('T', 'D')), 'B', 'R'),
+        (0.9, 0.6, Some(('D', 'T')), 'R', 'B'),
+        // (Of one mean, the farther first, as the origins put them.)
+        (0.7, 0.7, Some(('T', 'T')), 'R', 'B'),
+        (0.7, 0.7, Some(('T', 'S')), 'B', 'R'),
     ];
     for shadows in [false, true] {
         for (i, (red_mean, blue_mean, apart, near, first)) in cases.into_iter().enumerate() {
             let instances = match apart {
-                Some((red_static, blue_static)) => vec![
-                    place(&red, near == 'R', red_static),
-                    place(&blue, near == 'B', blue_static),
+                Some((red_holder, blue_holder)) => vec![
+                    place(&red, near == 'R', red_holder),
+                    place(&blue, near == 'B', blue_holder),
                 ],
                 None => vec![Instance {
                     receives_shadows: true,
@@ -2831,16 +2848,17 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
     // card is drawn as a dynamic one: by depth (how the client orders
     // those was not read).
     for red_near in [true, false] {
-        let soft = |red_static| {
+        let soft = |red_holder| {
             let instances = vec![
-                place(&red, red_near, red_static),
-                place(&card_alpha_one(&gpu), !red_near, false),
+                place(&red, red_near, red_holder),
+                place(&card_alpha_one(&gpu), !red_near, 'D'),
             ];
             render(instances, &assets(0.9, 0.3, true), false)
         };
-        let (fixed, moving) = (soft(true), soft(false));
+        let (fixed, tile, moving) = (soft('S'), soft('T'), soft('D'));
         save(&fixed, &dir.join(format!("static_see_through_soft_{red_near}.png")));
         assert!(fixed.data == moving.data, "red nearer {red_near}: static and dynamic differ");
+        assert!(tile.data == moving.data, "red nearer {red_near}: tile and dynamic differ");
     }
 }
 
@@ -3830,7 +3848,7 @@ void main ()
         background: [0.0, 0.0, 0.0],
         ..Default::default()
     };
-    scene.environment.scriptable[0] = [0.0, 1.0, 0.0, 1.0];
+    scene.environment.script.set_vec(0, [0.0, 1.0, 0.0, 1.0]);
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     r.game_shaders = true;
     let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
@@ -3841,6 +3859,119 @@ void main ()
     assert_eq!(img.pixel(32, 32), [0, 0, 255, 255], "the object's tint");
     assert_eq!(img.pixel(51, 32), [255, 0, 0, 255], "the MTR's own");
     assert_eq!(img.pixel(32, 13), [0, 255, 0, 255], "scriptableVec1");
+}
+
+/// The script uniforms a player's scripts set (`SetShaderUniformFloat`,
+/// `Int` and `Vec`: [`mg_render::ScriptUniforms`]) reach the programs that
+/// declare them under the game's names (`inc_scriptable`'s, declared here
+/// by hand), in both stages, and a change shows in the next picture of the
+/// same renderer: four quads, before any is set (black, each zero) and
+/// after: `scriptableFloat1` and `scriptableFloat16` as red and green, the
+/// ints 1 and 16 as red and green of 255, `scriptableVec16`'s color, and
+/// `scriptableVec2` read by the vertex program. Moonglow's own shader
+/// draws the same either way.
+#[test]
+fn script_uniforms_reach_the_programs_and_a_change_shows() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    assets.opaque("white", [255, 255, 255]);
+    let fs = |name: &str, color: &str, declared: &str| {
+        let text = format!(
+            "#define SHADER_TYPE 2\n{declared}\nvarying vec3 vBlack;\nvarying vec3 vWhite;\nvoid main ()\n{{\n    gl_FragColor = vec4({color} + vBlack \
+             * vWhite.r, 1.0);\n}}\n"
+        );
+        (name.to_string(), text)
+    };
+    for (name, text) in [
+        fs(
+            "fsfloats",
+            "vec3(scriptableFloat1, scriptableFloat16, 0.0)",
+            "uniform float scriptableFloat1;\nuniform float scriptableFloat16;",
+        ),
+        fs(
+            "fsints",
+            "vec3(float(scriptableInt1), float(scriptableInt16), 0.0) / 255.0",
+            "uniform int scriptableInt1;\nuniform int scriptableInt16;",
+        ),
+        fs("fsvec", "scriptableVec16.rgb", "uniform vec4 scriptableVec16;"),
+        fs("fsvarying", "vScript", "varying vec3 vScript;"),
+    ] {
+        assets.shaders.insert(name, text);
+    }
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform vec4 scriptableVec2;
+attribute vec4 vPos;
+varying vec3 vWhite;
+varying vec3 vBlack;
+varying vec3 vScript;
+void main ()
+{
+    vWhite = vec3(1.0);
+    vBlack = vec3(0.0);
+    vScript = scriptableVec2.rgb;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    assets.shaders.insert("vsscript".into(), vs.into());
+    let mtr = |vs: &str, fs: &str| {
+        let text = format!("customshaderVS {vs}\ncustomshaderFS {fs}\ntexture0 white\n");
+        mg_image::mtr::Mtr::parse(text.as_bytes())
+    };
+    for (material, vs, fs) in [
+        ("floats", "vslit", "fsfloats"),
+        ("ints", "vslit", "fsints"),
+        ("vec", "vslit", "fsvec"),
+        ("varying", "vsscript", "fsvarying"),
+    ] {
+        assets.materials.insert(material.into(), mtr(vs, fs));
+    }
+    let (_, camera) = clip_space_scene(&gpu);
+    let mut scene = Scene {
+        instances: vec![
+            standing_quad(&gpu, "floats", Vec3::new(-2.5, 0.0, 1.0), 0.75),
+            standing_quad(&gpu, "ints", Vec3::new(0.0, 0.0, 1.0), 0.75),
+            standing_quad(&gpu, "vec", Vec3::new(2.5, 0.0, 1.0), 0.75),
+            standing_quad(&gpu, "varying", Vec3::new(0.0, 0.0, 3.5), 0.75),
+        ],
+        background: [1.0, 1.0, 1.0],
+        ..Default::default()
+    };
+    let at = [(13, 32), (32, 32), (51, 32), (32, 13)];
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let before = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&before, &mg_testkit::output_dir("render").join("script_uniforms_unset.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 4, "{:?}", r.drawn);
+    for (x, y) in at {
+        assert_eq!(before.pixel(x, y), [0, 0, 0, 255], "({x}, {y}) unset: zero");
+    }
+    let u = &mut scene.environment.script;
+    u.set_float(0, 0.2);
+    u.set_float(15, 1.0);
+    u.set_int(0, 200);
+    u.set_int(15, 40);
+    u.set_vec(15, [0.0, 0.6, 1.0, 1.0]);
+    u.set_vec(1, [1.0, 0.0, 1.0, 1.0]);
+    let after = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    save(&after, &mg_testkit::output_dir("render").join("script_uniforms_set.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    let near = |got: [u8; 4], want: [u8; 3]| (0..3).all(|i| got[i].abs_diff(want[i]) <= 1);
+    for ((x, y), want) in
+        at.into_iter().zip([[51, 255, 0], [200, 40, 0], [0, 153, 255], [255, 0, 255]])
+    {
+        assert!(near(after.pixel(x, y), want), "({x}, {y}): {:?}, not {want:?}", after.pixel(x, y));
+    }
+
+    // Moonglow's own shader reads none of them.
+    let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let set = own.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    scene.environment.script = mg_render::ScriptUniforms::default();
+    let unset = own.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert!(set.data == unset.data, "Moonglow's own shader is the same either way");
 }
 
 /// Two sources (the area's load order and a hak's) each with its own copy
