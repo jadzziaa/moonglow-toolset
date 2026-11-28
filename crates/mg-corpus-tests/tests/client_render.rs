@@ -98,6 +98,8 @@ mod part_textures;
 mod programs;
 #[path = "client_render/readings.rs"]
 mod readings;
+#[path = "client_render/script_uniforms.rs"]
+mod script_uniforms;
 #[path = "client_render/shadows.rs"]
 mod shadows;
 #[path = "client_render/soft.rs"]

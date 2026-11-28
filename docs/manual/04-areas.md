@@ -2024,7 +2024,10 @@ header, which shows the area's name and ResRef:
   its wallpaper as a player enters (`SetShaderUniformVec`'s
   `SHADER_UNIFORM_1`, which the wallpaper materials' shader reads as
   `scriptableVec1`): with **Shaders** on, the view draws the area's
-  wallpaper in it.
+  wallpaper in it. The other script uniforms (`SetShaderUniformFloat`,
+  `SetShaderUniformInt`, `SetShaderUniformVec`, which a module's custom
+  shaders read as `scriptableFloat1` to `scriptableVec16`) are zero in
+  the view, as no script runs in the editor.
 
 ### Grass
 

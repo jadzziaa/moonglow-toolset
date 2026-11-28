@@ -1973,9 +1973,11 @@ is not taken for a new gap.
   defaults or zero: `vColor`, `vStaticLightDir` (`staticLighting` 0,
   as the client has it at fragment lighting), the weather (clear: the
   game rolls it from the ARE's chances as it runs), wind sources,
-  targeting, the scriptable floats and ints, and the scriptable vectors
-  but `scriptableVec1` of an area with The Domains of Dread's
-  `tdod_wallpaper` (`mg_rules::tint`, 2026-11-06); the model viewer and previews have no
+  targeting, and the script uniforms (`scriptableFloat*`, `scriptableInt*`,
+  `scriptableVec*`) but `scriptableVec1` of an area with The Domains of
+  Dread's `tdod_wallpaper` (`mg_rules::tint`, 2026-11-06), as no server
+  sends the editor any (a client hands its server's values to
+  `mg_area::View::script_uniforms`, 2026-11-27); the model viewer and previews have no
   module (noon, two minutes an hour); `cameraViewAngle` is the editor's
   field of view. (M1)
 - **A program the renderer can't take falls back** to Moonglow's own

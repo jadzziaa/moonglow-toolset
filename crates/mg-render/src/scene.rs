@@ -326,10 +326,77 @@ pub struct Environment {
     pub weather_density: f32,
     /// The module's clock (`moduleHour`, `moduleDawnHour`…).
     pub clock: ModuleClock,
-    /// `scriptableVec1` to `scriptableVec16`, which the game's scripts set
-    /// for a player (`SetShaderUniformVec`): zero unless the editor has a
-    /// source for one (an area's wallpaper tint, `mg_rules::tint`).
-    pub scriptable: [[f32; 4]; 16],
+    /// The script uniforms (`scriptableFloat1`…, `scriptableInt1`…,
+    /// `scriptableVec1`…) a script sets for the player who sees the scene:
+    /// zero unless there is a source for one (a client's, as the server
+    /// sent them; in the editor, an area's wallpaper tint, `mg_rules::tint`).
+    pub script: ScriptUniforms,
+}
+
+/// How many of each kind of script uniform the game has: 16 floats, 16
+/// ints and 16 vectors (`SHADER_UNIFORM_1` to `SHADER_UNIFORM_16`).
+pub const SCRIPT_UNIFORMS: usize = 16;
+
+/// The values NWScript's `SetShaderUniformFloat`, `SetShaderUniformInt`
+/// and `SetShaderUniformVec` set for one player (the server sends them to
+/// that player's client, messages 56.1 to 56.3), which the game hands to
+/// every shader that player's client runs: the game's `inc_scriptable`
+/// declares them as loose uniforms, `uniform float scriptableFloat1` to
+/// `scriptableFloat16`, `uniform int scriptableInt1` to `scriptableInt16`
+/// and `uniform vec4 scriptableVec1` to `scriptableVec16`. The base game
+/// reads none of them; a module's custom shaders do (an MTR's
+/// `customshaderVS` and `customshaderFS` pair that includes
+/// `inc_scriptable` or declares the names itself).
+///
+/// A script's index (`SHADER_UNIFORM_1`, 0, to `SHADER_UNIFORM_16`, 15)
+/// is the place here: index 0 is `scriptableFloat1`. Each starts at zero,
+/// as the client has them before a script sets one, and keeps its value
+/// until it is set again (the game doesn't keep them over a rejoin: a
+/// module sets them again then). Only the game's own programs read them
+/// (the Shaders switch on); Moonglow's own WGSL shaders don't.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ScriptUniforms {
+    /// `scriptableFloat1` to `scriptableFloat16`.
+    pub floats: [f32; SCRIPT_UNIFORMS],
+    /// `scriptableInt1` to `scriptableInt16`.
+    pub ints: [i32; SCRIPT_UNIFORMS],
+    /// `scriptableVec1` to `scriptableVec16` (x, y, z, w).
+    pub vecs: [[f32; 4]; SCRIPT_UNIFORMS],
+}
+
+impl ScriptUniforms {
+    /// `SetShaderUniformFloat(player, index, value)`: whether `index` is
+    /// one of the game's (0 to 15); one past them changes nothing.
+    pub fn set_float(&mut self, index: usize, value: f32) -> bool {
+        self.floats.get_mut(index).map(|v| *v = value).is_some()
+    }
+
+    /// `SetShaderUniformInt(player, index, value)`: whether `index` is one
+    /// of the game's (0 to 15); one past them changes nothing.
+    pub fn set_int(&mut self, index: usize, value: i32) -> bool {
+        self.ints.get_mut(index).map(|v| *v = value).is_some()
+    }
+
+    /// `SetShaderUniformVec(player, index, x, y, z, w)`: whether `index`
+    /// is one of the game's (0 to 15); one past them changes nothing.
+    pub fn set_vec(&mut self, index: usize, value: [f32; 4]) -> bool {
+        self.vecs.get_mut(index).map(|v| *v = value).is_some()
+    }
+
+    /// `scriptableFloat<index + 1>`; zero past the game's.
+    pub fn float(&self, index: usize) -> f32 {
+        self.floats.get(index).copied().unwrap_or(0.0)
+    }
+
+    /// `scriptableInt<index + 1>`; zero past the game's.
+    pub fn int(&self, index: usize) -> i32 {
+        self.ints.get(index).copied().unwrap_or(0)
+    }
+
+    /// `scriptableVec<index + 1>`; zero past the game's.
+    pub fn vec(&self, index: usize) -> [f32; 4] {
+        self.vecs.get(index).copied().unwrap_or([0.0; 4])
+    }
 }
 
 /// The module's clock as the game's shaders read it (`moduleHour`,
@@ -377,7 +444,7 @@ impl Environment {
             weather: 0,
             weather_density: 0.0,
             clock: ModuleClock::default(),
-            scriptable: [[0.0; 4]; 16],
+            script: ScriptUniforms::default(),
         }
     }
 }
@@ -597,6 +664,31 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script's index is the place (`SHADER_UNIFORM_1`, 0, is
+    /// `scriptable…1`), each kind its own; zero before one is set and past
+    /// the 16th, which no setter takes.
+    #[test]
+    fn script_uniforms_are_set_by_the_script_s_index() {
+        let mut u = ScriptUniforms::default();
+        assert_eq!((u.float(0), u.int(15), u.vec(7)), (0.0, 0, [0.0; 4]));
+        assert!(u.set_float(0, 0.25));
+        assert!(u.set_int(15, -7));
+        assert!(u.set_vec(15, [0.1, 0.2, 0.3, 0.4]));
+        assert_eq!(u.floats[0], 0.25);
+        assert_eq!(u.ints[15], -7);
+        assert_eq!(u.vecs[15], [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!((u.float(1), u.int(0), u.vec(0)), (0.0, 0, [0.0; 4]), "each its own");
+        let before = u;
+        assert!(!u.set_float(SCRIPT_UNIFORMS, 1.0));
+        assert!(!u.set_int(16, 1));
+        assert!(!u.set_vec(usize::MAX, [1.0; 4]));
+        assert_eq!(u, before, "past the 16th, nothing");
+        assert_eq!((u.float(16), u.int(16), u.vec(16)), (0.0, 0, [0.0; 4]));
+        u.set_float(0, 2.0);
+        assert_eq!(u.float(0), 2.0, "set again, the last value");
+        assert_eq!(Environment::from_are(0, 0).script, ScriptUniforms::default());
+    }
 
     /// The client's camera as the player enters, over feet at (20, 20, 0)
     /// looking north: the eye south of and above the focus, 19 m from it.

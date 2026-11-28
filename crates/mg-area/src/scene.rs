@@ -123,6 +123,15 @@ pub struct View {
     /// view's Player's Light, at the start location. `None`: no player's
     /// light, as the editor has no player.
     pub player: Option<(Vec3, f32)>,
+    /// The script uniforms the game's shaders read
+    /// ([`mg_render::ScriptUniforms`]: what `SetShaderUniformFloat`,
+    /// `SetShaderUniformInt` and `SetShaderUniformVec` set for the player
+    /// who sees the area). `Some`: these, as a client has them from its
+    /// server (messages 56.1 to 56.3), and nothing else (a module that
+    /// tints its wallpaper sends that itself). `None`: the editor's, as no
+    /// server sends any: zero but for the wallpaper's tint the area's GIT
+    /// gives (`tdod_wallpaper`, `scriptableVec1`: `mg_rules::tint`).
+    pub script_uniforms: Option<mg_render::ScriptUniforms>,
 }
 
 impl View {
@@ -144,6 +153,7 @@ impl View {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         }
     }
 
@@ -1737,7 +1747,7 @@ impl AreaScene {
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,
-            environment: environment(l),
+            environment: environment(l, view.script_uniforms),
             shadows: view.shadows_of(l),
             light_shadows: view.light_shadows_of(l),
         }
@@ -1932,12 +1942,21 @@ fn shown(
 }
 
 /// What the game's shaders read of the area: its flags and wind, and
-/// the wallpaper's tint its script sets (strength 0 without one, as it
-/// sets for an area without its local).
-pub(crate) fn environment(l: &Lighting) -> mg_render::Environment {
+/// the script uniforms: `script` where a view gives them
+/// ([`View::script_uniforms`]), else the wallpaper's tint its script sets
+/// (strength 0 without one, as it sets for an area without its local).
+pub(crate) fn environment(
+    l: &Lighting,
+    script: Option<mg_render::ScriptUniforms>,
+) -> mg_render::Environment {
     let mut e = mg_render::Environment::from_are(l.flags, l.wind_power);
-    if let Some(c) = l.wallpaper {
-        e.scriptable[mg_rules::tint::WALLPAPER_UNIFORM] = mg_rules::tint::uniform(c);
+    match script {
+        Some(script) => e.script = script,
+        None => {
+            if let Some(c) = l.wallpaper {
+                e.script.set_vec(mg_rules::tint::WALLPAPER_UNIFORM, mg_rules::tint::uniform(c));
+            }
+        }
     }
     e
 }
@@ -2206,6 +2225,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
@@ -2337,6 +2357,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -2407,6 +2428,7 @@ mod tests {
             border: false,
             camera: GAME_CAMERA,
             player: None,
+            script_uniforms: None,
         };
         assert!(both.light_shadows_of(&l).is_some());
         let lights_alone = View { creature_shadows: false, ..both };

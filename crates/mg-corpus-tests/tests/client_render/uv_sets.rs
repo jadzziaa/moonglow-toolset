@@ -286,7 +286,7 @@ pub(crate) fn bound_maps(m: [f32; 3]) -> [bool; 6] {
 
 /// The middle of card `i` on the picture (fractions, top-left origin), as
 /// `camera` sees it: the card inset a fifth at each side.
-fn card_rect(camera: &Camera, (w, h): (u32, u32), i: usize) -> [f32; 4] {
+pub(crate) fn card_rect(camera: &Camera, (w, h): (u32, u32), i: usize) -> [f32; 4] {
     let (x, y) = card_at(i);
     let vp = camera.projection_gl(w as f32 / h as f32) * camera.view();
     let at = |p: Vec3| {
