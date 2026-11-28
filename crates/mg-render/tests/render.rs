@@ -2695,10 +2695,11 @@ fn two_models_see_through_meshes_go_by_their_instances_origins() {
     }
 }
 
-/// Static placeables' see-through meshes (mesh `alpha` under 1) go by
-/// their textures' alpha means, the highest first, before the dynamic
-/// ones', whichever is nearer, as the client draws them
-/// (`batch9_static_alpha_mean` in `client_render.rs`); dynamic ones by
+/// Static placeables' and tiles' see-through meshes (mesh `alpha` under 1)
+/// go by their textures' alpha means, the highest first, before the
+/// dynamic ones', whichever is nearer, as the client draws them
+/// (`batch9_static_alpha_mean` and `batch9_static_tile_alpha_mean` in
+/// `client_render.rs`); dynamic ones by
 /// their origins, the farther first. Two cards, red and blue, one 1 m
 /// nearer the eye than the other and 0.6 m west: where the nearer is
 /// drawn first, it hides the farther where they overlap; drawn second, it
@@ -2755,10 +2756,13 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
         }
         assets
     };
-    let place = |model: &Arc<GpuModel>, nearer: bool, statics: bool| {
+    // (Held by a tile ('T'), a static placeable ('S') or a dynamic one
+    // ('D').)
+    let place = |model: &Arc<GpuModel>, nearer: bool, holder: char| {
         let at = if nearer { Vec3::new(-0.3, -0.5, 0.0) } else { Vec3::new(0.3, 0.5, 0.0) };
         Instance {
-            receives_shadows: statics,
+            receives_shadows: holder != 'D',
+            tile: holder == 'T',
             ..Instance::new(model.clone(), Mat4::from_translation(at))
         }
     };
@@ -2786,30 +2790,43 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
         ((0..3).all(|k| overlap[k].abs_diff(nearer_alone[k]) <= 6), overlap, nearer_alone)
     };
     // (The red texture's alpha mean (a TXI's `alphamean`) and the blue's,
-    // whether each is static (`None`: both in one model, static), the
-    // nearer color, and the color drawn first.)
+    // what holds each (`None`: both in one static model), the nearer
+    // color, and the color drawn first.)
     let cases = [
-        (0.9, 0.6, Some((true, true)), 'R', 'R'),
-        (0.9, 0.6, Some((true, true)), 'B', 'R'),
-        (0.6, 0.9, Some((true, true)), 'R', 'B'),
-        (0.6, 0.9, Some((true, true)), 'B', 'B'),
+        (0.9, 0.6, Some(('S', 'S')), 'R', 'R'),
+        (0.9, 0.6, Some(('S', 'S')), 'B', 'R'),
+        (0.6, 0.9, Some(('S', 'S')), 'R', 'B'),
+        (0.6, 0.9, Some(('S', 'S')), 'B', 'B'),
         // (Dynamic: the farther first, whatever the means.)
-        (0.9, 0.6, Some((false, false)), 'R', 'B'),
-        (0.9, 0.6, Some((false, false)), 'B', 'R'),
+        (0.9, 0.6, Some(('D', 'D')), 'R', 'B'),
+        (0.9, 0.6, Some(('D', 'D')), 'B', 'R'),
         // (Static before dynamic, whatever the means.)
-        (0.6, 0.9, Some((true, false)), 'B', 'R'),
-        (0.6, 0.9, Some((false, true)), 'R', 'B'),
+        (0.6, 0.9, Some(('S', 'D')), 'B', 'R'),
+        (0.6, 0.9, Some(('D', 'S')), 'R', 'B'),
         // (One static model's meshes: by the means too, not the model's
         // order, the red listed first.)
         (0.3, 0.9, None, 'R', 'B'),
         (0.9, 0.3, None, 'B', 'R'),
+        // (Tiles' meshes are in the static order too
+        // (`batch9_static_tile_alpha_mean`): against another tile's and a
+        // static placeable's by the means, before a dynamic one's.)
+        (0.9, 0.6, Some(('T', 'T')), 'B', 'R'),
+        (0.6, 0.9, Some(('T', 'T')), 'R', 'B'),
+        (0.9, 0.6, Some(('T', 'S')), 'B', 'R'),
+        (0.6, 0.9, Some(('S', 'T')), 'R', 'B'),
+        (0.9, 0.6, Some(('S', 'T')), 'B', 'R'),
+        (0.6, 0.9, Some(('T', 'D')), 'B', 'R'),
+        (0.9, 0.6, Some(('D', 'T')), 'R', 'B'),
+        // (Of one mean, the farther first, as the origins put them.)
+        (0.7, 0.7, Some(('T', 'T')), 'R', 'B'),
+        (0.7, 0.7, Some(('T', 'S')), 'B', 'R'),
     ];
     for shadows in [false, true] {
         for (i, (red_mean, blue_mean, apart, near, first)) in cases.into_iter().enumerate() {
             let instances = match apart {
-                Some((red_static, blue_static)) => vec![
-                    place(&red, near == 'R', red_static),
-                    place(&blue, near == 'B', blue_static),
+                Some((red_holder, blue_holder)) => vec![
+                    place(&red, near == 'R', red_holder),
+                    place(&blue, near == 'B', blue_holder),
                 ],
                 None => vec![Instance {
                     receives_shadows: true,
@@ -2831,16 +2848,17 @@ fn static_see_through_meshes_go_by_their_textures_alpha_means() {
     // card is drawn as a dynamic one: by depth (how the client orders
     // those was not read).
     for red_near in [true, false] {
-        let soft = |red_static| {
+        let soft = |red_holder| {
             let instances = vec![
-                place(&red, red_near, red_static),
-                place(&card_alpha_one(&gpu), !red_near, false),
+                place(&red, red_near, red_holder),
+                place(&card_alpha_one(&gpu), !red_near, 'D'),
             ];
             render(instances, &assets(0.9, 0.3, true), false)
         };
-        let (fixed, moving) = (soft(true), soft(false));
+        let (fixed, tile, moving) = (soft('S'), soft('T'), soft('D'));
         save(&fixed, &dir.join(format!("static_see_through_soft_{red_near}.png")));
         assert!(fixed.data == moving.data, "red nearer {red_near}: static and dynamic differ");
+        assert!(tile.data == moving.data, "red nearer {red_near}: tile and dynamic differ");
     }
 }
 

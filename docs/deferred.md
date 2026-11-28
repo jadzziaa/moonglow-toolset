@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T16:33:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-28T08:00:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -638,7 +638,9 @@ Nothing open.
   (`batch9_soft_edge_levels`; [the findings](findings.md), "The client
   makes an uncompressed texture's levels by plain means"); a compressed
   DDS's own levels are used as stored. Static placeables' such meshes
-  are drawn as the client's since 2026-11-26: by their textures' alpha
+  are drawn as the client's since 2026-11-26, and tiles' since
+  2026-11-28 (`batch9_static_tile_alpha_mean`, 21 pairs predicted, all
+  held): by their textures' alpha
   means, the highest first, before the dynamic ones', whichever is
   nearer (read from the client's code with the owner's leave, after
   three batches had found no rule, and confirmed by running it:
@@ -652,8 +654,7 @@ Nothing open.
   (`batch9_static_order`, `batch9_static_tiles`). Only these meshes
   are put in that order among themselves: against other see-through
   meshes (a soft texture's parts, water) a static one is drawn by depth,
-  the client's order there not read. Tiles' meshes share the static
-  buckets in the client; untried there, they keep the depth's order. Each see-through mesh of alpha 1
+  the client's order there not read. Each see-through mesh of alpha 1
   costs two draws. On macOS the solid part's discarded fragments wrote
   their depth (the plant's edge hid the ground again) until the shader
   stopped at each discard: seen and mended on the CI's Mac, a virtual

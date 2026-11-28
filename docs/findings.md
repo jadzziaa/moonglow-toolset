@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-27T06:41:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-28T08:00:00Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2424,11 +2424,12 @@ places, tiles and list; which, no name or list rule read predicts.
 
 ### Static placeables' see-through meshes go by their textures' alpha means
 
-The client draws static geometry's (a static placeable's) meshes by
-texture: of two static see-through meshes (mesh `alpha` under 1), the
-one whose texture has the higher alpha mean is drawn first, whichever
-is nearer, and all of them before the dynamic placeables' (which go by
-their origins, farthest first). A texture's alpha mean is a PLT's 0.5;
+The client draws static geometry's (a tile's and a static placeable's)
+meshes by texture: of two static see-through meshes (mesh `alpha` under
+1), the one whose texture has the higher alpha mean is drawn first,
+whichever is nearer and whichever tile or placeable holds it, and all of
+them before the dynamic placeables' (which go by their origins, farthest
+first). A texture's alpha mean is a PLT's 0.5;
 a BioWare DDS's its header's, over a TXI `alphamean` beside it; else
 the TXI's `alphamean`; else, of a picture stored uncompressed, the mean
 of its texels' alpha over 255 (1 without an alpha channel: a 24-bit
@@ -2482,21 +2483,31 @@ only, with the owner's leave as CLAUDE.md's last resort):
   was written 24-bit, of mean 1, tying the 1.0 one; its pairs went as
   predicted by the tie's order. Run again as 32-bit, all held.) A PLT's
   0.5 and a standard DXT1's 1 are read, not run.
+  `batch9_static_tile_alpha_mean` (2026-11-28): tiles' meshes are in
+  the same order. Four tiles given models of their own (cards of the
+  same textures over a floor, the area's walkmesh kept), 21 pairs
+  predicted before the run: six in one tile's model (against the
+  model's order and the depth), three across two tiles (against the
+  tiles' order and their distance), seven against a static placeable's
+  card by the means, four against a dynamic one's (the tile's first,
+  whichever was nearer and whichever mean was higher). All 21 held.
 - **Moonglow:** as the client since 2026-11-26 for static placeables
-  (`mg-render`'s `renderer.rs`: `client_alpha_mean`,
-  `see_through_order`, `in_client_order`;
+  and since 2026-11-28 for tiles (`mg-render`'s `renderer.rs`:
+  `client_alpha_mean`, `see_through_order`, `in_client_order`;
   `static_see_through_meshes_go_by_their_textures_alpha_means`,
   `a_texture_s_alpha_mean_is_the_client_s`): all 38 pairs of the three
-  batches as the client's, by both shader paths, where before 14 of the
-  first two's differed. Only the meshes of `alpha` under 1 drawn in one
+  placeable batches and the 21 of the tiles' as the client's, by both
+  shader paths, where before 14 of the first two's and 10 of the tiles'
+  differed. Only the meshes of `alpha` under 1 drawn in one
   part are put in this order among themselves, in the places the depth
   gave them: against the other see-through meshes (a soft texture's
   parts, water) a static one is still drawn by depth, as how the client
   orders those was not read. Textures of one mean keep their origins'
   order (the client's `std::sort` order can't be known), and so do
-  means closer than about 6e-5 (Moonglow's key holds 15 bits). Tiles
-  share the static buckets in the client, untried there: their meshes
-  keep the depth's order.
+  means closer than about 6e-5 (Moonglow's key holds 15 bits). In the
+  base game few tiles have such meshes drawn (of `alpha` above 0: 117
+  in 113 of 12,182 tile models, 80 of them `ttu01`'s water, all of one
+  texture), and no tile two of different textures.
 - **Wiki:** missing.
 
 ### The client makes an uncompressed texture's levels by plain means

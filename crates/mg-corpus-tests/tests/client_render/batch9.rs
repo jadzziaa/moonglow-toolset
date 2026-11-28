@@ -1,9 +1,10 @@
 //! The deferred list's "See-through meshes" entry, its last two items (the
 //! ninth client batch, 2026-11-26): how the client makes the smaller
 //! levels of an uncompressed texture with soft edges, and how it orders
-//! static placeables' see-through meshes against each other (by their
-//! textures' alpha means, read from its code and confirmed by
-//! [`batch9_static_alpha_mean`]). Each test
+//! static placeables' and tiles' see-through meshes against each other
+//! (by their textures' alpha means, read from its code and confirmed by
+//! [`batch9_static_alpha_mean`] and, for tiles, by
+//! [`batch9_static_tile_alpha_mean`]). Each test
 //! writes the client's picture (and Moonglow's beside it) to its scratch
 //! directory and prints what it measured; what was seen is in its comment.
 //!
@@ -922,6 +923,11 @@ fn far_of_near(at: [f32; 2]) -> [f32; 2] {
 /// Which color of a pair is drawn first in `img`: its count of mixed
 /// pixels ([`mixed_pixels`]) and the color.
 fn first_drawn(img: &Rgba, near: char, at: [f32; 2]) -> (usize, char) {
+    first_drawn_between(img, near, at, far_of_near(at))
+}
+
+/// [`first_drawn`] of a pair whose farther card stands at `far`.
+fn first_drawn_between(img: &Rgba, near: char, at: [f32; 2], far: [f32; 2]) -> (usize, char) {
     let camera = reference_camera();
     let rect = |at: [f32; 2]| {
         let pts = [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)].map(|(dx, z)| {
@@ -936,7 +942,7 @@ fn first_drawn(img: &Rgba, near: char, at: [f32; 2]) -> (usize, char) {
             ys.iter().copied().fold(f32::MIN, f32::max),
         ]
     };
-    let (n, f) = (rect(at), rect(far_of_near(at)));
+    let (n, f) = (rect(at), rect(far));
     let both = [n[0].min(f[0]), n[1].min(f[1]), n[2].max(f[2]), n[3].max(f[3])];
     let mixed = mixed_pixels(img, both, 6.0);
     let far = if near == 'R' { 'B' } else { 'R' };
@@ -1224,6 +1230,240 @@ fn batch9_static_alpha_mean_in_a_model() {
             );
             if *side == "client" && first != predicted {
                 failed.push(format!("model {code}"));
+            }
+        }
+    }
+    eprintln!("{}", dir.display());
+    assert!(failed.is_empty(), "the client differs from the prediction: {failed:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Tiles' see-through meshes in the static order.
+
+/// Where a card of [`batch9_static_tile_alpha_mean`] is: in a tile's model
+/// (the tile's index in the area: 9, 10, 13 or 14), or a static or a
+/// dynamic placeable's.
+#[derive(Clone, Copy, PartialEq)]
+enum Holder {
+    Tile(usize),
+    Static,
+    Dynamic,
+}
+
+/// A pair of [`batch9_static_tile_alpha_mean`]: the red card's rung and
+/// holder, the blue's, the nearer color, its place, the farther's, and
+/// the color listed first where both are in one tile's model.
+type TileMeanPair =
+    ((&'static str, Holder), (&'static str, Holder), char, [f32; 2], [f32; 2], char);
+
+/// The pairs of [`batch9_static_tile_alpha_mean`]: three rows (y 23 and 27
+/// on tiles 9 and 10, y 31 on 13 and 14), six columns inside the tiles
+/// and one across x 20, the boundary between the two tiles of a row (the
+/// cards 0.5 m apart east and north, as [`far_of_near`] puts them, but
+/// for the middle row's boundary pair, its farther card west).
+const TILE_MEAN_PAIRS: [TileMeanPair; 21] = {
+    use Holder::{Dynamic as D, Static as S, Tile as T};
+    [
+        // Both cards in one tile's model.
+        (("d", T(9)), ("h", T(9)), 'B', [12.5, 23.0], [13.0, 23.5], 'B'),
+        (("h", T(9)), ("d", T(9)), 'R', [14.5, 23.0], [15.0, 23.5], 'R'),
+        (("m", T(9)), ("w", T(9)), 'B', [16.5, 23.0], [17.0, 23.5], 'R'),
+        (("w", T(10)), ("t", T(10)), 'B', [22.5, 23.0], [23.0, 23.5], 'B'),
+        (("t", T(10)), ("b", T(10)), 'R', [24.5, 23.0], [25.0, 23.5], 'B'),
+        (("b", T(10)), ("m", T(10)), 'R', [26.5, 23.0], [27.0, 23.5], 'R'),
+        // Two tiles' cards: the nearer on 9 (the earlier tile), the farther on 10.
+        (("m", T(9)), ("q", T(10)), 'R', [19.55, 23.0], [20.05, 23.5], 'R'),
+        // A tile's card against a static placeable's.
+        (("h", T(9)), ("w", S), 'R', [12.5, 27.0], [13.0, 27.5], 'R'),
+        (("d", S), ("t", T(9)), 'B', [14.5, 27.0], [15.0, 27.5], 'R'),
+        (("w", T(9)), ("m", S), 'B', [16.5, 27.0], [17.0, 27.5], 'R'),
+        (("t", S), ("d", T(10)), 'R', [22.5, 27.0], [23.0, 27.5], 'R'),
+        (("b", T(10)), ("q", S), 'R', [24.5, 27.0], [25.0, 27.5], 'R'),
+        (("m", S), ("w", T(10)), 'R', [26.5, 27.0], [27.0, 27.5], 'R'),
+        // Two tiles' cards: the nearer on 10 (the later tile), the farther on 9.
+        (("d", T(10)), ("h", T(9)), 'R', [20.45, 27.0], [19.95, 27.5], 'R'),
+        // A tile's card against a dynamic placeable's.
+        (("m", T(13)), ("q", D), 'R', [12.5, 31.0], [13.0, 31.5], 'R'),
+        (("w", D), ("t", T(13)), 'B', [14.5, 31.0], [15.0, 31.5], 'R'),
+        (("h", T(13)), ("d", D), 'B', [16.5, 31.0], [17.0, 31.5], 'R'),
+        (("q", D), ("m", T(14)), 'R', [22.5, 31.0], [23.0, 31.5], 'R'),
+        // A tile's card against a static placeable's.
+        (("t", T(14)), ("b", S), 'R', [24.5, 31.0], [25.0, 31.5], 'R'),
+        (("h", S), ("w", T(14)), 'R', [26.5, 31.0], [27.0, 31.5], 'R'),
+        // Two tiles' cards: the nearer on 13, the farther on 14.
+        (("b", T(13)), ("t", T(14)), 'R', [19.55, 31.0], [20.05, 31.5], 'R'),
+    ]
+};
+
+/// The color of a [`TILE_MEAN_PAIRS`] pair predicted drawn first: of two
+/// static meshes (a tile's or a static placeable's) the higher alpha mean,
+/// whichever is nearer and whichever tile it is in; of a static and a
+/// dynamic one the static.
+fn tile_mean_predicted(pair: &TileMeanPair) -> char {
+    let mean = |code: &str| RUNGS.iter().find(|r| r.0 == code).unwrap().2;
+    let ((red, red_at), (blue, blue_at), ..) = *pair;
+    match (red_at == Holder::Dynamic, blue_at == Holder::Dynamic) {
+        (false, true) => 'R',
+        (true, false) => 'B',
+        _ if mean(red) > mean(blue) => 'R',
+        _ => 'B',
+    }
+}
+
+/// Whether the client puts tiles' see-through meshes (of mesh `alpha`
+/// under 1) in the static order ([`batch9_static_alpha_mean`]): its static
+/// texture list, which the tiles' textures are in as the static
+/// placeables' are, sorted by alpha mean, the highest first, walked before
+/// the dynamic objects are added. Four tiles of the area (9, 10, 13, 14)
+/// given models of their own (tiles of the tileset no other tile of the
+/// area has, each model a floor and its cards; their walkmeshes the
+/// area's own tile's, so that the player stands as before), cards of
+/// [`RUNGS`]' textures (`alpha 0.5`, 1 m) in pairs ([`TILE_MEAN_PAIRS`]):
+/// six pairs in one tile's model (listed in the model the higher mean
+/// first and second), seven a tile's card against a static placeable's,
+/// four against a dynamic one's, three across two tiles (the nearer card
+/// on the earlier tile and on the later).
+///
+/// Predicted before the run ([`tile_mean_predicted`]), by pair in
+/// [`TILE_MEAN_PAIRS`]' order: R B B R B R B, B R R B B B R, R B R B, B B
+/// R. That is, a tile's card goes by its texture's mean against another
+/// tile's and a static placeable's, against the model's order, the depth
+/// and the tiles' order; it is drawn before a dynamic placeable's
+/// whichever is nearer and whichever mean is higher.
+///
+/// Seen (2026-11-28, 89.8193.37): all 21 as predicted (the mixed pixels
+/// 254 to 532 where the farther was drawn first, 0 where not; every card
+/// drawn, half see-through over its floor). Pairs 15 and 16 also rule out
+/// a dynamic card's texture putting it in the static order (`q` and `w`
+/// are static cards' textures too): by its mean it would have been first.
+/// Moonglow before (the tiles' meshes by their tiles' origins, then the
+/// model's order, after the static placeables') differed in 10 by both
+/// shader paths; since (`see_through_order` given tiles' means), as the
+/// client in all.
+#[test]
+#[ignore]
+fn batch9_static_tile_alpha_mean() {
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = super::batch5::base_game();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut rows: Vec<(String, u8)> = Vec::new();
+    for (code, from, _) in RUNGS {
+        for color in ['R', 'B'] {
+            let name = rung_card(code, color);
+            files.extend(rung_files(code, from, color));
+            files.push((format!("{name}.mdl"), card_mdl(&name, &name)));
+            rows.push((name.clone(), 1));
+            rows.push((name, 0));
+        }
+    }
+    files.push(("mg9u_floor.tga".into(), solid([128, 128, 128, 255])));
+    let list: Vec<(&str, u8)> = rows.iter().map(|(m, s)| (m.as_str(), *s)).collect();
+    let (table, first) = placeables_with(&base, &list);
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let appearance = |name: &str, statics: bool| {
+        let row = rows.iter().position(|(m, s)| m == name && (*s == 1) == statics).unwrap();
+        first + row as u32
+    };
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x606060, main_light: 0, only_tile: None };
+    let mut r = Reading::new("batch9_static_tile_alpha_mean", "tcn01", light, &as_refs(&files));
+    // The four tiles: each a tile of the tileset whose model no other tile
+    // of the area has, its walkmesh the area's tile's there.
+    let set = r.game.resman.get_named("tcn01", ResType::SET).unwrap();
+    let set = mg_set::Tileset::parse(&set, r.game.language.codepage()).unwrap();
+    let tiles = r.are.root.list_mut("Tile_List").unwrap();
+    let mut used: Vec<String> = tiles
+        .iter()
+        .filter_map(|t| set.tiles.get(t.int("Tile_ID").unwrap_or(0) as usize))
+        .map(|t| t.model.to_ascii_lowercase())
+        .collect();
+    let mut tile_models: Vec<(usize, String, Vec<u8>)> = Vec::new();
+    for index in [9usize, 10, 13, 14] {
+        let was = set.tiles[tiles[index].int("Tile_ID").unwrap_or(0) as usize].model.clone();
+        let wok = r.game.resman.get_named(&was, ResType::WOK).unwrap();
+        let id = set
+            .tiles
+            .iter()
+            .position(|t| !t.model.is_empty() && !used.contains(&t.model.to_ascii_lowercase()))
+            .expect("a tile of a model the area has not");
+        let tile_model = set.tiles[id].model.to_ascii_lowercase();
+        used.push(tile_model.clone());
+        tiles[index].set("Tile_ID", Value::Int(id as i32));
+        tiles[index].set("Tile_Orientation", Value::Int(0));
+        tiles[index].set("Tile_Height", Value::Int(0));
+        tile_models.push((index, tile_model, wok.to_vec()));
+    }
+    let over = r.dir.join("user/override");
+    for (index, tile_model, wok) in &tile_models {
+        let middle = [(index % 4) as f32 * 10.0 + 5.0, (index / 4) as f32 * 10.0 + 5.0];
+        let mut quads = Vec::new();
+        for (k, pair) in TILE_MEAN_PAIRS.iter().enumerate() {
+            let ((red, red_at), (blue, blue_at), near, at, far, listed) = *pair;
+            let mut cards = vec![('R', red, red_at), ('B', blue, blue_at)];
+            if listed == 'B' {
+                cards.reverse();
+            }
+            for (color, code, holder) in cards {
+                if holder != Holder::Tile(*index) {
+                    continue;
+                }
+                let [x, y] = if color == near { at } else { far };
+                quads.push(Quad {
+                    name: format!("card{k}{}", color.to_ascii_lowercase()),
+                    at: [x - middle[0], y - middle[1], 0.0],
+                    corners: [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 1.0], [-0.5, 0.0, 1.0]],
+                    bitmap: Cow::Owned(rung_card(code, color)),
+                    extra: "  alpha 0.5\n",
+                    tverts: true,
+                    colors: false,
+                });
+            }
+        }
+        quads.push(Quad {
+            name: "floor".into(),
+            at: [-5.0, -5.0, 0.0],
+            corners: [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 10.0, 0.0], [0.0, 10.0, 0.0]],
+            bitmap: "mg9u_floor".into(),
+            extra: "",
+            tverts: true,
+            colors: false,
+        });
+        std::fs::write(over.join(format!("{tile_model}.mdl")), model(tile_model, &quads)).unwrap();
+        std::fs::write(over.join(format!("{tile_model}.wok")), wok).unwrap();
+        eprintln!("tile {index}: {tile_model}");
+    }
+    for ((red, red_at), (blue, blue_at), near, at, far, _) in TILE_MEAN_PAIRS {
+        for (color, code, holder) in [('R', red, red_at), ('B', blue, blue_at)] {
+            let statics = match holder {
+                Holder::Tile(_) => continue,
+                Holder::Static => true,
+                Holder::Dynamic => false,
+            };
+            let [x, y] = if color == near { at } else { far };
+            let fields = [("Static", Value::Byte(u8::from(statics)))];
+            r.place(appearance(&rung_card(code, color), statics), [x, y, 0.0], 0.0, &fields);
+        }
+    }
+    let dir = r.dir.clone();
+    let (_, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    let pictures = pictures(&dir, &client);
+    let mut failed = Vec::new();
+    for pair in &TILE_MEAN_PAIRS {
+        let ((red, red_at), (blue, blue_at), near, at, far, _) = *pair;
+        let predicted = tile_mean_predicted(pair);
+        let holder = |h: Holder| match h {
+            Holder::Tile(i) => format!("tile {i}"),
+            Holder::Static => "static".into(),
+            Holder::Dynamic => "dynamic".into(),
+        };
+        let label = format!("red {red} ({}), blue {blue} ({})", holder(red_at), holder(blue_at));
+        for (side, img) in &pictures {
+            let (mixed, first) = first_drawn_between(img, near, at, far);
+            let verdict = if first == predicted { "as predicted" } else { "NOT as predicted" };
+            eprintln!(
+                "{side:22} {label:40} nearer {near}: {mixed:4} mixed, {first} first ({verdict})"
+            );
+            if *side == "client" && first != predicted {
+                failed.push(format!("{label} nearer {near}"));
             }
         }
     }
