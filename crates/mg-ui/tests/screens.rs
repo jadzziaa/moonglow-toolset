@@ -18489,3 +18489,109 @@ fn export_changed_resources() {
     settle(&mut h);
     shoot(&mut h, &dir, "export-changed-resources");
 }
+
+/// A mockup for the owner's ruling, not a feature: minimized floating
+/// windows as chips in the Status Bar (docs/minimize-windows-proposal.md).
+/// The chips are painted over the bar from `MOCK_CHIPS`, right-aligned at
+/// `MOCK_RIGHT`; the windows are taken out of the dock as minimizing would
+/// hide them. Drop it once the feature is built.
+#[allow(clippy::type_complexity)]
+static MOCK_CHIPS: std::sync::Mutex<(Vec<(mg_uikit::Icon, String)>, egui::Pos2)> =
+    std::sync::Mutex::new((Vec::new(), egui::Pos2::ZERO));
+
+fn mock_chips(ui: &mut egui::Ui) {
+    let (chips, right) = MOCK_CHIPS.lock().unwrap().clone();
+    if chips.is_empty() {
+        return;
+    }
+    let switches: Vec<_> = chips
+        .iter()
+        .map(|(icon, text)| mg_uikit::status::StatusSwitch::new(*icon, text.clone(), false))
+        .collect();
+    let gap = 4.0;
+    let width: f32 =
+        switches.iter().map(|s| s.width(ui)).sum::<f32>() + gap * (switches.len() as f32 + 1.0);
+    // (`right`: the right end and the middle of the bar's row.)
+    egui::Area::new(egui::Id::unique("mock-minimized"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::RIGHT_CENTER)
+        .fixed_pos(right)
+        .show(ui.ctx(), |ui| {
+            let _ = width;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                // (A rule before them, as the bar's groups have.)
+                let t = mg_uikit::tokens(ui.ctx());
+                let (r, _) = ui.allocate_exact_size(egui::vec2(1.0, 14.0), egui::Sense::hover());
+                ui.painter().rect_filled(r, 0.0, t.line_soft);
+                for s in switches {
+                    ui.add(s);
+                }
+            });
+        });
+}
+
+#[test]
+#[ignore]
+fn proposal_minimized_windows() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let path = root.join("data/nwm/Chapter1.nwm");
+    let module = mg_module::Module::open(&path).unwrap();
+    let script = *module.keys_of(ResType::NSS).min().unwrap();
+    let creature = *module.keys_of(ResType::UTC).min().unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.hide_log = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(
+            |ui, app: &mut Moonglow| {
+                app.ui(ui);
+                mock_chips(ui);
+            },
+            app,
+        );
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(30);
+    for tab in [mg_ui::Tab::Script(script), mg_ui::Tab::Blueprint(creature)] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(20);
+    }
+    shoot(&mut h, &dir, "proposal-minimize-before");
+    let bar = h.get_by_label("Status Bar");
+    let mut rects: Vec<(String, egui::Rect)> = bar
+        .query_all(egui_kittest::kittest::by())
+        .filter_map(|n| Some((n.accesskit_node().label()?, n.rect())))
+        .collect();
+    rects.sort_by(|a, b| a.1.left().total_cmp(&b.1.left()));
+    eprintln!("{rects:#?}");
+    // Minimized: the windows out of sight, a chip each in the bar.
+    let windows: Vec<_> = h.state().dock.iter_surfaces_indexed().skip(1).map(|(i, _)| i).collect();
+    for i in windows.into_iter().rev() {
+        h.state_mut().dock.remove_surface(i);
+    }
+    // (Where the hints' room ends, before the counts, in the bar's row.)
+    let hints = h.get_by_label("Status Bar").get_by_label("Hints").rect();
+    let right = egui::pos2(hints.right(), hints.center().y);
+    *MOCK_CHIPS.lock().unwrap() = (
+        vec![
+            (mg_uikit::Icon::Script, format!("{}.nss", script.resref)),
+            (mg_uikit::Icon::Creature, format!("{} (Creature)", creature.resref)),
+        ],
+        right,
+    );
+    h.run_steps(10);
+    shoot(&mut h, &dir, "proposal-minimize-after");
+    MOCK_CHIPS.lock().unwrap().0.clear();
+}

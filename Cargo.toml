@@ -66,8 +66,11 @@ ctrlc = { version = "3.5", features = ["termination"] }
 # Japanese or Chinese text, a symbol) drawn with a font of the system's
 # found for it, egui's own fallback, where 0.36 drew a box. The suite's
 # fonts still draw everything they have; the tests, which run without
-# eframe, have no fallback and take a box for a mistake.)
-eframe = { version = "0.37", default-features = false, features = ["accesskit", "wgpu", "default_fonts", "system_fonts", "links", "wayland", "x11", "persistence"] }
+# eframe, have no fallback and take a box for a mistake. `clipboard`: the
+# system's clipboard (arboard, and smithay-clipboard on Wayland); without
+# it egui-winit keeps a string of its own, and Copy reached no other
+# program: apps/moonglow/tests/clipboard.rs.)
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "wgpu", "default_fonts", "system_fonts", "links", "wayland", "x11", "persistence"] }
 egui = { version = "0.37", features = ["default_fonts", "monochrome_emoji_fonts"] }
 egui-wgpu = "0.37"
 egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark"] }
