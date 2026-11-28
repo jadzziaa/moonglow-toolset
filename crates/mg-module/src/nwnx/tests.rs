@@ -5,8 +5,10 @@ use mg_resman::ResKey;
 
 /// A fake NWNX home in a scratch folder: `Binaries/` with empty `.so`
 /// files for `plugins` (Core's always), `NWScript/` with two includes.
+/// (Absolute, as NWNX's home is taken: on Windows that also settles the
+/// scratch folder's `..` and its mixed slashes.)
 fn fake_home(dir: &Path, plugins: &[&str]) -> PathBuf {
-    let home = dir.join("nwnx");
+    let home = std::path::absolute(dir.join("nwnx")).unwrap();
     let bin = home.join("Binaries");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(home.join("NWScript")).unwrap();

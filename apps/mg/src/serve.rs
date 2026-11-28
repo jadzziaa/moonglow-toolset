@@ -1621,7 +1621,9 @@ mod tests {
         let r = fake_nwnx(&dir, &["Util"], "NWNX_CORE_LOG_LEVEL=6\nNWNX_UTIL_SKIP=n\n", &more);
         let n = r.nwnx.unwrap_or_else(|| panic!("{:?}", r.notes));
         let env = server_env(Some(&n), &more, None, true).unwrap();
-        let bin = dir.join("nwnx/Binaries");
+        // (Absolute, as NWNX's home is taken: on Windows that also settles
+        // the scratch folder's `..` and its mixed slashes.)
+        let bin = std::path::absolute(dir.join("nwnx")).unwrap().join("Binaries");
         let want = lines(&[
             ("LD_PRELOAD", &bin.join("NWNX_Core.so").display().to_string()),
             ("NWNX_CORE_LOAD_PATH", &bin.display().to_string()),
