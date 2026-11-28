@@ -1295,7 +1295,9 @@ donemodel tst01_a01_01\n"
     }
 
     /// The GIT's `tdod_wallpaper` is the scene's `scriptableVec1` at full
-    /// strength, as the module's script sets it; without it, zero.
+    /// strength, as the module's script sets it; without it, zero. A
+    /// view's own script uniforms (a client's, from its server) are the
+    /// scene's whole, the wallpaper's left out.
     #[test]
     fn the_git_s_wallpaper_local_is_scriptable_vec1() {
         let mut var = Struct::new(0);
@@ -1306,9 +1308,13 @@ donemodel tst01_a01_01\n"
         git.set("VarTable", Value::List(vec![var]));
         let l = Lighting::read_with(&Struct::new(0), &git, None);
         assert_eq!(l.wallpaper, Some([1.0, 0.0, 0.0]));
-        assert_eq!(scene::environment(&l).scriptable[0], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(scene::environment(&l, None).script.vec(0), [1.0, 0.0, 0.0, 1.0]);
+        let mut sent = mg_render::ScriptUniforms::default();
+        sent.set_float(3, 0.5);
+        let e = scene::environment(&l, Some(sent));
+        assert_eq!((e.script.vec(0), e.script.float(3)), ([0.0; 4], 0.5));
         let l = Lighting::read_with(&Struct::new(0), &Struct::new(0xFFFF_FFFF), None);
-        assert_eq!(scene::environment(&l).scriptable[0], [0.0; 4]);
+        assert_eq!(scene::environment(&l, None).script, mg_render::ScriptUniforms::default());
     }
 
     #[test]

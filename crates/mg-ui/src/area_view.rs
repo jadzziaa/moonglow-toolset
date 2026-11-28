@@ -3926,6 +3926,8 @@ fn viewport(
             mg_area::Sight::of(&o.camera(), size.x / size.y)
         }),
         camera: fog_camera(view.orbit.map(|o| o.distance)),
+        // (No script runs in the editor: its own, the wallpaper's tint.)
+        script_uniforms: None,
     };
     // The grass far off, put together by chunks on a thread of its own
     // (drawn tile by tile until it is, the same tufts: the picture stays as

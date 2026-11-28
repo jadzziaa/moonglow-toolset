@@ -82,5 +82,6 @@ pub fn wgsl_sources() -> Vec<(String, String)> {
 pub use mg_image::mtr::MaterialValue;
 pub use scene::{
     AreaLight, BoxCopy, BoxStroke, Camera, Environment, Fog, Instance, Line, LineCopy, LineShape,
-    MeshOverride, MeshState, ModuleClock, PointLight, Scene, SunShadows,
+    MeshOverride, MeshState, ModuleClock, PointLight, SCRIPT_UNIFORMS, Scene, ScriptUniforms,
+    SunShadows,
 };
