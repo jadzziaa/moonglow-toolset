@@ -23,6 +23,17 @@ fn fake_home(dir: &Path, plugins: &[&str]) -> PathBuf {
     home
 }
 
+/// A core's home: the folder its `Binaries` is in; none for another
+/// file, or a core elsewhere.
+#[test]
+fn a_cores_home_is_above_its_binaries() {
+    let core = Path::new("/opt/nwnx/Binaries/NWNX_Core.so");
+    assert_eq!(home_of_core(core), Some(PathBuf::from("/opt/nwnx")));
+    assert_eq!(home_of_core(Path::new("/opt/nwnx/lib/NWNX_Core.so")), None);
+    assert_eq!(home_of_core(Path::new("/opt/nwnx/Binaries/NWNX_Util.so")), None);
+    assert_eq!(home_of_core(Path::new("NWNX_Core.so")), None);
+}
+
 /// A project folder with these files (`moonglow.toml`, `.moonglow/user.toml`,
 /// an env file), read.
 fn project(dir: &Path, team: &str, own: Option<&str>, env: Option<&str>) -> ProjectFile {

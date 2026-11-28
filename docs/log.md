@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-11-28
+* **Fix**: **NWNX preloaded by hand is NWNX on** (apps/mg, mg-module; [command line](manual/11-command-line.md#nwnx)). The Domains of Dread runs `mg test` and `mg serve` with `--env` and `--preload …/Binaries/NWNX_Core.so` and no `[nwnx]`: the servers ran NWNX, but the scripts' check was made with NWNX off ("208 scripts call NWNX, which is off"). A core preloaded in an NWNX's `Binaries`, where the project gives none, is now that NWNX for every check, as `--nwnx` with its folder (`nwnx::home_of_core`); one elsewhere is run unchecked, and not said to be off. Test: `test_cmd::a_preloaded_nwnx_core_is_nwnx_on`, as TDoD calls it, with the local NWNX build.
+
 ## 2026-11-27
 * **Fix**: **The local run's loader test is Linux's** (mg-ui). macOS CI failed `a_core_the_loader_refuses_fails_the_run`: the test hands the run an NWNX by hand, and macOS has no `LD_PRELOAD` loader to refuse its core. The product already settles NWNX off Linux before a run: `nwnx::resolve` gives none and warns that NWNX runs on Linux only (`nwnx_is_linux_only`). The test now runs on Linux only.
 * **Fix**: **NWNX's tests on Windows expect the home as it is taken** (mg-module, apps/mg). NWNX's home is made absolute (`std::path::absolute`), which on Windows also settles a scratch folder's `..` and mixed slashes, but the tests expected the folder as written: Windows CI failed `serve::tests::nwnx_s_environment_then_the_env_files`, and three of mg-module's NWNX tests failed the same way as Windows binaries run under Wine (CI stopped before them). The tests' fake homes are now made absolute too.
