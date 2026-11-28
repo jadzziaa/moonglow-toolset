@@ -189,6 +189,9 @@ fn a_server_that_ends_first_fails_the_run_with_its_last_lines() {
 
 /// With NWNX whose core the loader can't preload (an empty file), the run
 /// fails on the loader's own message, before the game joins.
+/// (Linux's: the loader there refuses the core. Elsewhere there is no NWNX
+/// to run: `nwnx::resolve` gives none, and says it is Linux's alone.)
+#[cfg(target_os = "linux")]
 #[test]
 fn a_core_the_loader_refuses_fails_the_run() {
     let dir = mg_testkit::scratch_dir("ui-local-run-preload");
