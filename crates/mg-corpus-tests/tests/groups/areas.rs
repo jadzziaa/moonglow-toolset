@@ -19,6 +19,8 @@ mod minimaps;
 mod object_walkmeshes;
 #[path = "../tile_textures.rs"]
 mod tile_textures;
+#[path = "../tile_updates.rs"]
+mod tile_updates;
 #[path = "../tiles.rs"]
 mod tiles;
 #[path = "../tileset_authoring.rs"]
